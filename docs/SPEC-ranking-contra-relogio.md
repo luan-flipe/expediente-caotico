@@ -1,7 +1,7 @@
-# PRD: Ranking da firma e Contra o relógio
+# PRD: Ranking da firma, Contra o relógio e acabamento
 
 Data: 27/10/2026. Base: `docs/SPEC.md` (tiroteio) e `docs/SPEC-corrida.md` (Rally da Firma). O jogo está no ar em `https://expedientecaotico.cavel.com.br` (Coolify, deploy a cada merge na `main`).
-Decisões do Luan nesta rodada: login com Google e modo visitante só com nome; ranking com vitórias no tiroteio, vitórias no Rally, recorde de volta e funcionário do mês; contra o relógio com voltas livres; fantasma da minha melhor volta e do recordista.
+Decisões do Luan nesta rodada: login com Google e modo visitante só com nome; ranking com vitórias no tiroteio, vitórias no Rally, recorde de volta e funcionário do mês; contra o relógio com voltas livres; fantasma da minha melhor volta e do recordista. Depois, incluir também as ideias 8 (carregamento e arquivos leves), 9 (configurações do jogador) e 10 (pendências pequenas) da lista de melhorias.
 Toda decisão marcada **[decisão do Claude]** pode ser revista.
 
 ## 1. Problema
@@ -77,6 +77,28 @@ Cada aba mostra até 20 linhas. O jogador logado vê a própria linha destacada 
 - Guarda: contas (id do Google, e-mail, nome do crachá mais recente), estatísticas por jogador, pontos por mês, melhor volta e fantasma de cada jogador (amostras de posição a cada 100 ms, cerca de 400 por volta).
 - Leitura do ranking por `GET /api/ranking` (sem login). Login por `POST /api/login`.
 
+### 4.7 Carregamento e arquivos mais leves (ideia 8)
+Hoje a primeira visita baixa cerca de 9 MB de modelos e áudio, mais 1 MB de código, sem nenhum aviso, e os bonecos aparecem primeiro na versão procedural e depois trocam.
+- **Tela de carregamento** na primeira abertura, com barra de progresso, até o boneco e a cadeira chegarem (o que aparece no editor e no lobby). Helicóptero e música continuam baixando por trás e não seguram a tela. Se algo falhar, a tela some e o jogo segue com as versões procedurais, como hoje.
+- **Modelos comprimidos** (`boneco.glb`, `cadeira_escritorio.glb`, `comandante_helicoptero.glb`) com compressão de malha (meshopt), que o Three.js já sabe abrir. Meta: os três juntos de 5,3 MB para menos de 2 MB, sem diferença visível. Os originais do romulo-h ficam fora da pasta pública para poderem ser comprimidos de novo. **[decisão do Claude]**
+- **Música sem a capa embutida** (cerca de 1 MB a menos) e **baixada uma vez só** por visita, não a cada corrida (sugestões da revisão do PR #8).
+- **Código por modo:** tiroteio e corrida carregam o próprio código só ao entrar na partida. Meta: primeira tela com menos de 600 KB de código.
+
+### 4.8 Configurações do jogador (ideia 9)
+Nova tela **Configurações**, aberta pela tela inicial, pelo lobby e durante a partida pela tecla Esc (a partida continua rodando por trás). Salvas no navegador. **[decisão do Claude]**
+- **Mouse:** sensibilidade (0,25x a 3x) e inverter o eixo vertical, no tiroteio.
+- **Som:** volume geral, música e efeitos (helicóptero e os que vierem). A tecla M continua silenciando tudo.
+- **Teclas:** trocar as teclas de cada ação, separadas por modo (tiroteio e corrida), com botão "Voltar ao padrão". Não deixa a mesma tecla em duas ações do mesmo modo. Os textos de ajuda na tela mostram as teclas escolhidas.
+- **Qualidade gráfica:** Alta (como hoje) ou Leve (sem sombras e com resolução menor), para computador fraco.
+
+### 4.9 Pendências pequenas (ideia 10)
+Problemas já anotados em revisões anteriores, corrigidos com teste quando dá para testar:
+1. **Corrida:** depois de cruzar a chegada, a própria cadeira (e a câmera) anda aos trancos. Passa a ser desenhada suave, como as outras.
+2. **Corrida:** ao sair de uma corrida, faíscas, chama, bolha, nomes e texturas de texto de cada cadeira ficam na memória. Passam a ser liberados.
+3. **Corrida:** quem cai da conexão e volta continua com o último comando (acelerando e virando) até mandar um novo. Ao cair, o comando zera.
+4. **Tiroteio:** botões apertados durante a contagem disparam todos no primeiro instante da partida. Passam a ser descartados.
+5. **Tiroteio:** ao sair da partida, parte do que foi criado na cena não é liberado. Passa a ser.
+
 ## 5. Requisitos
 
 ### P0
@@ -88,6 +110,9 @@ Cada aba mostra até 20 linhas. O jogador logado vê a própria linha destacada 
 - [ ] Modo Contra o relógio no lobby, sem colisão, sem itens, voltas livres, Encerrar treino, limite de 20 min.
 - [ ] Fantasmas da minha melhor volta e do recordista, gravados pelo servidor (posições oficiais), não pelo cliente.
 - [ ] Testes: regras de pontuação e de "partida conta", mês virando, escrita e releitura do arquivo, gravação do fantasma só quando a volta é melhor, verificação de token recusando assinatura errada, público errado e token vencido, contra o relógio sem colisão e sem caixas.
+- [ ] Tela de carregamento com progresso; modelos comprimidos abaixo de 2 MB juntos; música sem capa e baixada uma vez; código separado por modo.
+- [ ] Tela de Configurações (mouse, som em três canais, teclas por modo, qualidade) salva no navegador e aplicada na hora.
+- [ ] As 5 pendências da seção 4.9 corrigidas; as que são regra de jogo (3 e 4) com teste.
 
 ### P1
 - [ ] Domínios de e-mail permitidos (`ALLOWED_EMAIL_DOMAINS`), caso queiram só contas da empresa.
@@ -105,6 +130,7 @@ Cada aba mostra até 20 linhas. O jogador logado vê a própria linha destacada 
 - Os dados continuam lá depois de dois deploys seguidos.
 - Na primeira semana, a maioria do grupo joga logada.
 - O recorde de volta muda pelo menos uma vez na primeira semana.
+- Primeira visita: a tela inicial aparece em menos de 3 s numa conexão de 20 Mbps.
 
 ## 8. Perguntas em aberto
 | Pergunta | Quem | Bloqueia? |

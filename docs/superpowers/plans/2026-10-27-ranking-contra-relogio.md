@@ -1,8 +1,8 @@
-# Ranking da firma e Contra o relógio Implementation Plan
+# Ranking da firma, Contra o relógio e acabamento Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Login com Google (e visitante), ranking persistente da firma e modo Contra o relógio com fantasmas da minha melhor volta e do recordista.
+**Goal:** Login com Google (e visitante), ranking persistente da firma e modo Contra o relógio com fantasmas da minha melhor volta e do recordista; mais tela de carregamento com arquivos leves, configurações do jogador e as pendências pequenas anotadas.
 
 **Architecture:** Regras de pontuação e do contra o relógio ficam em `packages/shared` como funções puras e testadas. O servidor ganha três peças pequenas: `store.ts` (arquivo JSON com escrita atômica), `auth.ts` (verifica o token do Google com as chaves públicas dele e emite sessão HMAC própria) e rotas `/api/*` no mesmo HTTP. A sala registra o resultado no `store` ao terminar. O cliente ganha login, tela de ranking e o modo contra o relógio no `RaceEngine` (fantasmas e outros pilotos semitransparentes).
 
@@ -26,6 +26,8 @@
 3. Mesmo jogador logado em duas abas na mesma partida, ou partida com 1 logado + bots: não pontua em dobro nem farma. (Task 1)
 4. Virada do mês em horário de Brasília (23h de 31/10 em UTC-3 já é 1/11 em UTC). (Task 1)
 5. Contra o relógio: volta cortando caminho por reposição (R) não vira recorde nem fantasma; a regra de checkpoints continua valendo. (Task 5)
+6. Configuração salva antiga ou adulterada no navegador (tecla inexistente, volume 999, campo faltando): o jogo abre com valores válidos. (Task 9)
+7. Modelo comprimido sem o decodificador configurado em algum `GLTFLoader`: não carrega e cai no procedural sem avisar. Todos os loaders usam o decodificador. (Task 8)
 
 ---
 
@@ -96,8 +98,42 @@
 - [ ] RaceEngine no contra o relógio: outros pilotos semitransparentes; fantasmas (`seatedRacer` com material transparente, azul e dourado) tocando as amostras a partir do início de cada volta; HUD com volta atual, última, melhor da sessão e melhor de sempre; Encerrar treino para o anfitrião.
 - [ ] Verificar no navegador: login simulado com sessão de teste, ranking aparecendo, treino com fantasma da volta anterior. Commit.
 
-### Task 7: Fechamento
-- [ ] README: login, ranking, contra o relógio e o passo a passo do Coolify (variáveis e volume).
+### Task 7: Pendências pequenas (spec 4.9)
+
+**Files:** `packages/shared/src/sim/match.ts`, `apps/server/src/rooms.ts`, `apps/web/src/race/raceEngine.ts`, `apps/web/src/game/engine.ts`, testes em `test/match.test.ts` e `apps/server/src/test/race.test.ts`.
+
+- [ ] Teste: ação (`dodge`, habilidade) enfileirada durante a contagem do tiroteio não dispara no primeiro tick ativo. Corrigir limpando `actions` na contagem, como o Rally já faz.
+- [ ] Teste: jogador do Rally que cai fica com `input` zerado no servidor. Corrigir em `syncConnected`.
+- [ ] Cadeira própria depois da chegada: desenhar pelo buffer interpolado (`mine` só quando ativo e não terminado).
+- [ ] Liberar no `dispose` e ao recriar uma cadeira: cones, bolha, sprites de nome e suas texturas; caixas e texturas da pista. No tiroteio, completar `Engine.dispose` (projéteis, zonas, objetivo, materiais compartilhados).
+- [ ] Commit.
+
+### Task 8: Carregamento e arquivos leves (spec 4.7)
+
+**Files:** `scripts/optimize-assets.mjs`, `assets-src/` (originais), `apps/web/public/assets/**`, `apps/web/src/assets.ts`, `apps/web/src/screens/Loading.tsx`, `main.tsx`, `App.tsx`, loaders em `character.ts`, `chairMesh.ts`, `commander.ts`, `raceEngine.ts`.
+
+**Produces:** `loadAssets(onProgress: (done: number, total: number) => void): Promise<void>` (boneco e cadeira; helicóptero e música em segundo plano); todos os `GLTFLoader` com `setMeshoptDecoder(MeshoptDecoder)`; `loadMusic(): Promise<AudioBuffer | null>` com cache no módulo.
+
+- [ ] Script `node scripts/optimize-assets.mjs` (roda à mão, não no build): `@gltf-transform/cli optimize --compress meshopt` de `assets-src/*.glb` para `apps/web/public/assets/...` e remoção da tag ID3 do mp3. `@gltf-transform/cli` como dependência de desenvolvimento.
+- [ ] Conferir no navegador, lado a lado, boneco, cadeira e helicóptero antes e depois da compressão (mesma aparência e mesmas animações).
+- [ ] Tela de carregamento com barra e porcentagem; some quando boneco e cadeira chegam ou falham.
+- [ ] `React.lazy` para `GameView` e `RaceView`; medir o tamanho do código da primeira tela no `pnpm build`.
+- [ ] Commit.
+
+### Task 9: Configurações do jogador (spec 4.8)
+
+**Files:** `apps/web/src/settings.ts`, `screens/Settings.tsx`, `store.ts`, `game/engine.ts`, `race/raceEngine.ts`, `hud/Hud.tsx`, `race/RaceHud.tsx`, `test` em `apps/web/src/settings.test.ts`.
+
+**Produces:** `Settings = { mouseSens: number; invertY: boolean; volume: { master; music; effects }; keys: { shooter: Record<ShooterAction, string>; race: Record<RaceAction, string> }; quality: "alta" | "leve" }`, `DEFAULT_SETTINGS`, `loadSettings(): Settings` (mescla com o padrão e descarta teclas repetidas), `saveSettings(s)`, `keyLabel(code): string` ("KeyW" vira "W"), `useSettings()`.
+Engines leem as teclas pelo mapa (nenhum `"KeyW"` fixo fora de `DEFAULT_SETTINGS`); áudio da corrida ganha dois `GainNode` (música, efeitos) abaixo do volume geral.
+
+- [ ] Testes: configuração salva com tecla repetida volta ao padrão naquela ação; valores fora da faixa são corrigidos; `keyLabel`.
+- [ ] Tela de Configurações acessível pela tela inicial, pelo lobby e por Esc na partida; captura de tecla ("aperte a nova tecla"); Voltar ao padrão.
+- [ ] Qualidade Leve: sem sombras e `pixelRatio` 1.
+- [ ] Verificar no navegador: trocar W por I e pilotar; sensibilidade; volumes. Commit.
+
+### Task 10: Fechamento
+- [ ] README: login, ranking, contra o relógio, configurações, script de otimização de arquivos e o passo a passo do Coolify (variáveis e volume).
 - [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build`.
 - [ ] Revisão final por revisor independente; corrigir críticos e importantes com teste.
 - [ ] PR para `main`.
