@@ -17,7 +17,7 @@ export interface RacePlayerInfo {
   isBot: boolean;
 }
 
-export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps?: number }): RaceMatch {
+export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps?: number; graceMs?: number }): RaceMatch {
   const rng = mulberry32(opts.seed);
   const order = [...opts.players].sort(() => rng() - 0.5);
   const slots = gridSlots(TRACK, order.length);
@@ -27,6 +27,7 @@ export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps
     countdownEndsAt: RACE.countdownMs,
     graceEndsAt: null,
     laps: opts.laps ?? RACE.laps,
+    graceMs: opts.graceMs ?? RACE.finishGraceMs,
     racers: new Map(),
     hazards: [],
     boxes: boxSpots(TRACK).map((pos, i) => ({ id: i, pos, readyAt: 0 })),
@@ -95,7 +96,10 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
   if (race.phase === "finished") return;
   race.now += dtMs;
   if (race.phase === "countdown") {
-    if (race.now < race.countdownEndsAt) return;
+    if (race.now < race.countdownEndsAt) {
+      for (const r of race.racers.values()) r.useQueued = r.respawnQueued = false;
+      return;
+    }
     race.phase = "active";
   }
   const now = race.now;
@@ -141,7 +145,7 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
   for (const r of racers) {
     if (r.lap.finishedAt === now) {
       race.events.push({ type: "finish", id: r.id, place: r.place, ms: Math.round(now - race.countdownEndsAt) });
-      race.graceEndsAt ??= now + RACE.finishGraceMs;
+      race.graceEndsAt ??= now + race.graceMs;
     }
   }
 

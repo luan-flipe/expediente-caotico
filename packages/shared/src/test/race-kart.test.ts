@@ -71,8 +71,14 @@ describe("física da cadeira", () => {
   });
 
   it("turbo passa da velocidade máxima", () => {
-    const { s } = run({ ...moving(16), boostUntil: 1000 }, GAS, 900);
-    expect(s.speed).toBeGreaterThan(RACE.maxSpeed + 2);
+    let k: KartState = { ...moving(16), boostUntil: 2000 };
+    let max = 0;
+    for (let t = DT; t < 1900; t += DT) {
+      k = stepKart(k, GAS, DT, t, null).state;
+      max = Math.max(max, k.speed);
+    }
+    expect(max).toBeGreaterThan(RACE.maxSpeed + 2);
+    expect(max).toBeLessThanOrEqual(RACE.boostSpeed);
   });
 
   it("rodopiando ignora a entrada", () => {

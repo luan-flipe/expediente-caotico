@@ -68,6 +68,8 @@ export interface RaceMatch {
   countdownEndsAt: number;
   graceEndsAt: number | null;
   laps: number;
+  /** Tempo para os demais terminarem depois do 1º. */
+  graceMs: number;
   racers: Map<string, Racer>;
   hazards: Hazard[];
   boxes: ItemBox[];

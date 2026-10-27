@@ -80,7 +80,7 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   if (spinning) {
     s.speed -= Math.sign(s.speed) * Math.min(Math.abs(s.speed), 12 * dt);
   } else if (boosting) {
-    s.speed += RACE.accel * 3 * dt;
+    if (s.speed < cap) s.speed = Math.min(cap, s.speed + RACE.accel * 3 * dt);
   } else if (throttle > 0) {
     s.speed += (s.speed < 0 ? RACE.brake : RACE.accel) * throttle * dt;
   } else if (throttle < 0) {
