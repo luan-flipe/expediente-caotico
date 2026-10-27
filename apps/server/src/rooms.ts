@@ -41,6 +41,12 @@ import { TokenBucket } from "./ratelimit";
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const BOT_NAMES = ["Estagiário Kevin", "Estagiária Bia", "Estagiário Davi", "Estagiária Lu", "Estagiário Téo", "Estagiária Mel", "Estagiário Juca"];
 const TICK_MS = 1000 / BALANCE.tickHz;
+/**
+ * Ferramenta de teste de itens (kdebug): só quando o servidor roda direto do .ts
+ * (pnpm dev, testes). O build de produção é um .js empacotado, então nunca libera,
+ * mesmo sem NODE_ENV definido.
+ */
+const DEV_TOOLS = import.meta.url.endsWith(".ts") && process.env.NODE_ENV !== "production";
 /** Código de fechamento quando a mesma sessão é aberta em outra aba: o cliente não deve reconectar. */
 export const CLOSE_DUPLICATE = 4001;
 
@@ -320,7 +326,7 @@ export class Room {
         if (this.race) respawnRequest(this.race, member.id);
         return;
       case "kdebug": {
-        const racer = process.env.NODE_ENV !== "production" ? this.race?.racers.get(member.id) : undefined;
+        const racer = DEV_TOOLS ? this.race?.racers.get(member.id) : undefined;
         if (racer) giveItem(racer, msg.item);
         return;
       }

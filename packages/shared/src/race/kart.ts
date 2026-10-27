@@ -77,7 +77,9 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   let cap = boosting ? RACE.boostSpeed : RACE.maxSpeed;
   if (track && pr0 && !boosting && inCarpet(track, pr0)) cap = RACE.maxSpeed * RACE.carpetMax;
 
-  if (spinning) {
+  if (now < s.frozenUntil) {
+    s.speed = 0;
+  } else if (spinning) {
     s.speed -= Math.sign(s.speed) * Math.min(Math.abs(s.speed), 12 * dt);
   } else if (boosting) {
     if (s.speed < cap) s.speed = Math.min(cap, s.speed + RACE.accel * 3 * dt);

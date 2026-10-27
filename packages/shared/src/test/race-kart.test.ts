@@ -103,6 +103,13 @@ describe("física da cadeira", () => {
     expect(max).toBeLessThanOrEqual(RACE.boostSpeed);
   });
 
+  it("parada da reposição não anda nem com turbo de café", () => {
+    const k = { ...newKart({ x: 0, z: 0 }, 0), frozenUntil: 2000, boostUntil: 1500 };
+    const { s } = run(k, GAS, 1800);
+    expect(s.pos).toEqual({ x: 0, z: 0 });
+    expect(s.speed).toBe(0);
+  });
+
   it("rodopiando ignora a entrada", () => {
     const k = { ...moving(10), spinUntil: 1000 };
     const a = run(k, { steer: 1, throttle: 1, drift: true }, 500);

@@ -27,12 +27,14 @@ export const ITEM_WEIGHTS: { front: Record<ItemId, number>; back: Record<ItemId,
 };
 
 export function rollItem(rng: () => number, place: number, total: number): ItemId {
-  const table = place <= Math.ceil(total / 2) ? ITEM_WEIGHTS.front : ITEM_WEIGHTS.back;
-  const sum = ITEM_IDS.reduce((a, id) => a + table[id], 0);
+  const base = place <= Math.ceil(total / 2) ? ITEM_WEIGHTS.front : ITEM_WEIGHTS.back;
+  // 1º e 2º não teriam em quem usar o post-it (ele nunca vai no líder)
+  const weight = (id: ItemId) => (id === "postit" && place <= 2 ? 0 : base[id]);
+  const sum = ITEM_IDS.reduce((a, id) => a + weight(id), 0);
   let x = rng() * sum;
   for (const id of ITEM_IDS) {
-    x -= table[id];
-    if (x < 0 && table[id] > 0) return id;
+    x -= weight(id);
+    if (x < 0 && weight(id) > 0) return id;
   }
   return "expresso";
 }

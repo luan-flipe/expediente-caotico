@@ -109,7 +109,7 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
     if (r.isBot || r.lap.finishedAt !== null) stepRaceBot(race, r, dtMs);
   }
   for (const r of racers) {
-    if (r.useQueued && (r.connected || r.isBot)) useItem(race, r);
+    if (r.useQueued && (r.connected || r.isBot) && r.lap.finishedAt === null) useItem(race, r);
     r.useQueued = false;
     if (r.respawnQueued) respawn(race, r);
     r.respawnQueued = false;

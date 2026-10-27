@@ -78,15 +78,41 @@ describe("sorteio", () => {
   it("respeita os pesos e nunca dá aviãozinho ao 1º", () => {
     const rng = mulberry32(3);
     for (const [place, table] of [
-      [1, ITEM_WEIGHTS.front],
+      [3, ITEM_WEIGHTS.front],
       [8, ITEM_WEIGHTS.back],
     ] as const) {
       const count = Object.fromEntries(ITEM_IDS.map((id) => [id, 0]));
       const N = 10000;
       for (let i = 0; i < N; i++) count[rollItem(rng, place, 8)]++;
       for (const id of ITEM_IDS) expect(Math.abs((count[id] / N) * 100 - table[id])).toBeLessThan(2);
-      if (place === 1) expect(count.aviao).toBe(0);
+      if (place === 3) expect(count.aviao).toBe(0);
     }
+  });
+
+  it("1º e 2º nunca tiram post-it (não teriam em quem usar) nem aviãozinho", () => {
+    const rng = mulberry32(5);
+    for (const [place, total] of [
+      [1, 8],
+      [2, 8],
+      [1, 2],
+      [2, 2],
+    ]) {
+      for (let i = 0; i < 3000; i++) {
+        const it = rollItem(rng, place, total);
+        expect(it).not.toBe("postit");
+        if (place === 1) expect(it).not.toBe("aviao");
+      }
+    }
+  });
+
+  it("quem já terminou não usa item", () => {
+    const { race, rs } = setup(2);
+    giveItem(rs[0], "grampeador");
+    rs[0].lap.finishedAt = race.now;
+    rs[0].useQueued = true;
+    stepRace(race, DT);
+    expect(rs[0].itemsUsed.grampeador).toBeUndefined();
+    expect(race.hazards).toHaveLength(0);
   });
 });
 
