@@ -165,7 +165,8 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
       for (let i = 0; i < pos.count; i++) {
         const x = f.base[i * 3];
         const y = f.base[i * 3 + 1];
-        const e = (BANNER_W / 2 - f.attach * x) / BANNER_W; // 0 na corda, 1 na ponta solta
+        // 0 na corda, 1 na ponta solta; o arredondamento pode passar de [0, 1] e pow de negativo dá NaN
+        const e = Math.min(1, Math.max(0, (BANNER_W / 2 - f.attach * x) / BANNER_W));
         const amp = 0.08 + 0.42 * Math.pow(e, 1.4);
         const wave = Math.sin(e * Math.PI * 2.6 - time * 7.5) * amp;
         const ripple = Math.sin(e * Math.PI * 5 - time * 11 + y * 2) * 0.06 * e;

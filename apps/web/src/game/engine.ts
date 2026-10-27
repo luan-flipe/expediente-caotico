@@ -308,8 +308,7 @@ export class Engine {
     }
     for (const [id, v] of this.views) {
       if (seen.has(id)) continue;
-      this.scene.remove(v.char.root);
-      v.char.dispose();
+      this.dropView(v);
       this.views.delete(id);
     }
 
@@ -402,10 +401,7 @@ export class Engine {
     const key = (dna ? JSON.stringify(dna) : p.name) + (modelReady() ? "|glb" : "");
     let v = this.views.get(p.id);
     if (v && v.avatarKey === key) return v;
-    if (v) {
-      this.scene.remove(v.char.root);
-      v.char.dispose();
-    }
+    if (v) this.dropView(v);
     const char = createCharacter(dna ?? { name: p.name, skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, accessory: 0, height: 1 });
     const bubble = new THREE.Mesh(new THREE.SphereGeometry(1.05, 20, 14), new THREE.MeshBasicMaterial({ color: "#8f9cff", transparent: true, opacity: 0.22, depthWrite: false }));
     bubble.position.y = 1;
@@ -423,6 +419,18 @@ export class Engine {
     v = { char, avatarKey: key, tag, tagKey: "", buf: v?.buf ?? [], last: p, bubble, stars, slowRing, wasDashing: false };
     this.views.set(p.id, v);
     return v;
+  }
+
+  /** Tira o jogador da cena e libera o que é só dele; geometria e materiais do GLB são compartilhados entre clones e ficam. */
+  private dropView(v: View): void {
+    this.scene.remove(v.char.root);
+    for (const m of [v.bubble, v.stars, v.slowRing]) {
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    (v.tag.material as THREE.SpriteMaterial).map?.dispose();
+    v.tag.material.dispose();
+    v.char.dispose();
   }
 
   /** Geometria e material compartilhados por tipo de projétil (evita alocar a cada tiro). */
@@ -592,7 +600,25 @@ export class Engine {
     clearInterval(this.inputTimer);
     for (const c of this.cleanup) c();
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
-    for (const v of this.views.values()) v.char.dispose();
+    // bonecos saem da cena antes da limpeza geral: a geometria do GLB é compartilhada e não pode ser liberada
+    for (const v of this.views.values()) this.dropView(v);
+    this.views.clear();
+    this.fx.dispose();
+    this.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      m.geometry?.dispose();
+      const mat = m.material as (THREE.Material & { map?: THREE.Texture | null }) | (THREE.Material & { map?: THREE.Texture | null })[] | undefined;
+      for (const x of Array.isArray(mat) ? mat : mat ? [mat] : []) {
+        x.map?.dispose();
+        x.dispose();
+      }
+    });
+    // projéteis compartilham geometria e material por tipo e podem não estar na cena neste instante
+    for (const [geo, mat] of this.projectileParts.values()) {
+      geo.dispose();
+      mat.dispose();
+    }
+    this.projectileParts.clear();
     this.renderer.dispose();
   }
 }

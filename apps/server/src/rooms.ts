@@ -20,6 +20,7 @@ import {
   getResults,
   giveItem,
   matchCounts,
+  NO_INPUT,
   queueAction,
   queueItemUse,
   randomAvatar,
@@ -458,7 +459,13 @@ export class Room {
   /** Reflete conexão/desconexão no jogador da partida. */
   syncConnected(member: Member): void {
     const racer = this.race?.racers.get(member.id);
-    if (racer) racer.connected = member.conn !== null;
+    if (racer) {
+      racer.connected = member.conn !== null;
+      if (!racer.connected) {
+        racer.input = { ...NO_INPUT };
+        racer.inputQueue = [];
+      }
+    }
     const p = this.match?.players.get(member.id);
     if (!p) return;
     p.connected = member.conn !== null;

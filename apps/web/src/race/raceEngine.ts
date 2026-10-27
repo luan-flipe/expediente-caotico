@@ -122,6 +122,7 @@ export class RaceEngine {
   private camPos = new THREE.Vector3();
   private camLook = new THREE.Vector3();
   private camReady = false;
+  private disposeTrack: (() => void) | null = null;
   private boxGeo = new THREE.BoxGeometry(0.8, 0.6, 0.8);
   private boxMat = new THREE.MeshStandardMaterial({ map: boxTexture(), roughness: 0.9 });
   private hazardMats = new Map<string, THREE.Material>();
@@ -150,7 +151,7 @@ export class RaceEngine {
     Object.assign(sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
     sun.shadow.bias = -0.0006;
     this.scene.add(sun);
-    buildTrack(this.scene);
+    this.disposeTrack = buildTrack(this.scene);
     this.camera.add(this.listener);
     this.commander = createCommander(this.listener);
     if (this.commander) this.scene.add(this.commander.root);
@@ -367,6 +368,15 @@ export class RaceEngine {
   private dropView(v: KartView): void {
     this.scene.remove(v.r3d.root);
     v.restore?.();
+    // geometria da faísca, da chama e da bolha é própria; a do sprite do nome é compartilhada pelo three
+    for (const m of [...v.sparks, v.flame, v.bubble]) {
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    if (v.tag) {
+      v.tag.material.map?.dispose();
+      v.tag.material.dispose();
+    }
     v.r3d.dispose();
   }
 
@@ -456,7 +466,8 @@ export class RaceEngine {
       let x: number;
       let z: number;
       let heading: number;
-      const mine = id === this.myId && this.pred;
+      // depois da chegada (ou fora da fase ativa) a própria cadeira vem do buffer, como as outras: a previsão para de rodar
+      const mine = id === this.myId && this.pred && this.snap?.phase === "active" && !this.me?.finished;
       if (mine) {
         // desenha entre os dois últimos passos de 30 Hz para não andar aos degraus em telas de 60 Hz ou mais
         const a = this.prevPred ?? this.pred!;
@@ -629,6 +640,13 @@ export class RaceEngine {
       if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
       else mat?.dispose();
     });
+    // caixas, materiais de obstáculos que não estão na cena e texturas de canvas ficam fora do traverse
+    this.boxGeo.dispose();
+    this.boxMat.map?.dispose();
+    this.boxMat.dispose();
+    for (const m of this.hazardMats.values()) m.dispose();
+    this.disposeTrack?.();
+    this.disposeTrack = null;
     this.renderer.dispose();
   }
 }
