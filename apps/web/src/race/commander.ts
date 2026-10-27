@@ -7,6 +7,9 @@ const MODEL_URL = "/assets/characters/comandante_helicoptero.glb";
 const SOUND_URL = "/assets/audio/helicoptero.m4a";
 /** Trecho do áudio que soa contínuo, em segundos: o arquivo tem 1,25 s de silêncio no começo e o fim corta. */
 const SOUND_LOOP: [number, number] = [1.3, 5.9];
+/** Distâncias (m) do som: cheio até NEAR, zero a partir de FAR. */
+const SOUND_NEAR = 6;
+const SOUND_FAR = 55;
 const ROTOR_CLIP = "Rotores_Girando";
 /** Velocidade e altura do voo durante a corrida (puxa o pelotão). */
 const FLY_SPEED = 13;
@@ -103,8 +106,12 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
       audio.setLoopStart(SOUND_LOOP[0]);
       audio.setLoopEnd(SOUND_LOOP[1]);
       audio.offset = SOUND_LOOP[0];
-      audio.setRefDistance(10);
-      audio.setVolume(0.9);
+      // volume cheio até SOUND_NEAR, some de vez em SOUND_FAR (a queda padrão nunca zerava)
+      audio.setDistanceModel("linear");
+      audio.setRefDistance(SOUND_NEAR);
+      audio.setMaxDistance(SOUND_FAR);
+      audio.setRolloffFactor(1);
+      audio.setVolume(0.7);
       audio.play();
     });
   }
