@@ -1,0 +1,53 @@
+{
+  "name": "@ec/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ec/shared": "workspace:*",
+    "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
+    "@shopify/react-native-skia": "2.14.0",
+    "expo": "~58.0.20",
+    "expo-asset": "~58.0.18",
+    "expo-audio": "~58.0.10",
+    "expo-build-properties": "~58.0.11",
+    "expo-clipboard": "~58.0.4",
+    "expo-constants": "~58.0.13",
+    "expo-file-system": "~58.0.12",
+    "expo-font": "~58.0.10",
+    "expo-gl": "~58.0.3",
+    "expo-haptics": "~58.0.7",
+    "expo-image": "~58.0.17",
+    "expo-keep-awake": "~58.0.3",
+    "expo-linear-gradient": "~58.0.3",
+    "expo-linking": "~58.0.14",
+    "expo-navigation-bar": "~58.0.4",
+    "expo-router": "~58.0.27",
+    "expo-screen-orientation": "~58.0.3",
+    "expo-splash-screen": "~58.0.11",
+    "expo-sqlite": "~58.0.14",
+    "expo-status-bar": "~58.0.4",
+    "expo-system-ui": "~58.0.6",
+    "react": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-gesture-handler": "~3.3.0",
+    "react-native-reanimated": "4.7.1",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "react-native-worklets": "0.13.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "@types/three": "^0.186.0",
+    "typescript": "~6.0.3"
+  }
+}
