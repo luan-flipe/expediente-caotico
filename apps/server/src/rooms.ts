@@ -3,6 +3,8 @@ import type { WebSocket } from "ws";
 import {
   BALANCE,
   ClientMsg,
+  applyRaceResult,
+  applyShooterResult,
   DEFAULT_CHAIR,
   buildPrivate,
   buildRacePrivate,
@@ -14,6 +16,7 @@ import {
   getRaceResults,
   getResults,
   giveItem,
+  matchCounts,
   queueAction,
   queueItemUse,
   randomAvatar,
@@ -36,7 +39,9 @@ import {
   type ResultRow,
   type ServerMsg,
 } from "@ec/shared";
+import { readSession } from "./auth";
 import { TokenBucket } from "./ratelimit";
+import type { Store } from "./store";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const BOT_NAMES = ["Estagiário Kevin", "Estagiária Bia", "Estagiário Davi", "Estagiária Lu", "Estagiário Téo", "Estagiária Mel", "Estagiário Juca"];
@@ -68,6 +73,8 @@ interface Member {
   chair: ChairDNA;
   ready: boolean;
   isBot: boolean;
+  /** Id da conta (Google) quando entrou com sessão válida; null para visitante e bot. */
+  accountId: string | null;
   conn: Conn | null;
   leftAt: number | null;
 }
@@ -98,10 +105,11 @@ export class Room {
   private nextBot = 0;
   emptySince: number | null = null;
 
-  /** raceOpts encurta a corrida nos testes. */
+  /** raceOpts encurta a corrida nos testes. Com store, o fim da partida registra o ranking. */
   constructor(
     readonly code: string,
     private readonly raceOpts: { laps?: number; graceMs?: number } = {},
+    private readonly store?: Store,
   ) {}
 
   humans(): Member[] {
@@ -123,6 +131,7 @@ export class Room {
         ready: m.isBot || m.ready || m.id === this.hostId,
         isBot: m.isBot,
         connected: m.isBot || m.conn !== null,
+        ranked: m.accountId !== null,
       })),
     };
   }
@@ -136,12 +145,20 @@ export class Room {
     this.broadcast({ t: "lobby", state: this.lobbyState() });
   }
 
-  addMember(name: string, avatar: AvatarDNA, conn: Conn | null, isBot = false, chair: ChairDNA = DEFAULT_CHAIR): Member {
+  addMember(name: string, avatar: AvatarDNA, conn: Conn | null, isBot = false, chair: ChairDNA = DEFAULT_CHAIR, accountId: string | null = null): Member {
     const id = isBot ? `bot-${++this.nextBot}` : randomBytes(6).toString("hex");
-    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, conn, leftAt: null };
+    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, conn, leftAt: null };
     this.members.set(id, m);
     if (!this.hostId && !isBot) this.hostId = id;
     return m;
+  }
+
+  /** A conta guarda o nome de crachá mais recente do jogador logado. */
+  syncAccountName(member: Member): void {
+    const acc = member.accountId ? this.store?.data.accounts[member.accountId] : undefined;
+    if (!acc || acc.name === member.name) return;
+    acc.name = member.name;
+    this.store?.save();
   }
 
   removeMember(id: string): void {
@@ -242,6 +259,7 @@ export class Room {
       this.results = this.match ? getResults(this.match) : [];
       this.raceResults = null;
     }
+    this.recordRanking();
     this.match = null;
     this.race = null;
     this.phase = "results";
@@ -254,6 +272,29 @@ export class Room {
     else if (this.results) this.broadcast({ t: "results", rows: this.results });
     this.broadcastLobby();
     log(`[${this.code}] partida encerrada`);
+  }
+
+  /** Soma o resultado da partida ao ranking. Falha aqui nunca pode travar o fim da partida. */
+  private recordRanking(): void {
+    const store = this.store;
+    if (!store) return;
+    try {
+      const accountOf = (id: string) => this.members.get(id)?.accountId ?? null;
+      const now = Date.now();
+      if (this.raceResults) {
+        const rows = this.raceResults.map((r) => ({ accountId: accountOf(r.id), place: r.place }));
+        if (!matchCounts(rows)) return;
+        applyRaceResult(store.data, rows, now);
+        // voltas e fantasmas: Task 5
+      } else if (this.results) {
+        const rows = this.results.map((r) => ({ accountId: accountOf(r.id), rank: r.rank, kills: r.kills }));
+        if (!matchCounts(rows)) return;
+        applyShooterResult(store.data, rows, now);
+      }
+      store.save();
+    } catch (err) {
+      console.error(`[${this.code}] falha ao registrar o ranking`, err);
+    }
   }
 
   dispose(): void {
@@ -272,6 +313,7 @@ export class Room {
         if (this.phase === "match") return;
         member.avatar = sanitizeAvatar(msg.avatar);
         member.name = member.avatar.name;
+        this.syncAccountName(member);
         if (msg.chair !== undefined) member.chair = sanitizeChair(msg.chair);
         return this.broadcastLobby();
       case "addBot": {
@@ -355,6 +397,7 @@ export class RoomManager {
   constructor(
     private readonly idleMs: number,
     private readonly raceOpts: { laps?: number; graceMs?: number } = {},
+    private readonly ranking?: { store: Store; secret: string },
   ) {
     this.sweeper = setInterval(() => this.sweep(), 500);
   }
@@ -374,6 +417,13 @@ export class RoomManager {
       for (let i = 0; i < 5; i++) c += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
       if (!this.rooms.has(c)) return c;
     }
+  }
+
+  /** Id da conta de uma sessão válida cuja conta existe no arquivo de dados; senão null (visitante). */
+  private accountFrom(session: string | undefined): string | null {
+    if (!this.ranking || session === undefined) return null;
+    const id = readSession(session, this.ranking.secret);
+    return id !== null && this.ranking.store.data.accounts[id] ? id : null;
   }
 
   private joinAllowed(ip: string): boolean {
@@ -443,11 +493,12 @@ export class RoomManager {
 
     if (msg.t === "create") {
       if (!this.joinAllowed(conn.ip)) return send(conn, { t: "error", msg: "Muitas tentativas. Aguarde um pouco." });
-      const room = new Room(this.newCode(), this.raceOpts);
+      const room = new Room(this.newCode(), this.raceOpts, this.ranking?.store);
       this.rooms.set(room.code, room);
       const avatar = sanitizeAvatar(msg.avatar);
       avatar.name = sanitizeName(msg.name, avatar.name);
-      const member = room.addMember(avatar.name, avatar, conn, false, sanitizeChair(msg.chair));
+      const member = room.addMember(avatar.name, avatar, conn, false, sanitizeChair(msg.chair), this.accountFrom(msg.session));
+      room.syncAccountName(member);
       log(`[${room.code}] sala criada`);
       return this.attach(conn, room, member);
     }
@@ -459,13 +510,18 @@ export class RoomManager {
       if (room.members.size >= BALANCE.maxPlayers) return send(conn, { t: "error", msg: "Sala cheia" });
       const avatar = sanitizeAvatar(msg.avatar);
       avatar.name = sanitizeName(msg.name, avatar.name);
-      return this.attach(conn, room, room.addMember(avatar.name, avatar, conn, false, sanitizeChair(msg.chair)));
+      const member = room.addMember(avatar.name, avatar, conn, false, sanitizeChair(msg.chair), this.accountFrom(msg.session));
+      room.syncAccountName(member);
+      return this.attach(conn, room, member);
     }
     if (msg.t === "resume") {
       if (!this.joinAllowed(conn.ip)) return send(conn, { t: "error", msg: "Muitas tentativas. Aguarde um pouco." });
       const room = this.rooms.get(msg.code);
       const member = room && [...room.members.values()].find((m) => !m.isBot && m.token === msg.token);
       if (!room || !member) return send(conn, { t: "error", msg: "Sessão expirada" });
+      // sessão válida no retorno vale como login; sem sessão, mantém a conta com que entrou
+      const account = this.accountFrom(msg.session);
+      if (account) member.accountId = account;
       return this.attach(conn, room, member);
     }
   }

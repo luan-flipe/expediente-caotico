@@ -10,12 +10,14 @@ const avatar = z.unknown();
 const chair = z.unknown().optional();
 const unit = num.min(-1).max(1);
 const code = z.string().regex(/^[A-Z]{5}$/);
+/** Sessão do jogo (ver auth.ts do servidor); inválida ou ausente vira visitante. */
+const session = z.string().max(512).optional();
 
 /** Mensagens do cliente: só intenções. Nada de dano, pontos, vida ou recarga. */
 export const ClientMsg = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("create"), name: z.string().max(64), avatar, chair }),
-  z.object({ t: z.literal("join"), code, name: z.string().max(64), avatar, chair }),
-  z.object({ t: z.literal("resume"), code, token: z.string().min(16).max(64) }),
+  z.object({ t: z.literal("create"), name: z.string().max(64), avatar, chair, session }),
+  z.object({ t: z.literal("join"), code, name: z.string().max(64), avatar, chair, session }),
+  z.object({ t: z.literal("resume"), code, token: z.string().min(16).max(64), session }),
   z.object({ t: z.literal("ready"), ready: z.boolean() }),
   z.object({ t: z.literal("avatar"), avatar, chair }),
   z.object({ t: z.literal("mode"), mode: z.enum(["shooter", "race"]) }),
@@ -51,6 +53,8 @@ export interface LobbyPlayer {
   ready: boolean;
   isBot: boolean;
   connected: boolean;
+  /** Logado com conta: a partida pode contar para o ranking. */
+  ranked: boolean;
 }
 
 export interface LobbyState {
