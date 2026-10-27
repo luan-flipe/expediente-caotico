@@ -54,6 +54,9 @@ interface HazardView {
 const DT = 1000 / 30;
 const INTERP_MS = 110;
 const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f"];
+const MUSIC_URL = "/assets/audio/turbo_pixel_drift.mp3";
+/** Baixo o bastante para o helicóptero e os itens continuarem audíveis. */
+const MUSIC_VOLUME = 0.35;
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -112,6 +115,8 @@ export class RaceEngine {
   private snapAt = 0;
   private commander: Commander | null;
   private listener = new THREE.AudioListener();
+  /** Trilha de fundo: toca em loop durante toda a corrida, sem posição na cena. */
+  private music = new THREE.Audio(this.listener);
   private muted = false;
   private me: RacePrivate | null = null;
   private keys = new Set<string>();
@@ -158,12 +163,27 @@ export class RaceEngine {
     this.camera.add(this.listener);
     this.commander = createCommander(this.listener);
     if (this.commander) this.scene.add(this.commander.root);
+    this.startMusic();
     this.bindInput();
     this.raf = requestAnimationFrame(this.loop);
   }
 
   setPeople(list: { id: string; avatar: AvatarDNA; chair: ChairDNA }[]): void {
     for (const p of list) this.people.set(p.id, { avatar: p.avatar, chair: p.chair });
+  }
+
+  private startMusic(): void {
+    new THREE.AudioLoader()
+      .loadAsync(MUSIC_URL)
+      .then((buffer) => {
+        // a corrida pode ter acabado enquanto o arquivo baixava
+        if (!this.raf) return;
+        this.music.setBuffer(buffer);
+        this.music.setLoop(true);
+        this.music.setVolume(MUSIC_VOLUME);
+        this.music.play();
+      })
+      .catch((err) => console.warn("música da corrida não carregou", err));
   }
 
   // ---------- entrada ----------
@@ -575,6 +595,8 @@ export class RaceEngine {
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    if (this.music.isPlaying) this.music.stop();
     for (const c of this.cleanup) c();
     // bonecos e Comandante compartilham geometria do GLB: saem da cena antes da limpeza geral
     if (this.commander) {
