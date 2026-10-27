@@ -884,3 +884,190 @@ input {
   opacity: 1;
   transition: none;
 }
+
+/* ---------- modo corrida ---------- */
+.race-place {
+  position: absolute;
+  right: 18px;
+  top: 14px;
+  text-align: right;
+  text-shadow: 3px 3px 0 var(--ink);
+}
+
+.race-place .pos {
+  font-size: 84px;
+  font-weight: 800;
+  line-height: 0.9;
+  color: var(--postit);
+}
+
+.race-place .pos small {
+  font-size: 40px;
+}
+
+.race-place .of {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.race-place .lap {
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.race-place .times {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.race-item {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  width: 190px;
+  text-align: center;
+  background: var(--hud-bg);
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.race-item.full {
+  border-color: var(--postit);
+}
+
+.race-item .ico {
+  font-size: 34px;
+  height: 42px;
+  line-height: 42px;
+}
+
+.race-item .name {
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.race-item .key {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.minimap-wrap {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  padding: 6px !important;
+}
+
+.minimap {
+  display: block;
+  width: 220px;
+  height: auto;
+}
+
+.race-help {
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.wrong-way {
+  font-size: 44px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--red);
+  padding: 10px 26px;
+  border: 3px solid var(--ink);
+  box-shadow: var(--shadow);
+  transform: translateY(-120px);
+}
+
+.postit-cover {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: min(62vw, 560px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%) rotate(-4deg);
+  background: var(--postit);
+  box-shadow: 10px 12px 0 rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
+  transition: opacity 0.2s;
+}
+
+.postit-cover span {
+  font-family: "Caveat", var(--display);
+  font-size: 54px;
+  font-weight: 800;
+  color: var(--ink);
+  transform: rotate(-6deg);
+}
+
+.podium {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+.podium .step {
+  width: 190px;
+  text-align: center;
+}
+
+.podium .step img {
+  width: 170px;
+  height: 170px;
+}
+
+.podium .who {
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.podium .block {
+  background: var(--paper-2);
+  border: 2px solid var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 34px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+}
+
+.podium .p1 .block {
+  height: 110px;
+  background: var(--postit);
+}
+
+.podium .p2 .block {
+  height: 80px;
+}
+
+.podium .p3 .block {
+  height: 56px;
+}
+
+@media (max-width: 640px) {
+  .podium .step {
+    width: 30%;
+  }
+
+  .podium .step img {
+    width: 100%;
+    height: auto;
+  }
+
+  .race-place .pos {
+    font-size: 56px;
+  }
+
+  .minimap {
+    width: 140px;
+  }
+}
