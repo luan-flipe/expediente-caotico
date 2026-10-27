@@ -5,13 +5,17 @@ export type Spec = "A" | "B";
 
 export interface AvatarDNA {
   name: string;
+  /** Índice de MODELS: 0 monta o boneco pelo crachá, os demais são skins prontas. */
+  model: number;
   skin: number;
   hair: number;
   hairColor: number;
-  beard: boolean;
+  eyes: number;
+  beard: number;
   glasses: number;
   shirt: number;
   pants: number;
+  shoes: number;
   accessory: number;
   height: number;
 }

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { HAIR_COLORS, PANTS, SHIRTS, SKINS, type AvatarDNA } from "@ec/shared";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { EYE_COLORS, HAIR_COLORS, PANTS, SHIRTS, SKINS, type AvatarDNA } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
 
 export type CharacterAction = "throw" | "cafe" | "dash";
@@ -14,6 +15,19 @@ export interface Character {
 }
 
 const MODEL_URL = "/assets/characters/boneco.glb";
+
+interface SkinDef {
+  url: string;
+  /** Nó raiz do corpo, usado para medir a altura. */
+  root: string;
+}
+
+/** Skins prontas por índice de MODELS. A 1 também empresta cabelo e barba ao crachá. */
+const SKIN_DEFS: Record<number, SkinDef> = {
+  1: { url: "/assets/characters/boneco_polo_barba.glb", root: "Boneco" },
+};
+/** Skin de onde saem o cabelo "Volumoso" e a barba "Cheia" do crachá. */
+const PARTS_SKIN = 1;
 const TARGET_HEIGHT = 1.75;
 const HEIGHT_SCALE = [0.9, 1, 1.1];
 /** Duração em segundos de cada ação no jogo (os clipes originais são mais longos). */
@@ -29,8 +43,17 @@ interface Loaded {
   scale: number;
 }
 
+/** Cabelo e barba tirados de uma skin, com a cor por vértice virada em sombra neutra. */
+interface Parts {
+  hair?: THREE.BufferGeometry;
+  hairCap?: THREE.BufferGeometry;
+  beard?: THREE.BufferGeometry;
+}
+
 let loaded: Loaded | null = null;
 let loading: Promise<boolean> | null = null;
+const skins = new Map<number, Loaded>();
+const parts: Parts = {};
 
 /**
  * Remove trilhas que brigam com o jogo: deslocamento do corpo (a posição vem do servidor)
@@ -46,20 +69,256 @@ export function modelReady(): boolean {
   return loaded !== null;
 }
 
-/** Carrega o GLB uma vez. Resolve false se falhar (o jogo segue com o boneco procedural). */
+async function loadModel(url: string, root: string): Promise<{ model: Loaded; animations: THREE.AnimationClip[] }> {
+  const gltf = await new GLTFLoader().loadAsync(url);
+  const scene = gltf.scene;
+  scene.getObjectByName("Pedestal")?.removeFromParent();
+  const body = scene.getObjectByName(root) ?? scene;
+  const h = new THREE.Box3().setFromObject(body).getSize(new THREE.Vector3()).y;
+  return { model: { scene, clips: new Map(), scale: TARGET_HEIGHT / h }, animations: gltf.animations };
+}
+
+/** Troca a cor por vértice por um fator de sombra em torno de 1, para a cor do material tingir. */
+function tintable(src: THREE.BufferGeometry): THREE.BufferGeometry {
+  const geo = src.clone();
+  const col = geo.getAttribute("color");
+  if (!col) return geo;
+  const lum = new Float32Array(col.count);
+  let sum = 0;
+  for (let i = 0; i < col.count; i++) {
+    lum[i] = 0.2126 * col.getX(i) + 0.7152 * col.getY(i) + 0.0722 * col.getZ(i);
+    sum += lum[i];
+  }
+  const mean = sum / col.count || 1;
+  const out = new Float32Array(col.count * 3);
+  for (let i = 0; i < col.count; i++) out.fill(THREE.MathUtils.clamp(lum[i] / mean, 0.55, 1.5), i * 3, i * 3 + 3);
+  geo.setAttribute("color", new THREE.BufferAttribute(out, 3));
+  return geo;
+}
+
+function takeParts(scene: THREE.Object3D): void {
+  const geo = (name: string) => {
+    const mesh = scene.getObjectByName(name) as THREE.Mesh | undefined;
+    return mesh?.isMesh ? tintable(mesh.geometry) : undefined;
+  };
+  parts.hair = geo("Cabelo_Volume");
+  parts.hairCap = geo("Cabelo_Bone");
+  parts.beard = geo("Barba");
+}
+
+/** Raio interno das peças da skin polo: a casca começa colada na cabeça. */
+const SCALP = 0.553;
+/** Pele do Rosto fica em 0,56: fio que aparecia não pode afundar abaixo disto ao afinar. */
+const SKIN_TOP = 0.566;
+
+/** Afina ou engrossa a casca sem abrir falhas onde o fio já aparecia. */
+function thicken(r: number, k: number): number {
+  return r < SKIN_TOP ? r : Math.max(SKIN_TOP, SCALP + (r - SCALP) * k);
+}
+/** Até este ângulo a partir do topo o cabelo não muda; daí até a ponta ele estica ou encolhe. */
+const PIVOT = THREE.MathUtils.degToRad(30);
+/** Abaixo deste ângulo a casca deixaria a cabeça, então o cabelo passa a cair reto. */
+const HANG = THREE.MathUtils.degToRad(105);
+const AZ_BINS = 36;
+
+interface HairShape {
+  /** Graus somados à ponta do cabelo; negativo encurta. A frente do rosto não cresce. */
+  length: number;
+  /** Multiplica a espessura da casca. */
+  thick: number;
+  /** Meia largura da crista: o que fica fora dela deita dentro da cabeça. */
+  crest?: number;
+  bun?: boolean;
+  curls?: boolean;
+}
+
+/** Todos os penteados saem do mesmo cabelo da skin polo. Índices de HAIR_STYLES. */
+const HAIR_SHAPES: Record<number, HairShape> = {
+  1: { length: -12, thick: 0.55 },
+  2: { length: 40, thick: 1 },
+  3: { length: 85, thick: 1 },
+  4: { length: -12, thick: 0.55, bun: true },
+  5: { length: -10, thick: 2.6, crest: 0.1 },
+  6: { length: 40, thick: 1.1, curls: true },
+  7: { length: 0, thick: 1 },
+};
+/** Espessura da barba por índice de BEARDS. */
+const BEARD_THICK = [0, 0.3, 1];
+
+const shaped = new Map<string, THREE.BufferGeometry>();
+
+const azimuth = (x: number, z: number) => Math.atan2(x, z);
+
+/** Ângulo da ponta do cabelo (a partir do topo) para cada faixa de azimute. */
+function tipTable(pos: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): Float32Array {
+  const tips = new Float32Array(AZ_BINS).fill(PIVOT + 0.1);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const bin = Math.floor(((azimuth(x, z) + Math.PI) / (Math.PI * 2)) * AZ_BINS) % AZ_BINS;
+    tips[bin] = Math.max(tips[bin], Math.acos(THREE.MathUtils.clamp(y / Math.hypot(x, y, z), -1, 1)));
+  }
+  return tips;
+}
+
+/** Ponta interpolada entre faixas, para a deformação não fazer degraus. */
+function tipAt(tips: Float32Array, az: number): number {
+  const f = ((az + Math.PI) / (Math.PI * 2)) * AZ_BINS - 0.5;
+  const i = Math.floor(f);
+  const a = tips[(i + AZ_BINS) % AZ_BINS];
+  const b = tips[(i + 1) % AZ_BINS];
+  return a + (b - a) * (f - i);
+}
+
+/** Grade dos cachos: um cacho por célula, com raio e altura do relevo. */
+const CURL_CELL = 0.11;
+const CURL_R = 0.075;
+const CURL_H = 0.055;
+
+/** Centro fixo do cacho de uma célula da grade (sorteio por hash, igual para todos os bonecos). */
+function curlCenter(i: number, j: number, k: number, out: THREE.Vector3): THREE.Vector3 {
+  let h = (Math.imul(i, 73856093) ^ Math.imul(j, 19349663) ^ Math.imul(k, 83492791)) >>> 0;
+  const rnd = () => {
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  };
+  return out.set((i + rnd()) * CURL_CELL, (j + rnd()) * CURL_CELL, (k + rnd()) * CURL_CELL);
+}
+
+/**
+ * Cachos: cada vértice sobe num domo em volta do centro de cacho mais próximo,
+ * e o vão entre cachos escurece. underCap mantém o topo liso para caber no boné.
+ */
+function addCurls(geo: THREE.BufferGeometry, underCap: boolean): void {
+  const pos = geo.getAttribute("position");
+  const col = geo.getAttribute("color");
+  const p = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  for (let v = 0; v < pos.count; v++) {
+    p.fromBufferAttribute(pos, v);
+    const ci = Math.floor(p.x / CURL_CELL), cj = Math.floor(p.y / CURL_CELL), ck = Math.floor(p.z / CURL_CELL);
+    let best = Infinity;
+    for (let i = ci - 1; i <= ci + 1; i++)
+      for (let j = cj - 1; j <= cj + 1; j++)
+        for (let k = ck - 1; k <= ck + 1; k++) best = Math.min(best, p.distanceTo(curlCenter(i, j, k, c)));
+    let bump = Math.sqrt(Math.max(0, 1 - (best / CURL_R) ** 2));
+    if (underCap) bump *= 1 - THREE.MathUtils.smoothstep(p.y, 0.05, 0.25);
+    // direção só da posição (do centro da cabeça; na parte que cai, para fora do eixo):
+    // vértices repetidos na costura sobem juntos e não abrem fresta
+    n.set(p.x, p.y - Math.min(p.y, 0), p.z).normalize();
+    p.addScaledVector(n, bump * CURL_H);
+    pos.setXYZ(v, p.x, p.y, p.z);
+    if (col) {
+      const k = 0.7 + 0.45 * bump;
+      col.setXYZ(v, col.getX(v) * k, col.getY(v) * k, col.getZ(v) * k);
+    }
+  }
+  geo.computeVertexNormals();
+}
+
+/** Muda comprimento e volume do cabelo mantendo os fios (cor por vértice) onde estão. */
+function shapeHair(src: THREE.BufferGeometry, shape: HairShape, underCap: boolean): THREE.BufferGeometry {
+  const geo = src.clone();
+  const pos = geo.getAttribute("position");
+  const tips = tipTable(pos);
+  const grow = THREE.MathUtils.degToRad(shape.length);
+  const p = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const r = Math.hypot(x, y, z);
+    const az = azimuth(x, z);
+    let theta = Math.acos(THREE.MathUtils.clamp(y / r, -1, 1));
+    const t = THREE.MathUtils.clamp((theta - PIVOT) / (tipAt(tips, az) - PIVOT), 0, 1);
+    // rosto livre: crescer só nas laterais e atrás; encurtar mexe pouco na franja
+    const sides = THREE.MathUtils.smoothstep(Math.abs(az), THREE.MathUtils.degToRad(40), THREE.MathUtils.degToRad(80));
+    theta += grow * t * (grow > 0 ? sides : 0.3 + 0.7 * sides);
+    let rr = thicken(r, shape.thick);
+    if (shape.crest !== undefined) {
+      const out = THREE.MathUtils.smoothstep(Math.abs(x), shape.crest, shape.crest + 0.08);
+      rr += (SCALP - 0.03 - rr) * out;
+    }
+    const drop = Math.max(0, theta - HANG);
+    p.setFromSphericalCoords(rr, Math.min(theta, HANG), az);
+    p.y -= drop * rr;
+    pos.setXYZ(i, p.x, p.y, p.z);
+  }
+  geo.computeVertexNormals();
+  if (shape.curls) addCurls(geo, underCap);
+  if (!shape.bun) return geo;
+  // coque: o mesmo cabelo em miniatura, com a abertura virada para a nuca
+  const bun = src.clone();
+  bun.applyMatrix4(
+    new THREE.Matrix4()
+      .makeTranslation(0, 0.36, -0.5)
+      .multiply(new THREE.Matrix4().makeRotationX(-1.03))
+      .multiply(new THREE.Matrix4().makeRotationY(Math.PI))
+      .multiply(new THREE.Matrix4().makeScale(0.46, 0.46, 0.46)),
+  );
+  const merged = mergeGeometries([geo, bun]) ?? geo;
+  geo.dispose();
+  bun.dispose();
+  return merged;
+}
+
+/** Penteado pronto para a Cabeca (compartilhado entre bonecos). undefined = careca. */
+function hairFor(style: number, underCap: boolean): THREE.BufferGeometry | undefined {
+  const base = HAIR_SHAPES[style];
+  const src = underCap ? (parts.hairCap ?? parts.hair) : parts.hair;
+  if (!base || !src) return undefined;
+  // embaixo do boné não cabe crista nem coque
+  const shape = underCap ? { length: base.length, thick: Math.min(base.thick, 1), curls: base.curls } : base;
+  const key = `${style}|${underCap}`;
+  let geo = shaped.get(key);
+  if (!geo) {
+    geo = shapeHair(src, shape, underCap);
+    shaped.set(key, geo);
+  }
+  return geo;
+}
+
+/** Barba pela espessura da casca: a curta é a cheia rente ao rosto. */
+function beardFor(kind: number): THREE.BufferGeometry | undefined {
+  const thick = BEARD_THICK[kind] ?? 0;
+  if (!thick || !parts.beard) return undefined;
+  const key = `barba|${kind}`;
+  let geo = shaped.get(key);
+  if (!geo) {
+    geo = parts.beard.clone();
+    const pos = geo.getAttribute("position");
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const r = v.length();
+      v.setLength(thicken(r, thick));
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+    shaped.set(key, geo);
+  }
+  return geo;
+}
+
+async function loadSkin(id: number, def: SkinDef): Promise<void> {
+  const { model, animations } = await loadModel(def.url, def.root);
+  for (const a of animations) model.clips.set(a.name, cleanClip(a));
+  skins.set(id, model);
+  if (id === PARTS_SKIN) takeParts(model.scene);
+}
+
+/** Carrega os GLBs uma vez. Resolve false se o boneco base falhar (o jogo segue com o procedural). */
 export function preloadCharacter(): Promise<boolean> {
-  loading ??= new GLTFLoader()
-    .loadAsync(MODEL_URL)
-    .then((gltf) => {
-      const scene = gltf.scene;
-      scene.getObjectByName("Pedestal")?.removeFromParent();
-      const body = scene.getObjectByName("Boneco")!;
-      const h = new THREE.Box3().setFromObject(body).getSize(new THREE.Vector3()).y;
-      loaded = {
-        scene,
-        clips: new Map(gltf.animations.map((a) => [a.name, cleanClip(a)])),
-        scale: TARGET_HEIGHT / h,
-      };
+  loading ??= loadModel(MODEL_URL, "Boneco")
+    .then(async ({ model, animations }) => {
+      for (const a of animations) model.clips.set(a.name, cleanClip(a));
+      // skin que falha cai no boneco do crachá; o resto do jogo segue
+      await Promise.all(
+        Object.entries(SKIN_DEFS).map(([id, def]) =>
+          loadSkin(Number(id), def).catch((err) => console.warn(`${def.url} não carregou`, err)),
+        ),
+      );
+      loaded = model;
       return true;
     })
     .catch((err) => {
@@ -119,6 +378,85 @@ function extra(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Mat
   m.userData.extra = true;
   parent.add(m);
   return m;
+}
+
+const SNEAKERS = 2;
+
+/**
+ * Calçados por índice de SHOES. O tênis é o do próprio GLB; os outros entram no lugar dele,
+ * presos ao quadril para andar junto. y do tênis original menos 0,09 é o chão.
+ */
+function addShoes(inner: THREE.Object3D, kind: number, skin: THREE.Color, mats: THREE.Material[]): void {
+  if (kind === SNEAKERS) return;
+  const mk = (color: THREE.ColorRepresentation, roughness = 0.6, metalness = 0) => {
+    const m = new THREE.MeshStandardMaterial({ color, roughness, metalness });
+    mats.push(m);
+    return m;
+  };
+  const m = {
+    skin: mk(skin, 0.6),
+    sock: mk("#e8e4dc", 0.95),
+    sockTip: mk("#3a6fc4", 0.9),
+    leather: mk("#2b1b12", 0.3),
+    heel: mk("#c0262e", 0.25),
+    boot: mk("#6b4a2b", 0.8),
+    steel: mk("#a7b0b8", 0.3, 0.85),
+    rubber: mk("#f2c230", 0.35),
+    sole: mk("#1d1a17", 0.9),
+  };
+  for (const side of ["D", "E"]) {
+    const shoe = inner.getObjectByName(`Tenis_${side}`);
+    const hip = inner.getObjectByName(`Quadril_${side}`);
+    if (!shoe || !hip) continue;
+    shoe.visible = false;
+    const { x, y, z } = shoe.position;
+    const ball = (mat: THREE.Material, s: [number, number, number], dy = 0, dz = 0) =>
+      extra(hip, new THREE.SphereGeometry(1, 24, 16), mat, [x, y + dy, z + dz], s);
+    // solado oval um pouco maior que o pé, rente ao chão
+    const sole = (sx: number, sz: number) => ball(m.sole, [sx, 0.03, sz], -0.065, 0.01);
+    // cano das botas em volta da perna (eixo do quadril), cobrindo a barra da calça
+    const shaft = (mat: THREE.Material, top: number, r: number) => {
+      const h = top - (y - 0.09);
+      return extra(hip, new THREE.CylinderGeometry(r, r - 0.008, h, 24), mat, [0, y - 0.09 + h / 2, 0]);
+    };
+    switch (kind) {
+      case 0: // descalço
+        ball(m.skin, [0.13, 0.075, 0.22], -0.015);
+        break;
+      case 1: // meia
+        ball(m.sock, [0.14, 0.08, 0.23], -0.01);
+        ball(m.sockTip, [0.105, 0.065, 0.08], -0.02, 0.17);
+        ball(m.sockTip, [0.105, 0.065, 0.07], -0.02, -0.14);
+        break;
+      case 3: // sapato social
+        ball(m.leather, [0.14, 0.075, 0.26], -0.015, 0.01);
+        sole(0.145, 0.265);
+        break;
+      case 4: { // salto alto: pé inclinado com a ponta no chão e o salto fino atrás
+        ball(m.heel, [0.135, 0.065, 0.25], 0, 0.02).rotation.x = 0.22;
+        extra(hip, new THREE.CylinderGeometry(0.03, 0.018, 0.075, 12), m.heel, [x, y - 0.055, z - 0.15]);
+        break;
+      }
+      case 5: // bota de segurança com biqueira de aço
+        ball(m.boot, [0.17, 0.1, 0.26], 0, 0.01);
+        shaft(m.boot, y + 0.16, 0.185);
+        ball(m.steel, [0.155, 0.085, 0.1], 0, 0.17);
+        sole(0.178, 0.27);
+        break;
+      case 6: { // galocha de borracha até a canela
+        ball(m.rubber, [0.16, 0.095, 0.25], 0, 0.01);
+        // a calça chega a 0,18 de fundo perto do joelho: o cano precisa ser mais largo
+        const top = y + 0.22;
+        shaft(m.rubber, top, 0.2);
+        extra(hip, new THREE.TorusGeometry(0.2, 0.022, 8, 24), m.rubber, [0, top, 0]).rotation.x = Math.PI / 2;
+        sole(0.168, 0.26);
+        break;
+      }
+      default:
+        shoe.visible = true;
+        break;
+    }
+  }
 }
 
 /** Raio da cabeça do GLB (Rosto), em unidades do modelo. */
@@ -226,21 +564,34 @@ function addAccessory(head: THREE.Object3D, body: THREE.Object3D, kind: number, 
   }
 }
 
-function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
-  const root = new THREE.Group();
-  const inner = model.scene.clone(true);
-  inner.scale.setScalar(model.scale * (HEIGHT_SCALE[dna.height] ?? 1));
-  root.add(inner);
+/** Peças dos GLBs que ficam de fora em todo boneco: bochecha rosa e o cinto, que marcava uma linha entre camisa e calça. */
+const HIDDEN_PARTS = ["Bochecha_D", "Bochecha_E", "Cinto"];
 
+function hideParts(inner: THREE.Object3D): void {
+  for (const n of HIDDEN_PARTS) {
+    const o = inner.getObjectByName(n);
+    if (o) o.visible = false;
+  }
+}
+
+/** Peça de outra skin com o mesmo pivô da Cabeca, então entra sem deslocamento. */
+function addPart(head: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material): void {
+  const m = new THREE.Mesh(geo, mat);
+  m.castShadow = true;
+  head.add(m);
+}
+
+/** Aplica o crachá sobre o boneco base: cores, penteado, barba, óculos e acessório. */
+function dress(inner: THREE.Object3D, dna: AvatarDNA, mats: THREE.Material[]): void {
   const palette = paletteFor(dna);
-  const mats: THREE.Material[] = [];
   inner.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     mesh.castShadow = true;
     const src = mesh.material as THREE.MeshStandardMaterial;
     const m = src.clone();
-    const color = palette[src.name];
+    // olhos, sobrancelhas e boca dividem o material "Olhos": a cor dos olhos vai pelo nome da peça
+    const color = mesh.name.startsWith("Olho_") ? new THREE.Color(EYE_COLORS[dna.eyes]) : palette[src.name];
     if (color) m.color.copy(color);
     // mechas do modelo são brilhantes e viram um reflexo cinza em cabelo recolorido
     if (src.name.startsWith("Cabelo")) m.roughness = 0.9;
@@ -250,8 +601,10 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
 
   const head = inner.getObjectByName("Cabeca");
   const body = inner.getObjectByName("Boneco");
-  // careca e moicano dispensam o cabelo curto do modelo
-  const baseHair = dna.hair !== 0 && dna.hair !== 5;
+  // com as peças da skin polo, todo penteado sai do mesmo cabelo e o do modelo base some
+  const strands = parts.hair !== undefined;
+  // careca, moicano e volumoso dispensam o cabelo curto do modelo
+  const baseHair = !strands && dna.hair !== 0 && dna.hair !== 5 && dna.hair !== 7;
   for (const n of ["Cabelo_Curto", "Mecha_1", "Mecha_2", "Mecha_3"]) {
     const o = inner.getObjectByName(n);
     if (o) o.visible = baseHair;
@@ -260,12 +613,43 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   if (cap) cap.visible = dna.accessory === 2;
   const hairMat = new THREE.MeshStandardMaterial({ color: palette.Cabelo, roughness: 0.9 });
   mats.push(hairMat);
+  // a cor por vértice da skin polo dá o desenho dos fios, a do material dá o tom
+  const strandMat = new THREE.MeshStandardMaterial({ color: palette.Cabelo, roughness: 0.9, vertexColors: true, side: THREE.DoubleSide });
+  mats.push(strandMat);
   if (head) {
-    addHair(head, dna.hair, hairMat);
-    if (dna.beard) addBeard(head, hairMat);
+    if (strands) {
+      const hair = hairFor(dna.hair, dna.accessory === 2);
+      if (hair) addPart(head, hair, strandMat);
+    } else {
+      addHair(head, dna.hair, hairMat);
+    }
+    const beard = beardFor(dna.beard);
+    if (beard) addPart(head, beard, strandMat);
+    else if (dna.beard) addBeard(head, hairMat);
     addGlasses(head, dna.glasses, mats);
   }
   if (head && body) addAccessory(head, body, dna.accessory, mats);
+  addShoes(inner, dna.shoes, palette.Pele, mats);
+}
+
+function glbCharacter(dna: AvatarDNA, base: Loaded): Character {
+  // skin pronta fica como veio; do crachá só vale a altura
+  const skin = dna.model !== 0 ? skins.get(dna.model) : undefined;
+  const model = skin ?? base;
+  const root = new THREE.Group();
+  const inner = model.scene.clone(true);
+  inner.scale.setScalar(model.scale * (HEIGHT_SCALE[dna.height] ?? 1));
+  root.add(inner);
+
+  const mats: THREE.Material[] = [];
+  hideParts(inner);
+  if (skin) {
+    inner.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+    });
+  } else {
+    dress(inner, dna, mats);
+  }
 
   const mixer = new THREE.AnimationMixer(inner);
   const walkClip = model.clips.get("Andar");
@@ -300,7 +684,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       a.reset().play();
     },
     dispose() {
-      // geometrias do GLB são compartilhadas entre clones; só as peças extras são deste boneco
+      // geometrias do GLB e das peças de skin são compartilhadas; só as peças extras são deste boneco
       mixer.stopAllAction();
       root.traverse((o) => {
         const mesh = o as THREE.Mesh;
