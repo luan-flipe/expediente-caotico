@@ -122,6 +122,7 @@ export function applyOption(p: PlayerSim, o: EvolutionOption): boolean {
 export function openNextChoice(m: Match, p: PlayerSim): void {
   if (p.options || p.pendingLevels <= 0) return;
   p.pendingLevels--;
+  p.choiceSeq++;
   p.options = generateOptions(p, m.rng);
   p.optionsExpireAt = Math.max(m.now, m.countdownEndsAt) + BALANCE.evolutionTimeoutMs;
 }
@@ -137,9 +138,9 @@ export function grantXp(m: Match, p: PlayerSim, amount: number): void {
   openNextChoice(m, p);
 }
 
-export function chooseEvolution(m: Match, playerId: string, optionId: string): boolean {
+export function chooseEvolution(m: Match, playerId: string, optionId: string, seq: number): boolean {
   const p = m.players.get(playerId);
-  if (!p?.options || m.phase === "finished") return false;
+  if (!p?.options || m.phase === "finished" || seq !== p.choiceSeq) return false;
   const opt = p.options.find((o) => o.id === optionId);
   if (!opt || !applyOption(p, opt)) return false;
   p.options = null;

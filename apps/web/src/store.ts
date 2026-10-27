@@ -106,6 +106,7 @@ export function leaveRoom(): void {
   } catch {
     /* sem storage */
   }
+  net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
   setState({ lobby: null, results: null, code: null, myId: null, snap: null, me: null, feed: [] });
@@ -153,6 +154,7 @@ function onMessage(msg: ServerMsg): void {
     }
     case "error":
       if (msg.msg === "Sessão expirada") leaveRoom();
+      if (msg.msg === "Sessão aberta em outra aba") setState({ lobby: null, snap: null, me: null });
       setState({ error: msg.msg });
       return;
     default:

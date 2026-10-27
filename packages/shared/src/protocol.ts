@@ -24,7 +24,8 @@ export const ClientMsg = z.discriminatedUnion("t", [
     yaw: num.min(-100).max(100),
     dist: num.min(0).max(100).optional(),
   }),
-  z.object({ t: z.literal("evolve"), optionId: z.string().max(32) }),
+  z.object({ t: z.literal("evolve"), optionId: z.string().max(32), seq: z.number().int().min(0) }),
+  z.object({ t: z.literal("leave") }),
   z.object({ t: z.literal("lobby") }),
   z.object({ t: z.literal("ping"), c: num }),
 ]);

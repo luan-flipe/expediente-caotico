@@ -14,7 +14,7 @@ export function stepBot(m: Match, p: PlayerSim): void {
   const rng = m.rng;
 
   if (p.options && m.now > p.optionsExpireAt - 6500) {
-    chooseEvolution(m, p.id, p.options[Math.floor(rng() * p.options.length)].id);
+    chooseEvolution(m, p.id, p.options[Math.floor(rng() * p.options.length)].id, p.choiceSeq);
   }
 
   if (m.now >= brain.nextThink) {

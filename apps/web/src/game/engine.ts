@@ -222,7 +222,7 @@ export class Engine {
       }
       if (k === "Digit1" || k === "Digit2" || k === "Digit3") {
         const opt = this.me?.options?.[Number(k.slice(-1)) - 1];
-        if (opt) net.send({ t: "evolve", optionId: opt.id });
+        if (opt) net.send({ t: "evolve", optionId: opt.id, seq: this.me!.optionsSeq });
       }
     });
     on<KeyboardEvent>("keyup", (e) => {
@@ -423,15 +423,23 @@ export class Engine {
     return v;
   }
 
+  /** Geometria e material compartilhados por tipo de projétil (evita alocar a cada tiro). */
+  private projectileParts = new Map<string, [THREE.BufferGeometry, THREE.Material]>();
+
   private projectileMesh(kind: string): THREE.Object3D {
-    const color = kind === "ball" ? "#f4f1ea" : (ABILITIES[kind as AbilityId]?.color ?? "#ffffff");
-    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.8, flatShading: true });
-    let geo: THREE.BufferGeometry;
-    if (kind === "A3") geo = new THREE.BoxGeometry(0.4, 0.02, 0.55);
-    else if (kind === "B2") geo = new THREE.BoxGeometry(0.28, 0.07, 0.07);
-    else if (kind === "B3") geo = new THREE.BoxGeometry(0.75, 0.55, 0.1);
-    else geo = new THREE.IcosahedronGeometry(0.2, 0);
-    const m = new THREE.Mesh(geo, mat);
+    let parts = this.projectileParts.get(kind);
+    if (!parts) {
+      const color = kind === "ball" ? "#f4f1ea" : (ABILITIES[kind as AbilityId]?.color ?? "#ffffff");
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.8, flatShading: true });
+      let geo: THREE.BufferGeometry;
+      if (kind === "A3") geo = new THREE.BoxGeometry(0.4, 0.02, 0.55);
+      else if (kind === "B2") geo = new THREE.BoxGeometry(0.28, 0.07, 0.07);
+      else if (kind === "B3") geo = new THREE.BoxGeometry(0.75, 0.55, 0.1);
+      else geo = new THREE.IcosahedronGeometry(0.2, 0);
+      parts = [geo, mat];
+      this.projectileParts.set(kind, parts);
+    }
+    const m = new THREE.Mesh(parts[0], parts[1]);
     m.castShadow = true;
     return m;
   }

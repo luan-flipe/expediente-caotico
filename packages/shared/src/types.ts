@@ -94,6 +94,8 @@ export interface PlayerSim {
   level: number;
   abilities: OwnedAbility[];
   options: EvolutionOption[] | null;
+  /** Incrementa a cada rodada de opções; a escolha precisa citar a rodada certa. */
+  choiceSeq: number;
   optionsExpireAt: number;
   pendingLevels: number;
   stats: Record<StatId, number>;
@@ -237,6 +239,7 @@ export interface PrivateState {
   abilities: (PublicAbility & { readyInMs: number; cooldownMs: number })[];
   dodgeInMs: number;
   options: EvolutionOption[] | null;
+  optionsSeq: number;
   optionsInMs: number;
   pendingLevels: number;
   synergies: string[];

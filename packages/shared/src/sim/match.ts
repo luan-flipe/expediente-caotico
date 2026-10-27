@@ -50,6 +50,7 @@ function makePlayer(info: MatchPlayerInfo, pos: { x: number; z: number }): Playe
     level: 1,
     abilities: [],
     options: null,
+    choiceSeq: 0,
     optionsExpireAt: 0,
     pendingLevels: 0,
     stats: { hp: 0, speed: 0, ball: 0 },
@@ -92,6 +93,7 @@ export function createMatch(opts: { durationMs: number; seed: number; players: M
   };
   opts.players.forEach((info, i) => {
     const p = makePlayer(info, spawns[i % spawns.length]);
+    p.choiceSeq = 1;
     p.options = generateOptions(p, rng);
     p.optionsExpireAt = countdownEndsAt + BALANCE.evolutionTimeoutMs;
     m.players.set(p.id, p);
@@ -290,6 +292,7 @@ export function buildPrivate(m: Match, id: string): PrivateState | null {
     })),
     dodgeInMs: Math.max(0, p.dodgeReadyAt - m.now),
     options: p.options,
+    optionsSeq: p.choiceSeq,
     optionsInMs: p.options ? Math.max(0, p.optionsExpireAt - m.now) : 0,
     pendingLevels: p.pendingLevels,
     synergies: activeSynergies(p.abilities).map((s) => s.name),

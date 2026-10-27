@@ -25,6 +25,8 @@ import { TokenBucket } from "./ratelimit";
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const BOT_NAMES = ["Estagiário Kevin", "Estagiária Bia", "Estagiário Davi", "Estagiária Lu", "Estagiário Téo", "Estagiária Mel", "Estagiário Juca"];
 const TICK_MS = 1000 / BALANCE.tickHz;
+/** Código de fechamento quando a mesma sessão é aberta em outra aba: o cliente não deve reconectar. */
+export const CLOSE_DUPLICATE = 4001;
 
 export interface Conn {
   ws: WebSocket;
@@ -33,6 +35,7 @@ export interface Conn {
   room?: Room;
   memberId?: string;
   invalid: number;
+  lastSeen: number;
 }
 
 interface Member {
@@ -135,6 +138,25 @@ export class Room {
   }
 
   private tick(): void {
+    try {
+      this.step();
+    } catch (err) {
+      console.error(`[${this.code}] erro na simulação, partida encerrada`, err);
+      this.crash();
+    }
+  }
+
+  /** Falha isolada: encerra só a partida desta sala e volta todos ao lobby. */
+  private crash(): void {
+    this.dispose();
+    this.match = null;
+    this.phase = "lobby";
+    for (const mem of this.members.values()) mem.ready = false;
+    this.broadcast({ t: "error", msg: "A partida travou e foi encerrada. Tentem de novo." });
+    this.broadcastLobby();
+  }
+
+  private step(): void {
     const m = this.match;
     if (!m) return;
     stepMatch(m, TICK_MS);
@@ -219,7 +241,7 @@ export class Room {
         else if (msg.slot !== undefined) queueAction(m, member.id, { kind: "ability", slot: msg.slot, yaw: msg.yaw, dist: msg.dist ?? 10 });
         return;
       case "evolve":
-        if (m) chooseEvolution(m, member.id, msg.optionId);
+        if (m) chooseEvolution(m, member.id, msg.optionId, msg.seq);
         return;
       default:
         return;
@@ -238,10 +260,15 @@ export class Room {
 export class RoomManager {
   rooms = new Map<string, Room>();
   private joinBuckets = new Map<string, TokenBucket>();
+  private conns = new Set<Conn>();
   private sweeper: NodeJS.Timeout;
 
-  constructor() {
-    this.sweeper = setInterval(() => this.sweep(), 1000);
+  constructor(private readonly idleMs: number) {
+    this.sweeper = setInterval(() => this.sweep(), 500);
+  }
+
+  track(conn: Conn): void {
+    this.conns.add(conn);
   }
 
   close(): void {
@@ -270,7 +297,7 @@ export class RoomManager {
     if (member.conn && member.conn !== conn) {
       send(member.conn, { t: "error", msg: "Sessão aberta em outra aba" });
       member.conn.room = undefined;
-      member.conn.ws.close();
+      member.conn.ws.close(CLOSE_DUPLICATE, "duplicada");
     }
     member.conn = conn;
     member.leftAt = null;
@@ -284,6 +311,15 @@ export class RoomManager {
   }
 
   onMessage(conn: Conn, raw: string): void {
+    conn.lastSeen = Date.now();
+    try {
+      this.route(conn, raw);
+    } catch (err) {
+      console.error("erro ao tratar mensagem", err);
+    }
+  }
+
+  private route(conn: Conn, raw: string): void {
     if (!conn.bucket.take()) return;
     let data: unknown;
     try {
@@ -297,12 +333,23 @@ export class RoomManager {
 
     if (msg.t === "ping") return send(conn, { t: "pong", c: msg.c });
     if (conn.room && conn.memberId) {
-      const member = conn.room.members.get(conn.memberId);
-      if (member && member.conn === conn) conn.room.handle(conn, member, msg);
+      const room = conn.room;
+      const member = room.members.get(conn.memberId);
+      if (!member || member.conn !== conn) return;
+      if (msg.t === "leave") {
+        room.removeMember(member.id);
+        room.syncConnected({ ...member, conn: null });
+        conn.room = undefined;
+        conn.memberId = undefined;
+        room.broadcastLobby();
+        return;
+      }
+      room.handle(conn, member, msg);
       return;
     }
 
     if (msg.t === "create") {
+      if (!this.joinAllowed(conn.ip)) return send(conn, { t: "error", msg: "Muitas tentativas. Aguarde um pouco." });
       const room = new Room(this.newCode());
       this.rooms.set(room.code, room);
       const avatar = sanitizeAvatar(msg.avatar);
@@ -336,6 +383,7 @@ export class RoomManager {
   }
 
   onClose(conn: Conn): void {
+    this.conns.delete(conn);
     const room = conn.room;
     const member = room && conn.memberId ? room.members.get(conn.memberId) : undefined;
     if (!room || !member || member.conn !== conn) return;
@@ -347,6 +395,9 @@ export class RoomManager {
 
   private sweep(): void {
     const now = Date.now();
+    for (const c of this.conns) {
+      if (now - c.lastSeen > this.idleMs) c.ws.terminate();
+    }
     for (const [code, room] of this.rooms) {
       for (const m of room.humans()) {
         if (m.leftAt !== null && now - m.leftAt > BALANCE.reconnectMs && room.phase !== "match") {

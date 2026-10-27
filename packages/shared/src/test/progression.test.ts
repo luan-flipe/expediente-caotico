@@ -63,10 +63,26 @@ describe("evolução", () => {
     const { m, ps } = activeMatch(1);
     const p = ps[0];
     const id = p.options![0].id;
-    expect(chooseEvolution(m, "p0", "nao-existe")).toBe(false);
-    expect(chooseEvolution(m, "p0", id)).toBe(true);
-    expect(chooseEvolution(m, "p0", id)).toBe(false);
+    expect(chooseEvolution(m, "p0", "nao-existe", p.choiceSeq)).toBe(false);
+    expect(chooseEvolution(m, "p0", id, 1)).toBe(true);
+    expect(chooseEvolution(m, "p0", id, 1)).toBe(false);
     expect(p.abilities).toHaveLength(1);
+  });
+
+  it("escolha repetida não consome a próxima rodada de opções", () => {
+    const { m, ps } = activeMatch(1);
+    const p = ps[0];
+    chooseEvolution(m, "p0", p.options![0].id, p.choiceSeq);
+    grantXp(m, p, xpToNext(1) + xpToNext(2));
+    expect(p.pendingLevels).toBe(1);
+    const seq = p.choiceSeq;
+    const opt = p.options![0];
+    expect(chooseEvolution(m, "p0", opt.id, seq)).toBe(true);
+    const next = p.options!;
+    const before = JSON.stringify(p.stats) + p.abilities.map((a) => a.level).join();
+    for (const o of next) expect(chooseEvolution(m, "p0", o.id, seq)).toBe(false);
+    expect(JSON.stringify(p.stats) + p.abilities.map((a) => a.level).join()).toBe(before);
+    expect(p.options).toBe(next);
   });
 
   it("tempo esgotado aplica a primeira opção", () => {
@@ -87,7 +103,7 @@ describe("evolução", () => {
       const ids = p.options!.map((o) => o.id);
       expect(new Set(ids).size).toBe(ids.length);
       const pickIdx = Math.floor(rng() * p.options!.length);
-      expect(chooseEvolution(m, p.id, p.options![pickIdx].id)).toBe(true);
+      expect(chooseEvolution(m, p.id, p.options![pickIdx].id, p.choiceSeq)).toBe(true);
       expect(p.abilities.length).toBeLessThanOrEqual(3);
       for (const a of p.abilities) {
         expect(a.level).toBeLessThanOrEqual(5);

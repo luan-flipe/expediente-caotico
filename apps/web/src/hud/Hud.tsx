@@ -161,7 +161,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
         </div>
       )}
 
-      {me?.options && <Evolution options={me.options} msLeft={me.optionsInMs} pending={me.pendingLevels} abilities={me.abilities} />}
+      {me?.options && <Evolution options={me.options} seq={me.optionsSeq} msLeft={me.optionsInMs} pending={me.pendingLevels} abilities={me.abilities} />}
 
       {snap.phase === "countdown" && (
         <div className="center-msg">

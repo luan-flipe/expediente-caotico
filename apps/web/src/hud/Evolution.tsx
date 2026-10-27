@@ -9,7 +9,7 @@ const TYPE_TEXT: Record<EvolutionOption["type"], string> = {
 };
 const ROMAN = ["", "I", "II", "III", "IV", "V"];
 
-export function Evolution({ options, msLeft, pending, abilities }: { options: EvolutionOption[]; msLeft: number; pending: number; abilities: PrivateState["abilities"] }) {
+export function Evolution({ options, seq, msLeft, pending, abilities }: { options: EvolutionOption[]; seq: number; msLeft: number; pending: number; abilities: PrivateState["abilities"] }) {
   const full = abilities.length >= BALANCE.maxAbilities;
   return (
     <div className="evolution">
@@ -19,7 +19,7 @@ export function Evolution({ options, msLeft, pending, abilities }: { options: Ev
       </h3>
       <div className="evo-cards">
         {options.map((o, i) => (
-          <button key={o.id} className="evo-card" onClick={() => net.send({ t: "evolve", optionId: o.id })}>
+          <button key={o.id} className="evo-card" onClick={() => net.send({ t: "evolve", optionId: o.id, seq })}>
             <span className="k">{i + 1}</span>
             <div className="type">{TYPE_TEXT[o.type]}</div>
             <div className="t">{o.title}</div>

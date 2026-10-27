@@ -2,6 +2,9 @@ import type { ClientMsg, ServerMsg } from "@ec/shared";
 
 type Session = { code: string; token: string } | null;
 
+/** Mesmo código usado pelo servidor ao abrir a sessão em outra aba. */
+const CLOSE_DUPLICATE = 4001;
+
 /** WebSocket com reconexão automática por token (até 30 s). */
 export class Connection {
   private ws: WebSocket | null = null;
@@ -39,10 +42,11 @@ export class Connection {
       this.onMsg(msg);
       for (const l of this.extraListeners) l(msg);
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       this.onStatus(false);
       if (this.ws !== ws || this.closedByUser) return;
       this.ws = null;
+      if (ev.code === CLOSE_DUPLICATE) return;
       const s = this.session();
       if (!s) return;
       if (!this.retryUntil) this.retryUntil = Date.now() + 30000;
