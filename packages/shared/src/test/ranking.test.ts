@@ -209,6 +209,17 @@ describe("voltas", () => {
     expect(pts(d, "b")).toBe(RECORD_POINTS);
   });
 
+  it("melhorar o próprio recorde continua sendo recorde, mas não soma pontos de novo", () => {
+    const d = dataWith(["a", "b"]);
+    applyLap(d, TRACK, "b", 52000, ghost(2), NOW);
+    applyLap(d, TRACK, "a", 50000, ghost(2), NOW + 1);
+    expect(pts(d, "a")).toBe(RECORD_POINTS);
+    expect(applyLap(d, TRACK, "a", 49000, ghost(3), NOW + 2)).toEqual({ personalBest: true, record: true });
+    expect(applyLap(d, TRACK, "a", 48000, ghost(3), NOW + 3)).toEqual({ personalBest: true, record: true });
+    expect(pts(d, "a")).toBe(RECORD_POINTS);
+    expect(d.laps[TRACK].a.ms).toBe(48000);
+  });
+
   it("empatar o recorde da firma não é recorde novo", () => {
     const d = dataWith(["a", "b"]);
     applyLap(d, TRACK, "a", 50000, ghost(2), NOW);

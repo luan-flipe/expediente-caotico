@@ -91,10 +91,12 @@ export function applyLap(data: RankingData, trackId: string, accountId: string, 
   const mine = board[accountId];
   if (mine && ms >= mine.ms) return { personalBest: false, record: false };
   const record = Object.values(board).every((l) => ms < l.ms);
+  const holder = Object.entries(board).sort((x, y) => x[1].ms - y[1].ms)[0]?.[0] ?? null;
   board[accountId] = { ms, at: now, ghost };
   const s = statsOf(data, accountId);
   s.bestLapMs = s.bestLapMs === null ? ms : Math.min(s.bestLapMs, ms);
-  if (record) addPoints(data, now, accountId, RECORD_POINTS);
+  // os pontos são por tomar o recorde de alguém; melhorar o próprio não pontua de novo
+  if (record && holder !== accountId) addPoints(data, now, accountId, RECORD_POINTS);
   return { personalBest: true, record };
 }
 
