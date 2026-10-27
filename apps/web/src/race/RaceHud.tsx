@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ITEM_NAMES, type ItemId } from "@ec/shared";
+import { ITEM_NAMES, RACE, type ItemId } from "@ec/shared";
 import { useStore } from "../store";
 import { Minimap } from "./Minimap";
 
@@ -38,6 +38,22 @@ export function RaceHud({ myId }: { myId: string }) {
   const now = performance.now();
   const order = [...snap.karts].sort((a, b) => a.place - b.place);
   const frozen = snap.karts.find((k) => k.id === myId)?.flags.includes("frozen");
+  const introLeft = snap.phase === "countdown" ? snap.countdownMs - (RACE.countdownMs - RACE.introMs) : 0;
+
+  if (introLeft > 0) {
+    const first = introLeft > RACE.introMs * 0.45;
+    return (
+      <div className="hud cutscene">
+        <div className="bar top" />
+        <div className="bar bottom">
+          <div className="speech">
+            <strong>Comandante</strong>
+            {first ? "Bom dia, firma! Aqui é o Comandante, sobrevoando o Circuito Corporativo." : "Cintos afivelados, café na mão. Pilotos, liberados para a largada!"}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="hud">
@@ -95,7 +111,7 @@ export function RaceHud({ myId }: { myId: string }) {
       {snap.phase === "countdown" && (
         <div className="center-msg">
           <div className="big-count">{Math.max(1, Math.ceil(snap.countdownMs / 1000))}</div>
-          <div className="panel race-help">W acelera · A/D vira · Espaço derrapa (solte para o turbo) · E usa item · R volta para a pista</div>
+          <div className="panel race-help">W acelera · A/D vira · Espaço derrapa (solte para o turbo) · E usa item · R volta para a pista · M som</div>
         </div>
       )}
       {snap.phase === "active" && snap.elapsedMs < 900 && (

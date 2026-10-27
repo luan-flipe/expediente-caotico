@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   ITEM_IDS,
   NO_INPUT,
+  pointAt,
   RACE,
   TRACK,
   newKart,
@@ -18,6 +19,7 @@ import {
 import { modelReady } from "../game/character";
 import { net, setState } from "../store";
 import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
+import { createCommander, type Commander } from "./commander";
 import { buildTrack } from "./trackScene";
 
 interface Sample {
@@ -107,6 +109,10 @@ export class RaceEngine {
   private hazards = new Map<number, HazardView>();
   private people = new Map<string, { avatar: AvatarDNA; chair: ChairDNA }>();
   private snap: RaceSnapshot | null = null;
+  private snapAt = 0;
+  private commander: Commander | null;
+  private listener = new THREE.AudioListener();
+  private muted = false;
   private me: RacePrivate | null = null;
   private keys = new Set<string>();
   /** Previsão da própria cadeira: passo fixo de 30 Hz, igual ao servidor. */
@@ -149,6 +155,9 @@ export class RaceEngine {
     sun.shadow.bias = -0.0006;
     this.scene.add(sun);
     buildTrack(this.scene);
+    this.camera.add(this.listener);
+    this.commander = createCommander(this.listener);
+    if (this.commander) this.scene.add(this.commander.root);
     this.bindInput();
     this.raf = requestAnimationFrame(this.loop);
   }
@@ -164,6 +173,10 @@ export class RaceEngine {
       this.cleanup.push(() => window.removeEventListener(t, fn as EventListener));
     };
     on("blur", () => this.keys.clear());
+    // o navegador só libera som depois de um gesto do jogador
+    const unlock = () => void this.listener.context.resume();
+    on("keydown", unlock);
+    on("mousedown", unlock);
     on<MouseEvent>("mousedown", (e) => {
       if (e.button === 0 && e.target === this.canvas) this.useItem();
     });
@@ -175,6 +188,10 @@ export class RaceEngine {
       if (e.repeat) return;
       if (k === "KeyE" || k === "KeyF") this.useItem();
       if (k === "KeyR" && this.snap?.phase === "active") net.send({ t: "krespawn" });
+      if (k === "KeyM") {
+        this.muted = !this.muted;
+        this.listener.setMasterVolume(this.muted ? 0 : 1);
+      }
       if (import.meta.env.DEV && /^Digit[1-8]$/.test(k)) net.send({ t: "kdebug", item: ITEM_IDS[Number(k.slice(-1)) - 1] });
     });
     on<KeyboardEvent>("keyup", (e) => {
@@ -201,6 +218,7 @@ export class RaceEngine {
   applySnapshot(s: RaceSnapshot, me: RacePrivate | null): void {
     const now = performance.now();
     this.snap = s;
+    this.snapAt = now;
     this.me = me;
     const seen = new Set<string>();
     for (const k of s.karts) {
@@ -448,7 +466,13 @@ export class RaceEngine {
       if (h.vx || h.vz) h.obj.rotation.y = Math.atan2(h.vx, h.vz);
     }
 
-    this.updateCamera(dt);
+    // Comandante e cena de abertura seguem o relógio do servidor, então todos veem o mesmo voo
+    const since = now - this.snapAt;
+    const intro = this.snap?.phase === "countdown" ? RACE.countdownMs - this.snap.countdownMs + since : RACE.introMs;
+    const raceMs = this.snap && this.snap.phase !== "countdown" ? this.snap.elapsedMs + since : null;
+    this.commander?.update(dt, intro, raceMs);
+    if (intro < RACE.introMs) this.cutsceneCamera(intro / RACE.introMs, dt);
+    else this.updateCamera(dt);
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -479,6 +503,37 @@ export class RaceEngine {
     if (boosting) v.flame.scale.set(1, flick, 1);
     v.bubble.visible = flags.has("pasta");
     v.r3d.root.visible = !flags.has("frozen") || Math.floor(performance.now() / 120) % 2 === 0;
+  }
+
+  /** Abertura: primeiro segue o Comandante pela reta final, depois mostra o grid com ele chegando. */
+  private cutsceneCamera(u: number, dt: number): void {
+    const start = pointAt(TRACK, 0).pos;
+    const c = this.commander?.root.position ?? new THREE.Vector3(start.x, 5.5, start.z);
+    let want: THREE.Vector3;
+    let look: THREE.Vector3;
+    if (u < 0.55) {
+      const h = pointAt(TRACK, -40).heading;
+      want = new THREE.Vector3(c.x - Math.sin(h) * 11 + Math.cos(h) * 4, c.y + 3, c.z - Math.cos(h) * 11 - Math.sin(h) * 4);
+      look = new THREE.Vector3(c.x, c.y + 1.6, c.z);
+    } else {
+      // atrás do grid: as cadeiras de costas e o Comandante sobre o pórtico, de frente para elas
+      const back = pointAt(TRACK, TRACK.length - 17);
+      want = new THREE.Vector3(back.pos.x, 2.4, back.pos.z);
+      look = new THREE.Vector3(c.x, c.y - 1.2, c.z);
+    }
+    const snap = !this.camReady || u < 0.02 || Math.abs(u - 0.55) < 0.02;
+    const k = snap ? 1 : 1 - Math.exp(-dt * 4);
+    this.camPos.lerp(want, k);
+    this.camLook.lerp(look, k);
+    this.camReady = true;
+    this.camera.position.copy(this.camPos);
+    this.camera.lookAt(this.camLook);
+    // zoom na tomada do grid para o Comandante aparecer sobre o pórtico
+    const fov = u < 0.55 ? 62 : 56;
+    if (this.camera.fov !== fov) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   private updateCamera(dt: number): void {
@@ -521,7 +576,12 @@ export class RaceEngine {
   dispose(): void {
     cancelAnimationFrame(this.raf);
     for (const c of this.cleanup) c();
-    // bonecos compartilham geometria do GLB: saem da cena antes da limpeza geral
+    // bonecos e Comandante compartilham geometria do GLB: saem da cena antes da limpeza geral
+    if (this.commander) {
+      this.scene.remove(this.commander.root);
+      this.commander.dispose();
+    }
+    this.camera.remove(this.listener);
     for (const v of this.views.values()) {
       this.scene.remove(v.r3d.root);
       v.r3d.dispose();

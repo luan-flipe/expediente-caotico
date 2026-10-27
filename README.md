@@ -55,6 +55,7 @@ Pontos: eliminação 100, assistência 40, 10 a cada 5 s sozinho na Reunião Rel
 | Espaço (segurar) | derrapar na curva; soltar depois de 0,8 s dá turbo, depois de 1,6 s dá turbo maior |
 | E ou clique | usar o item |
 | R | voltar para a pista (no último checkpoint, 2 s parado) |
+| M | ligar e desligar o som |
 | Tab | classificação |
 
 Todas as cadeiras têm a mesma física; a aba **Cadeira** do editor muda só a aparência (estofado, base, rodas, encosto e enfeite).
@@ -69,6 +70,8 @@ Todas as cadeiras têm a mesma física; a aba **Cadeira** do editor muda só a a
 | Aviãozinho de Papel | persegue quem está logo à frente (nunca o 1º) |
 | Pasta do Jurídico | bloqueia o próximo ataque por 8 s |
 | Post-it na Tela | cobre a tela de quem está logo à frente por 2 s (nunca o 1º) |
+
+Antes da largada, o Comandante chega de helicóptero na cena de abertura e depois sobrevoa a pista durante a corrida (modelo em `apps/web/public/assets/characters/comandante_helicoptero.glb`, cena em `apps/web/src/race/commander.ts`).
 
 Quem está na metade de trás tira mais turbo e aviãozinho; quem está na frente, mais defesa e armadilha. Em modo dev, as teclas 1 a 8 dão um item específico para testar.
 

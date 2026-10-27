@@ -22,7 +22,9 @@ export const RACE = {
   carpetWidth: 3,
   kartRadius: 0.7,
   laps: 3,
-  countdownMs: 3000,
+  /** Tempo antes da largada: cena de abertura do Comandante (introMs) e depois 3, 2, 1. */
+  countdownMs: 8000,
+  introMs: 5000,
   finishGraceMs: 30000,
   maxRaceMs: 6 * 60000,
   respawnPenaltyMs: 2000,
