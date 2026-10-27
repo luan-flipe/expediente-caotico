@@ -13,7 +13,7 @@ import {
   type AvatarDNA,
 } from "@ec/shared";
 import { AvatarPreview } from "../game/AvatarPreview";
-import { avatarThumbnail } from "../game/avatarMesh";
+import { avatarThumbnail } from "../game/character";
 import { saveAvatar, setState, useStore } from "../store";
 
 type NumKey = "skin" | "hair" | "hairColor" | "glasses" | "shirt" | "pants" | "accessory" | "height";
@@ -44,7 +44,8 @@ export function Creator() {
   const saved = useStore((s) => s.avatar);
   const [dna, setDna] = useState<AvatarDNA>(saved);
   const set = (k: NumKey) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
-  const thumbs = useMemo(() => PRESETS.map((p) => avatarThumbnail(p.dna, 120)), []);
+  const ready = useStore((s) => s.modelReady);
+  const thumbs = useMemo(() => PRESETS.map((p) => avatarThumbnail(p.dna, 120)), [ready]);
 
   const done = () => {
     saveAvatar(dna);

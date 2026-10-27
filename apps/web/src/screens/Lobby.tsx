@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { BALANCE, DURATIONS_MS } from "@ec/shared";
-import { avatarThumbnail } from "../game/avatarMesh";
+import { avatarThumbnail } from "../game/character";
 import { leaveRoom, net, setState, useStore } from "../store";
 
 export function Lobby() {
@@ -8,6 +8,7 @@ export function Lobby() {
   const myId = useStore((s) => s.myId);
   const error = useStore((s) => s.error);
   const online = useStore((s) => s.online);
+  useStore((s) => s.modelReady);
   const [copied, setCopied] = useState(false);
   const isHost = lobby.hostId === myId;
   const me = lobby.players.find((p) => p.id === myId);

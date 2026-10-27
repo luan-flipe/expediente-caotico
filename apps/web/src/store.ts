@@ -22,6 +22,8 @@ export interface State {
   me: PrivateState | null;
   feed: FeedItem[];
   scoreboard: boolean;
+  /** boneco.glb carregado; telas refazem miniaturas e prévias. */
+  modelReady: boolean;
 }
 
 const AVATAR_KEY = "ec.avatar";
@@ -50,6 +52,7 @@ let state: State = {
   me: null,
   feed: [],
   scoreboard: false,
+  modelReady: false,
 };
 const listeners = new Set<() => void>();
 
