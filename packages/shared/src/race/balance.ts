@@ -7,6 +7,7 @@ export const RACE = {
   reverseMax: 5,
   turnRate: 2.4,
   minTurnRadius: 3.5,
+  spinInPlace: 1.3,
   driftTurnBonus: 0.45,
   driftMinSpeed: 8,
   driftSlipRad: 0.22,

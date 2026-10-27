@@ -4,6 +4,7 @@ import { net, saveAvatar, setState, useStore } from "../store";
 
 export function Home() {
   const avatar = useStore((s) => s.avatar);
+  const chair = useStore((s) => s.chair);
   const error = useStore((s) => s.error);
   const [code, setCode] = useState(() => new URLSearchParams(location.search).get("sala")?.toUpperCase() ?? "");
   const [name, setName] = useState(avatar.name);
@@ -16,14 +17,14 @@ export function Home() {
     commitName();
     setState({ error: null });
     net.ensure();
-    net.send({ t: "create", name: name || avatar.name, avatar });
+    net.send({ t: "create", name: name || avatar.name, avatar, chair });
   };
 
   const join = () => {
     commitName();
     setState({ error: null });
     net.ensure();
-    net.send({ t: "join", code: code.trim().toUpperCase(), name: name || avatar.name, avatar });
+    net.send({ t: "join", code: code.trim().toUpperCase(), name: name || avatar.name, avatar, chair });
   };
 
   return (

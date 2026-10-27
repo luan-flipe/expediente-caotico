@@ -10,8 +10,13 @@ export interface Character {
   root: THREE.Group;
   update(dt: number, speed01: number): void;
   play(action: CharacterAction): void;
+  /** Pose sentada (modo corrida): pernas para a frente e braços no apoio. Para as animações. */
+  sit(): void;
   dispose(): void;
 }
+
+/** Altura do quadril do boneco em pé, para encaixar no assento. */
+export const HIP_HEIGHT = 0.82;
 
 const MODEL_URL = "/assets/characters/boneco.glb";
 const TARGET_HEIGHT = 1.75;
@@ -284,9 +289,11 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     actions.set(k, a);
   }
 
+  let seated = false;
   return {
     root,
     update(dt, speed01) {
+      if (seated) return;
       const busy = [...actions.values()].some((a) => a.isRunning());
       if (walk) {
         walk.setEffectiveWeight(busy ? 0 : speed01);
@@ -298,6 +305,19 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       const a = actions.get(action);
       if (!a || (a.isRunning() && action !== "throw")) return;
       a.reset().play();
+    },
+    sit() {
+      seated = true;
+      mixer.stopAllAction();
+      for (const [n, x] of [
+        ["Quadril_D", -Math.PI / 2],
+        ["Quadril_E", -Math.PI / 2],
+        ["Ombro_D", -0.75],
+        ["Ombro_E", -0.75],
+      ] as const) {
+        const o = inner.getObjectByName(n);
+        if (o) o.rotation.x = x;
+      }
     },
     dispose() {
       // geometrias do GLB são compartilhadas entre clones; só as peças extras são deste boneco
@@ -315,15 +335,22 @@ function proceduralCharacter(dna: AvatarDNA): Character {
   const rig = buildAvatar(dna);
   let t = 0;
   let aimUntil = 0;
+  let seated = false;
   return {
     root: rig.root,
     update(dt, speed01) {
+      if (seated) return;
       t += dt * Math.max(0.05, speed01);
       aimUntil -= dt;
       animateAvatar(rig, speed01, t, aimUntil > 0);
     },
     play(action) {
       if (action === "throw") aimUntil = ACTION_SECONDS.throw;
+    },
+    sit() {
+      seated = true;
+      rig.legL.rotation.x = rig.legR.rotation.x = -Math.PI / 2;
+      rig.armL.rotation.x = rig.armR.rotation.x = -0.75;
     },
     dispose() {
       disposeAvatar(rig);

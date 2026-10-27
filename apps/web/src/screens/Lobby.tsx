@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { BALANCE, DURATIONS_MS } from "@ec/shared";
+import { BALANCE, DURATIONS_MS, RACE } from "@ec/shared";
 import { avatarThumbnail } from "../game/character";
+import { chairThumbnail } from "../race/chairMesh";
 import { leaveRoom, net, setState, useStore } from "../store";
 
 export function Lobby() {
@@ -15,6 +16,7 @@ export function Lobby() {
   const link = `${location.origin}${location.pathname}?sala=${lobby.code}`;
   const bots = lobby.players.filter((p) => p.isBot).length;
   const full = lobby.players.length >= BALANCE.maxPlayers;
+  const race = lobby.mode === "race";
 
   const copy = async () => {
     try {
@@ -57,7 +59,7 @@ export function Lobby() {
             {lobby.players.map((p) => (
               <div className="slot" key={p.id}>
                 {p.id === lobby.hostId && <span className="tag host">ANFITRIÃO</span>}
-                <img src={avatarThumbnail(p.avatar)} alt={p.name} />
+                <img src={race ? chairThumbnail(p.avatar, p.chair) : avatarThumbnail(p.avatar)} alt={p.name} />
                 <div className="who">
                   <span>
                     {p.name}
@@ -87,7 +89,7 @@ export function Lobby() {
                 </button>
               )}
               <button className="btn" onClick={() => setState({ editing: true })}>
-                Editar boneco
+                {race ? "Editar boneco e cadeira" : "Editar boneco"}
               </button>
               <button className="btn" onClick={leaveRoom}>
                 Sair da sala
@@ -100,15 +102,32 @@ export function Lobby() {
               {isHost ? "Controle do anfitrião" : "Configuração da partida"}
             </p>
             <div className="row">
-              <span className="muted">Duração:</span>
+              <span className="muted">Modo:</span>
               <div className="seg">
-                {DURATIONS_MS.map((ms) => (
-                  <button key={ms} className={lobby.durationMs === ms ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "duration", ms })}>
-                    {ms / 60000} min
-                  </button>
-                ))}
+                <button className={!race ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "shooter" })}>
+                  Tiroteio
+                </button>
+                <button className={race ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "race" })}>
+                  Rally da Firma
+                </button>
               </div>
             </div>
+            {race ? (
+              <div className="row">
+                <span className="muted">Corrida de cadeiras: {RACE.laps} voltas no Circuito Corporativo, até {RACE.maxPlayers} pilotos.</span>
+              </div>
+            ) : (
+              <div className="row">
+                <span className="muted">Duração:</span>
+                <div className="seg">
+                  {DURATIONS_MS.map((ms) => (
+                    <button key={ms} className={lobby.durationMs === ms ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "duration", ms })}>
+                      {ms / 60000} min
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {isHost && (
               <>
                 <div className="row">
@@ -120,7 +139,7 @@ export function Lobby() {
                   </button>
                 </div>
                 <button className="btn primary" onClick={() => net.send({ t: "start" })}>
-                  Iniciar expediente
+                  {race ? "Iniciar corrida" : "Iniciar expediente"}
                 </button>
               </>
             )}

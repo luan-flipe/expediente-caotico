@@ -48,6 +48,12 @@ describe("física da cadeira", () => {
     expect(radius(16)).toBeGreaterThan(radius(6) + 1);
   });
 
+  it("parada gira no lugar (cadeira de escritório)", () => {
+    const { s } = run(newKart({ x: 0, z: 0 }, 0), { steer: 1, throttle: 0, drift: false }, 500);
+    expect(Math.abs(s.heading)).toBeGreaterThan(0.4);
+    expect(s.pos).toEqual({ x: 0, z: 0 });
+  });
+
   it("parede de frente corta pelo menos metade da velocidade e não atravessa", () => {
     const at = pointAt(TRACK, 30);
     const k: KartState = { ...newKart(at.pos, at.heading + Math.PI / 2), speed: 16 };
@@ -56,6 +62,22 @@ describe("física da cadeira", () => {
     expect(s.speed).toBeLessThanOrEqual(8);
     const pr = progressOf(TRACK, s.pos);
     expect(pr.dist).toBeLessThanOrEqual(pr.halfWidth - RACE.kartRadius + 1e-6);
+  });
+
+  it("encostada de frente na parede, virando e acelerando sai e segue a pista", () => {
+    const at = pointAt(TRACK, 30);
+    let k: KartState = { ...newKart(at.pos, at.heading + Math.PI / 2), speed: 10 };
+    k = run(k, GAS, 500, 0, TRACK).s;
+    const s0 = progressOf(TRACK, k.pos).s;
+    let now = 500;
+    for (let t = 0; t < 3000; t += DT) {
+      now += DT;
+      const pr = progressOf(TRACK, k.pos);
+      const want = pointAt(TRACK, pr.s + 6).heading;
+      const diff = Math.atan2(Math.sin(want - k.heading), Math.cos(want - k.heading));
+      k = stepKart(k, { steer: Math.max(-1, Math.min(1, -diff * 2.5)), throttle: 1, drift: false }, DT, now, TRACK).state;
+    }
+    expect(progressOf(TRACK, k.pos).s - s0).toBeGreaterThan(15);
   });
 
   it("derrapagem: 0,9 s dá turbo de 600 ms, 1,7 s dá 1000 ms, menos de 0,8 s não dá", () => {

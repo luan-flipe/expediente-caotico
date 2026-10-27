@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import type { AvatarDNA } from "@ec/shared";
+import type { AvatarDNA, ChairDNA } from "@ec/shared";
+import { seatedRacer } from "../race/chairMesh";
 import { useStore } from "../store";
 import { createCharacter, type Character } from "./character";
 
-/** Prévia 3D girando. Arraste para girar. */
-export function AvatarPreview({ dna, className }: { dna: AvatarDNA; className?: string }) {
+/** Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira. */
+export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair?: ChairDNA; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const rigRef = useRef<Character | null>(null);
   const ready = useStore((s) => s.modelReady);
@@ -81,7 +82,7 @@ export function AvatarPreview({ dna, className }: { dna: AvatarDNA; className?: 
     const scene = sceneRef.current;
     if (!scene) return;
     const old = rigRef.current;
-    const rig = createCharacter(dna);
+    const rig: Character = chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit() {} } : createCharacter(dna);
     if (old) {
       rig.root.rotation.y = old.root.rotation.y;
       scene.remove(old.root);
@@ -89,7 +90,7 @@ export function AvatarPreview({ dna, className }: { dna: AvatarDNA; className?: 
     }
     scene.add(rig.root);
     rigRef.current = rig;
-  }, [dna, ready]);
+  }, [dna, chair, ready]);
 
   return <canvas ref={ref} className={className} />;
 }

@@ -97,8 +97,9 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   } else if (s.drifting) {
     s.heading -= (s.driftDir * 0.6 + steer * 0.4) * RACE.turnRate * (1 + RACE.driftTurnBonus) * dt;
   } else {
-    const omega = Math.min(RACE.turnRate, Math.abs(s.speed) / RACE.minTurnRadius);
-    s.heading -= steer * omega * Math.sign(s.speed) * dt;
+    // cadeira gira no lugar mesmo parada; acima disso, o raio mínimo cresce com a velocidade
+    const omega = Math.min(RACE.turnRate, Math.max(RACE.spinInPlace, Math.abs(s.speed) / RACE.minTurnRadius));
+    s.heading -= steer * omega * (s.speed < 0 ? -1 : 1) * dt;
   }
   s.heading = Math.atan2(Math.sin(s.heading), Math.cos(s.heading));
 
