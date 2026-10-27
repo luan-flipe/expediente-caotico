@@ -111,9 +111,9 @@ Quando o primeiro cruza a terceira volta, começa uma contagem de 30 s para os d
 - Nas primeiras 10 corridas do grupo, o vencedor não é decidido por um único item na última volta em mais de 2 delas (perguntar ao grupo).
 - O grupo alterna entre os dois modos na mesma sessão.
 
-## 7. Perguntas em aberto
-| Pergunta | Quem | Bloqueia? |
-|---|---|---|
-| Nome do modo no menu ("Rally da Firma"?) | Luan | Não |
-| A pista deve imitar o escritório real quando o mapa real existir? | Luan e grupo | Não |
-| O romulo-h quer modelar a cadeira em GLB como fez com o boneco? Se sim, a cadeira procedural vira fallback | romulo-h | Não |
+## 7. Decisões das perguntas em aberto (27/10/2026)
+| Pergunta | Decisão |
+|---|---|
+| Nome do modo no menu | "Rally da Firma", aprovado pelo Luan |
+| A pista deve imitar o escritório real? | Sim, quando o mapa real existir. A v1 usa o Circuito Corporativo e a pista fica em `race/track.ts` para ser trocada |
+| Cadeira em GLB? | Sim, o romulo-h vai modelar e enviar. Até lá a cadeira procedural é usada, e ela vira fallback depois |
