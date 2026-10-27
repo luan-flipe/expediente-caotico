@@ -17,7 +17,7 @@ import {
 } from "@ec/shared";
 import { modelReady } from "../game/character";
 import { net, setState } from "../store";
-import { seatedRacer, type Racer3D } from "./chairMesh";
+import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
 import { buildTrack } from "./trackScene";
 
 interface Sample {
@@ -297,7 +297,7 @@ export class RaceEngine {
 
   private viewFor(k: RaceKartPublic): KartView {
     const person = this.people.get(k.id);
-    const key = JSON.stringify(person ?? k.name) + (modelReady() ? "|glb" : "");
+    const key = JSON.stringify(person ?? k.name) + (modelReady() ? "|glb" : "") + (chairModelReady() ? "|cadeira" : "");
     const old = this.views.get(k.id);
     if (old && old.key === key) return old;
     const r3d = seatedRacer(
@@ -316,9 +316,11 @@ export class RaceEngine {
       body.add(m);
       return m;
     });
-    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.8, 10), new THREE.MeshBasicMaterial({ color: "#ff8a2b", transparent: true, opacity: 0.85 }));
+    // turbo: jato de espuma do extintor (GLB) ou chama na cadeira procedural
+    const foam = chairModelReady();
+    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.8, 10), new THREE.MeshBasicMaterial({ color: foam ? "#eef6ff" : "#ff8a2b", transparent: true, opacity: 0.85 }));
     flame.rotation.x = -Math.PI / 2;
-    flame.position.set(0, 0.35, -0.75);
+    flame.position.set(r3d.exhaust.x, r3d.exhaust.y, r3d.exhaust.z - 0.4);
     flame.visible = false;
     body.add(flame);
     const bubble = new THREE.Mesh(new THREE.SphereGeometry(1.1, 18, 12), new THREE.MeshBasicMaterial({ color: "#8f9cff", transparent: true, opacity: 0.2, depthWrite: false }));
@@ -459,6 +461,7 @@ export class RaceEngine {
     const driftDir = own ? own.driftDir : k.driftDir;
     const boosting = own ? t < own.boostUntil : flags.has("boost");
     const spinning = own ? t < own.spinUntil : flags.has("spin");
+    v.r3d.update(dt, own ? own.speed : k.speed);
     v.r3d.root.position.set(x, 0, z);
     v.r3d.root.rotation.y = heading;
     v.spin = spinning ? v.spin + dt * 12 : 0;
