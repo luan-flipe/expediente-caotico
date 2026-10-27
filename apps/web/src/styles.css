@@ -1071,3 +1071,39 @@ input {
     width: 140px;
   }
 }
+
+/* cena de abertura do Comandante */
+.cutscene .bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 13vh;
+  background: #0c0b09;
+}
+
+.cutscene .bar.top {
+  top: 0;
+}
+
+.cutscene .bar.bottom {
+  bottom: 0;
+  display: grid;
+  place-items: center;
+}
+
+.cutscene .speech {
+  max-width: 760px;
+  padding: 0 16px;
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  color: #fffdf7;
+}
+
+.cutscene .speech strong {
+  display: block;
+  color: var(--postit);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

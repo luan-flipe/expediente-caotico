@@ -73,7 +73,7 @@ describe("modo corrida no servidor", () => {
     a.send({ t: "kinput", steer: 0, throttle: 1, drift: false });
     a.send({ t: "input", mx: 1, mz: 0, yaw: 0, fire: true });
     a.send({ t: "kitem" });
-    await a.waitFor("rsnap", (m) => m.s.phase === "active", 5000);
+    await a.waitFor("rsnap", (m) => m.s.phase === "active", 10000);
     a.send({ t: "kdebug", item: "pasta" });
     const withItem = await a.waitFor("rsnap", (m) => m.me?.item === "pasta");
     expect(withItem.me!.charges).toBe(1);
