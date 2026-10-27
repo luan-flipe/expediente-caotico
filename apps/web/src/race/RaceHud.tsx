@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ITEM_NAMES, RACE, type ItemId } from "@ec/shared";
+import { keyLabel, useSettings } from "../settings";
 import { net, useStore } from "../store";
 import { Minimap } from "./Minimap";
 
@@ -30,6 +31,7 @@ export function RaceHud({ myId }: { myId: string }) {
   const online = useStore((s) => s.online);
   const ghosts = useStore((s) => s.ghosts);
   const isHost = useStore((s) => s.lobby?.hostId === myId);
+  const keys = useSettings().keys.race;
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 120);
@@ -110,7 +112,7 @@ export function RaceHud({ myId }: { myId: string }) {
         <div className={`race-item ${me.item ? "full" : ""}`}>
           <div className="ico">{me.item ? ITEM_ICON[me.item] : ""}</div>
           <div className="name">{me.item ? `${ITEM_NAMES[me.item]}${me.charges > 1 ? ` x${me.charges}` : ""}` : "Sem item"}</div>
-          <div className="key">{me.item ? "E ou clique" : "Passe numa caixa"}</div>
+          <div className="key">{me.item ? `${keyLabel(keys.item)} ou clique` : "Passe numa caixa"}</div>
         </div>
       )}
 
@@ -132,7 +134,7 @@ export function RaceHud({ myId }: { myId: string }) {
       {snap.phase === "countdown" && (
         <div className="center-msg">
           <div className="big-count">{Math.max(1, Math.ceil(snap.countdownMs / 1000))}</div>
-          <div className="panel race-help">W acelera · A/D vira · Espaço derrapa (solte para o turbo){trial ? "" : " · E usa item"} · R volta para a pista · M som</div>
+          <div className="panel race-help">{keyLabel(keys.acelerar)} acelera · {keyLabel(keys.esquerda)}/{keyLabel(keys.direita)} vira · {keyLabel(keys.derrapar)} derrapa (solte para o turbo){trial ? "" : ` · ${keyLabel(keys.item)} usa item`} · {keyLabel(keys.voltar)} volta para a pista · {keyLabel(keys.mudo)} som</div>
         </div>
       )}
       {snap.phase === "active" && snap.elapsedMs < 900 && (

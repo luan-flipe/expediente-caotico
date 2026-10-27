@@ -89,8 +89,11 @@ export interface Commander {
   dispose(): void;
 }
 
-/** null se o GLB não carregou: a corrida funciona sem o Comandante. Com listener, o helicóptero faz barulho. */
-export function createCommander(listener?: THREE.AudioListener): Commander | null {
+/**
+ * null se o GLB não carregou: a corrida funciona sem o Comandante. Com listener, o helicóptero faz barulho;
+ * `effectsBus` (se vier) é o canal de volume dos efeitos, por onde o som passa antes do volume geral.
+ */
+export function createCommander(listener?: THREE.AudioListener, effectsBus?: AudioNode): Commander | null {
   if (!loaded) return null;
   const root = new THREE.Group();
   let disposed = false;
@@ -101,6 +104,7 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
     root.add(audio);
     void loadSound().then((buffer) => {
       if (!buffer || disposed) return;
+      if (effectsBus) audio.setFilter(effectsBus);
       audio.setBuffer(buffer);
       audio.setLoop(true);
       audio.setLoopStart(SOUND_LOOP[0]);

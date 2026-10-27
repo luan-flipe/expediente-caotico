@@ -54,6 +54,8 @@ export interface State {
   account: Account | null;
   /** Tela do ranking da firma aberta por cima da tela inicial ou do lobby. */
   ranking: boolean;
+  /** Configurações abertas por cima da tela atual (inclusive da partida, que segue rodando). */
+  settingsOpen: boolean;
   /** Fantasmas da pista no contra o relógio (o último enviado pelo servidor). */
   ghosts: Ghosts | null;
 }
@@ -109,6 +111,7 @@ let state: State = {
   loadProgress: 0,
   account: loadAccount(),
   ranking: false,
+  settingsOpen: false,
   ghosts: null,
 };
 const listeners = new Set<() => void>();

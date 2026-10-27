@@ -18,7 +18,9 @@ import {
 } from "@ec/shared";
 import { loadMusic } from "../assets";
 import { modelReady } from "../game/character";
-import { net, setState } from "../store";
+import { applyQuality } from "../quality";
+import { getSettings, subscribeSettings, type Quality } from "../settings";
+import { getState, net, setState } from "../store";
 import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
 import { createCommander, type Commander } from "./commander";
 import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, nameTag } from "./ghosts";
@@ -59,7 +61,7 @@ interface HazardView {
 const DT = 1000 / 30;
 const INTERP_MS = 110;
 const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f"];
-/** Baixo o bastante para o helicóptero e os itens continuarem audíveis. */
+/** Baixo o bastante para o helicóptero e os itens continuarem audíveis (mistura fixa; o jogador ajusta por cima, nas configurações). */
 const MUSIC_VOLUME = 0.35;
 /** Treino: os outros pilotos aparecem assim (sem colisão entre cadeiras). */
 const TRIAL_OTHERS_OPACITY = 0.4;
@@ -106,7 +108,12 @@ export class RaceEngine {
   private listener = new THREE.AudioListener();
   /** Trilha de fundo: toca em loop durante toda a corrida, sem posição na cena. */
   private music = new THREE.Audio(this.listener);
+  /** Canais de volume: música e efeitos passam cada um por um ganho antes do volume geral (o AudioListener). */
+  private musicBus = this.listener.context.createGain();
+  private effectsBus = this.listener.context.createGain();
   private muted = false;
+  private sun: THREE.DirectionalLight;
+  private quality: Quality | null = null;
   private me: RacePrivate | null = null;
   private keys = new Set<string>();
   /** Previsão da própria cadeira: passo fixo de 30 Hz, igual ao servidor. */
@@ -137,8 +144,6 @@ export class RaceEngine {
     private readonly myId: string,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.scene.background = new THREE.Color("#b9c4cf");
@@ -146,15 +151,18 @@ export class RaceEngine {
     this.scene.add(new THREE.HemisphereLight("#ffffff", "#8a8070", 1.7));
     const sun = new THREE.DirectionalLight("#fff3dd", 2.1);
     sun.position.set(25, 45, 18);
-    sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
     sun.shadow.bias = -0.0006;
     this.scene.add(sun);
+    this.sun = sun;
     this.disposeTrack = buildTrack(this.scene);
     this.camera.add(this.listener);
-    this.commander = createCommander(this.listener);
+    for (const bus of [this.musicBus, this.effectsBus]) bus.connect(this.listener.getInput());
+    this.commander = createCommander(this.listener, this.effectsBus);
     if (this.commander) this.scene.add(this.commander.root);
+    this.applySettings();
+    this.cleanup.push(subscribeSettings(() => this.applySettings()));
     this.startMusic();
     this.bindInput();
     this.raf = requestAnimationFrame(this.loop);
@@ -164,11 +172,24 @@ export class RaceEngine {
     for (const p of list) this.people.set(p.id, { avatar: p.avatar, chair: p.chair });
   }
 
+  /** Volumes e qualidade ao vivo; as teclas são lidas a cada evento. M silencia tudo por cima do volume geral. */
+  private applySettings(): void {
+    const s = getSettings();
+    this.listener.setMasterVolume(this.muted ? 0 : s.volume.master);
+    this.musicBus.gain.value = s.volume.music;
+    this.effectsBus.gain.value = s.volume.effects;
+    if (s.quality !== this.quality) {
+      this.quality = s.quality;
+      applyQuality(this.renderer, this.scene, this.sun, s.quality);
+    }
+  }
+
   private startMusic(): void {
     // baixada e decodificada uma vez por visita (assets.ts); a corrida seguinte reaproveita
     void loadMusic().then((buffer) => {
       // a corrida pode ter acabado enquanto o arquivo baixava
       if (!buffer || !this.raf) return;
+      this.music.setFilter(this.musicBus);
       this.music.setBuffer(buffer);
       this.music.setLoop(true);
       this.music.setVolume(MUSIC_VOLUME);
@@ -191,22 +212,25 @@ export class RaceEngine {
       if (e.button === 0 && e.target === this.canvas) this.useItem();
     });
     on<KeyboardEvent>("keydown", (e) => {
+      // com as configurações abertas o teclado é delas (captura de tecla), não do jogo
+      if (getState().settingsOpen) return;
       const k = e.code;
-      if (k === "Tab" || k === "Space" || k.startsWith("Arrow")) e.preventDefault();
-      if (k === "Tab") setState({ scoreboard: true });
+      const map = getSettings().keys.race;
+      if (k.startsWith("Arrow") || (!e.ctrlKey && !e.metaKey && !e.altKey && Object.values(map).includes(k))) e.preventDefault();
+      if (k === map.placar) setState({ scoreboard: true });
       this.keys.add(k);
       if (e.repeat) return;
-      if (k === "KeyE" || k === "KeyF") this.useItem();
-      if (k === "KeyR" && this.snap?.phase === "active") net.send({ t: "krespawn" });
-      if (k === "KeyM") {
+      if (k === map.item) this.useItem();
+      if (k === map.voltar && this.snap?.phase === "active") net.send({ t: "krespawn" });
+      if (k === map.mudo) {
         this.muted = !this.muted;
-        this.listener.setMasterVolume(this.muted ? 0 : 1);
+        this.applySettings();
       }
       if (import.meta.env.DEV && /^Digit[1-8]$/.test(k)) net.send({ t: "kdebug", item: ITEM_IDS[Number(k.slice(-1)) - 1] });
     });
     on<KeyboardEvent>("keyup", (e) => {
       this.keys.delete(e.code);
-      if (e.code === "Tab") setState({ scoreboard: false });
+      if (e.code === getSettings().keys.race.placar) setState({ scoreboard: false });
     });
   }
 
@@ -216,11 +240,13 @@ export class RaceEngine {
 
   private input(): KartInput {
     if (this.snap?.phase !== "active" || this.me?.finished) return NO_INPUT;
+    const map = getSettings().keys.race;
+    // as setas valem sempre, ao lado das teclas escolhidas
     const has = (...c: string[]) => c.some((x) => this.keys.has(x));
     return {
-      steer: (has("KeyD", "ArrowRight") ? 1 : 0) - (has("KeyA", "ArrowLeft") ? 1 : 0),
-      throttle: has("KeyW", "ArrowUp") ? 1 : has("KeyS", "ArrowDown") ? -1 : 0,
-      drift: has("Space", "ShiftLeft", "ShiftRight"),
+      steer: (has(map.direita, "ArrowRight") ? 1 : 0) - (has(map.esquerda, "ArrowLeft") ? 1 : 0),
+      throttle: has(map.acelerar, "ArrowUp") ? 1 : has(map.frear, "ArrowDown") ? -1 : 0,
+      drift: has(map.derrapar),
     };
   }
 
@@ -627,6 +653,7 @@ export class RaceEngine {
       this.commander.dispose();
     }
     this.camera.remove(this.listener);
+    for (const bus of [this.musicBus, this.effectsBus]) bus.disconnect();
     for (const v of this.views.values()) this.dropView(v);
     this.ghostMine?.dispose();
     this.ghostRecord?.dispose();

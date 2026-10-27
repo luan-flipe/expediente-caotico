@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AvatarPreview } from "../game/AvatarPreview";
 import { loadConfig, loadGoogle, login, loginSession } from "../net/session";
+import { keyLabel, useSettings } from "../settings";
 import { net, saveAvatar, setAccount, setState, useStore } from "../store";
 
 /** Botão oficial do Google; só existe com client id no servidor e sem conta logada. */
@@ -35,6 +36,7 @@ export function Home() {
   const chair = useStore((s) => s.chair);
   const error = useStore((s) => s.error);
   const account = useStore((s) => s.account);
+  const keys = useSettings().keys.shooter;
   const [code, setCode] = useState(() => new URLSearchParams(location.search).get("sala")?.toUpperCase() ?? "");
   const [name, setName] = useState(avatar.name);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -140,11 +142,19 @@ export function Home() {
                 )}
               </div>
             </div>
-            <div className="card">
-              <p className="label">Controles</p>
-              <p className="muted" style={{ margin: 0, lineHeight: 1.6 }}>
-                WASD anda · mouse mira · clique atira · Q E R habilidades · Espaço esquiva · 1 2 3 escolhem evolução · Tab placar · Esc solta o mouse
-              </p>
+            <div className="card stack">
+              <div>
+                <p className="label">Controles</p>
+                <p className="muted" style={{ margin: 0, lineHeight: 1.6 }}>
+                  {[keys.frente, keys.esquerda, keys.tras, keys.direita].map(keyLabel).join(" ")} anda · mouse mira · clique atira · {[keys.habilidade1, keys.habilidade2, keys.habilidade3].map(keyLabel).join(" ")} habilidades · {keyLabel(keys.esquiva)} esquiva ·{" "}
+                  {[keys.evolucao1, keys.evolucao2, keys.evolucao3].map(keyLabel).join(" ")} escolhem evolução · {keyLabel(keys.placar)} placar · Esc solta o mouse e abre as configurações
+                </p>
+              </div>
+              <div className="row">
+                <button className="btn" onClick={() => setState({ settingsOpen: true })}>
+                  Configurações
+                </button>
+              </div>
             </div>
           </div>
         </div>

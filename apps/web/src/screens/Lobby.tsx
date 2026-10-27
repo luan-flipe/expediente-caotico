@@ -96,6 +96,9 @@ export function Lobby() {
               <button className="btn" onClick={() => setState({ ranking: true })}>
                 Ranking
               </button>
+              <button className="btn" onClick={() => setState({ settingsOpen: true })}>
+                Configurações
+              </button>
               <button className="btn" onClick={leaveRoom}>
                 Sair da sala
               </button>
