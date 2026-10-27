@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { AvatarDNA, PrivateState, ResultRow, Snapshot } from "./types";
 
 const num = z.number().finite();
-const avatar = z.record(z.string(), z.unknown());
+const avatar = z.unknown();
 const code = z.string().regex(/^[A-Z]{5}$/);
 
 /** Mensagens do cliente: só intenções. Nada de dano, pontos, vida ou recarga. */

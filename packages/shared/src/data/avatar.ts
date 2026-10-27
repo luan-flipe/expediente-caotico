@@ -28,7 +28,11 @@ function idx(v: unknown, len: number, fallback: number): number {
 
 export function sanitizeName(v: unknown, fallback = DEFAULT_AVATAR.name): string {
   if (typeof v !== "string") return fallback;
-  const clean = v.replace(/[<>&"'`\u0000-\u001f]/g, "").trim().slice(0, 16);
+  const clean = [...v]
+    .filter((c) => c.charCodeAt(0) >= 32 && !`<>&"'\``.includes(c))
+    .join("")
+    .trim()
+    .slice(0, 16);
   return clean.length > 0 ? clean : fallback;
 }
 
