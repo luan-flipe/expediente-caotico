@@ -22,3 +22,5 @@ export type { KartInput, KartState } from "./race/kart";
 export { ITEM_IDS, ITEM_NAMES, giveItem } from "./race/items";
 export { createRace, stepRace, setKartInput, queueItemUse, respawnRequest, buildRaceSnapshot, buildRacePrivate, getRaceResults } from "./race/match";
 export type { RacePlayerInfo } from "./race/match";
+export * from "./ranking/types";
+export * from "./ranking/rules";
