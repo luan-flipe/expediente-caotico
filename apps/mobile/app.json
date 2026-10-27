@@ -1,0 +1,66 @@
+{
+  "expo": {
+    "name": "Expediente Caótico",
+    "slug": "expediente-caotico",
+    "scheme": "expedientecaotico",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#f4efe4",
+    "experiments": {
+      "reactCompiler": true
+    },
+    "ios": {
+      "bundleIdentifier": "com.expedientecaotico.app",
+      "supportsTablet": true,
+      "requireFullScreen": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Conectar ao servidor do jogo na rede do escritório.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.expedientecaotico.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffe14d",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-audio",
+      "expo-sqlite",
+      "expo-asset",
+      "expo-font",
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "DEFAULT"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#f4efe4",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
+  }
+}

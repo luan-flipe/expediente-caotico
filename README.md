@@ -75,6 +75,20 @@ Antes da largada, o Comandante chega de helicóptero na cena de abertura e depoi
 
 Quem está na metade de trás tira mais turbo e aviãozinho; quem está na frente, mais defesa e armadilha. Em modo dev, as teclas 1 a 8 dão um item específico para testar.
 
+## App mobile (Android e iOS)
+
+`apps/mobile` é a versão React Native do jogo: Expo SDK 58, React Native 0.88 (New Architecture), React 19 com React Compiler, Expo Router, Three.js sobre `expo-gl`, Skia para letreiros 3D, miniaturas e minimapa, `expo-audio` para música e helicóptero. Usa as mesmas regras (`@ec/shared`), o mesmo servidor e os mesmos modelos `.glb` da web.
+
+```bash
+pnpm dev                              # servidor (porta 2567) e web
+pnpm --filter @ec/mobile start        # Metro; abra no Expo Go ou num build de desenvolvimento
+pnpm --filter @ec/mobile android      # build nativo local (ou: ios)
+```
+
+O app procura o servidor no mesmo computador que roda o Metro (porta 2567). Para outro endereço, use `EXPO_PUBLIC_SERVER_URL` ou o campo **Servidor** na tela inicial. No emulador Android, `adb reverse tcp:8081 tcp:8081 && adb reverse tcp:2567 tcp:2567` deixa tudo em `localhost`.
+
+Controles na tela (partida sempre em paisagem): no Tiroteio, polegar esquerdo anda, arrastar à direita mira, botões de Atirar (segurar), habilidades e Esquiva. No Rally, a cadeira acelera sozinha, polegar esquerdo é o volante, Derrapar (segurar e soltar dá turbo), Ré e o item. Convites saem pela folha de compartilhamento com o link `expedientecaotico://?sala=CÓDIGO`.
+
 ## Estrutura
 
 ```
@@ -86,6 +100,8 @@ packages/shared   dados do jogo e TODA a regra (simulação pura, testada)
 apps/server       Node + ws: salas, loop de 30 ticks/s, snapshots, serve o build web
 apps/web          React (telas e HUD) + Three.js (cena, câmera, previsão, interpolação)
   src/race/       cena, cadeira 3D, HUD e resultados da corrida
+apps/mobile       React Native (Expo): mesmas telas e motores, controles de toque
+  src/three/      cenas 3D portadas da web (expo-gl, texturas via Skia, GLB sem DOM)
 ```
 
 O servidor é a autoridade: o cliente só manda intenções (movimento, mira, botões, escolha de evolução).
