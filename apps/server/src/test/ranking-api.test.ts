@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
-import { DEFAULT_AVATAR, PLACE_POINTS, type RankingView, type ServerMsg } from "@ec/shared";
+import { DEFAULT_AVATAR, MAIN_TRACK_ID, PLACE_POINTS, RECORD_POINTS, type GhostSample, type RankingView, type ServerMsg } from "@ec/shared";
 import { startServer, type RunningServer } from "../app";
 import { readSession } from "../auth";
 import { Store } from "../store";
@@ -205,6 +205,12 @@ describe("partidas registram no ranking", () => {
     for (const x of [b, v]) x.c.send({ t: "ready", ready: true });
     await a.c.waitFor("lobby", (m) => m.state.mode === "race" && m.state.players.length === 4 && m.state.players.filter((p) => p.ready).length === 4);
     a.c.send({ t: "start" });
+    await a.c.waitFor("rsnap");
+
+    // os humanos ficam parados; a volta fechada de Ana (logada) entra no arquivo, a de Vera (visitante) e a do bot não
+    const ghost: GhostSample[] = [[0, 1, 2, 0], [59000, 3, 4, 1]];
+    const laps = srv.manager.rooms.get(a.w.code)!.race!.completedLaps;
+    laps.push({ id: a.w.id, ms: 59000, ghost }, { id: v.w.id, ms: 58000, ghost }, { id: "bot-1", ms: 1000, ghost });
 
     const res = await a.c.waitFor("rresults", () => true, 70000);
     const place = (id: string) => res.rows.find((r) => r.id === id)!.place;
@@ -212,14 +218,18 @@ describe("partidas registram no ranking", () => {
 
     const view = await ranking(ana.session);
     const month = Object.fromEntries(view.mes.rows.map((r) => [r.id, r.points]));
-    expect(month["g-ana"] - pointsBefore["g-ana"]).toBe(pts(place(a.w.id)));
+    // a primeira volta de Ana na pista também é o recorde da firma: +RECORD_POINTS
+    expect(month["g-ana"] - pointsBefore["g-ana"]).toBe(pts(place(a.w.id)) + RECORD_POINTS);
     expect(month["g-beto"] - pointsBefore["g-beto"]).toBe(pts(place(b.w.id)));
     expect(Object.keys(month).sort()).toEqual(["g-ana", "g-beto"]);
     expect(view.rally.rows.map((r) => r.id).sort()).toEqual(["g-ana", "g-beto"]);
     expect(view.rally.rows.every((r) => r.matches === 1)).toBe(true);
     expect(JSON.stringify(view)).not.toContain("Vera");
-    // voltas e fantasmas ainda não são gravados aqui (Task 5)
-    expect(store.data.laps).toEqual({});
+    // voltas completas dos logados entram (valem também fora do contra o relógio e sem 2 logados)
+    expect(Object.keys(store.data.laps[MAIN_TRACK_ID])).toEqual(["g-ana"]);
+    expect(store.data.laps[MAIN_TRACK_ID]["g-ana"]).toMatchObject({ ms: 59000, ghost });
+    expect(store.data.stats["g-ana"].bestLapMs).toBe(59000);
+    expect(view.voltas.rows.map((r) => [r.id, r.ms])).toEqual([["g-ana", 59000]]);
     for (const x of [a, b, v]) x.c.close();
   }, 90000);
 });

@@ -3,6 +3,8 @@ import type { WebSocket } from "ws";
 import {
   BALANCE,
   ClientMsg,
+  MAIN_TRACK_ID,
+  applyLap,
   applyRaceResult,
   applyShooterResult,
   DEFAULT_CHAIR,
@@ -13,6 +15,7 @@ import {
   chooseEvolution,
   createMatch,
   createRace,
+  endTraining,
   getRaceResults,
   getResults,
   giveItem,
@@ -32,6 +35,7 @@ import {
   type AvatarDNA,
   type ChairDNA,
   type GameMode,
+  type GhostLap,
   type LobbyState,
   type Match,
   type RaceMatch,
@@ -75,6 +79,8 @@ interface Member {
   isBot: boolean;
   /** Id da conta (Google) quando entrou com sessão válida; null para visitante e bot. */
   accountId: string | null;
+  /** Melhor volta da sessão de quem não tem conta (visitante): só em memória. */
+  sessionLap: GhostLap | null;
   conn: Conn | null;
   leftAt: number | null;
 }
@@ -98,6 +104,8 @@ export class Room {
   race: RaceMatch | null = null;
   results: ResultRow[] | null = null;
   raceResults: RaceResultRow[] | null = null;
+  /** Recorde visto nesta sala quando não há arquivo de dados. */
+  private roomRecord: (GhostLap & { name: string }) | null = null;
   private timer: NodeJS.Timeout | null = null;
   private tickCount = 0;
   private lastTickAt = 0;
@@ -147,7 +155,7 @@ export class Room {
 
   addMember(name: string, avatar: AvatarDNA, conn: Conn | null, isBot = false, chair: ChairDNA = DEFAULT_CHAIR, accountId: string | null = null): Member {
     const id = isBot ? `bot-${++this.nextBot}` : randomBytes(6).toString("hex");
-    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, conn, leftAt: null };
+    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, sessionLap: null, conn, leftAt: null };
     this.members.set(id, m);
     if (!this.hostId && !isBot) this.hostId = id;
     return m;
@@ -171,23 +179,27 @@ export class Room {
 
   start(): string | null {
     if (this.phase !== "lobby") return "A partida já começou";
-    if (this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
+    const trial = this.mode === "timetrial";
+    if (!trial && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
     const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
     if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
     const seed = randomInt(1, 2 ** 31);
-    const players = [...this.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
-    if (this.mode === "race") this.race = createRace({ seed, players, ...this.raceOpts });
+    const players = [...this.members.values()]
+      .filter((m) => !trial || !m.isBot)
+      .map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
+    if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, timeTrial: trial });
     else this.match = createMatch({ durationMs: this.durationMs, seed, players });
     this.phase = "match";
     this.results = null;
     this.raceResults = null;
     this.tickCount = 0;
     this.broadcastLobby();
+    if (this.race) for (const m of this.members.values()) this.sendGhosts(m);
     this.lastTickAt = performance.now();
     this.pendingMs = 0;
     // intervalo menor que o passo: no Windows o timer arredonda para ~16 ms e a partida andaria mais devagar
     this.timer = setInterval(() => this.tick(), TICK_MS / 2);
-    log(`[${this.code}] ${this.mode === "race" ? "corrida" : "partida"} iniciada com ${this.members.size} participantes`);
+    log(`[${this.code}] ${this.mode === "shooter" ? "partida" : "corrida"} iniciada com ${this.members.size} participantes`);
     return null;
   }
 
@@ -235,8 +247,68 @@ export class Room {
     if (m.phase === "finished") this.finish();
   }
 
+  /** Menor tempo de volta da pista: do arquivo de dados ou, sem ele, da memória da sala. */
+  private trackRecord(): (GhostLap & { name: string }) | null {
+    if (!this.store) return this.roomRecord;
+    let best: (GhostLap & { name: string }) | null = null;
+    for (const [id, lap] of Object.entries(this.store.data.laps[MAIN_TRACK_ID] ?? {})) {
+      if (best && lap.ms >= best.ms) continue;
+      best = { ms: lap.ms, name: this.store.data.accounts[id]?.name ?? "Jogador", samples: lap.ghost };
+    }
+    return best;
+  }
+
+  /** Fantasma do próprio jogador: o salvo na conta ou, sem conta, o da sessão. */
+  private ghostOf(m: Member): GhostLap | null {
+    const saved = m.accountId ? this.store?.data.laps[MAIN_TRACK_ID]?.[m.accountId] : undefined;
+    if (saved) return { ms: saved.ms, samples: saved.ghost };
+    return m.sessionLap;
+  }
+
+  sendGhosts(m: Member): void {
+    send(m.conn, { t: "ghosts", mine: this.ghostOf(m), record: this.trackRecord() });
+  }
+
+  /**
+   * Consome as voltas válidas fechadas neste tick: conta guarda no arquivo (melhor volta e fantasma),
+   * visitante só na memória. Quem teve o fantasma ou o recorde alterado recebe os fantasmas de novo.
+   */
+  private consumeLaps(r: RaceMatch): void {
+    if (!r.completedLaps.length) return;
+    const laps = r.completedLaps.splice(0);
+    const notify = new Set<Member>();
+    let recordChanged = false;
+    let saved = false;
+    for (const lap of laps) {
+      const m = this.members.get(lap.id);
+      if (!m || m.isBot) continue;
+      const mine = this.ghostOf(m);
+      if (mine && lap.ms >= mine.ms) continue;
+      try {
+        if (m.accountId && this.store) {
+          const res = applyLap(this.store.data, MAIN_TRACK_ID, m.accountId, lap.ms, lap.ghost, Date.now());
+          saved = true;
+          recordChanged ||= res.record;
+        } else {
+          m.sessionLap = { ms: lap.ms, samples: lap.ghost };
+          if (!this.store && (!this.roomRecord || lap.ms < this.roomRecord.ms)) {
+            this.roomRecord = { ms: lap.ms, name: m.name, samples: lap.ghost };
+            recordChanged = true;
+          }
+        }
+      } catch (err) {
+        console.error(`[${this.code}] falha ao registrar a volta`, err);
+        continue;
+      }
+      notify.add(m);
+    }
+    if (saved) this.store?.save();
+    for (const m of recordChanged ? this.members.values() : notify) this.sendGhosts(m);
+  }
+
   private stepRace(r: RaceMatch): void {
     stepRace(r, TICK_MS);
+    this.consumeLaps(r);
     this.tickCount++;
     if (this.tickCount % BALANCE.snapshotEvery === 0 || r.phase === "finished") {
       const s = JSON.stringify(buildRaceSnapshot(r));
@@ -282,10 +354,11 @@ export class Room {
       const accountOf = (id: string) => this.members.get(id)?.accountId ?? null;
       const now = Date.now();
       if (this.raceResults) {
+        // treino não pontua; as voltas já foram gravadas a cada tick
+        if (this.race?.timeTrial) return;
         const rows = this.raceResults.map((r) => ({ accountId: accountOf(r.id), place: r.place }));
         if (!matchCounts(rows)) return;
         applyRaceResult(store.data, rows, now);
-        // voltas e fantasmas: Task 5
       } else if (this.results) {
         const rows = this.results.map((r) => ({ accountId: accountOf(r.id), rank: r.rank, kills: r.kills }));
         if (!matchCounts(rows)) return;
@@ -317,7 +390,7 @@ export class Room {
         if (msg.chair !== undefined) member.chair = sanitizeChair(msg.chair);
         return this.broadcastLobby();
       case "addBot": {
-        if (!isHost || this.phase !== "lobby") return;
+        if (!isHost || this.phase !== "lobby" || this.mode === "timetrial") return;
         if (this.members.size >= BALANCE.maxPlayers) return send(conn, { t: "error", msg: "Sala cheia" });
         const name = BOT_NAMES[this.nextBot % BOT_NAMES.length];
         this.addMember(name, randomAvatar(Math.random, name), null, true, randomChair(Math.random));
@@ -332,6 +405,8 @@ export class Room {
       case "mode":
         if (!isHost || this.phase !== "lobby") return;
         this.mode = msg.mode;
+        // contra o relógio é só de humanos
+        if (this.mode === "timetrial") for (const x of [...this.members.values()]) if (x.isBot) this.members.delete(x.id);
         return this.broadcastLobby();
       case "duration":
         if (!isHost || this.phase !== "lobby") return;
@@ -367,8 +442,11 @@ export class Room {
       case "krespawn":
         if (this.race) respawnRequest(this.race, member.id);
         return;
+      case "endTraining":
+        if (isHost && this.race?.timeTrial) endTraining(this.race);
+        return;
       case "kdebug": {
-        const racer = DEV_TOOLS ? this.race?.racers.get(member.id) : undefined;
+        const racer = DEV_TOOLS && !this.race?.timeTrial ? this.race?.racers.get(member.id) : undefined;
         if (racer) giveItem(racer, msg.item);
         return;
       }
@@ -450,6 +528,7 @@ export class RoomManager {
     send(conn, { t: "welcome", id: member.id, token: member.token, code: room.code });
     if (room.results && room.phase === "results") send(conn, { t: "results", rows: room.results });
     if (room.raceResults && room.phase === "results") send(conn, { t: "rresults", rows: room.raceResults });
+    if (room.race && room.phase === "match") room.sendGhosts(member);
     room.broadcastLobby();
   }
 

@@ -27,6 +27,13 @@ export const RACE = {
   introMs: 5000,
   finishGraceMs: 30000,
   maxRaceMs: 6 * 60000,
+  /** Contra o relógio: sessão encerrada sozinha depois de tanto tempo de fase ativa. */
+  trainingMaxMs: 20 * 60000,
+  /** Contra o relógio não tem número de voltas: um valor que ninguém alcança. */
+  trainingLaps: 1_000_000,
+  /** Fantasma: uma amostra a cada tantos ticks; volta acima do limite de amostras não vira fantasma. */
+  ghostEveryTicks: 3,
+  ghostMaxSamples: 3000,
   respawnPenaltyMs: 2000,
   boxRespawnMs: 4000,
   boxRadius: 0.5,
