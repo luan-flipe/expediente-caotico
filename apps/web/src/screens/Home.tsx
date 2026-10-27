@@ -1,13 +1,51 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AvatarPreview } from "../game/AvatarPreview";
-import { net, saveAvatar, setState, useStore } from "../store";
+import { loadConfig, loadGoogle, login, loginSession } from "../net/session";
+import { net, saveAvatar, setAccount, setState, useStore } from "../store";
+
+/** Botão oficial do Google; só existe com client id no servidor e sem conta logada. */
+function GoogleButton({ clientId }: { clientId: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let alive = true;
+    loadGoogle()
+      .then((id) => {
+        if (!alive || !ref.current) return;
+        id.initialize({
+          client_id: clientId,
+          callback: (r) => {
+            if (!r.credential) return;
+            login(r.credential)
+              .then((acc) => setAccount(acc))
+              .catch((e: Error) => setState({ error: e.message }));
+          },
+        });
+        id.renderButton(ref.current, { theme: "outline", size: "large", text: "signin_with", shape: "rectangular", locale: "pt-BR" });
+      })
+      .catch((e: Error) => alive && setState({ error: e.message }));
+    return () => {
+      alive = false;
+    };
+  }, [clientId]);
+  return <div ref={ref} style={{ minHeight: 44 }} />;
+}
 
 export function Home() {
   const avatar = useStore((s) => s.avatar);
   const chair = useStore((s) => s.chair);
   const error = useStore((s) => s.error);
+  const account = useStore((s) => s.account);
   const [code, setCode] = useState(() => new URLSearchParams(location.search).get("sala")?.toUpperCase() ?? "");
   const [name, setName] = useState(avatar.name);
+  const [clientId, setClientId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void loadConfig().then((c) => alive && setClientId(c.googleClientId));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const commitName = () => {
     if (name.trim() && name !== avatar.name) saveAvatar({ ...avatar, name });
@@ -17,14 +55,14 @@ export function Home() {
     commitName();
     setState({ error: null });
     net.ensure();
-    net.send({ t: "create", name: name || avatar.name, avatar, chair });
+    net.send({ t: "create", name: name || avatar.name, avatar, chair, session: loginSession() });
   };
 
   const join = () => {
     commitName();
     setState({ error: null });
     net.ensure();
-    net.send({ t: "join", code: code.trim().toUpperCase(), name: name || avatar.name, avatar, chair });
+    net.send({ t: "join", code: code.trim().toUpperCase(), name: name || avatar.name, avatar, chair, session: loginSession() });
   };
 
   return (
@@ -41,7 +79,7 @@ export function Home() {
           <div className="badge">
             <div className="badge-top">
               <span>CRACHÁ</span>
-              <span>VISITANTE</span>
+              <span>{account ? "NO RANKING" : "VISITANTE"}</span>
             </div>
             <AvatarPreview dna={avatar} className="badge-preview" />
             <div className="badge-name">{avatar.name}</div>
@@ -78,6 +116,29 @@ export function Home() {
               <button className="btn dark" onClick={join} disabled={code.length !== 5 || !name.trim()}>
                 Entrar na sala
               </button>
+            </div>
+            <div className="card stack">
+              <div>
+                <p className="label">Ranking da firma</p>
+                {account ? (
+                  <p style={{ margin: 0, fontWeight: 700 }}>Olá, {account.name}</p>
+                ) : (
+                  <p className="muted" style={{ margin: 0 }}>
+                    {clientId ? "Entre com o Google para suas partidas contarem no ranking." : "Jogando como visitante."}
+                  </p>
+                )}
+              </div>
+              {!account && clientId && <GoogleButton clientId={clientId} />}
+              <div className="row">
+                <button className="btn" onClick={() => setState({ ranking: true })}>
+                  Ver ranking
+                </button>
+                {account && (
+                  <button className="btn" onClick={() => setAccount(null)}>
+                    Sair da conta
+                  </button>
+                )}
+              </div>
             </div>
             <div className="card">
               <p className="label">Controles</p>

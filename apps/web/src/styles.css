@@ -1107,3 +1107,65 @@ input {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
+/* ---------- contra o relógio ---------- */
+.race-place.trial .now {
+  font-family: var(--mono);
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--postit);
+}
+
+.race-place.trial .times .record {
+  color: #ffd23f;
+}
+
+.hud .end-training {
+  display: block;
+  margin: 8px auto 0;
+  pointer-events: auto;
+}
+
+/* ---------- ranking da firma ---------- */
+.tag.seal {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.tag.seal.ranked {
+  background: var(--blue);
+  color: #fff;
+}
+
+.rank-tabs button {
+  font-size: 15px;
+  padding: 8px 14px;
+}
+
+.rank-table tr.lead td {
+  font-weight: 800;
+}
+
+.rank-table tr.me td {
+  background: #fff6c2;
+}
+
+.rank-table tr.gap td {
+  text-align: center;
+  color: var(--ink-2);
+  font-family: var(--mono);
+}
+
+.rank-leader {
+  transform: rotate(-1deg);
+  display: block;
+}
+
+.rank-leader .who,
+.rank-past {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}

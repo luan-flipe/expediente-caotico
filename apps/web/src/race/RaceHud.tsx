@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ITEM_NAMES, RACE, type ItemId } from "@ec/shared";
-import { useStore } from "../store";
+import { net, useStore } from "../store";
 import { Minimap } from "./Minimap";
 
 export const ITEM_ICON: Record<ItemId, string> = {
@@ -28,6 +28,8 @@ export function RaceHud({ myId }: { myId: string }) {
   const feed = useStore((s) => s.feed);
   const scoreboard = useStore((s) => s.scoreboard);
   const online = useStore((s) => s.online);
+  const ghosts = useStore((s) => s.ghosts);
+  const isHost = useStore((s) => s.lobby?.hostId === myId);
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 120);
@@ -39,6 +41,7 @@ export function RaceHud({ myId }: { myId: string }) {
   const order = [...snap.karts].sort((a, b) => a.place - b.place);
   const frozen = snap.karts.find((k) => k.id === myId)?.flags.includes("frozen");
   const introLeft = snap.phase === "countdown" ? snap.countdownMs - (RACE.countdownMs - RACE.introMs) : 0;
+  const trial = snap.timeTrial;
 
   if (introLeft > 0) {
     const first = introLeft > RACE.introMs * 0.45;
@@ -65,10 +68,28 @@ export function RaceHud({ myId }: { myId: string }) {
 
       <div className="hud-top">
         <div className="panel timer">{fmtRace(me?.raceMs ?? snap.elapsedMs)}</div>
+        {trial && isHost && snap.phase === "active" && (
+          <button className="btn small end-training" onClick={() => net.send({ t: "endTraining" })}>
+            Encerrar treino
+          </button>
+        )}
         {snap.graceMs !== null && <div className="panel zone-pill">Fim da corrida em {Math.ceil(snap.graceMs / 1000)} s</div>}
       </div>
 
-      {me && (
+      {me && trial && (
+        <div className="race-place trial">
+          <div className="lap">Volta {me.lap}</div>
+          <div className="now">{fmtRace(me.lapMs > 0 ? me.lapMs : null)}</div>
+          <div className="times">
+            <span>Última {fmtRace(me.lastLapMs)}</span>
+            <span>Melhor da sessão {fmtRace(me.sessionBestMs)}</span>
+            <span>Melhor de sempre {fmtRace(ghosts?.mine?.ms ?? null)}</span>
+            <span className="record">Recorde {ghosts?.record ? `${fmtRace(ghosts.record.ms)} (${ghosts.record.name})` : "--:--.-"}</span>
+          </div>
+        </div>
+      )}
+
+      {me && !trial && (
         <div className="race-place">
           <span className="pos">
             {me.place}
@@ -85,7 +106,7 @@ export function RaceHud({ myId }: { myId: string }) {
         </div>
       )}
 
-      {me && (
+      {me && !trial && (
         <div className={`race-item ${me.item ? "full" : ""}`}>
           <div className="ico">{me.item ? ITEM_ICON[me.item] : ""}</div>
           <div className="name">{me.item ? `${ITEM_NAMES[me.item]}${me.charges > 1 ? ` x${me.charges}` : ""}` : "Sem item"}</div>
@@ -111,7 +132,7 @@ export function RaceHud({ myId }: { myId: string }) {
       {snap.phase === "countdown" && (
         <div className="center-msg">
           <div className="big-count">{Math.max(1, Math.ceil(snap.countdownMs / 1000))}</div>
-          <div className="panel race-help">W acelera · A/D vira · Espaço derrapa (solte para o turbo) · E usa item · R volta para a pista · M som</div>
+          <div className="panel race-help">W acelera · A/D vira · Espaço derrapa (solte para o turbo){trial ? "" : " · E usa item"} · R volta para a pista · M som</div>
         </div>
       )}
       {snap.phase === "active" && snap.elapsedMs < 900 && (

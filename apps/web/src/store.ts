@@ -7,6 +7,7 @@ import {
   sanitizeChair,
   type AvatarDNA,
   type ChairDNA,
+  type GhostLap,
   type LobbyState,
   type PrivateState,
   type RacePrivate,
@@ -17,6 +18,7 @@ import {
   type Snapshot,
 } from "@ec/shared";
 import { Connection } from "./net/connection";
+import { loadAccount, loginSession, storeAccount, type Account } from "./net/session";
 
 export interface FeedItem {
   id: number;
@@ -44,6 +46,17 @@ export interface State {
   scoreboard: boolean;
   /** boneco.glb carregado; telas refazem miniaturas e prévias. */
   modelReady: boolean;
+  /** Conta logada (Google); null joga como visitante. */
+  account: Account | null;
+  /** Tela do ranking da firma aberta por cima da tela inicial ou do lobby. */
+  ranking: boolean;
+  /** Fantasmas da pista no contra o relógio (o último enviado pelo servidor). */
+  ghosts: Ghosts | null;
+}
+
+export interface Ghosts {
+  mine: GhostLap | null;
+  record: (GhostLap & { name: string }) | null;
 }
 
 const AVATAR_KEY = "ec.avatar";
@@ -88,6 +101,9 @@ let state: State = {
   feed: [],
   scoreboard: false,
   modelReady: false,
+  account: loadAccount(),
+  ranking: false,
+  ghosts: null,
 };
 const listeners = new Set<() => void>();
 
@@ -132,6 +148,11 @@ export function saveChair(chair: ChairDNA): void {
   if (state.lobby) net.send({ t: "avatar", avatar: state.avatar, chair: clean });
 }
 
+export function setAccount(account: Account | null): void {
+  storeAccount(account);
+  setState({ account });
+}
+
 export function savedSession(): { code: string; token: string } | null {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
@@ -158,7 +179,7 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, raceResults: null, code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [] });
+  setState({ lobby: null, results: null, raceResults: null, code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null });
 }
 
 let feedId = 0;
@@ -213,6 +234,9 @@ function onMessage(msg: ServerMsg): void {
       setState({ rsnap: msg.s, rme: msg.me });
       raceFeed(msg.s);
       return;
+    case "ghosts":
+      setState({ ghosts: { mine: msg.mine, record: msg.record } });
+      return;
     case "snap": {
       const items: Omit<FeedItem, "id" | "at">[] = [];
       setState({ snap: msg.s, me: msg.me });
@@ -237,4 +261,4 @@ function onMessage(msg: ServerMsg): void {
   }
 }
 
-export const net = new Connection(onMessage, (online) => setState({ online }), savedSession);
+export const net = new Connection(onMessage, (online) => setState({ online }), savedSession, loginSession);
