@@ -14,6 +14,8 @@ const FLY_HEIGHT = 9;
 const HOVER_HEIGHT = 5.5;
 /** Trecho da reta final que ele percorre na cena de abertura, chegando sobre a largada. */
 const INTRO_DIST = 70;
+const BANNER_W = 4.4;
+const BANNER_H = 1.1;
 
 let loaded: { scene: THREE.Group; rotor: THREE.AnimationClip | null } | null = null;
 let loading: Promise<boolean> | null = null;
@@ -123,15 +125,20 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
   // faixa puxada por uma corda a partir da cauda; duas faces para o texto não aparecer espelhado
   const tex = bannerTexture();
   const bannerMat = new THREE.MeshStandardMaterial({ map: tex });
-  const faceGeo = new THREE.PlaneGeometry(4.4, 1.1);
   const banner = new THREE.Group();
   banner.position.set(0, 1.2, -8.2);
-  for (const ry of [Math.PI / 2, -Math.PI / 2]) {
-    const face = new THREE.Mesh(faceGeo, bannerMat);
+  // tecido dividido em faixas para ondular; cada face sabe qual ponta está presa na corda
+  const faces = [
+    { ry: Math.PI / 2, attach: -1, side: 1 },
+    { ry: -Math.PI / 2, attach: 1, side: -1 },
+  ].map(({ ry, attach, side }) => {
+    const geo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 28, 4);
+    const face = new THREE.Mesh(geo, bannerMat);
     face.rotation.y = ry;
     face.castShadow = true;
     banner.add(face);
-  }
+    return { geo, base: Float32Array.from(geo.attributes.position.array), attach, side };
+  });
   root.add(banner);
   const ropeGeo = new THREE.CylinderGeometry(0.02, 0.02, 3.6, 4);
   const ropeMat = new THREE.MeshStandardMaterial({ color: "#5a554c" });
@@ -139,6 +146,28 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
   rope.position.set(0, 1.8, -6.1);
   rope.rotation.x = Math.PI / 2 - 0.3;
   root.add(rope);
+
+  /**
+   * Onda que corre da ponta presa até a solta, crescendo no caminho, mais um leve sobe e desce.
+   * As duas faces recebem o mesmo deslocamento no mundo (a de trás está girada meia volta).
+   */
+  const flutter = (time: number) => {
+    for (const f of faces) {
+      const pos = f.geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = f.base[i * 3];
+        const y = f.base[i * 3 + 1];
+        const e = (BANNER_W / 2 - f.attach * x) / BANNER_W; // 0 na corda, 1 na ponta solta
+        const amp = 0.08 + 0.42 * Math.pow(e, 1.4);
+        const wave = Math.sin(e * Math.PI * 2.6 - time * 7.5) * amp;
+        const ripple = Math.sin(e * Math.PI * 5 - time * 11 + y * 2) * 0.06 * e;
+        pos.setZ(i, (wave + ripple) * f.side);
+        pos.setY(i, y + Math.sin(e * Math.PI * 2 - time * 5) * 0.08 * e);
+      }
+      pos.needsUpdate = true;
+      f.geo.computeVertexNormals();
+    }
+  };
 
   let t = 0;
   let placed = false;
@@ -169,14 +198,15 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
       // inclina para a frente em voo, como helicóptero de verdade
       heli.rotation.x = raceMs !== null || !faceGrid ? 0.12 : 0;
       heli.rotation.z = Math.sin(t * 1.1) * 0.04;
-      banner.rotation.z = Math.sin(t * 3) * 0.08;
+      banner.rotation.z = Math.sin(t * 2.3) * 0.04;
+      flutter(t);
     },
     dispose() {
       // geometria e materiais do GLB são compartilhados entre clones; só as peças desta cena saem
       disposed = true;
       if (audio?.isPlaying) audio.stop();
       mixer.stopAllAction();
-      for (const o of [faceGeo, bannerMat, tex, ropeGeo, ropeMat, tag.material, (tag.material as THREE.SpriteMaterial).map!]) o.dispose();
+      for (const o of [...faces.map((f) => f.geo), bannerMat, tex, ropeGeo, ropeMat, tag.material, (tag.material as THREE.SpriteMaterial).map!]) o.dispose();
     },
   };
 }
