@@ -109,10 +109,16 @@ export class RaceEngine {
   private snap: RaceSnapshot | null = null;
   private me: RacePrivate | null = null;
   private keys = new Set<string>();
+  /** Previsão da própria cadeira: passo fixo de 30 Hz, igual ao servidor. */
   private pred: KartState | null = null;
+  private prevPred: KartState | null = null;
   private clock = 0;
   private acc = 0;
-  private history: { t: number; k: KartState }[] = [];
+  private seq = 0;
+  /** Comandos enviados e ainda não confirmados pelo servidor, com o relógio local do passo. */
+  private pending: { seq: number; input: KartInput; t: number }[] = [];
+  /** Diferença visual que sobra de uma correção e some aos poucos (evita o tranco). */
+  private visOffset = { x: 0, z: 0, h: 0 };
   private camPos = new THREE.Vector3();
   private camLook = new THREE.Vector3();
   private camReady = false;
@@ -121,7 +127,6 @@ export class RaceEngine {
   private hazardMats = new Map<string, THREE.Material>();
   private raf = 0;
   private lastFrame = performance.now();
-  private inputTimer: ReturnType<typeof setInterval>;
   private cleanup: (() => void)[] = [];
 
   constructor(
@@ -145,7 +150,6 @@ export class RaceEngine {
     this.scene.add(sun);
     buildTrack(this.scene);
     this.bindInput();
-    this.inputTimer = setInterval(() => this.sendInput(), DT);
     this.raf = requestAnimationFrame(this.loop);
   }
 
@@ -191,12 +195,6 @@ export class RaceEngine {
       throttle: has("KeyW", "ArrowUp") ? 1 : has("KeyS", "ArrowDown") ? -1 : 0,
       drift: has("Space", "ShiftLeft", "ShiftRight"),
     };
-  }
-
-  private sendInput(): void {
-    if (this.snap?.phase !== "active") return;
-    const i = this.input();
-    net.send({ t: "kinput", steer: i.steer, throttle: i.throttle, drift: i.drift });
   }
 
   // ---------- rede ----------
@@ -249,54 +247,52 @@ export class RaceEngine {
       this.hazards.delete(id);
     }
 
-    if (me) this.reconcile(me, now);
+    if (me) this.reconcile(me);
   }
 
-  /** Corrige a previsão local com o estado do servidor (mesmo esquema do tiroteio: 25% por snapshot, encaixe acima de 3 m). */
-  private reconcile(me: RacePrivate, now: number): void {
+  /**
+   * Reconciliação por comando numerado: parte do estado que o servidor confirmou (ackSeq)
+   * e refaz localmente os comandos ainda não confirmados. Com a mesma física dos dois lados,
+   * a previsão quase não muda; o que mudar vira um desvio visual que some em ~0,2 s.
+   */
+  private reconcile(me: RacePrivate): void {
     const k = me.kart;
+    while (this.pending.length && this.pending[0].seq < me.ackSeq) this.pending.shift();
+    const acked = this.pending[0]?.seq === me.ackSeq ? this.pending.shift()! : null;
+    const base = acked ? acked.t : this.clock - this.pending.length * DT;
     const server: KartState = {
       ...newKart({ x: k.x, z: k.z }, k.heading),
       speed: k.speed,
       drifting: k.drifting,
       driftDir: k.driftDir,
       driftMs: k.driftMs,
-      boostUntil: this.clock + k.boostMs,
-      spinUntil: this.clock + k.spinMs,
-      slipUntil: this.clock + k.slipMs,
-      frozenUntil: this.clock + k.frozenMs,
+      boostUntil: base + k.boostMs,
+      spinUntil: base + k.spinMs,
+      slipUntil: base + k.slipMs,
+      frozenUntil: base + k.frozenMs,
     };
-    if (!this.pred || this.snap?.phase !== "active" || me.finished) {
-      this.pred = server;
-      this.history = [];
+    const old = this.pred;
+    if (!old || this.snap?.phase !== "active" || me.finished) {
+      this.pred = this.prevPred = server;
+      this.pending = [];
+      this.visOffset = { x: 0, z: 0, h: 0 };
       return;
     }
-    const lag = net.rtt / 2 + DT;
-    let ref = this.history[this.history.length - 1]?.k ?? this.pred;
-    let best = Infinity;
-    for (const h of this.history) {
-      const d = Math.abs(h.t - (now - lag));
-      if (d < best) {
-        best = d;
-        ref = h.k;
-      }
+    let next = server;
+    for (const p of this.pending) next = stepKart(next, p.input, DT, p.t, TRACK).state;
+    const dx = old.pos.x - next.pos.x;
+    const dz = old.pos.z - next.pos.z;
+    if (Math.hypot(dx, dz) > 4) {
+      this.visOffset = { x: 0, z: 0, h: 0 };
+    } else {
+      this.visOffset.x += dx;
+      this.visOffset.z += dz;
+      this.visOffset.h += Math.atan2(Math.sin(old.heading - next.heading), Math.cos(old.heading - next.heading));
     }
-    const ex = k.x - ref.pos.x;
-    const ez = k.z - ref.pos.z;
-    const p = this.pred;
-    if (Math.hypot(ex, ez) > 3) {
-      this.pred = { ...server, drifting: p.drifting, driftDir: p.driftDir, driftMs: p.driftMs };
-      this.history = [];
-      return;
+    if (this.prevPred) {
+      this.prevPred = { ...this.prevPred, pos: { x: this.prevPred.pos.x - dx, z: this.prevPred.pos.z - dz }, heading: this.prevPred.heading - (old.heading - next.heading) };
     }
-    p.pos = { x: p.pos.x + ex * 0.25, z: p.pos.z + ez * 0.25 };
-    p.heading = angleLerp(p.heading, p.heading + (k.heading - ref.heading), 0.25);
-    p.speed += (k.speed - ref.speed) * 0.25;
-    // efeitos que só o servidor decide (itens, reposição): adota se o servidor tiver mais tempo
-    p.boostUntil = Math.max(p.boostUntil, server.boostUntil - lag);
-    p.spinUntil = Math.max(p.spinUntil, server.spinUntil - lag);
-    p.slipUntil = Math.max(p.slipUntil, server.slipUntil - lag);
-    p.frozenUntil = Math.max(p.frozenUntil, server.frozenUntil - lag);
+    this.pred = next;
   }
 
   private viewFor(k: RaceKartPublic): KartView {
@@ -389,13 +385,21 @@ export class RaceEngine {
       while (this.acc >= DT) {
         this.acc -= DT;
         this.clock += DT;
+        // cada passo previsto vira um comando numerado: o servidor aplica um por tick, na mesma ordem
+        const seq = ++this.seq;
+        net.send({ t: "kinput", steer: input.steer, throttle: input.throttle, drift: input.drift, seq });
+        this.pending.push({ seq, input, t: this.clock });
+        if (this.pending.length > 90) this.pending.shift();
+        this.prevPred = this.pred;
         this.pred = stepKart(this.pred, input, DT, this.clock, TRACK).state;
-        this.history.push({ t: now, k: this.pred });
       }
-      while (this.history.length && now - this.history[0].t > 1000) this.history.shift();
     } else {
       this.acc = 0;
     }
+    const decay = Math.exp(-dt * 12);
+    this.visOffset.x *= decay;
+    this.visOffset.z *= decay;
+    this.visOffset.h *= decay;
 
     const renderT = now - INTERP_MS;
     for (const [id, v] of this.views) {
@@ -404,8 +408,13 @@ export class RaceEngine {
       let heading: number;
       const mine = id === this.myId && this.pred;
       if (mine) {
-        ({ x, z } = this.pred!.pos);
-        heading = this.pred!.heading;
+        // desenha entre os dois últimos passos de 30 Hz para não andar aos degraus em telas de 60 Hz ou mais
+        const a = this.prevPred ?? this.pred!;
+        const b = this.pred!;
+        const f = Math.min(1, this.acc / DT);
+        x = a.pos.x + (b.pos.x - a.pos.x) * f + this.visOffset.x;
+        z = a.pos.z + (b.pos.z - a.pos.z) * f + this.visOffset.z;
+        heading = angleLerp(a.heading, b.heading, f) + this.visOffset.h;
       } else {
         const buf = v.buf;
         let a = buf[0];
@@ -508,7 +517,6 @@ export class RaceEngine {
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
-    clearInterval(this.inputTimer);
     for (const c of this.cleanup) c();
     // bonecos compartilham geometria do GLB: saem da cena antes da limpeza geral
     for (const v of this.views.values()) {

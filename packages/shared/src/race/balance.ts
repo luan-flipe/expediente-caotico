@@ -33,6 +33,12 @@ export const RACE = {
   /** Saltos maiores que isso (reposição) não contam checkpoint. */
   maxProgressStep: 5,
   wrongWayMs: 1000,
+  /** Comandos guardados por jogador; acima disso os mais antigos são descartados. */
+  maxQueuedInputs: 6,
+  /** Ticks sem comando novo até soltar acelerador e direção (aba escondida, conexão caída). */
+  idleInputTicks: 8,
+  /** Passos guardados por quem ficou sem comando, para recuperar o atraso (no máximo 2 por tick). */
+  maxStepCredit: 4,
 };
 
 /** Efeitos dos itens (spec §4.5). */

@@ -68,8 +68,9 @@ describe("modo corrida no servidor", () => {
     expect(first.me!.item).toBeNull();
 
     // entrada inválida é descartada; entrada de tiroteio é ignorada
-    a.send({ t: "kinput", steer: "x", throttle: 1, drift: false });
-    a.send({ t: "kinput", steer: 2, throttle: 1, drift: false });
+    a.send({ t: "kinput", steer: "x", throttle: 1, drift: false, seq: 1 });
+    a.send({ t: "kinput", steer: 2, throttle: 1, drift: false, seq: 2 });
+    a.send({ t: "kinput", steer: 0, throttle: 1, drift: false });
     a.send({ t: "input", mx: 1, mz: 0, yaw: 0, fire: true });
     a.send({ t: "kitem" });
     await a.waitFor("rsnap", (m) => m.s.phase === "active", 5000);

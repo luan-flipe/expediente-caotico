@@ -54,6 +54,10 @@ export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps
       shieldUntil: 0,
       blindUntil: 0,
       wrongMs: 0,
+      inputQueue: [],
+      ackSeq: 0,
+      idleTicks: 0,
+      stepCredit: 0,
       itemsUsed: {},
     };
     r.progress = raceProgress(r.lap, s, race.cps, TRACK);
@@ -64,9 +68,18 @@ export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps
 
 const clampIn = (v: number) => (Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0);
 
-export function setKartInput(race: RaceMatch, id: string, input: KartInput): void {
+/** Com seq, o comando entra na fila e é aplicado no próximo tick livre; sem seq, vale na hora. */
+export function setKartInput(race: RaceMatch, id: string, input: KartInput, seq?: number): void {
   const r = race.racers.get(id);
-  if (r && !r.isBot) r.input = { steer: clampIn(input.steer), throttle: clampIn(input.throttle), drift: !!input.drift };
+  if (!r || r.isBot) return;
+  const clean = { steer: clampIn(input.steer), throttle: clampIn(input.throttle), drift: !!input.drift };
+  if (seq === undefined) {
+    r.input = clean;
+    return;
+  }
+  if (seq <= r.ackSeq || r.inputQueue.some((q) => q.seq >= seq)) return;
+  r.inputQueue.push({ seq, input: clean });
+  if (r.inputQueue.length > RACE.maxQueuedInputs) r.inputQueue.shift();
 }
 
 export function queueItemUse(race: RaceMatch, id: string): void {
@@ -92,12 +105,42 @@ function updatePlaces(race: RaceMatch): void {
   ids.forEach((id, i) => (race.racers.get(id)!.place = i + 1));
 }
 
+/**
+ * Entradas a aplicar neste tick. Com comandos numerados, a cadeira dá exatamente um passo por
+ * comando (igual à previsão do cliente): sem comando ela espera; com atraso recupera até 2 por
+ * tick, limitado por crédito, então mandar mais rápido não dá velocidade extra.
+ */
+function takeInputs(r: Racer): KartInput[] {
+  if (r.ackSeq === 0 && r.inputQueue.length === 0) return [r.input];
+  r.stepCredit = Math.min(r.stepCredit + 1, RACE.maxStepCredit);
+  const out: KartInput[] = [];
+  while (r.inputQueue.length && r.stepCredit >= 1 && out.length < 2) {
+    const next = r.inputQueue.shift()!;
+    r.input = next.input;
+    r.ackSeq = next.seq;
+    r.stepCredit--;
+    out.push(next.input);
+  }
+  if (out.length) {
+    r.idleTicks = 0;
+  } else if (++r.idleTicks > RACE.idleInputTicks) {
+    // aba escondida ou conexão parada: solta tudo e a cadeira para sozinha
+    r.input = { ...NO_INPUT };
+    r.stepCredit = 0;
+    out.push(r.input);
+  }
+  return out;
+}
+
 export function stepRace(race: RaceMatch, dtMs: number): void {
   if (race.phase === "finished") return;
   race.now += dtMs;
   if (race.phase === "countdown") {
     if (race.now < race.countdownEndsAt) {
-      for (const r of race.racers.values()) r.useQueued = r.respawnQueued = false;
+      for (const r of race.racers.values()) {
+        r.useQueued = r.respawnQueued = false;
+        r.inputQueue = [];
+      }
       return;
     }
     race.phase = "active";
@@ -105,8 +148,14 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
   const now = race.now;
   const racers = [...race.racers.values()];
 
+  const steps = new Map<string, KartInput[]>();
   for (const r of racers) {
-    if (r.isBot || r.lap.finishedAt !== null) stepRaceBot(race, r, dtMs);
+    if (r.isBot || r.lap.finishedAt !== null) {
+      stepRaceBot(race, r, dtMs);
+      steps.set(r.id, [r.input]);
+    } else {
+      steps.set(r.id, r.connected ? takeInputs(r) : [NO_INPUT]);
+    }
   }
   for (const r of racers) {
     if (r.useQueued && (r.connected || r.isBot) && r.lap.finishedAt === null) useItem(race, r);
@@ -116,11 +165,12 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
   }
 
   for (const r of racers) {
-    const input = r.connected || r.isBot || r.lap.finishedAt !== null ? r.input : NO_INPUT;
-    const res = stepKart(r.kart, input, dtMs, now, TRACK);
-    r.kart = res.state;
-    if (res.boost) race.events.push({ type: "boost", id: r.id, level: res.boost });
-    if (res.wall && Math.abs(r.kart.speed) > 4) race.events.push({ type: "wall", id: r.id });
+    for (const input of steps.get(r.id)!) {
+      const res = stepKart(r.kart, input, dtMs, now, TRACK);
+      r.kart = res.state;
+      if (res.boost) race.events.push({ type: "boost", id: r.id, level: res.boost });
+      if (res.wall && Math.abs(r.kart.speed) > 4) race.events.push({ type: "wall", id: r.id });
+    }
   }
   for (let i = 0; i < racers.length; i++) {
     for (let j = i + 1; j < racers.length; j++) {
@@ -233,6 +283,7 @@ export function buildRacePrivate(race: RaceMatch, id: string): RacePrivate | nul
     shieldMs: left(r.shieldUntil),
     wrongWay: r.wrongMs >= RACE.wrongWayMs,
     finished: r.lap.finishedAt !== null,
+    ackSeq: r.ackSeq,
     kart: {
       x: k.pos.x,
       z: k.pos.z,

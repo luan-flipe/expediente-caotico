@@ -49,6 +49,11 @@ export interface Racer {
   shieldUntil: number;
   blindUntil: number;
   wrongMs: number;
+  /** Comandos numerados do jogador, aplicados um por tick (o cliente refaz os ainda não confirmados). */
+  inputQueue: { seq: number; input: KartInput }[];
+  ackSeq: number;
+  idleTicks: number;
+  stepCredit: number;
   itemsUsed: Partial<Record<ItemId, number>>;
   bot?: RaceBotBrain;
 }
@@ -125,6 +130,8 @@ export interface RacePrivate {
   shieldMs: number;
   wrongWay: boolean;
   finished: boolean;
+  /** Último comando numerado já aplicado pelo servidor. */
+  ackSeq: number;
   kart: {
     x: number;
     z: number;

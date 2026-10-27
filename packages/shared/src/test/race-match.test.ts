@@ -81,6 +81,63 @@ describe("partida de corrida", () => {
     expect(p.kart.pos).not.toEqual(pos);
   });
 
+  it("comandos numerados: um por tick, na ordem, e o privado confirma o último aplicado", () => {
+    const r = race(2, false);
+    for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
+    const p = r.racers.get("p0")!;
+    setKartInput(r, "p0", { steer: 0, throttle: 1, drift: false }, 1);
+    setKartInput(r, "p0", { steer: 1, throttle: 1, drift: false }, 2);
+    setKartInput(r, "p0", { steer: -1, throttle: 0, drift: false }, 3);
+    stepRace(r, DT);
+    expect(buildRacePrivate(r, "p0")!.ackSeq).toBe(1);
+    expect(p.input.steer).toBe(0);
+    stepRace(r, DT);
+    expect(buildRacePrivate(r, "p0")!.ackSeq).toBe(2);
+    expect(p.input.steer).toBe(1);
+    stepRace(r, DT);
+    expect(buildRacePrivate(r, "p0")!.ackSeq).toBe(3);
+    // sem comandos novos repete o último por pouco tempo e depois solta tudo
+    stepRace(r, DT);
+    expect(p.input.steer).toBe(-1);
+    for (let i = 0; i < 10; i++) stepRace(r, DT);
+    expect(p.input).toEqual({ steer: 0, throttle: 0, drift: false });
+  });
+
+  it("um passo da cadeira por comando: sem comando novo a cadeira espera, sem andar sozinha", () => {
+    const r = race(2, false);
+    for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
+    const p = r.racers.get("p0")!;
+    for (let i = 1; i <= 20; i++) {
+      setKartInput(r, "p0", { steer: 0, throttle: 1, drift: false }, i);
+      stepRace(r, DT);
+    }
+    const pos = { ...p.kart.pos };
+    stepRace(r, DT);
+    stepRace(r, DT);
+    expect(p.kart.pos).toEqual(pos);
+    // o comando que chega atrasado é aplicado e o seguinte também, recuperando o atraso
+    setKartInput(r, "p0", { steer: 0, throttle: 1, drift: false }, 21);
+    setKartInput(r, "p0", { steer: 0, throttle: 1, drift: false }, 22);
+    stepRace(r, DT);
+    expect(p.ackSeq).toBe(22);
+  });
+
+  it("mandar comandos rápido demais não dá passos extras", () => {
+    const r = race(2, false);
+    for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
+    const fast = r.racers.get("p0")!;
+    const fair = r.racers.get("p1")!;
+    const start = { fast: fast.progress, fair: fair.progress };
+    let seq = 0;
+    for (let i = 0; i < 40; i++) {
+      for (let j = 0; j < 3; j++) setKartInput(r, "p0", { steer: 0, throttle: 1, drift: false }, ++seq);
+      setKartInput(r, "p1", { steer: 0, throttle: 1, drift: false }, i + 1);
+      stepRace(r, DT);
+    }
+    const gained = fast.progress - start.fast - (fair.progress - start.fair);
+    expect(gained).toBeLessThan(2);
+  });
+
   it("entrada inválida vira zero e snapshot não expõe item dos outros", () => {
     const r = race(2, false);
     setKartInput(r, "p0", { steer: NaN, throttle: 5, drift: true });
