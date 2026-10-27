@@ -121,7 +121,6 @@ function extra(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Mat
   return m;
 }
 
-const sphere = () => new THREE.SphereGeometry(1, 16, 12);
 /** Raio da cabeça do GLB (Rosto), em unidades do modelo. */
 const HEAD_R = 0.56;
 
