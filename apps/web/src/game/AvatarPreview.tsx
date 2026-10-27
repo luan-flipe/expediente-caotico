@@ -1,12 +1,14 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import type { AvatarDNA } from "@ec/shared";
-import { animateAvatar, buildAvatar, disposeAvatar, type AvatarRig } from "./avatarMesh";
+import { useStore } from "../store";
+import { createCharacter, type Character } from "./character";
 
 /** Prévia 3D girando. Arraste para girar. */
 export function AvatarPreview({ dna, className }: { dna: AvatarDNA; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const rigRef = useRef<AvatarRig | null>(null);
+  const rigRef = useRef<Character | null>(null);
+  const ready = useStore((s) => s.modelReady);
   const sceneRef = useRef<THREE.Scene | null>(null);
 
   useEffect(() => {
@@ -44,6 +46,7 @@ export function AvatarPreview({ dna, className }: { dna: AvatarDNA; className?: 
     window.addEventListener("pointerup", up);
 
     let raf = 0;
+    let last = performance.now();
     const loop = (ms: number) => {
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
@@ -56,9 +59,10 @@ export function AvatarPreview({ dna, className }: { dna: AvatarDNA; className?: 
       const rig = rigRef.current;
       if (rig) {
         rig.root.rotation.y = yaw;
-        animateAvatar(rig, 0, ms / 1000, false);
+        rig.update(Math.min(0.05, (ms - last) / 1000), 0);
       }
       renderer.render(scene, cam);
+      last = ms;
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -67,7 +71,7 @@ export function AvatarPreview({ dna, className }: { dna: AvatarDNA; className?: 
       canvas.removeEventListener("pointerdown", down);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      if (rigRef.current) disposeAvatar(rigRef.current);
+      rigRef.current?.dispose();
       rigRef.current = null;
       renderer.dispose();
     };
@@ -77,15 +81,15 @@ export function AvatarPreview({ dna, className }: { dna: AvatarDNA; className?: 
     const scene = sceneRef.current;
     if (!scene) return;
     const old = rigRef.current;
-    const rig = buildAvatar(dna);
+    const rig = createCharacter(dna);
     if (old) {
       rig.root.rotation.y = old.root.rotation.y;
       scene.remove(old.root);
-      disposeAvatar(old);
+      old.dispose();
     }
     scene.add(rig.root);
     rigRef.current = rig;
-  }, [dna]);
+  }, [dna, ready]);
 
   return <canvas ref={ref} className={className} />;
 }

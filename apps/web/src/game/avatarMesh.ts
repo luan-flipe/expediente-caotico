@@ -193,33 +193,3 @@ export function disposeAvatar(rig: AvatarRig): void {
   });
   for (const m of rig.materials) m.dispose();
 }
-
-let thumbRenderer: THREE.WebGLRenderer | null = null;
-const thumbCache = new Map<string, string>();
-
-/** Miniatura do boneco (dataURL) usando um único renderer compartilhado. */
-export function avatarThumbnail(dna: AvatarDNA, size = 160): string {
-  const key = JSON.stringify({ ...dna, name: "" }) + size;
-  const hit = thumbCache.get(key);
-  if (hit) return hit;
-  if (!thumbRenderer) {
-    thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-  }
-  thumbRenderer.setSize(size, size, false);
-  const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight("#ffffff", "#9a8f80", 2.2));
-  const sun = new THREE.DirectionalLight("#ffffff", 1.6);
-  sun.position.set(2, 4, 5);
-  scene.add(sun);
-  const rig = buildAvatar(dna);
-  rig.root.rotation.y = 0.35;
-  scene.add(rig.root);
-  const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
-  cam.position.set(0, 1.75, 3.1);
-  cam.lookAt(0, 1.45, 0);
-  thumbRenderer.render(scene, cam);
-  const url = thumbRenderer.domElement.toDataURL("image/png");
-  disposeAvatar(rig);
-  thumbCache.set(key, url);
-  return url;
-}

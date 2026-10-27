@@ -15,7 +15,7 @@ import {
   type Vec2,
 } from "@ec/shared";
 import { net, setState } from "../store";
-import { animateAvatar, buildAvatar, disposeAvatar, type AvatarRig } from "./avatarMesh";
+import { createCharacter, modelReady, type Character } from "./character";
 import { FxSystem } from "./fx";
 import { buildOffice } from "./officeScene";
 
@@ -27,7 +27,7 @@ interface Sample {
 }
 
 interface View {
-  rig: AvatarRig;
+  char: Character;
   avatarKey: string;
   tag: THREE.Sprite;
   tagKey: string;
@@ -36,7 +36,7 @@ interface View {
   bubble: THREE.Mesh;
   stars: THREE.Mesh;
   slowRing: THREE.Mesh;
-  walk: number;
+  wasDashing: boolean;
 }
 
 export type UiSignal = "hit" | "hurt" | "lock" | "unlock";
@@ -295,12 +295,12 @@ export class Engine {
       if (v.buf.length > 20) v.buf.shift();
       const tagKey = `${p.name}|${p.hp}|${p.maxHp}|${p.shield}`;
       if (tagKey !== v.tagKey) {
-        v.rig.root.remove(v.tag);
+        v.char.root.remove(v.tag);
         (v.tag.material as THREE.SpriteMaterial).map?.dispose();
         v.tag.material.dispose();
         v.tag = makeTag(p.name, p.hp, p.maxHp, p.shield);
         v.tag.position.y = 2.45;
-        if (p.id !== this.myId) v.rig.root.add(v.tag);
+        if (p.id !== this.myId) v.char.root.add(v.tag);
         v.tagKey = tagKey;
       }
       v.last = p;
@@ -308,8 +308,8 @@ export class Engine {
     }
     for (const [id, v] of this.views) {
       if (seen.has(id)) continue;
-      this.scene.remove(v.rig.root);
-      disposeAvatar(v.rig);
+      this.scene.remove(v.char.root);
+      v.char.dispose();
       this.views.delete(id);
     }
 
@@ -327,6 +327,7 @@ export class Engine {
         m.rotation.y = Math.atan2(pr.vx, pr.vz);
         this.scene.add(m);
         this.projectiles.set(pr.id, m);
+        if (pr.kind === "ball") this.views.get(pr.owner)?.char.play("throw");
       }
       this.projectiles.get(pr.id)!.userData = pr;
     }
@@ -366,6 +367,7 @@ export class Engine {
 
     for (const e of s.events) {
       this.fx.handle(e, this.myId);
+      if (e.type === "fx" && e.kind === "B1" && e.owner) this.views.get(e.owner)?.char.play("cafe");
       if (e.type === "hit" && e.from === this.myId) this.onUi("hit");
       if (e.type === "hit" && e.target === this.myId) this.onUi("hurt");
     }
@@ -397,14 +399,14 @@ export class Engine {
 
   private viewFor(p: PublicPlayer): View {
     const dna = this.avatars.get(p.id);
-    const key = dna ? JSON.stringify(dna) : p.name;
+    const key = (dna ? JSON.stringify(dna) : p.name) + (modelReady() ? "|glb" : "");
     let v = this.views.get(p.id);
     if (v && v.avatarKey === key) return v;
     if (v) {
-      this.scene.remove(v.rig.root);
-      disposeAvatar(v.rig);
+      this.scene.remove(v.char.root);
+      v.char.dispose();
     }
-    const rig = buildAvatar(dna ?? { name: p.name, skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, accessory: 0, height: 1 });
+    const char = createCharacter(dna ?? { name: p.name, skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, accessory: 0, height: 1 });
     const bubble = new THREE.Mesh(new THREE.SphereGeometry(1.05, 20, 14), new THREE.MeshBasicMaterial({ color: "#8f9cff", transparent: true, opacity: 0.22, depthWrite: false }));
     bubble.position.y = 1;
     const stars = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.05, 6, 12), new THREE.MeshBasicMaterial({ color: "#ffe14d" }));
@@ -413,12 +415,12 @@ export class Engine {
     const slowRing = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.65, 24), new THREE.MeshBasicMaterial({ color: "#5ad1ff", side: THREE.DoubleSide, transparent: true, opacity: 0.8 }));
     slowRing.rotation.x = -Math.PI / 2;
     slowRing.position.y = 0.05;
-    rig.root.add(bubble, stars, slowRing);
+    char.root.add(bubble, stars, slowRing);
     const tag = makeTag(p.name, p.hp, p.maxHp, p.shield);
     tag.position.y = 2.45;
-    if (p.id !== this.myId) rig.root.add(tag);
-    this.scene.add(rig.root);
-    v = { rig, avatarKey: key, tag, tagKey: "", buf: v?.buf ?? [], last: p, bubble, stars, slowRing, walk: 0 };
+    if (p.id !== this.myId) char.root.add(tag);
+    this.scene.add(char.root);
+    v = { char, avatarKey: key, tag, tagKey: "", buf: v?.buf ?? [], last: p, bubble, stars, slowRing, wasDashing: false };
     this.views.set(p.id, v);
     return v;
   }
@@ -522,13 +524,15 @@ export class Engine {
         z = a.z + (c.z - a.z) * k;
         yaw = angleLerp(a.yaw, c.yaw, k);
       }
-      const prev = v.rig.root.position;
+      const prev = v.char.root.position;
       const moved = Math.hypot(x - prev.x, z - prev.z) / Math.max(dt, 0.001);
-      v.rig.root.position.set(x, 0, z);
-      v.rig.root.rotation.y = yaw;
-      v.rig.root.visible = p.alive && !(p.flags.includes("invuln") && !p.flags.includes("dodge") && !p.flags.includes("dash") && Math.floor(now / 90) % 2 === 0);
-      v.walk += dt * Math.min(1, moved / BALANCE.moveSpeed);
-      animateAvatar(v.rig, Math.min(1, moved / BALANCE.moveSpeed), v.walk, this.snap?.phase === "active");
+      v.char.root.position.set(x, 0, z);
+      v.char.root.rotation.y = yaw;
+      v.char.root.visible = p.alive && !(p.flags.includes("invuln") && !p.flags.includes("dodge") && !p.flags.includes("dash") && Math.floor(now / 90) % 2 === 0);
+      const dashing = p.flags.includes("dodge") || p.flags.includes("dash");
+      if (dashing && !v.wasDashing) v.char.play("dash");
+      v.wasDashing = dashing;
+      v.char.update(dt, Math.min(1, moved / BALANCE.moveSpeed));
       v.bubble.visible = p.flags.includes("shield");
       v.stars.visible = p.flags.includes("stun");
       v.stars.rotation.z += dt * 6;
@@ -551,7 +555,7 @@ export class Engine {
 
   private updateCamera(): void {
     const me = this.myView();
-    const base = me ? me.rig.root.position : new THREE.Vector3(0, 0, 0);
+    const base = me ? me.char.root.position : new THREE.Vector3(0, 0, 0);
     const cp = Math.cos(this.pitch);
     const fwd = new THREE.Vector3(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
     const right = new THREE.Vector3(-Math.cos(this.yaw), 0, Math.sin(this.yaw));
@@ -569,7 +573,7 @@ export class Engine {
     if (fwd.y < -0.02) dist = Math.min(dist, (BALANCE.shotHeight - want.y) / fwd.y);
     for (const [id, v] of this.views) {
       if (id === this.myId || !v.last.alive) continue;
-      const c = new THREE.Vector3(v.rig.root.position.x, 1.1, v.rig.root.position.z);
+      const c = new THREE.Vector3(v.char.root.position.x, 1.1, v.char.root.position.z);
       const along = c.clone().sub(want).dot(fwd);
       if (along <= 0 || along > dist) continue;
       const closest = want.clone().addScaledVector(fwd, along);
@@ -588,7 +592,7 @@ export class Engine {
     clearInterval(this.inputTimer);
     for (const c of this.cleanup) c();
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
-    for (const v of this.views.values()) disposeAvatar(v.rig);
+    for (const v of this.views.values()) v.char.dispose();
     this.renderer.dispose();
   }
 }

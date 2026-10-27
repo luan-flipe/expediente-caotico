@@ -1,12 +1,13 @@
 import { ABILITIES } from "@ec/shared";
 import { AvatarPreview } from "../game/AvatarPreview";
-import { avatarThumbnail } from "../game/avatarMesh";
+import { avatarThumbnail } from "../game/character";
 import { net, useStore } from "../store";
 
 export function Results() {
   const rows = useStore((s) => s.results)!;
   const lobby = useStore((s) => s.lobby);
   const myId = useStore((s) => s.myId);
+  useStore((s) => s.modelReady);
   const isHost = lobby?.hostId === myId;
   const winner = rows[0];
   const tie = winner?.tie;
