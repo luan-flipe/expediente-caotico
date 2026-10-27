@@ -37,7 +37,8 @@ function serveStatic(url: string, res: import("node:http").ServerResponse): void
     res.end("Servidor do Expediente Caótico no ar. Rode o cliente com pnpm dev.");
     return;
   }
-  res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream" });
+  // o tamanho deixa a tela de carregamento do cliente mostrar o progresso em bytes
+  res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream", "content-length": statSync(file).size });
   createReadStream(file).pipe(res);
 }
 

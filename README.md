@@ -26,6 +26,7 @@ pnpm typecheck      # TypeScript nos 3 pacotes
 pnpm lint           # ESLint
 pnpm build          # build do cliente e do servidor
 pnpm start          # produção: serve jogo e WebSocket em http://localhost:2567
+node scripts/optimize-assets.mjs  # refaz os modelos e a música leves de apps/web/public/assets a partir de assets-src (à mão, fora do build)
 ```
 
 Para jogar com colegas na mesma rede em modo dev, abra `http://SEU-IP:5173` (rode `pnpm --filter @ec/web dev -- --host`).
@@ -86,6 +87,7 @@ packages/shared   dados do jogo e TODA a regra (simulação pura, testada)
 apps/server       Node + ws: salas, loop de 30 ticks/s, snapshots, serve o build web
 apps/web          React (telas e HUD) + Three.js (cena, câmera, previsão, interpolação)
   src/race/       cena, cadeira 3D, HUD e resultados da corrida
+assets-src        originais dos modelos (GLB) e da música, fora do build; o script os comprime para apps/web/public/assets
 ```
 
 O servidor é a autoridade: o cliente só manda intenções (movimento, mira, botões, escolha de evolução).

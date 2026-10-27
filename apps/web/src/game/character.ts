@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { HAIR_COLORS, PANTS, SHIRTS, SKINS, type AvatarDNA } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
+import { createGltfLoader } from "./gltfLoader";
 
 export type CharacterAction = "throw" | "cafe" | "dash";
 
@@ -52,9 +52,9 @@ export function modelReady(): boolean {
 }
 
 /** Carrega o GLB uma vez. Resolve false se falhar (o jogo segue com o boneco procedural). */
-export function preloadCharacter(): Promise<boolean> {
-  loading ??= new GLTFLoader()
-    .loadAsync(MODEL_URL)
+export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promise<boolean> {
+  loading ??= createGltfLoader()
+    .loadAsync(MODEL_URL, onProgress)
     .then((gltf) => {
       const scene = gltf.scene;
       scene.getObjectByName("Pedestal")?.removeFromParent();

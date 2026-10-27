@@ -16,6 +16,7 @@ import {
   type RacePrivate,
   type RaceSnapshot,
 } from "@ec/shared";
+import { loadMusic } from "../assets";
 import { modelReady } from "../game/character";
 import { net, setState } from "../store";
 import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
@@ -58,7 +59,6 @@ interface HazardView {
 const DT = 1000 / 30;
 const INTERP_MS = 110;
 const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f"];
-const MUSIC_URL = "/assets/audio/turbo_pixel_drift.mp3";
 /** Baixo o bastante para o helicóptero e os itens continuarem audíveis. */
 const MUSIC_VOLUME = 0.35;
 /** Treino: os outros pilotos aparecem assim (sem colisão entre cadeiras). */
@@ -165,17 +165,15 @@ export class RaceEngine {
   }
 
   private startMusic(): void {
-    new THREE.AudioLoader()
-      .loadAsync(MUSIC_URL)
-      .then((buffer) => {
-        // a corrida pode ter acabado enquanto o arquivo baixava
-        if (!this.raf) return;
-        this.music.setBuffer(buffer);
-        this.music.setLoop(true);
-        this.music.setVolume(MUSIC_VOLUME);
-        this.music.play();
-      })
-      .catch((err) => console.warn("música da corrida não carregou", err));
+    // baixada e decodificada uma vez por visita (assets.ts); a corrida seguinte reaproveita
+    void loadMusic().then((buffer) => {
+      // a corrida pode ter acabado enquanto o arquivo baixava
+      if (!buffer || !this.raf) return;
+      this.music.setBuffer(buffer);
+      this.music.setLoop(true);
+      this.music.setVolume(MUSIC_VOLUME);
+      this.music.play();
+    });
   }
 
   // ---------- entrada ----------

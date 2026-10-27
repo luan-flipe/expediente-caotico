@@ -46,6 +46,10 @@ export interface State {
   scoreboard: boolean;
   /** boneco.glb carregado; telas refazem miniaturas e prévias. */
   modelReady: boolean;
+  /** Boneco e cadeira terminaram de carregar (ou falharam, ou estourou o tempo): a tela de carregamento some. */
+  assetsReady: boolean;
+  /** Progresso da tela de carregamento, de 0 a 1. */
+  loadProgress: number;
   /** Conta logada (Google); null joga como visitante. */
   account: Account | null;
   /** Tela do ranking da firma aberta por cima da tela inicial ou do lobby. */
@@ -101,6 +105,8 @@ let state: State = {
   feed: [],
   scoreboard: false,
   modelReady: false,
+  assetsReady: false,
+  loadProgress: 0,
   account: loadAccount(),
   ranking: false,
   ghosts: null,

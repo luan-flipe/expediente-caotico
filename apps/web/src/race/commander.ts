@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { pointAt, RACE, TRACK } from "@ec/shared";
+import { createGltfLoader } from "../game/gltfLoader";
 
 /** Comandante: o narrador da corrida, sobrevoando a pista de helicóptero. */
 const MODEL_URL = "/assets/characters/comandante_helicoptero.glb";
@@ -33,7 +33,7 @@ function loadSound(): Promise<AudioBuffer | null> {
 }
 
 export function preloadCommander(): Promise<boolean> {
-  loading ??= new GLTFLoader()
+  loading ??= createGltfLoader()
     .loadAsync(MODEL_URL)
     .then((gltf) => {
       loaded = { scene: gltf.scene, rotor: gltf.animations.find((a) => a.name === ROTOR_CLIP) ?? null };
