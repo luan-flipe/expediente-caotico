@@ -62,6 +62,14 @@ O servidor é a autoridade: o cliente só manda intenções (movimento, mira, bo
 - **Mapa:** `packages/shared/src/data/map.ts`. O escritório é uma lista de caixas (`x`, `z` = centro, `w`, `d` = tamanho, `h` = altura, `kind` = aparência). A mesma lista gera o visual e a colisão do servidor, então trocar pela planta real do escritório é editar esse arquivo. Caixas com altura menor que 1,2 m bloqueiam passagem mas não tiros.
 - **Bonecos:** opções em `packages/shared/src/data/avatar.ts`, montagem 3D em `apps/web/src/game/avatarMesh.ts`. Os 12 presets `funcionario_01..12` são pontos de partida para os colegas reais.
 
+## Como colaborar
+
+1. Crie uma branch a partir da `main` (`git checkout -b feat/minha-ideia`).
+2. Faça a mudança e rode `pnpm lint && pnpm typecheck && pnpm test`.
+3. Abra um Pull Request para a `main` preenchendo o modelo. O CI roda sozinho e o PR só entra com CI verde e aprovação.
+
+Regras da casa: o servidor é quem decide dano, pontos e recargas (o cliente só manda intenções); números de balanceamento ficam em `packages/shared/src/data/`; regra nova de jogo vem com teste em `packages/shared/src/test/`.
+
 ## Deploy
 
 Precisa de um host com WebSocket persistente (Render, Fly.io, Railway, VPS). Vercel serverless não serve para o servidor.
