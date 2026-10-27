@@ -125,45 +125,74 @@ const sphere = () => new THREE.SphereGeometry(1, 16, 12);
 /** Raio da cabeça do GLB (Rosto), em unidades do modelo. */
 const HEAD_R = 0.56;
 
+/** Frente do rosto no ângulo phi da SphereGeometry (x = -cos phi, z = sin phi). */
+const FRONT = Math.PI / 2;
+
+/**
+ * Casca esférica que acompanha a cabeça, como o cabelo curto do modelo.
+ * theta 0 = topo; gap = abertura na frente para o rosto (rad).
+ */
+function shell(head: THREE.Object3D, mat: THREE.Material, r: number, theta0: number, theta1: number, gap = 0): THREE.Mesh {
+  const geo = new THREE.SphereGeometry(r, 36, 24, FRONT + gap / 2, Math.PI * 2 - gap, theta0, theta1 - theta0);
+  return extra(head, geo, mat, [0, 0, 0]);
+}
+
 /** Penteados além do "Curto" do modelo, montados sobre a cabeça. Índices de HAIR_STYLES. */
 function addHair(head: THREE.Object3D, style: number, mat: THREE.Material): void {
+  const R = HEAD_R + 0.04;
   switch (style) {
-    case 2: // médio: laterais e nuca mais volumosas
-      for (const x of [-0.5, 0.5]) extra(head, sphere(), mat, [x, -0.08, -0.08], [0.17, 0.4, 0.42]);
-      extra(head, sphere(), mat, [0, -0.12, -0.4], [0.52, 0.45, 0.24]);
+    case 2: // médio: chanel até a altura do queixo
+      shell(head, mat, R, 0, 1.05);
+      shell(head, mat, R, 1.0, 1.95, 1.7);
       break;
-    case 3: // longo: cai pelas costas e pelos lados
-      for (const x of [-0.5, 0.5]) extra(head, sphere(), mat, [x, -0.32, -0.1], [0.16, 0.6, 0.38]);
-      extra(head, sphere(), mat, [0, -0.5, -0.42], [0.55, 0.8, 0.22]);
+    case 3: // longo: cai pelas costas até os ombros
+      shell(head, mat, R, 0, 1.05);
+      shell(head, mat, R, 1.0, 2.25, 1.7);
+      extra(head, new THREE.CapsuleGeometry(0.4, 0.45, 6, 16), mat, [0, -0.58, -0.3], [1, 1, 0.42]);
+      for (const x of [-0.46, 0.46]) extra(head, new THREE.CapsuleGeometry(0.12, 0.35, 6, 12), mat, [x, -0.5, -0.05]);
       break;
-    case 4: // coque
-      extra(head, sphere(), mat, [0, 0.42, -0.48], [0.24, 0.24, 0.24]);
+    case 4: // coque no alto da nuca
+      shell(head, mat, R - 0.01, 0, 1.25);
+      shell(head, mat, R - 0.01, 1.2, 1.75, 2.2);
+      extra(head, new THREE.SphereGeometry(0.21, 20, 14), mat, [0, 0.4, -0.5]);
+      extra(head, new THREE.TorusGeometry(0.15, 0.035, 8, 20), mat, [0, 0.31, -0.43]).rotation.x = 0.9;
       break;
-    case 5: // moicano: crista do topo da testa até a nuca
-      for (let i = 0; i <= 7; i++) {
-        const a = 0.5 - (i / 7) * 1.9;
-        const spike = extra(head, new THREE.ConeGeometry(0.1, 0.32, 6), mat, [0, Math.cos(a) * (HEAD_R + 0.08), Math.sin(a) * (HEAD_R + 0.08)]);
-        spike.rotation.x = a;
+    case 5: // moicano: crista lisa da testa até a nuca
+      for (let i = 0; i <= 10; i++) {
+        const a = 0.55 - (i / 10) * 2.1;
+        const d = R + 0.06;
+        const lobe = extra(head, new THREE.SphereGeometry(1, 14, 10), mat, [0, Math.cos(a) * d, Math.sin(a) * d], [0.075, 0.2 - Math.abs(i - 4) * 0.012, 0.15]);
+        lobe.rotation.x = a;
       }
       break;
-    case 6: // cacheado: cachos no topo e na nuca, deixando testa e rosto livres
-      for (let i = 0; i < 40; i++) {
-        const phi = Math.acos(1 - ((i + 0.5) / 40) * 1.3);
-        const theta = i * 2.4;
-        const r = HEAD_R + 0.04;
-        const [x, y, z] = [Math.sin(phi) * Math.cos(theta) * r, Math.cos(phi) * r, Math.sin(phi) * Math.sin(theta) * r];
-        if (z > 0.2 && y < 0.42) continue;
-        extra(head, new THREE.IcosahedronGeometry(0.15, 0), mat, [x, y, z]);
+    case 6: { // cacheado: volume arredondado com cachos na superfície
+      const puff = shell(head, mat, R + 0.1, 0, 2.0, 1.5);
+      puff.position.y = 0.06;
+      for (let i = 0; i < 48; i++) {
+        const theta = Math.acos(1 - ((i + 0.5) / 48) * 1.4);
+        const phi = i * 2.39996;
+        const rel = (((phi - FRONT) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        if (theta > 0.9 && (rel < 0.75 || rel > Math.PI * 2 - 0.75)) continue;
+        const r = R + 0.13;
+        extra(head, new THREE.IcosahedronGeometry(0.12, 1), mat, [-Math.cos(phi) * Math.sin(theta) * r, Math.cos(theta) * r + 0.06, Math.sin(phi) * Math.sin(theta) * r]);
       }
       break;
+    }
     default:
       break;
   }
 }
 
+/** Barba: volume no queixo abaixo da boca, bigode e costeletas que encontram o cabelo. */
 function addBeard(head: THREE.Object3D, mat: THREE.Material): void {
-  extra(head, sphere(), mat, [0, -0.36, 0.3], [0.4, 0.24, 0.26]);
-  for (const x of [-0.45, 0.45]) extra(head, sphere(), mat, [x, -0.18, 0.18], [0.1, 0.28, 0.2]);
+  extra(head, new THREE.SphereGeometry(1, 28, 18), mat, [0, -0.34, 0.26], [0.47, 0.2, 0.32]);
+  const R = HEAD_R + 0.025;
+  for (const side of [-1, 1]) {
+    const geo = new THREE.SphereGeometry(R, 12, 12, FRONT + side * 1.1 - (side > 0 ? 0 : 0.28), 0.28, 1.2, 0.9);
+    extra(head, geo, mat, [0, 0, 0]);
+    const half = extra(head, new THREE.CapsuleGeometry(0.035, 0.13, 4, 10), mat, [side * 0.08, -0.09, 0.545]);
+    half.rotation.z = side * (Math.PI / 2 - 0.3);
+  }
 }
 
 /** Acessórios do crachá (o boné é o do próprio GLB). Índices de ACCESSORIES. */
