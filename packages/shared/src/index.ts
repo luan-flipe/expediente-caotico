@@ -12,3 +12,13 @@ export { createMatch, stepMatch, setInput, queueAction, buildSnapshot, buildPriv
 export type { MatchPlayerInfo } from "./sim/match";
 export { chooseEvolution, xpToNext } from "./sim/progression";
 export { roomNameAt } from "./sim/objective";
+export * from "./race/balance";
+export * from "./race/chair";
+export * from "./race/types";
+export { TRACK, TRACK_LENGTH, TRACK_ROOMS, pointAt, progressOf, trackEdges, sideNormal, inCarpet, checkpoints, deltaS } from "./race/track";
+export type { Track, CarpetZone } from "./race/track";
+export { stepKart, newKart, NO_INPUT } from "./race/kart";
+export type { KartInput, KartState } from "./race/kart";
+export { ITEM_IDS, ITEM_NAMES, giveItem } from "./race/items";
+export { createRace, stepRace, setKartInput, queueItemUse, respawnRequest, buildRaceSnapshot, buildRacePrivate, getRaceResults } from "./race/match";
+export type { RacePlayerInfo } from "./race/match";

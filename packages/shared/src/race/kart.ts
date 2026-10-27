@@ -115,7 +115,7 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
     if (c.hit && Math.abs(s.speed) > 0.01) {
       const into = (vx * c.normal.x + vz * c.normal.z) / Math.abs(s.speed);
       if (into > 0) {
-        wall = true;
+        wall = into > 0.3;
         s.speed *= 1 - (1 - RACE.wallSpeedKeep) * into;
       }
     }
