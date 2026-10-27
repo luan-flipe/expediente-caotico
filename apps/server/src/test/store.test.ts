@@ -107,3 +107,21 @@ describe("Store", () => {
     expect((await read(root)).version).toBe(1);
   });
 });
+
+describe("Store com arquivo ilegível", () => {
+  it("erro de leitura que não é arquivo ausente deixa o servidor de pé mas sem gravar por cima", async () => {
+    // um diretório no lugar do arquivo dá EISDIR na leitura, como um volume com permissão errada
+    await fsp.mkdir(join(root, "ranking.json"));
+    await fsp.writeFile(join(root, "ranking.json", "dentro"), "x");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const write = vi.spyOn(fsp, "writeFile");
+    const s = new Store(root);
+    expect(s.data).toEqual(emptyRankingData());
+    s.data.accounts["g1"] = { email: "a@b.c", name: "Ana", since: 1 };
+    s.save();
+    await s.flush();
+    expect(write).not.toHaveBeenCalled();
+    expect((await fsp.readdir(root)).sort()).toEqual(["ranking.json"]);
+  });
+});

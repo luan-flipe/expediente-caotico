@@ -49,9 +49,9 @@ describe("verifyGoogleToken", () => {
     expect(await verifyGoogleToken(makeToken({ iss: "accounts.google.com" }), CLIENT_ID, keys)).not.toBeNull();
   });
 
-  it("usa o e-mail como nome quando o token não traz nome", async () => {
+  it("sem nome no token usa \"Jogador\", nunca o e-mail", async () => {
     const r = await verifyGoogleToken(makeToken({ name: undefined }), CLIENT_ID, keys);
-    expect(r?.name).toBe("ana@firma.com");
+    expect(r?.name).toBe("Jogador");
   });
 
   it("recusa assinatura de outra chave", async () => {

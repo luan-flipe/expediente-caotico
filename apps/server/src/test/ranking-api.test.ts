@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { DEFAULT_AVATAR, MAIN_TRACK_ID, PLACE_POINTS, RECORD_POINTS, type GhostSample, type RankingView, type ServerMsg } from "@ec/shared";
-import { startServer, type RunningServer } from "../app";
+import { publicId, startServer, type RunningServer } from "../app";
 import { readSession } from "../auth";
 import { Store } from "../store";
 
@@ -12,12 +12,15 @@ import { Store } from "../store";
 const googleUsers: Record<string, { sub: string; email: string; name: string }> = {
   "ok-ana": { sub: "g-ana", email: "ana@firma.com", name: "Ana Google" },
   "ok-beto": { sub: "g-beto", email: "beto@firma.com", name: "Beto Google" },
+  "ok-caio": { sub: "g-caio", email: "caio@firma.com", name: "Caio Google" },
 };
 const verifyMock = vi.hoisted(() => vi.fn());
 vi.mock("../auth", async (orig) => ({ ...(await orig<typeof import("../auth")>()), verifyGoogleToken: verifyMock }));
 
 const SECRET = "segredo-de-teste";
 const CLIENT_ID = "teste";
+const ANA = publicId("g-ana", SECRET);
+const BETO = publicId("g-beto", SECRET);
 
 let srv: RunningServer;
 let store: Store;
@@ -219,17 +222,44 @@ describe("partidas registram no ranking", () => {
     const view = await ranking(ana.session);
     const month = Object.fromEntries(view.mes.rows.map((r) => [r.id, r.points]));
     // a primeira volta de Ana na pista também é o recorde da firma: +RECORD_POINTS
-    expect(month["g-ana"] - pointsBefore["g-ana"]).toBe(pts(place(a.w.id)) + RECORD_POINTS);
-    expect(month["g-beto"] - pointsBefore["g-beto"]).toBe(pts(place(b.w.id)));
-    expect(Object.keys(month).sort()).toEqual(["g-ana", "g-beto"]);
-    expect(view.rally.rows.map((r) => r.id).sort()).toEqual(["g-ana", "g-beto"]);
+    expect(month[ANA] - pointsBefore[ANA]).toBe(pts(place(a.w.id)) + RECORD_POINTS);
+    expect(month[BETO] - pointsBefore[BETO]).toBe(pts(place(b.w.id)));
+    expect(Object.keys(month).sort()).toEqual([ANA, BETO].sort());
+    expect(view.rally.rows.map((r) => r.id).sort()).toEqual([ANA, BETO].sort());
     expect(view.rally.rows.every((r) => r.matches === 1)).toBe(true);
     expect(JSON.stringify(view)).not.toContain("Vera");
     // voltas completas dos logados entram (valem também fora do contra o relógio e sem 2 logados)
     expect(Object.keys(store.data.laps[MAIN_TRACK_ID])).toEqual(["g-ana"]);
     expect(store.data.laps[MAIN_TRACK_ID]["g-ana"]).toMatchObject({ ms: 59000, ghost });
     expect(store.data.stats["g-ana"].bestLapMs).toBe(59000);
-    expect(view.voltas.rows.map((r) => [r.id, r.ms])).toEqual([["g-ana", 59000]]);
+    expect(view.voltas.rows.map((r) => [r.id, r.ms])).toEqual([[ANA, 59000]]);
     for (const x of [a, b, v]) x.c.close();
   }, 90000);
+});
+
+describe("privacidade", () => {
+  it("a resposta pública troca o id da conta Google por um apelido e ainda marca a linha do jogador", async () => {
+    const ana = await login("ok-ana");
+    const res = await fetch(`${base()}/api/ranking`, { headers: { authorization: `Bearer ${ana.session}` } });
+    const text = await res.text();
+    expect(text).not.toContain("g-ana");
+    expect(text).not.toContain("g-beto");
+    const view = JSON.parse(text) as RankingView;
+    expect(view.voltas.me?.id).toBe(ANA);
+    expect(view.voltas.rows.some((r) => r.id === ANA)).toBe(true);
+    expect(publicId("g-ana", "outro-segredo")).not.toBe(ANA);
+  });
+
+  it("reconectar com a sessão liga a conta e leva o nome do crachá, não o do Google", async () => {
+    const caio = await login("ok-caio");
+    expect(store.data.accounts["g-caio"].name).toBe("Caio Google");
+    const first = await connect({ t: "create", name: "Caio Crachá", avatar: DEFAULT_AVATAR });
+    first.c.close();
+    const back = new Client();
+    await back.open();
+    back.send({ t: "resume", code: first.w.code, token: first.w.token, session: caio.session });
+    await back.waitFor("welcome");
+    expect(store.data.accounts["g-caio"].name).toBe("Caio Crachá");
+    back.close();
+  });
 });

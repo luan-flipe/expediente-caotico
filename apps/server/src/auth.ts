@@ -67,7 +67,8 @@ export async function verifyGoogleToken(
     if (claims.email_verified !== true) return null;
     if (typeof claims.sub !== "string" || !claims.sub || typeof claims.email !== "string" || !claims.email) return null;
 
-    const name = typeof claims.name === "string" && claims.name.trim() ? claims.name.trim() : claims.email;
+    // o e-mail nunca vira nome: o nome da conta aparece no ranking público
+    const name = typeof claims.name === "string" && claims.name.trim() ? claims.name.trim() : "Jogador";
     return { sub: claims.sub, email: claims.email, name };
   } catch {
     return null;

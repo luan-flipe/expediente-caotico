@@ -1,9 +1,10 @@
+import { createHmac, randomBytes } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { rankingView } from "@ec/shared";
+import { rankingView, type RankingRowBase, type RankingTab, type RankingView } from "@ec/shared";
 import { readSession, signSession, verifyGoogleToken } from "./auth";
 import { RoomManager, type Conn } from "./rooms";
 import { TokenBucket } from "./ratelimit";
@@ -19,6 +20,17 @@ const TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
   ".json": "application/json",
 };
+
+/** Apelido estável e opaco da conta: o id do Google (o mesmo em todo app do Google) não sai na resposta pública. */
+export function publicId(accountId: string, secret: string): string {
+  return createHmac("sha256", secret).update(`ranking:${accountId}`).digest("base64url").slice(0, 16);
+}
+
+function maskView(view: RankingView, secret: string): RankingView {
+  const mask = <R extends { id: string }>(r: R): R => ({ ...r, id: publicId(r.id, secret) });
+  const tab = <R extends RankingRowBase>(t: RankingTab<R>): RankingTab<R> => ({ rows: t.rows.map(mask), me: t.me && mask(t.me) });
+  return { mes: tab(view.mes), tiroteio: tab(view.tiroteio), rally: tab(view.rally), voltas: tab(view.voltas), mesPassado: view.mesPassado && mask(view.mesPassado) };
+}
 
 /** Serve o build do cliente (produção). Em dev o Vite cuida disso. */
 function serveStatic(url: string, res: import("node:http").ServerResponse): void {
@@ -99,6 +111,8 @@ function readBody(req: IncomingMessage, max: number): Promise<string | null> {
 
 export function startServer(port: number, opts: ServerOptions = {}): Promise<RunningServer> {
   const { store, auth } = opts;
+  // sem login configurado ainda pode haver dados antigos: o apelido usa uma chave do processo
+  const aliasKey = auth?.secret ?? randomBytes(32).toString("hex");
   const manager = new RoomManager(opts.idleMs ?? 10000, opts.race, store && auth ? { store, secret: auth.secret } : undefined);
   const loginBuckets = new Map<string, TokenBucket>();
   const loginAllowed = (ip: string): boolean => {
@@ -144,7 +158,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (path === "/api/ranking" && store) {
       const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
       const viewer = bearer && auth ? (readSession(bearer, auth.secret) ?? undefined) : undefined;
-      return sendJson(res, 200, rankingView(store.data, Date.now(), viewer));
+      return sendJson(res, 200, maskView(rankingView(store.data, Date.now(), viewer), aliasKey));
     }
     sendJson(res, 404, { error: "Não encontrado" });
   }

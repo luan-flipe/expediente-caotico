@@ -607,7 +607,10 @@ export class RoomManager {
       if (!room || !member) return send(conn, { t: "error", msg: "Sessão expirada" });
       // sessão válida no retorno vale como login; sem sessão, mantém a conta com que entrou
       const account = this.accountFrom(msg.session);
-      if (account) member.accountId = account;
+      if (account) {
+        member.accountId = account;
+        room.syncAccountName(member);
+      }
       return this.attach(conn, room, member);
     }
   }

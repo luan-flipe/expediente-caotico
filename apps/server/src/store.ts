@@ -18,6 +18,8 @@ export class Store {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
   private writing: Promise<void> = Promise.resolve();
+  /** Arquivo existe mas não deu para ler: nunca gravar por cima dele. */
+  private readOnly = false;
 
   constructor(dir: string) {
     mkdirSync(dir, { recursive: true });
@@ -30,7 +32,10 @@ export class Store {
     try {
       raw = readFileSync(this.file, "utf8");
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") console.warn("ranking.json ilegível, começando vazio:", err);
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        this.readOnly = true;
+        console.error("ranking.json ilegível: o ranking fica vazio e NADA será gravado até corrigir o arquivo/volume:", err);
+      }
       return emptyRankingData();
     }
     try {
@@ -43,7 +48,8 @@ export class Store {
     try {
       renameSync(this.file, bad);
     } catch (err) {
-      console.warn("não consegui guardar o ranking.json inválido:", err);
+      this.readOnly = true;
+      console.error("não consegui guardar o ranking.json inválido; nada será gravado por cima dele:", err);
     }
     console.warn(`ranking.json inválido ou de versão desconhecida, guardado em ${bad}. Começando com dados vazios.`);
     return emptyRankingData();
@@ -51,6 +57,7 @@ export class Store {
 
   /** Marca os dados como alterados; a gravação sai em até 2 s e junta chamadas seguidas. */
   save(): void {
+    if (this.readOnly) return;
     this.dirty = true;
     if (this.timer) return;
     this.timer = setTimeout(() => {
