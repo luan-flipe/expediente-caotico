@@ -42,8 +42,8 @@ interface View {
 export type UiSignal = "hit" | "hurt" | "lock" | "unlock";
 
 const INTERP_MS = 110;
-const CAM_DIST = 3.6;
-const CAM_SIDE = 0.85;
+const CAM_DIST = 4.6;
+const CAM_SIDE = 1.05;
 const HEAD_Y = 1.6;
 const PITCH_MIN = -0.55;
 const PITCH_MAX = 0.6;
@@ -300,7 +300,7 @@ export class Engine {
         v.tag.material.dispose();
         v.tag = makeTag(p.name, p.hp, p.maxHp, p.shield);
         v.tag.position.y = 2.45;
-        v.rig.root.add(v.tag);
+        if (p.id !== this.myId) v.rig.root.add(v.tag);
         v.tagKey = tagKey;
       }
       v.last = p;
@@ -548,7 +548,7 @@ export class Engine {
     const fwd = new THREE.Vector3(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
     const right = new THREE.Vector3(-Math.cos(this.yaw), 0, Math.sin(this.yaw));
     const head = new THREE.Vector3(base.x, HEAD_Y, base.z);
-    const offset = fwd.clone().multiplyScalar(-CAM_DIST).addScaledVector(right, CAM_SIDE).add(new THREE.Vector3(0, 0.35, 0));
+    const offset = fwd.clone().multiplyScalar(-CAM_DIST).addScaledVector(right, CAM_SIDE).add(new THREE.Vector3(0, 0.6, 0));
     const want = head.clone().add(offset);
     const t = segmentBoxT({ x: head.x, z: head.z }, { x: want.x, z: want.z }, OFFICE_MAP.boxes, 0.25, 2);
     if (t !== null) want.copy(head).addScaledVector(offset, Math.max(0.15, t * 0.9));

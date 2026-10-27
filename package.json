@@ -10,7 +10,7 @@
     "dev": "pnpm --parallel -r --filter ./apps/* dev",
     "build": "pnpm -r --filter ./apps/* build",
     "start": "node apps/server/dist/index.js",
-    "test": "vitest run",
+    "test": "node node_modules/vitest/vitest.mjs run",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint ."
   },

@@ -511,6 +511,7 @@ input {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+  white-space: nowrap;
 }
 
 .zone-arrow {
@@ -669,8 +670,8 @@ input {
 }
 
 .slot-ab {
-  width: 74px;
-  height: 74px;
+  width: 84px;
+  height: 84px;
   border-radius: 8px;
   background: var(--hud-bg);
   border: 2px solid rgba(255, 255, 255, 0.18);
@@ -863,8 +864,8 @@ input {
 }
 
 .lock-hint {
+  top: 108px;
   position: absolute;
-  bottom: 120px;
   left: 50%;
   transform: translateX(-50%);
   padding: 8px 14px;

@@ -20,6 +20,7 @@ export function GameView({ myId }: { myId: string }) {
     };
     const engine = new Engine(canvasRef.current!, myId, onUi);
     engineRef.current = engine;
+    if (import.meta.env.DEV) Object.assign(window, { __engine: engine });
     engine.setAvatars(getState().lobby?.players ?? []);
     const { snap, me } = getState();
     if (snap) engine.applySnapshot(snap, me);

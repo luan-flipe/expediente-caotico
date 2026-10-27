@@ -149,7 +149,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
               <Slot
                 key={i}
                 k={"QER"[i]}
-                label={def ? def.name : "vazio"}
+                label={def ? def.short : "vazio"}
                 level={a?.level}
                 readyInMs={a?.readyInMs ?? 0}
                 cooldownMs={a?.cooldownMs ?? 1}
