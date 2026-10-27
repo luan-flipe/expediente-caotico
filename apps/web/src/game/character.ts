@@ -84,7 +84,7 @@ function paletteFor(dna: AvatarDNA): Record<string, THREE.Color> {
     Jeans: new THREE.Color(PANTS[dna.pants]),
     Cabelo: new THREE.Color(hair),
     Cabelo_Degrade: shade(hair, -0.25),
-    Cabelo_Claro: shade(hair, 0.3),
+    Cabelo_Claro: shade(hair, 0.12),
     Bone_Vermelho: new THREE.Color(cap),
     Bone_Azul: shade(cap, -0.45),
   };
@@ -110,6 +110,94 @@ function addGlasses(head: THREE.Object3D, kind: number, mats: THREE.Material[]):
   head.add(bridge);
 }
 
+/** Peça extra presa a uma parte do GLB; a geometria é deste boneco e é liberada no dispose. */
+function extra(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, pos: [number, number, number], scale?: [number, number, number]): THREE.Mesh {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(...pos);
+  if (scale) m.scale.set(...scale);
+  m.castShadow = true;
+  m.userData.extra = true;
+  parent.add(m);
+  return m;
+}
+
+const sphere = () => new THREE.SphereGeometry(1, 16, 12);
+/** Raio da cabeça do GLB (Rosto), em unidades do modelo. */
+const HEAD_R = 0.56;
+
+/** Penteados além do "Curto" do modelo, montados sobre a cabeça. Índices de HAIR_STYLES. */
+function addHair(head: THREE.Object3D, style: number, mat: THREE.Material): void {
+  switch (style) {
+    case 2: // médio: laterais e nuca mais volumosas
+      for (const x of [-0.5, 0.5]) extra(head, sphere(), mat, [x, -0.08, -0.08], [0.17, 0.4, 0.42]);
+      extra(head, sphere(), mat, [0, -0.12, -0.4], [0.52, 0.45, 0.24]);
+      break;
+    case 3: // longo: cai pelas costas e pelos lados
+      for (const x of [-0.5, 0.5]) extra(head, sphere(), mat, [x, -0.32, -0.1], [0.16, 0.6, 0.38]);
+      extra(head, sphere(), mat, [0, -0.5, -0.42], [0.55, 0.8, 0.22]);
+      break;
+    case 4: // coque
+      extra(head, sphere(), mat, [0, 0.42, -0.48], [0.24, 0.24, 0.24]);
+      break;
+    case 5: // moicano: crista do topo da testa até a nuca
+      for (let i = 0; i <= 7; i++) {
+        const a = 0.5 - (i / 7) * 1.9;
+        const spike = extra(head, new THREE.ConeGeometry(0.1, 0.32, 6), mat, [0, Math.cos(a) * (HEAD_R + 0.08), Math.sin(a) * (HEAD_R + 0.08)]);
+        spike.rotation.x = a;
+      }
+      break;
+    case 6: // cacheado: cachos no topo e na nuca, deixando testa e rosto livres
+      for (let i = 0; i < 40; i++) {
+        const phi = Math.acos(1 - ((i + 0.5) / 40) * 1.3);
+        const theta = i * 2.4;
+        const r = HEAD_R + 0.04;
+        const [x, y, z] = [Math.sin(phi) * Math.cos(theta) * r, Math.cos(phi) * r, Math.sin(phi) * Math.sin(theta) * r];
+        if (z > 0.2 && y < 0.42) continue;
+        extra(head, new THREE.IcosahedronGeometry(0.15, 0), mat, [x, y, z]);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+function addBeard(head: THREE.Object3D, mat: THREE.Material): void {
+  extra(head, sphere(), mat, [0, -0.36, 0.3], [0.4, 0.24, 0.26]);
+  for (const x of [-0.45, 0.45]) extra(head, sphere(), mat, [x, -0.18, 0.18], [0.1, 0.28, 0.2]);
+}
+
+/** Acessórios do crachá (o boné é o do próprio GLB). Índices de ACCESSORIES. */
+function addAccessory(head: THREE.Object3D, body: THREE.Object3D, kind: number, mats: THREE.Material[]): void {
+  const mk = (color: string) => {
+    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+    mats.push(m);
+    return m;
+  };
+  if (kind === 1) {
+    const band = mk("#2b2b2b");
+    const red = mk("#e2483c");
+    extra(head, new THREE.TorusGeometry(HEAD_R + 0.07, 0.05, 6, 20, Math.PI), band, [0, 0, 0]);
+    for (const x of [-1, 1]) {
+      const cup = extra(head, new THREE.CylinderGeometry(0.19, 0.19, 0.14, 14), red, [x * (HEAD_R + 0.05), 0, 0]);
+      cup.rotation.z = Math.PI / 2;
+    }
+  } else if (kind === 3) {
+    const tie = mk("#b8242c");
+    extra(body, new THREE.BoxGeometry(0.15, 0.1, 0.06), tie, [0, 1.47, 0.27]);
+    const blade = extra(body, new THREE.BoxGeometry(0.13, 0.5, 0.04), tie, [0, 1.2, 0.33]);
+    blade.rotation.x = -0.12;
+  } else if (kind === 4) {
+    const white = mk("#f7f5f0");
+    const blue = mk("#2f6fdf");
+    extra(body, new THREE.BoxGeometry(0.28, 0.36, 0.03), white, [0.17, 1.2, 0.34]);
+    extra(body, new THREE.BoxGeometry(0.28, 0.09, 0.035), blue, [0.17, 1.34, 0.345]);
+    for (const x of [0.08, 0.26]) {
+      const strap = extra(body, new THREE.BoxGeometry(0.03, 0.35, 0.03), blue, [x, 1.5, 0.26]);
+      strap.rotation.x = 0.35;
+    }
+  }
+}
+
 function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const root = new THREE.Group();
   const inner = model.scene.clone(true);
@@ -126,19 +214,30 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     const m = src.clone();
     const color = palette[src.name];
     if (color) m.color.copy(color);
+    // mechas do modelo são brilhantes e viram um reflexo cinza em cabelo recolorido
+    if (src.name.startsWith("Cabelo")) m.roughness = 0.9;
     mesh.material = m;
     mats.push(m);
   });
 
   const head = inner.getObjectByName("Cabeca");
-  const bald = dna.hair === 0;
+  const body = inner.getObjectByName("Boneco");
+  // careca e moicano dispensam o cabelo curto do modelo
+  const baseHair = dna.hair !== 0 && dna.hair !== 5;
   for (const n of ["Cabelo_Curto", "Mecha_1", "Mecha_2", "Mecha_3"]) {
     const o = inner.getObjectByName(n);
-    if (o) o.visible = !bald;
+    if (o) o.visible = baseHair;
   }
   const cap = inner.getObjectByName("Bone");
   if (cap) cap.visible = dna.accessory === 2;
-  if (head) addGlasses(head, dna.glasses, mats);
+  const hairMat = new THREE.MeshStandardMaterial({ color: palette.Cabelo, roughness: 0.9 });
+  mats.push(hairMat);
+  if (head) {
+    addHair(head, dna.hair, hairMat);
+    if (dna.beard) addBeard(head, hairMat);
+    addGlasses(head, dna.glasses, mats);
+  }
+  if (head && body) addAccessory(head, body, dna.accessory, mats);
 
   const mixer = new THREE.AnimationMixer(inner);
   const walkClip = model.clips.get("Andar");
@@ -173,9 +272,9 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       a.reset().play();
     },
     dispose() {
-      // geometrias do GLB são compartilhadas entre clones; só as dos óculos são deste boneco
+      // geometrias do GLB são compartilhadas entre clones; só as peças extras são deste boneco
       mixer.stopAllAction();
-      head?.traverse((o) => {
+      root.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (mesh.isMesh && mesh.userData.extra) mesh.geometry.dispose();
       });
