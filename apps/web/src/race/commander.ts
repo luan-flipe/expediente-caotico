@@ -111,7 +111,8 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
       audio.setRefDistance(SOUND_NEAR);
       audio.setMaxDistance(SOUND_FAR);
       audio.setRolloffFactor(1);
-      audio.setVolume(0.7);
+      // o áudio foi gravado alto: 60% no máximo, mesmo com o helicóptero colado na câmera
+      audio.setVolume(0.6);
       audio.play();
     });
   }
