@@ -24,6 +24,7 @@ import { modelReady } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { getState, net, setState } from "../store";
+import { inputBlocked } from "../pause";
 import { resetTouchInput, touchInput } from "../touch";
 import { ChatBubbles, chatText } from "../chatBubbles";
 import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
@@ -398,7 +399,7 @@ export class RaceEngine {
     });
     on<KeyboardEvent>("keydown", (e) => {
       // com as configurações ou o chat rápido abertos o teclado é deles, não do jogo
-      if (getState().settingsOpen || getState().chatOpen) return;
+      if (inputBlocked(getState())) return;
       const k = e.code;
       const map = getSettings().keys.race;
       if (k.startsWith("Arrow") || (!e.ctrlKey && !e.metaKey && !e.altKey && Object.values(map).includes(k))) e.preventDefault();
@@ -587,7 +588,8 @@ export class RaceEngine {
   }
 
   private input(): KartInput {
-    if (this.snap?.phase !== "active" || this.me?.finished) return NO_INPUT;
+    // menu, configurações ou chat por cima: cadeira solta (nada de acelerar sozinha com tecla presa)
+    if (this.snap?.phase !== "active" || this.me?.finished || inputBlocked(getState())) return NO_INPUT;
     const map = getSettings().keys.race;
     // as setas valem sempre, ao lado das teclas escolhidas
     const has = (...c: string[]) => c.some((x) => this.keys.has(x));

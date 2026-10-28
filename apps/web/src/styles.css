@@ -2065,3 +2065,19 @@ input {
 .perfil-hist {
   overflow-x: auto;
 }
+
+.pause-panel {
+  max-width: 420px;
+  margin: 8vh auto 0;
+}
+
+.pause-panel .btn {
+  width: 100%;
+}
+
+@media (max-height: 500px) {
+  .pause-panel {
+    margin-top: 0;
+    padding: 16px;
+  }
+}
