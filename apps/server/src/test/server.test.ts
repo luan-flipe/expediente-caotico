@@ -51,11 +51,12 @@ describe("servidor", () => {
 
     const b = new Client();
     await b.open();
-    b.send({ t: "join", code: wa.code, name: "Beto", avatar: { ...DEFAULT_AVATAR, skin: 99 } });
+    // valor fora da lista cai no padrão
+    b.send({ t: "join", code: wa.code, name: "Beto", avatar: { ...DEFAULT_AVATAR, skin: 99 } as typeof DEFAULT_AVATAR });
     const wb = await b.waitFor("welcome");
     const lobby = await a.waitFor("lobby", (m) => m.state.players.length === 2);
     expect(lobby.state.hostId).toBe(wa.id);
-    expect(lobby.state.players.find((p) => p.id === wb.id)!.avatar.skin).toBe(DEFAULT_AVATAR.skin);
+    expect(lobby.state.players.find((p) => p.id === wb.id)!.avatar).toEqual({ ...DEFAULT_AVATAR, name: "Beto" });
 
     a.send({ t: "start" });
     const err = await a.waitFor("error");

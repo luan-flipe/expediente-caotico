@@ -3,13 +3,38 @@ import * as THREE from "three";
 import type { AvatarDNA, ChairDNA } from "@ec/shared";
 import { seatedRacer } from "../race/chairMesh";
 import { useStore } from "../store";
-import { createCharacter, type Character } from "./character";
+import { createCharacter, type Character, type CharacterAction } from "./character";
 
-/** Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira. */
-export function AvatarPreview({ dna, chair, className, autoRotate = true }: { dna: AvatarDNA; chair?: ChairDNA; className?: string; autoRotate?: boolean }) {
+/** Ação pedida para a prévia; seq muda a cada clique para repetir a mesma ação. */
+export interface PreviewAction {
+  name: CharacterAction;
+  seq: number;
+}
+
+/**
+ * Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira.
+ * walking anda no lugar e action toca uma ação do jogo.
+ */
+export function AvatarPreview({
+  dna,
+  chair,
+  className,
+  autoRotate = true,
+  walking = false,
+  action,
+}: {
+  dna: AvatarDNA;
+  chair?: ChairDNA;
+  className?: string;
+  autoRotate?: boolean;
+  walking?: boolean;
+  action?: PreviewAction;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   const autoRef = useRef(autoRotate);
   autoRef.current = autoRotate;
+  const walkingRef = useRef(walking);
+  walkingRef.current = walking;
   const rigRef = useRef<Character | null>(null);
   const ready = useStore((s) => s.modelReady);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -62,7 +87,7 @@ export function AvatarPreview({ dna, chair, className, autoRotate = true }: { dn
       const rig = rigRef.current;
       if (rig) {
         rig.root.rotation.y = yaw;
-        rig.update(Math.min(0.05, (ms - last) / 1000), 0);
+        rig.update(Math.min(0.05, (ms - last) / 1000), walkingRef.current ? 1 : 0);
       }
       renderer.render(scene, cam);
       last = ms;
@@ -84,7 +109,7 @@ export function AvatarPreview({ dna, chair, className, autoRotate = true }: { dn
     const scene = sceneRef.current;
     if (!scene) return;
     const old = rigRef.current;
-    const rig: Character = chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit() {} } : createCharacter(dna);
+    const rig: Character = chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit: () => 0 } : createCharacter(dna);
     if (old) {
       rig.root.rotation.y = old.root.rotation.y;
       scene.remove(old.root);
@@ -93,6 +118,10 @@ export function AvatarPreview({ dna, chair, className, autoRotate = true }: { dn
     scene.add(rig.root);
     rigRef.current = rig;
   }, [dna, chair, ready]);
+
+  useEffect(() => {
+    if (action) rigRef.current?.play(action.name);
+  }, [action]);
 
   return <canvas ref={ref} className={className} />;
 }

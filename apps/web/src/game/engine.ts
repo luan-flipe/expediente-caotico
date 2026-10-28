@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   ABILITIES,
   BALANCE,
+  DEFAULT_AVATAR,
   OFFICE_MAP,
   dirOf,
   moveCircle,
@@ -406,7 +407,7 @@ export class Engine {
       this.scene.remove(v.char.root);
       v.char.dispose();
     }
-    const char = createCharacter(dna ?? { name: p.name, model: 0, skin: 1, hair: 1, hairColor: 0, eyes: 0, beard: 0, beardColor: 0, glasses: 0, top: 0, bottom: 0, shirt: 0, pants: 0, shoes: 2, accessory: 0, height: 1 });
+    const char = createCharacter(dna ?? { ...DEFAULT_AVATAR, name: p.name });
     const bubble = new THREE.Mesh(new THREE.SphereGeometry(1.05, 20, 14), new THREE.MeshBasicMaterial({ color: "#8f9cff", transparent: true, opacity: 0.22, depthWrite: false }));
     bubble.position.y = 1;
     const stars = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.05, 6, 12), new THREE.MeshBasicMaterial({ color: "#ffe14d" }));

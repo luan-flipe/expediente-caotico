@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import {
+  DEFAULT_AVATAR,
   ITEM_NAMES,
-  PRESETS,
   randomChair,
   sanitizeAvatar,
   sanitizeChair,
@@ -42,7 +42,7 @@ export interface State {
   rme: RacePrivate | null;
   feed: FeedItem[];
   scoreboard: boolean;
-  /** boneco.glb carregado; telas refazem miniaturas e prévias. */
+  /** boneco/boneco_bebe.glb carregado; telas refazem miniaturas e prévias. */
   modelReady: boolean;
 }
 
@@ -57,7 +57,7 @@ function loadAvatar(): AvatarDNA {
   } catch {
     /* sem storage */
   }
-  return PRESETS[Math.floor(Math.random() * PRESETS.length)].dna;
+  return { ...DEFAULT_AVATAR };
 }
 
 function loadChair(): ChairDNA {

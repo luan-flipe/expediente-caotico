@@ -97,7 +97,14 @@ O servidor é a autoridade: o cliente só manda intenções (movimento, mira, bo
 - **Mapa:** `packages/shared/src/data/map.ts`. O escritório é uma lista de caixas (`x`, `z` = centro, `w`, `d` = tamanho, `h` = altura, `kind` = aparência). A mesma lista gera o visual e a colisão do servidor, então trocar pela planta real do escritório é editar esse arquivo. Caixas com altura menor que 1,2 m bloqueiam passagem mas não tiros.
 - **Pista da corrida:** `packages/shared/src/race/track.ts`. A pista é uma lista de pontos da linha central com a largura em cada um; paredes, checkpoints, carpete e caixas saem dela. Para imitar o escritório real, troque os pontos de `CTRL` (o teste `race-track.test.ts` avisa se a pista ficou curta, longa ou encostando nela mesma).
 - **Física e itens da corrida:** `packages/shared/src/race/balance.ts` e os pesos de sorteio em `race/items.ts`.
-- **Bonecos:** opções em `packages/shared/src/data/avatar.ts`, montagem 3D em `apps/web/src/game/avatarMesh.ts`. Os 12 presets `funcionario_01..12` são pontos de partida para os colegas reais.
+- **Boneco:** `apps/web/public/assets/characters/boneco/boneco_bebe.glb` montado em `apps/web/src/game/character.ts`. Os nomes das opções do crachá ficam em `packages/shared/src/data/avatar.ts` (o servidor valida por eles). Os itens são organizados pela aba do crachá e, dentro dela, pelo tipo, com a mesma divisão nos modelos e no código:
+
+  | Aba | Modelos (`apps/web/public/assets/characters/`) | Registro (`apps/web/src/game/itens/`) |
+  | --- | --- | --- |
+  | Pele e olhos | rostos usam as peças de expressão do `boneco/boneco_bebe.glb` | `pele-e-olhos.ts` (`ROSTOS`) |
+  | Cabelo e barba | `cabelo-e-barba/cabelos/*.glb`, `cabelo-e-barba/barbas/*.glb` | `cabelo-e-barba.ts` (`CABELOS`, `BARBAS`) |
+
+  Item novo: o GLB na pasta do tipo, uma linha no registro e o nome no fim da lista em `avatar.ts` (no fim, para não mudar crachás salvos).
 
 ## Como colaborar
 
