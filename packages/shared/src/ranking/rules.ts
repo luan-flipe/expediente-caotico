@@ -1,6 +1,8 @@
 import { CHALLENGE_POINTS, WEEKS_KEPT, challengeDone, challengeOfWeek, emptyProgress, weekKey, type WeekProgress } from "./challenges";
 import { DEFAULT_TRACK_ID, TRACKS, TRACK_IDS, type TrackId } from "../race/track";
-import type { ChallengeView, GhostSample, LapRow, MonthRow, PlayerStats, RallyRow, RankingData, RankingRowBase, RankingTab, RankingView, ShooterRow, StoredLap } from "./types";
+import { DEFAULT_AVATAR, sanitizeAvatar } from "../data/avatar";
+import { sanitizeChair } from "../race/chair";
+import type { ChallengeView, GhostSample, LapRow, MatchSummary, MonthRow, PlayerProfile, PlayerStats, RallyRow, RankingData, RankingRowBase, RankingTab, RankingView, ShooterRow, StoredLap } from "./types";
 
 /** Pontos do mês por colocação (1º, 2º, 3º); os demais ganham PARTICIPATION_POINTS. */
 export const PLACE_POINTS = [10, 6, 4];
@@ -9,6 +11,8 @@ export const PARTICIPATION_POINTS = 1;
 export const RECORD_POINTS = 5;
 /** Circuito Corporativo: pista padrão e a única do desafio de volta. */
 export const MAIN_TRACK_ID: TrackId = DEFAULT_TRACK_ID;
+/** Partidas guardadas por conta no histórico do perfil. */
+export const HISTORY_KEPT = 20;
 /** Linhas por aba na tela de ranking. */
 export const RANKING_ROWS = 20;
 
@@ -58,8 +62,30 @@ function weekProgress(data: RankingData, now: number, id: string): WeekProgress 
 function settleChallenge(data: RankingData, now: number, id: string, p: WeekProgress): boolean {
   if (p.doneAt !== null || !challengeDone(challengeOfWeek(weekKey(new Date(now))), p)) return false;
   p.doneAt = now;
+  const acc = data.accounts[id];
+  if (acc) acc.challengesDone = (acc.challengesDone ?? 0) + 1;
   addPoints(data, now, id, CHALLENGE_POINTS);
   return true;
+}
+
+/** Acrescenta a partida ao histórico da conta, mantendo só as últimas HISTORY_KEPT. Conta fora do arquivo é ignorada. */
+function pushHistory(data: RankingData, id: string, entry: MatchSummary): void {
+  const acc = data.accounts[id];
+  if (!acc) return;
+  const list = Array.isArray(acc.history) ? acc.history : [];
+  list.push(entry);
+  acc.history = list.slice(-HISTORY_KEPT);
+}
+
+/** Soma os prêmios bobos de uma partida que contou (quem não tem conta, como bot e visitante, não acumula). */
+export function applyAwards(data: RankingData, awards: { accountId: string | null; title: string }[]): void {
+  for (const a of awards) {
+    const acc = a.accountId === null ? undefined : data.accounts[a.accountId];
+    if (!acc) continue;
+    const counts = acc.awards && typeof acc.awards === "object" && !Array.isArray(acc.awards) ? acc.awards : (acc.awards = {});
+    const key = a.title.slice(0, 40);
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
 }
 
 function placePoints(place: number): number {
@@ -91,6 +117,7 @@ export function applyShooterResult(data: RankingData, rows: { accountId: string 
     s.shooterMatches++;
     s.shooterKills += r.kills;
     if (r.rank === 1) s.shooterWins++;
+    pushHistory(data, r.accountId, { at: now, mode: "shooter", place: r.rank, kills: r.kills });
     addPoints(data, now, r.accountId, placePoints(r.rank));
     const w = weekProgress(data, now, r.accountId);
     w.shooterMatches++;
@@ -107,7 +134,7 @@ export function applyShooterResult(data: RankingData, rows: { accountId: string 
  * `finished` ausente vale "terminou". `trackId` é a pista da corrida (conta para o desafio de pódio em pistas diferentes).
  * Devolve as contas que cumpriram o desafio da semana.
  */
-export function applyRaceResult(data: RankingData, rows: { accountId: string | null; place: number; finished?: boolean }[], now: number, trackId: string = MAIN_TRACK_ID): string[] {
+export function applyRaceResult(data: RankingData, rows: { accountId: string | null; place: number; finished?: boolean; bestLapMs?: number | null }[], now: number, trackId: string = MAIN_TRACK_ID): string[] {
   if (!matchCounts(rows)) return [];
   const completed: string[] = [];
   for (const r of onePerAccount(rows, (a, b) => a.place < b.place)) {
@@ -115,6 +142,7 @@ export function applyRaceResult(data: RankingData, rows: { accountId: string | n
     s.raceMatches++;
     if (r.place === 1) s.raceWins++;
     if (r.place <= PLACE_POINTS.length) s.racePodiums++;
+    pushHistory(data, r.accountId, { at: now, mode: "race", track: trackId, place: r.place, bestLapMs: r.bestLapMs ?? null });
     addPoints(data, now, r.accountId, placePoints(r.place));
     const w = weekProgress(data, now, r.accountId);
     w.raceMatches++;
@@ -226,5 +254,49 @@ export function rankingView(data: RankingData, now: number, viewerId?: string): 
     pistas: TRACK_IDS.map((id) => ({ id, name: TRACKS[id].name, voltas: voltasDe(id) })),
     desafio,
     mesPassado: top ? { month: prev, id: top.id, name: top.name, points: top.points } : null,
+  };
+}
+
+/**
+ * Perfil público da conta, sem ids nem e-mail (o servidor põe o apelido em `id`). Campos que o arquivo não tem
+ * (ou que vieram estragados) valem vazio. null se a conta não existe.
+ */
+export function profileOf(data: RankingData, accountId: string, now: number): Omit<PlayerProfile, "id"> | null {
+  const acc = data.accounts[accountId];
+  if (!acc) return null;
+  const name = acc.name;
+  const s = data.stats[accountId] ?? emptyStats();
+  const laps = TRACK_IDS.flatMap((track) => {
+    const i = lapStandings(data, track).findIndex((e) => e.id === accountId);
+    return i < 0 ? [] : [{ track, trackName: TRACKS[track].name, ms: data.laps[track][accountId].ms, rank: i + 1 }];
+  });
+  const month = monthKey(new Date(now));
+  const ranked = Object.entries(data.months[month] ?? {})
+    .filter(([, points]) => points > 0)
+    .sort((a, b) => b[1] - a[1] || byId({ id: a[0] }, { id: b[0] }));
+  const at = ranked.findIndex(([id]) => id === accountId);
+  const week = weekKey(new Date(now));
+  const challenge = challengeOfWeek(week);
+  const weekMine = data.challenges?.[week]?.[accountId] ?? emptyProgress();
+  const kept = Object.values(data.challenges ?? {}).filter((w) => w[accountId]?.doneAt != null).length;
+  const awardsRaw = acc.awards && typeof acc.awards === "object" && !Array.isArray(acc.awards) ? acc.awards : {};
+  const awards = Object.entries(awardsRaw)
+    .filter(([, n]) => Number.isFinite(n) && n > 0)
+    .map(([title, count]) => ({ title, count }))
+    .sort((a, b) => b.count - a.count || (a.title < b.title ? -1 : 1));
+  const history = (Array.isArray(acc.history) ? acc.history : []).map((h) => (h.track && h.track in TRACKS ? { ...h, trackName: TRACKS[h.track as TrackId].name } : { ...h })).reverse();
+  return {
+    name,
+    avatar: sanitizeAvatar({ ...DEFAULT_AVATAR, ...acc.avatar, name }),
+    chair: sanitizeChair(acc.chair),
+    stats: { shooterWins: s.shooterWins, shooterMatches: s.shooterMatches, shooterKills: s.shooterKills, raceWins: s.raceWins, racePodiums: s.racePodiums, raceMatches: s.raceMatches },
+    laps,
+    month: { month, points: at < 0 ? 0 : ranked[at][1], position: at < 0 ? null : at + 1 },
+    challenges: {
+      completed: Math.max(acc.challengesDone ?? 0, kept),
+      week: { text: challenge.text, target: challenge.target, value: Math.min(challenge.value(weekMine), challenge.target), done: weekMine.doneAt !== null },
+    },
+    awards,
+    history,
   };
 }

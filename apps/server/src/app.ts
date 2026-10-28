@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { DEFAULT_AVATAR, lapStandings, rankingView, sanitizeAvatar, sanitizeChair, type RankingRowBase, type RankingTab, type RankingView } from "@ec/shared";
+import { DEFAULT_AVATAR, lapStandings, profileOf, rankingView, sanitizeAvatar, sanitizeChair, type RankingRowBase, type RankingTab, type RankingView } from "@ec/shared";
 import { readSession, signSession, verifyGoogleToken } from "./auth";
 import { RoomManager, type Conn } from "./rooms";
 import { TokenBucket } from "./ratelimit";
@@ -181,6 +181,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       return sendJson(res, 200, maskView(rankingView(store.data, Date.now(), viewer), aliasKey));
     }
     if (path === "/api/replay" && store) return replay(req, res);
+    if (path === "/api/perfil" && store) return perfil(req, res);
     sendJson(res, 404, { error: "Não encontrado" });
   }
 
@@ -203,6 +204,37 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       chair: sanitizeChair(acc?.chair),
       ghost: entry.lap.ghost,
     });
+  }
+
+  // apelido -> conta: recalculado só quando o número de contas muda (grupo pequeno; contas novas entram só pelo login)
+  let aliases = new Map<string, string>();
+  let aliasedCount = -1;
+  function accountOfAlias(alias: string): string | undefined {
+    if (!store) return undefined;
+    const ids = Object.keys(store.data.accounts);
+    if (ids.length !== aliasedCount) {
+      aliases = new Map(ids.map((id) => [publicId(id, aliasKey), id]));
+      aliasedCount = ids.length;
+    }
+    return aliases.get(alias);
+  }
+
+  /** GET /api/perfil?id=<apelido>: perfil público do jogador. `id=eu` com a sessão no Authorization abre o próprio, sem ids de conta. */
+  function perfil(req: IncomingMessage, res: ServerResponse): void {
+    if (!store) return sendJson(res, 404, { error: "Não encontrado" });
+    const ids = new URL(req.url ?? "/", "http://localhost").searchParams.getAll("id");
+    if (ids.length !== 1 || !/^([A-Za-z0-9_-]{16}|eu)$/.test(ids[0])) return sendJson(res, 400, { error: "Perfil inválido" });
+    let accountId: string | undefined;
+    if (ids[0] === "eu") {
+      const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
+      accountId = (bearer && auth ? readSession(bearer, auth.secret) : null) ?? undefined;
+      if (!accountId) return sendJson(res, 401, { error: "Entre com a conta para ver o seu perfil" });
+    } else {
+      accountId = accountOfAlias(ids[0]);
+    }
+    const profile = accountId ? profileOf(store.data, accountId, Date.now()) : null;
+    if (!accountId || !profile) return sendJson(res, 404, { error: "Jogador não encontrado" });
+    sendJson(res, 200, { id: publicId(accountId, aliasKey), ...profile });
   }
 
   const http: Server = createServer((req, res) => {
