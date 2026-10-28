@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 
-export type BoxKind = "wall" | "glass" | "desk" | "cabinet" | "counter" | "plant" | "partition" | "sofa" | "door";
+export type BoxKind = "wall" | "glass" | "desk" | "cabinet" | "counter" | "plant" | "partition" | "sofa";
 
 /** Caixa alinhada aos eixos: centro (x, z), largura em x (w), profundidade em z (d), altura (h). */
 export interface Box {
@@ -76,9 +76,9 @@ export const OFFICE_MAP: GameMap = {
     { name: "Elevador aberto", x: 30, z: 14, w: 10, d: 16, floor: "#9ea6ae" },
   ],
   boxes: [
-    // --- Perímetro externo ---
+    // --- Perímetro externo fechado ---
     box(-5, -22, 60, T, H, "wall"),
-    ...wallZ(-35, -22, 22, [[-4.5, 3.0]]),
+    box(-35, 0, T, 44, H, "wall"),
     box(-5, 22, 60, T, H, "wall"),
     box(25, -15, T, 14, H, "wall"),
     box(30, -8, 10, T, H, "wall"),
@@ -180,9 +180,9 @@ export const OFFICE_MAP: GameMap = {
     { x: -16, z: -15 },   // Sala de infra
     { x: -1, z: -12 },    // Sala do comandante
     { x: 20, z: -11 },    // Sala de reunião grande
-    { x: -29, z: 12 },    // Sala de gestão
+    { x: -29, z: 10.5 },  // Sala de gestão (amplo espaço livre da mesa)
     { x: -15, z: 15 },    // Sala dos devs
-    { x: 10, z: 15 },     // Sala suporte
+    { x: 9, z: 11 },      // Sala suporte (amplo espaço livre da mesa)
     { x: 30, z: -1.5 },   // Elevador aberto superior
   ],
   objectivePoints: [
