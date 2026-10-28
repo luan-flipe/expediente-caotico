@@ -8,7 +8,7 @@ import type { ChairDNA } from "./chair";
 import { pickBoxes, stepHazards, useItem } from "./items";
 import { collideKarts, NO_INPUT, newKart, respawnAt, stepKart, type KartInput } from "./kart";
 import { lapsDone, newLapState, raceProgress, ranking, updateProgress } from "./laps";
-import { boxSpots, checkpoints, clampToTrack, cupSpots, deltaS, getTrack, gridSlots, progressOf, type TrackId } from "./track";
+import { boxSpots, checkpoints, clampToTrack, cupSpots, deltaS, getTrack, gridSlots, progressOf, rampStart, type TrackId } from "./track";
 import type { GhostSample } from "../ranking/types";
 import type { ItemId, RaceMatch, Racer, RacePrivate, RaceResultRow, RaceSnapshot } from "./types";
 
@@ -138,9 +138,27 @@ function respawn(race: RaceMatch, r: Racer): void {
   r.rec.dirty = true;
 }
 
+/** Caiu no vão: volta um trecho antes da rampa em que caiu, parado como na reposição (R). */
+function respawnAfterFall(race: RaceMatch, r: Racer): void {
+  const ramp = race.track.ramps.find((x) => x.gap && x.path === (r.kart.path ?? -1)) ?? race.track.ramps.find((x) => x.gap);
+  if (!ramp) return respawn(race, r);
+  const at = rampStart(race.track, ramp);
+  r.kart = { ...newKart(at.pos, at.heading), frozenUntil: race.now + RACE.respawnPenaltyMs };
+  if (at.path !== -1) r.kart.path = at.path;
+  r.lap = { ...r.lap, lastS: progressOf(race.track, at.pos, at.path).s };
+  r.rec.dirty = true;
+  race.events.push({ type: "fall", id: r.id });
+}
+
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
-const sampleOf = (r: Racer, t: number): GhostSample => [Math.round(t), r2(r.kart.pos.x), r2(r.kart.pos.z), r2(r.kart.heading)];
+const sampleOf = (r: Racer, t: number): GhostSample => {
+  const s: GhostSample = [Math.round(t), r2(r.kart.pos.x), r2(r.kart.pos.z), r2(r.kart.heading)];
+  // altura só no voo: no chão a amostra fica com 4 números, como antes das rampas
+  const y = r2(r.kart.y ?? 0);
+  if (y !== 0) s.push(y);
+  return s;
+};
 
 /**
  * Cronometra e grava o fantasma da volta, a partir da linha de chegada. Volta válida (sem reposição)
@@ -246,6 +264,14 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
       if (input.itemHold !== undefined) r.holdingItem = !!input.itemHold;
       const res = stepKart(r.kart, input, dtMs, now, race.track);
       r.kart = res.state;
+      if (res.fell) {
+        respawnAfterFall(race, r);
+        break;
+      }
+      if (res.stunt) {
+        race.events.push({ type: "stunt", id: r.id });
+        race.events.push({ type: "boost", id: r.id, level: "stunt" });
+      }
       if (res.boost) race.events.push({ type: "boost", id: r.id, level: res.boost });
       if (res.wall && Math.abs(r.kart.speed) > 4) {
         race.events.push({ type: "wall", id: r.id });
@@ -344,6 +370,9 @@ function flagsOf(r: Racer, now: number): string[] {
   if (now < r.kart.frozenUntil) f.push("frozen");
   if (now < r.shieldUntil) f.push("pasta");
   if (now < r.blindUntil) f.push("blind");
+  if (r.kart.air) f.push("air");
+  // paraquedas aberto depois do pico do salto
+  if (r.kart.air && (r.kart.vy ?? 0) < 0) f.push("chute");
   return f;
 }
 
@@ -399,6 +428,7 @@ export function buildRaceSnapshot(race: RaceMatch): RaceSnapshot {
         connected: r.connected,
         cups: k.cups ?? 0,
         holdingItem: !!r.holdingItem,
+        ...(k.y ? { y: r2(k.y) } : {}),
       };
     }),
     boxes: race.boxes.map((b) => ({ id: b.id, x: r2(b.pos.x), z: r2(b.pos.z), ready: b.readyAt <= now })),
@@ -449,6 +479,11 @@ export function buildRacePrivate(race: RaceMatch, id: string): RacePrivate | nul
       boostSpeed: k.boostSpeed,
       cups: k.cups ?? 0,
       path: k.path ?? -1,
+      y: k.y,
+      vy: k.vy,
+      air: k.air,
+      trick: k.trick,
+      fell: k.fell,
     },
   };
 }

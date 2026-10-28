@@ -31,7 +31,10 @@ export function stepRaceBot(race: RaceMatch, r: Racer, dtMs: number): void {
   // bifurcação: sorteia uma vez a 20 m da boca e esquece depois de sair do atalho
   race.track.branches.forEach((br, i) => {
     const toMouth = deltaS(race.track, s, br.sFrom);
-    if (b.route === undefined && toMouth >= 0 && toMouth <= 20) b.route = race.rng() < P.shortcutChance ? i : -1;
+    // atalho com vão: só quem chega rápido o bastante para atravessar
+    const gap = race.track.ramps.some((rp) => rp.path === i && rp.gap);
+    const fast = !gap || k.speed >= RACE.minLaunchSpeed + 6;
+    if (b.route === undefined && toMouth >= 0 && toMouth <= 20) b.route = fast && race.rng() < P.shortcutChance ? i : -1;
     const past = deltaS(race.track, br.sTo, s);
     if (b.route !== undefined && past > 0 && past < 30 && (k.path ?? -1) === -1) b.route = undefined;
   });

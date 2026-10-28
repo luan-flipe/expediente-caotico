@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { branchEdges, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Track, type Vec2 } from "@ec/shared";
+import { branchEdges, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
 
 /** Piso de cada ambiente (nomes de track.rooms, de todas as pistas). */
 const ROOM_FLOOR: Record<string, string> = {
@@ -161,6 +161,107 @@ function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, c
   return g;
 }
 
+/** Ponto do caminho path na medida d da rampa (s da principal, ou bs do próprio atalho). */
+function along(track: Track, path: number, d: number): { pos: Vec2; heading: number; halfWidth: number } {
+  const b = track.branches[path];
+  if (!b) return pointAt(track, d);
+  const n = b.points.length;
+  const i = Math.max(0, Math.min(n - 2, Math.floor(d / b.spacing)));
+  const t = Math.max(0, Math.min(1, (d - b.cum[i]) / b.spacing));
+  const p = b.points[i];
+  const q = b.points[i + 1];
+  return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), halfWidth: (b.widths[i] + (b.widths[i + 1] - b.widths[i]) * t) / 2 };
+}
+
+/** Bordas (lado +1 e -1) do caminho entre d0 e d1, a cada step. */
+function edgesBetween(track: Track, path: number, d0: number, d1: number, step = 0.5): { plus: Vec2[]; minus: Vec2[]; at: ReturnType<typeof along>[] } {
+  const plus: Vec2[] = [];
+  const minus: Vec2[] = [];
+  const at: ReturnType<typeof along>[] = [];
+  const count = Math.max(1, Math.ceil((d1 - d0) / step));
+  for (let k = 0; k <= count; k++) {
+    const a = along(track, path, d0 + ((d1 - d0) * k) / count);
+    const nrm = sideNormal(Math.sin(a.heading), Math.cos(a.heading));
+    plus.push({ x: a.pos.x + nrm.x * a.halfWidth, z: a.pos.z + nrm.z * a.halfWidth });
+    minus.push({ x: a.pos.x - nrm.x * a.halfWidth, z: a.pos.z - nrm.z * a.halfWidth });
+    at.push(a);
+  }
+  return { plus, minus, at };
+}
+
+/** Rampa como cunha: tampo cinza subindo até height, laterais e a queda do topo em faixas amarelas e pretas. */
+function rampMesh(track: Track, r: Ramp): THREE.Mesh {
+  const e = edgesBetween(track, r.path, r.sFrom, r.sTo, 0.5);
+  const n = e.plus.length;
+  const pos: number[] = [];
+  const col: number[] = [];
+  const gray = new THREE.Color("#8d9096");
+  const stripe = (i: number) => new THREE.Color(i % 2 ? "#1d1d1d" : "#f2c230");
+  const quad = (a: number[], b: number[], c: number[], d: number[], color: THREE.Color) => {
+    pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+    for (let k = 0; k < 6; k++) col.push(color.r, color.g, color.b);
+  };
+  const h = (i: number) => (r.height * i) / (n - 1) + 0.02;
+  for (let i = 0; i + 1 < n; i++) {
+    const [p0, p1, m0, m1] = [e.plus[i], e.plus[i + 1], e.minus[i], e.minus[i + 1]];
+    quad([p0.x, h(i), p0.z], [p1.x, h(i + 1), p1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], gray);
+    quad([p0.x, 0, p0.z], [p1.x, 0, p1.z], [p1.x, h(i + 1), p1.z], [p0.x, h(i), p0.z], stripe(i));
+    quad([m0.x, 0, m0.z], [m1.x, 0, m1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], stripe(i));
+  }
+  // queda do topo: faixas em diagonal
+  const top = n - 1;
+  const parts = 8;
+  for (let k = 0; k < parts; k++) {
+    const a = { x: e.plus[top].x + ((e.minus[top].x - e.plus[top].x) * k) / parts, z: e.plus[top].z + ((e.minus[top].z - e.plus[top].z) * k) / parts };
+    const b = { x: e.plus[top].x + ((e.minus[top].x - e.plus[top].x) * (k + 1)) / parts, z: e.plus[top].z + ((e.minus[top].z - e.plus[top].z) * (k + 1)) / parts };
+    quad([a.x, 0, a.z], [b.x, 0, b.z], [b.x, h(top), b.z], [a.x, h(top), a.z], stripe(k));
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }));
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+/** Vão: buraco no piso com paredes de concreto descendo até o subsolo, 3 m abaixo. */
+function gapPit(track: Track, r: Ramp): { group: THREE.Group; outline: Vec2[] } {
+  const gap = r.gap!;
+  const e = edgesBetween(track, r.path, gap.sFrom, gap.sTo, 0.5);
+  const outline = [...e.plus, ...[...e.minus].reverse()];
+  const group = new THREE.Group();
+  const depth = 3;
+  const wallMat = new THREE.MeshStandardMaterial({ color: "#4a4b4f", roughness: 1, side: THREE.DoubleSide });
+  const pos: number[] = [];
+  for (let i = 0; i < outline.length; i++) {
+    const a = outline[i];
+    const b = outline[(i + 1) % outline.length];
+    pos.push(a.x, 0.012, a.z, b.x, 0.012, b.z, b.x, -depth, b.z, a.x, 0.012, a.z, b.x, -depth, b.z, a.x, -depth, a.z);
+  }
+  const wg = new THREE.BufferGeometry();
+  wg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  wg.computeVertexNormals();
+  group.add(new THREE.Mesh(wg, wallMat));
+  // piso do subsolo, escuro, com uma faixa de vaga
+  const floor = new THREE.Mesh(ribbon(e.plus, e.minus, -depth, null, false), new THREE.MeshStandardMaterial({ color: "#26272b", roughness: 1 }));
+  group.add(floor);
+  const mid = e.at[Math.floor(e.at.length / 2)];
+  const line = mesh(new THREE.BoxGeometry(0.15, 0.02, mid.halfWidth * 1.6), new THREE.MeshStandardMaterial({ color: "#d8d8d0" }), mid.pos.x, -depth + 0.02, mid.pos.z, mid.heading + Math.PI / 2);
+  group.add(line);
+  // borda amarela de aviso na beira
+  const edge = new THREE.MeshStandardMaterial({ color: "#f2c230", roughness: 0.6 });
+  for (const side of [e.plus, e.minus]) {
+    for (let i = 0; i + 1 < side.length; i++) {
+      const a = side[i];
+      const b = side[i + 1];
+      group.add(mesh(new THREE.BoxGeometry(0.2, 0.06, Math.hypot(b.x - a.x, b.z - a.z) + 0.05), edge, (a.x + b.x) / 2, 0.03, (a.z + b.z) / 2, Math.atan2(b.x - a.x, b.z - a.z)));
+    }
+  }
+  return { group, outline };
+}
+
 /**
  * Monta a pista a partir do traçado (o mesmo da simulação do servidor).
  * Devolve a função que libera as texturas de canvas (placas e faixa de largada); geometrias e materiais saem com a cena.
@@ -178,8 +279,15 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const gw = Math.max(...xs) - Math.min(...xs) + 50;
   const gd = Math.max(...zs) - Math.min(...zs) + 50;
   const parking = track.id === "estacionamento";
-  const ground = mesh(new THREE.PlaneGeometry(gw, gd), new THREE.MeshStandardMaterial({ color: parking ? "#9a9c9f" : "#d9d3c6", roughness: 1 }), cx, -0.02, cz);
+  // vãos das rampas viram buracos no chão (o piso em volta é recortado)
+  const pits = track.ramps.filter((r) => r.gap).map((r) => gapPit(track, r));
+  const groundShape = new THREE.Shape([new THREE.Vector2(-gw / 2, -gd / 2), new THREE.Vector2(gw / 2, -gd / 2), new THREE.Vector2(gw / 2, gd / 2), new THREE.Vector2(-gw / 2, gd / 2)]);
+  // o plano deitado (rotation.x = -90 graus) leva o y local para -z do mundo
+  for (const p of pits) groundShape.holes.push(new THREE.Path(p.outline.map((q) => new THREE.Vector2(q.x - cx, -(q.z - cz)))));
+  const ground = mesh(new THREE.ShapeGeometry(groundShape), new THREE.MeshStandardMaterial({ color: parking ? "#9a9c9f" : "#d9d3c6", roughness: 1 }), cx, -0.02, cz);
   ground.rotation.x = -Math.PI / 2;
+  for (const p of pits) scene.add(p.group);
+  for (const r of track.ramps) scene.add(rampMesh(track, r));
   ground.castShadow = false;
   scene.add(ground);
   const grid = new THREE.GridHelper(Math.max(gw, gd), Math.round(Math.max(gw, gd) / 2), "#000000", "#000000");
@@ -197,9 +305,34 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   track.branches.forEach((br, j) => {
     const e = branchEdges(track, j);
     const cols = br.sOff.map((o) => new THREE.Color(ROOM_FLOOR[roomAt(track, br.sFrom + o)]).multiplyScalar(0.9));
-    const m = new THREE.Mesh(ribbon(e.plus, e.minus, 0.012, cols, false), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
-    m.receiveShadow = true;
-    scene.add(m);
+    const gap = track.ramps.find((r) => r.path === j && r.gap)?.gap;
+    // com vão, o piso do atalho para na beira dele e recomeça do outro lado
+    const pieces = gap
+      ? [
+          { from: 0, to: Math.floor(gap.sFrom / br.spacing), endAt: gap.sFrom, startAt: null as number | null },
+          { from: Math.ceil(gap.sTo / br.spacing), to: br.points.length - 1, endAt: null as number | null, startAt: gap.sTo },
+        ]
+      : [{ from: 0, to: br.points.length - 1, endAt: null, startAt: null }];
+    for (const pc of pieces) {
+      const plus = e.plus.slice(pc.from, pc.to + 1);
+      const minus = e.minus.slice(pc.from, pc.to + 1);
+      const cc = cols.slice(pc.from, pc.to + 1);
+      if (pc.startAt !== null) {
+        const ed = edgesBetween(track, j, pc.startAt, pc.startAt, 1);
+        plus.unshift(ed.plus[0]);
+        minus.unshift(ed.minus[0]);
+        cc.unshift(cc[0]);
+      }
+      if (pc.endAt !== null) {
+        const ed = edgesBetween(track, j, pc.endAt, pc.endAt, 1);
+        plus.push(ed.plus[0]);
+        minus.push(ed.minus[0]);
+        cc.push(cc[cc.length - 1]);
+      }
+      const m = new THREE.Mesh(ribbon(plus, minus, 0.012, cc, false), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
+      m.receiveShadow = true;
+      scene.add(m);
+    }
   });
 
   // fita amarela tracejada no meio

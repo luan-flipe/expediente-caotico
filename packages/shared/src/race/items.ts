@@ -202,6 +202,8 @@ export function stepHazards(race: RaceMatch, dtMs: number): void {
       if (r.id === h.owner && now - h.bornAt < ITEM_FX.ownerGraceMs) continue;
       if (h.kind === "aviao" && h.targetId && r.id !== h.targetId) continue;
       if (Math.hypot(r.kart.pos.x - h.pos.x, r.kart.pos.z - h.pos.z) >= RADIUS[h.kind] + RACE.kartRadius) continue;
+      // poça e resma ficam no chão: quem voa passa por cima
+      if ((h.kind === "poca" || h.kind === "resma") && (r.kart.y ?? 0) > RACE.airHitHeight) continue;
       // Escudo protetor traseiro: segurar item na traseira absorve projéteis que vêm de trás
       if (r.holdingItem && r.item && HOLDABLE_ITEMS.has(r.item)) {
         const fx = Math.sin(r.kart.heading);

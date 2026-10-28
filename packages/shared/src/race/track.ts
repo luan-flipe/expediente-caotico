@@ -141,6 +141,32 @@ const CORPORATIVO_BRANCH: BranchDef = { from: 2.2, to: 5, ctrl: [{ x: 35, z: -24
 const ESTACIONAMENTO_BRANCH: BranchDef = { from: 2.5, to: 5.5, ctrl: [{ x: 42, z: -10, w: 7 }] };
 const COPA_BRANCH: BranchDef = { from: 8.7, to: 11.4, ctrl: [{ x: -12, z: -2, w: 5 }] };
 
+/**
+ * Rampa: o chão sobe linear de 0 a height entre sFrom e sTo; quem sai do topo rápido decola. gap é um
+ * vão depois dela (cair ali é como a reposição). Medidas em s da principal (path -1) ou no bs do atalho.
+ */
+export interface Ramp {
+  path: number;
+  sFrom: number;
+  sTo: number;
+  height: number;
+  gap?: { sFrom: number; sTo: number };
+}
+
+/** Rampa definida por fração: ctrl na principal, ou fração do comprimento do atalho (path >= 0). */
+interface RampDef {
+  path: number;
+  at: number;
+  len: number;
+  height: number;
+  gap?: [number, number];
+}
+
+/** Corporativo: no meio do corredor reto da largada, antes das caixas e da boca do atalho. Sem vão. */
+const CORPORATIVO_RAMP: RampDef = { path: -1, at: 0.4, len: 6, height: 1.6 };
+/** Estacionamento: rampa da garagem no atalho, pulando o fosso do subsolo. */
+const ESTACIONAMENTO_RAMP: RampDef = { path: 0, at: 0.15, len: 6, height: 2.2, gap: [0.36, 0.47] };
+
 const STEP = 5;
 /** Nas bocas, só troca de corredor quando o outro centro está tanto mais perto (m). */
 const PATH_SWITCH_MARGIN = 0.3;
@@ -170,6 +196,8 @@ export interface Track {
   cupRows: number[];
   /** Atalhos (vazio nas pistas sem). */
   branches: Branch[];
+  /** Rampas (vazio nas pistas sem). */
+  ramps: Ramp[];
 }
 
 /** Corredor do atalho: linha aberta de sFrom a sTo (s da pista principal), com bs próprio em cum. */
@@ -220,6 +248,7 @@ interface TrackDef {
   boxes: number[];
   cups: number[];
   branch?: BranchDef;
+  ramp?: RampDef;
 }
 
 /** Curva aberta do atalho, reamostrada a cada STEP, com tangentes iguais às da principal nas pontas. */
@@ -331,8 +360,16 @@ function buildTrack(def: TrackDef): Track {
     if (b < a) b += length;
     return (a + (b - a) * f) % length;
   };
-  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl), cupRows: def.cups.map(sAtCtrl), branches: [] };
+  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl), cupRows: def.cups.map(sAtCtrl), branches: [], ramps: [] };
   if (def.branch) track.branches.push(buildBranch(track, def.branch, sAtCtrl));
+  if (def.ramp) {
+    const r = def.ramp;
+    const blen = track.branches[r.path]?.length;
+    const sFrom = blen ? r.at * blen : sAtCtrl(r.at);
+    const ramp: Ramp = { path: r.path, sFrom, sTo: sFrom + r.len, height: r.height };
+    if (r.gap && blen) ramp.gap = { sFrom: r.gap[0] * blen, sTo: r.gap[1] * blen };
+    track.ramps.push(ramp);
+  }
   track.carpet = def.carpet.map(([from, to]) => {
     const s0 = sAtCtrl(from);
     const s1 = sAtCtrl(to);
@@ -480,6 +517,25 @@ export function routeAhead(track: Track, pr: TrackProgress, route: number, ahead
   return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), halfWidth: (b.widths[i] + (b.widths[i + 1] - b.widths[i]) * t) / 2 };
 }
 
+/** Recuo de quem cai no vão: o bastante para embalar de novo antes da rampa (ou desistir do atalho). */
+const RAMP_RUNUP = 25;
+
+/** Onde volta quem cai no vão: RAMP_RUNUP antes do pé da rampa; antes da boca do atalho, na principal. */
+export function rampStart(track: Track, ramp: Ramp): { pos: Vec2; heading: number; path: number } {
+  const b = track.branches[ramp.path];
+  const back = ramp.sFrom - RAMP_RUNUP;
+  if (!b || back < 0) {
+    const at = pointAt(track, b ? b.sFrom + back : back);
+    return { pos: at.pos, heading: at.heading, path: -1 };
+  }
+  const bs = back;
+  const i = Math.min(b.points.length - 2, Math.floor(bs / b.spacing));
+  const t = Math.min(1, (bs - b.cum[i]) / b.spacing);
+  const p = b.points[i];
+  const q = b.points[i + 1];
+  return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), path: ramp.path };
+}
+
 /** Mantém um círculo de raio r dentro da pista. Devolve a posição corrigida e se bateu na parede. */
 export function clampToTrack(track: Track, pos: Vec2, r: number, prefer?: number): { pos: Vec2; hit: boolean; normal: Vec2; progress: TrackProgress } {
   const pr = pickProgress(track, pos, r, prefer);
@@ -502,6 +558,19 @@ export function deltaS(track: Track, from: number, to: number): number {
   if (d > L / 2) d -= L;
   if (d <= -L / 2) d += L;
   return d;
+}
+
+/** Altura do chão sob a posição projetada em pr (rampa) e se ali é vão. */
+export function groundAt(track: Track, pr: TrackProgress): { y: number; gap: boolean } {
+  for (const r of track.ramps) {
+    if (r.path !== pr.path) continue;
+    const b = track.branches[r.path];
+    // no atalho a rampa é medida no bs dele; na principal, no s
+    const s = b ? project(b.points, b.widths, b.cum, b.spacing, false, pr.closest).s : r.sFrom + deltaS(track, r.sFrom, pr.s);
+    if (s >= r.sFrom && s <= r.sTo) return { y: (r.height * (s - r.sFrom)) / (r.sTo - r.sFrom), gap: false };
+    if (r.gap && s >= r.gap.sFrom && s <= r.gap.sTo) return { y: 0, gap: true };
+  }
+  return { y: 0, gap: false };
 }
 
 export function inCarpet(track: Track, pr: TrackProgress): boolean {
@@ -616,8 +685,8 @@ export type TrackId = (typeof TRACK_IDS)[number];
 export const DEFAULT_TRACK_ID: TrackId = "corporativo";
 
 export const TRACKS: Record<TrackId, Track> = {
-  corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES, cups: CORPORATIVO_CUPS, branch: CORPORATIVO_BRANCH }),
-  estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS, branch: ESTACIONAMENTO_BRANCH }),
+  corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES, cups: CORPORATIVO_CUPS, branch: CORPORATIVO_BRANCH, ramp: CORPORATIVO_RAMP }),
+  estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS, branch: ESTACIONAMENTO_BRANCH, ramp: ESTACIONAMENTO_RAMP }),
   copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS, branch: COPA_BRANCH }),
 };
 

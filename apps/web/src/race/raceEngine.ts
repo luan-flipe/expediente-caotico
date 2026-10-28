@@ -31,6 +31,7 @@ import { createCommander, type Commander } from "./commander";
 import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, nameTag } from "./ghosts";
 import type { Ghosts } from "../store";
 import { buildTrack } from "./trackScene";
+import { buildParachute, parachuteFor } from "./parachute";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
 
 interface Sample {
@@ -38,6 +39,7 @@ interface Sample {
   x: number;
   z: number;
   heading: number;
+  y: number;
 }
 
 interface SmokePuff {
@@ -83,6 +85,9 @@ interface KartView {
   wasAirborne?: boolean;
   heldItem: THREE.Group;
   shadowDisc: THREE.Mesh;
+  /** Paraquedas de escritório (aparece com o flag chute). */
+  chute: THREE.Group;
+  chuteOpen: number;
   heldItemKind?: ItemId | null;
   /** Treino: devolve os materiais originais da cadeira semitransparente. */
   restore: (() => void) | null;
@@ -177,6 +182,7 @@ export class RaceEngine {
   private camReady = false;
   private camDriftOffset = 0;
   private camLookOffset = 0;
+  private camY = 0;
   private shake = 0;
   private skidMesh: THREE.InstancedMesh;
   private skidIdx = 0;
@@ -604,7 +610,7 @@ export class RaceEngine {
     for (const k of s.karts) {
       seen.add(k.id);
       const v = this.viewFor(k);
-      v.buf.push({ t: now, x: k.x, z: k.z, heading: k.heading });
+      v.buf.push({ t: now, x: k.x, z: k.z, heading: k.heading, y: k.y ?? 0 });
       if (v.buf.length > 20) v.buf.shift();
       v.last = k;
     }
@@ -737,6 +743,12 @@ export class RaceEngine {
       boostSpeed: k.boostMs > 0 ? k.boostSpeed : undefined,
       cups: k.cups ?? me.cups ?? 0,
       path: k.path,
+      // altura e voo: a previsão pousa no mesmo tick que o servidor
+      y: k.y,
+      vy: k.vy,
+      air: k.air,
+      trick: k.trick,
+      fell: k.fell,
     };
     const old = this.pred;
     if (!old || this.snap?.phase !== "active" || me.finished) {
@@ -802,6 +814,8 @@ export class RaceEngine {
     const tag = k.id === this.myId ? null : nameTag(k.name);
     if (tag) r3d.root.add(tag);
     r3d.root.traverse((o) => (o.castShadow = !faded && o instanceof THREE.Mesh && o !== bubble && o !== shadowDisc));
+    const chute = buildParachute(parachuteFor(person?.chair ?? DEFAULT_CHAIR));
+    r3d.root.add(chute);
     const heldItem = new THREE.Group();
     heldItem.position.set(0, 0.45, -0.65);
     heldItem.visible = false;
@@ -840,6 +854,8 @@ export class RaceEngine {
       bubbleScale: 0.2,
       heldItem,
       shadowDisc,
+      chute,
+      chuteOpen: 0,
     };
     this.views.set(k.id, v);
     return v;
@@ -993,6 +1009,7 @@ export class RaceEngine {
       let x: number;
       let z: number;
       let heading: number;
+      let y: number;
       // depois da chegada (ou fora da fase ativa) a própria cadeira vem do buffer, como as outras: a previsão para de rodar
       const mine = id === this.myId && this.pred && this.snap?.phase === "active" && !this.me?.finished;
       if (mine) {
@@ -1003,6 +1020,7 @@ export class RaceEngine {
         x = a.pos.x + (b.pos.x - a.pos.x) * f + this.visOffset.x;
         z = a.pos.z + (b.pos.z - a.pos.z) * f + this.visOffset.z;
         heading = angleLerp(a.heading, b.heading, f) + this.visOffset.h;
+        y = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * f;
       } else {
         const buf = v.buf;
         let a = buf[0];
@@ -1019,6 +1037,7 @@ export class RaceEngine {
         x = a.x + (b.x - a.x) * k;
         z = a.z + (b.z - a.z) * k;
         heading = angleLerp(a.heading, b.heading, k);
+        y = a.y + (b.y - a.y) * k;
       }
       let steer = 0;
       if (mine) {
@@ -1030,7 +1049,7 @@ export class RaceEngine {
         if (dHeading < -Math.PI) dHeading += Math.PI * 2;
         steer = dt > 0.001 ? Math.max(-1, Math.min(1, dHeading / (dt * 2.5))) : 0;
       }
-      this.updateView(v, x, z, heading, dt, mine ? this.pred! : null, steer);
+      this.updateView(v, x, z, heading, y, dt, mine ? this.pred! : null, steer);
     }
 
     for (const b of this.boxes.values()) {
@@ -1155,7 +1174,7 @@ export class RaceEngine {
     this.raf = requestAnimationFrame(this.loop);
   };
 
-  private updateView(v: KartView, x: number, z: number, heading: number, dt: number, own: KartState | null, steerInput: number): void {
+  private updateView(v: KartView, x: number, z: number, heading: number, y: number, dt: number, own: KartState | null, steerInput: number): void {
     const k = v.last;
     const flags = new Set(k.flags);
     const t = this.clock;
@@ -1232,8 +1251,20 @@ export class RaceEngine {
 
     // 6. Atualização do boneco e rodas
     v.r3d.update(dt, speed, steerInput, driftDir, boosting);
-    v.r3d.root.position.set(x, 0, z);
+    v.r3d.root.position.set(x, y, z);
     v.r3d.root.rotation.y = heading;
+
+    // Voo da rampa: paraquedas abre depois do pico e some ao pousar; a sombra fica no chão
+    const air = own ? !!own.air : flags.has("air");
+    const chuteOn = own ? air && (own.vy ?? 0) < 0 : flags.has("chute");
+    v.chuteOpen = chuteOn ? Math.min(1, v.chuteOpen + dt * 5) : Math.max(0, v.chuteOpen - dt * 8);
+    v.chute.visible = v.chuteOpen > 0.01;
+    if (v.chute.visible) {
+      v.chute.scale.set(v.chuteOpen, 0.4 + 0.6 * v.chuteOpen, v.chuteOpen);
+      v.chute.rotation.z = Math.sin(this.clock * 0.004) * 0.08;
+    }
+    v.shadowDisc.position.y = air ? 0.015 - y : 0.015;
+    v.shadowDisc.visible = y > -0.2;
 
     // Áudio procedural para o jogador local (rolamento e drift screech)
     if (v.last.id === this.myId) {
@@ -1401,6 +1432,8 @@ export class RaceEngine {
     if (!v) return;
     const p = v.r3d.root.position;
     const h = v.r3d.root.rotation.y;
+    // a câmera sobe com o salto, suavizada; na queda do vão ela não afunda junto
+    this.camY += (Math.max(0, p.y) - this.camY) * Math.min(1, dt * 4);
     const fx = Math.sin(h);
     const fz = Math.cos(h);
     const rx = Math.cos(h);
@@ -1420,8 +1453,8 @@ export class RaceEngine {
     this.camDriftOffset += (targetCamSwing - this.camDriftOffset) * Math.min(1, dt * 5);
     this.camLookOffset += (targetLookSwing - this.camLookOffset) * Math.min(1, dt * 5);
 
-    const want = new THREE.Vector3(p.x - fx * camDist + rx * this.camDriftOffset, camHeight, p.z - fz * camDist + rz * this.camDriftOffset);
-    const look = new THREE.Vector3(p.x + fx * 10 + rx * this.camLookOffset, 0.6, p.z + fz * 10 + rz * this.camLookOffset);
+    const want = new THREE.Vector3(p.x - fx * camDist + rx * this.camDriftOffset, camHeight + this.camY, p.z - fz * camDist + rz * this.camDriftOffset);
+    const look = new THREE.Vector3(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY * 0.6, p.z + fz * 10 + rz * this.camLookOffset);
     if (!this.camReady) {
       this.camPos.copy(want);
       this.camLook.copy(look);

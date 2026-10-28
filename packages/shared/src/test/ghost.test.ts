@@ -24,16 +24,16 @@ describe("sampleGhost", () => {
   });
 
   it("no instante exato de uma amostra devolve ela", () => {
-    expect(sampleGhost(line, 100)).toEqual({ x: 10, z: 20, heading: 1 });
+    expect(sampleGhost(line, 100)).toEqual({ x: 10, z: 20, heading: 1, y: 0 });
   });
 
   it("antes do começo e depois do fim fica na primeira e na última amostra", () => {
-    expect(sampleGhost(line, -500)).toEqual({ x: 0, z: 0, heading: 0 });
-    expect(sampleGhost(line, 99999)).toEqual({ x: 30, z: 20, heading: 1 });
+    expect(sampleGhost(line, -500)).toEqual({ x: 0, z: 0, heading: 0, y: 0 });
+    expect(sampleGhost(line, 99999)).toEqual({ x: 30, z: 20, heading: 1, y: 0 });
   });
 
   it("uma amostra só serve em qualquer instante", () => {
-    expect(sampleGhost([[0, 3, 4, 2]], 700)).toEqual({ x: 3, z: 4, heading: 2 });
+    expect(sampleGhost([[0, 3, 4, 2]], 700)).toEqual({ x: 3, z: 4, heading: 2, y: 0 });
   });
 
   it("direção passa pelo caminho curto na virada do ângulo", () => {
@@ -55,5 +55,19 @@ describe("sampleGhost", () => {
     ];
     const p = sampleGhost(dup, 100)!;
     expect(Number.isFinite(p.x)).toBe(true);
+  });
+});
+
+describe("sampleGhost com altura", () => {
+  it("interpola y e trata amostra de 4 números como chão", () => {
+    const hop: GhostSample[] = [
+      [0, 0, 0, 0],
+      [100, 10, 0, 0, 2],
+      [200, 20, 0, 0],
+    ];
+    expect(sampleGhost(hop, 50)!.y).toBeCloseTo(1);
+    expect(sampleGhost(hop, 150)!.y).toBeCloseTo(1);
+    expect(sampleGhost(line, 50)!.y).toBe(0);
+    expect(sampleGhost(hop, 100)!.y).toBe(2);
   });
 });

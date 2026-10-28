@@ -106,6 +106,7 @@ export type RaceEvent =
   | { type: "finish"; id: string; place: number; ms: number }
   | { type: "cup"; id: string; cupId: number }
   | { type: "stunt"; id: string }
+  | { type: "fall"; id: string }
   | { type: "draft"; id: string };
 
 export interface RaceMatch {
@@ -156,6 +157,8 @@ export interface RaceKartPublic {
   connected: boolean;
   cups?: number;
   holdingItem?: boolean;
+  /** Altura (só no ar ou caindo no vão). */
+  y?: number;
 }
 
 export interface RaceSnapshot {
@@ -212,6 +215,12 @@ export interface RacePrivate {
     cups?: number;
     /** Caminho atual (-1 = principal, 0.. = atalho), para a previsão local escolher o mesmo corredor. */
     path?: number;
+    /** Altura e voo, para a previsão local pousar no mesmo tick que o servidor. */
+    y?: number;
+    vy?: number;
+    air?: boolean;
+    trick?: boolean;
+    fell?: boolean;
   };
 }
 
