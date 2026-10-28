@@ -21,6 +21,14 @@ export const RACE = {
   boost3Speed: 25.5,
   stuntBoostMs: 450,
   stuntBoostSpeed: 21,
+  /** Voo da rampa: gravidade (m/s²), queda máxima de paraquedas aberto (m/s), esterço no ar. */
+  gravity: 30,
+  glideFall: 4,
+  airSteer: 0.35,
+  /** Abaixo disso a cadeira não decola: desce a rampa rente ao chão. */
+  minLaunchSpeed: 8,
+  /** Quem cai no vão some ao chegar nesta altura e volta na rampa. */
+  fallDepth: -3,
   slipstreamDist: 8.5,
   slipstreamAngleRad: 0.35,
   slipstreamChargeMs: 1400,

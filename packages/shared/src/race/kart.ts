@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 import { RACE } from "./balance";
-import { branchPointAt, clampToTrack, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
+import { branchPointAt, clampToTrack, groundAt, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
 
 export interface KartState {
   pos: Vec2;
@@ -22,6 +22,15 @@ export interface KartState {
   draftMs?: number;
   /** Caminho em que a cadeira está: -1 (ou ausente) = principal, 0.. = atalho. */
   path?: number;
+  /** Altura (m) e velocidade vertical; ausentes = no chão. */
+  y?: number;
+  vy?: number;
+  /** No ar depois de sair da rampa. */
+  air?: boolean;
+  /** Apertou derrapar no ar: turbo de manobra ao pousar. */
+  trick?: boolean;
+  /** Caindo no vão: some ao chegar em fallDepth. */
+  fell?: boolean;
 }
 
 /** steer +1 vira para a direita da câmera; throttle -1 freia e dá ré. */
@@ -38,6 +47,10 @@ export interface KartStep {
   /** Turbo de derrapagem liberado neste passo (0 = nenhum, 1 = azul, 2 = laranja, 3 = roxo). */
   boost: 0 | 1 | 2 | 3;
   progress: TrackProgress | null;
+  /** Pousou depois de manobra neste passo (ganhou o turbo de manobra). */
+  stunt?: boolean;
+  /** Terminou de cair no vão neste passo: a partida repõe a cadeira. */
+  fell?: boolean;
 }
 
 export const NO_INPUT: KartInput = { steer: 0, throttle: 0, drift: false };
@@ -55,14 +68,25 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, Numbe
 export function stepKart(k: KartState, input: KartInput, dtMs: number, now: number, track: Track | null): KartStep {
   const dt = dtMs / 1000;
   const s: KartState = { ...k, pos: { ...k.pos } };
+  if (s.fell) {
+    // caindo no vão: só desce, sem andar nem comando
+    s.speed = 0;
+    s.vy = (s.vy ?? 0) - RACE.gravity * dt;
+    s.y = Math.max(RACE.fallDepth, (s.y ?? 0) + s.vy * dt);
+    return { state: s, wall: false, boost: 0, progress: track ? progressOf(track, s.pos, s.path) : null, fell: s.y <= RACE.fallDepth };
+  }
+  const airborne = !!s.air;
   const spinning = now < s.spinUntil;
   const slipping = now < s.slipUntil;
   const inp = now < s.frozenUntil || spinning ? NO_INPUT : input;
-  const steer = slipping ? 0 : clamp(inp.steer, -1, 1);
+  const steer = (slipping ? 0 : clamp(inp.steer, -1, 1)) * (airborne ? RACE.airSteer : 1);
   const throttle = clamp(inp.throttle, -1, 1);
   let boost: 0 | 1 | 2 | 3 = 0;
 
-  if (s.drifting) {
+  if (airborne) {
+    // no ar não derrapa: derrapar vira manobra
+    if (inp.drift && now >= s.frozenUntil && !spinning) s.trick = true;
+  } else if (s.drifting) {
     const lost = spinning || slipping;
     if (!inp.drift || lost || s.speed < RACE.driftMinSpeed * 0.6) {
       if (!lost) {
@@ -96,7 +120,9 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   let cap = baseCap * cupBonus;
   if (track && pr0 && !boosting && inCarpet(track, pr0)) cap = RACE.maxSpeed * RACE.carpetMax;
 
-  if (now < s.frozenUntil) {
+  if (airborne) {
+    // no ar a velocidade não muda (nem acelerador, nem freio, nem carpete)
+  } else if (now < s.frozenUntil) {
     s.speed = 0;
   } else if (spinning) {
     s.speed -= Math.sign(s.speed) * Math.min(Math.abs(s.speed), 12 * dt);
@@ -109,7 +135,7 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   } else {
     s.speed -= Math.sign(s.speed) * Math.min(Math.abs(s.speed), RACE.coastDecel * dt);
   }
-  if (s.speed > cap) s.speed = Math.max(cap, s.speed - RACE.overSpeedDecel * dt * (boosting ? 1 : 2));
+  if (!airborne && s.speed > cap) s.speed = Math.max(cap, s.speed - RACE.overSpeedDecel * dt * (boosting ? 1 : 2));
   if (s.speed < -RACE.reverseMax) s.speed = -RACE.reverseMax;
   if (slipping) s.speed *= 1 - 1.2 * dt;
 
@@ -157,7 +183,61 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   } else {
     s.pos = next;
   }
-  return { state: s, wall, boost, progress };
+  let stunt = false;
+  if (track && progress) {
+    const g = groundAt(track, progress);
+    const y0 = s.y ?? 0;
+    if (!s.air) {
+      if (y0 > g.y + 0.05 && s.speed >= RACE.minLaunchSpeed) {
+        // saiu do topo da rampa: decola com a inclinação dela
+        const ramp = track.ramps.find((r) => r.path === progress!.path);
+        s.air = true;
+        s.y = y0;
+        s.vy = ramp ? (s.speed * ramp.height) / (ramp.sTo - ramp.sFrom) : 0;
+        s.trick = false;
+        s.drifting = false;
+        s.driftDir = 0;
+        s.driftMs = 0;
+      } else if (g.gap) {
+        s.fell = true;
+        s.y = 0;
+        s.vy = 0;
+      } else {
+        s.y = g.y;
+      }
+    } else {
+      let vy = (s.vy ?? 0) - RACE.gravity * dt;
+      // passado o pico o paraquedas abre e segura a queda
+      if (vy < 0) vy = Math.max(vy, -RACE.glideFall);
+      s.vy = vy;
+      s.y = y0 + vy * dt;
+      if (s.y <= g.y) {
+        if (g.gap) {
+          s.air = false;
+          s.fell = true;
+          s.vy = 0;
+        } else {
+          s.air = false;
+          s.y = g.y;
+          s.vy = 0;
+          if (s.trick) {
+            stunt = true;
+            s.boostUntil = Math.max(s.boostUntil, now + RACE.stuntBoostMs);
+            s.boostSpeed = Math.max(s.boostSpeed ?? 0, RACE.stuntBoostSpeed);
+          }
+          s.trick = false;
+        }
+      }
+    }
+    if (!s.air && !s.fell && s.y === 0) {
+      // no chão plano o estado fica igual ao de antes das rampas
+      delete s.y;
+      delete s.vy;
+      delete s.air;
+      delete s.trick;
+    }
+  }
+  return { state: s, wall, boost, progress, ...(stunt ? { stunt } : {}) };
 }
 
 /** Empurra duas cadeiras sobrepostas para fora uma da outra. */
