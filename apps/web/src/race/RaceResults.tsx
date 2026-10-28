@@ -1,5 +1,6 @@
 import { ITEM_NAMES } from "@ec/shared";
 import { net, useStore } from "../store";
+import { Awards } from "../screens/Awards";
 import { chairThumbnail } from "./chairMesh";
 import { fmtRace, ITEM_ICON } from "./RaceHud";
 
@@ -66,6 +67,7 @@ export function RaceResults() {
               ))}
             </tbody>
           </table>
+          <Awards />
           <div className="row" style={{ marginTop: 16 }}>
             {isHost ? (
               <button className="btn primary" onClick={() => net.send({ t: "lobby" })}>

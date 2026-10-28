@@ -11,6 +11,7 @@ import {
   type LobbyState,
   type PrivateState,
   type RacePrivate,
+  type Award,
   type RaceResultRow,
   type RaceSnapshot,
   type ResultRow,
@@ -35,6 +36,7 @@ export interface State {
   code: string | null;
   lobby: LobbyState | null;
   results: ResultRow[] | null;
+  awards: Award[];
   raceResults: RaceResultRow[] | null;
   error: string | null;
   online: boolean;
@@ -97,6 +99,7 @@ let state: State = {
   code: null,
   lobby: null,
   results: null,
+  awards: [],
   raceResults: null,
   error: null,
   online: false,
@@ -188,7 +191,7 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, raceResults: null, code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null });
+  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null });
 }
 
 let feedId = 0;
@@ -234,10 +237,10 @@ function onMessage(msg: ServerMsg): void {
       setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null } : {}) });
       return;
     case "results":
-      setState({ results: msg.rows, raceResults: null, snap: null, me: null, feed: [] });
+      setState({ results: msg.rows, awards: msg.awards, raceResults: null, snap: null, me: null, feed: [] });
       return;
     case "rresults":
-      setState({ raceResults: msg.rows, results: null, rsnap: null, rme: null, feed: [] });
+      setState({ raceResults: msg.rows, awards: msg.awards, results: null, rsnap: null, rme: null, feed: [] });
       return;
     case "rsnap":
       setState({ rsnap: msg.s, rme: msg.me });

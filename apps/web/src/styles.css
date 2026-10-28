@@ -1450,3 +1450,40 @@ input {
     grid-template-columns: 90px 1fr 56px;
   }
 }
+
+.awards {
+  margin-top: 16px;
+}
+
+.awards-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.award {
+  background: var(--postit);
+  border: 2px solid var(--line);
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 10px 12px;
+}
+
+.award-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.award-name {
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  margin-top: 4px;
+}
+
+.award-detail {
+  font-size: 13px;
+  color: var(--ink-2);
+}

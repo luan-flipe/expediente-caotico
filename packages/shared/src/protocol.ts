@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Award } from "./awards";
 import type { ChairDNA } from "./race/chair";
 import type { RacePrivate, RaceResultRow, RaceSnapshot } from "./race/types";
 import type { GhostSample } from "./ranking/types";
@@ -79,9 +80,9 @@ export type ServerMsg =
   | { t: "welcome"; id: string; token: string; code: string }
   | { t: "lobby"; state: LobbyState }
   | { t: "snap"; s: Snapshot; me: PrivateState | null }
-  | { t: "results"; rows: ResultRow[] }
+  | { t: "results"; rows: ResultRow[]; awards: Award[] }
   | { t: "rsnap"; s: RaceSnapshot; me: RacePrivate | null }
-  | { t: "rresults"; rows: RaceResultRow[] }
+  | { t: "rresults"; rows: RaceResultRow[]; awards: Award[] }
   /** Fantasmas da pista: o do próprio jogador (conta ou sessão) e o do recordista. Reenviado quando algum muda. */
   | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null }
   | { t: "error"; msg: string }

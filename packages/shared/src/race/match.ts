@@ -1,3 +1,4 @@
+import { pickAwards, raceCandidates, type Award } from "../awards";
 import type { AvatarDNA } from "../types";
 import { mulberry32 } from "../rng";
 import { RACE } from "./balance";
@@ -39,6 +40,7 @@ export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps
     cps: checkpoints(TRACK),
     rng,
     nextId: 1,
+    seed: opts.seed,
   };
   order.forEach((info, i) => {
     const slot = slots[i];
@@ -63,6 +65,10 @@ export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps
       idleTicks: 0,
       stepCredit: 0,
       itemsUsed: {},
+      itemHits: 0,
+      wallHits: 0,
+      stoppedMs: 0,
+      wrongTotalMs: 0,
       rec: { startedAt: null, samples: [], ticks: 0, dirty: false, lastMs: null, bestMs: null },
     };
     r.progress = raceProgress(r.lap, s, race.cps, TRACK);
@@ -221,7 +227,10 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
       const res = stepKart(r.kart, input, dtMs, now, TRACK);
       r.kart = res.state;
       if (res.boost) race.events.push({ type: "boost", id: r.id, level: res.boost });
-      if (res.wall && Math.abs(r.kart.speed) > 4) race.events.push({ type: "wall", id: r.id });
+      if (res.wall && Math.abs(r.kart.speed) > 4) {
+        race.events.push({ type: "wall", id: r.id });
+        r.wallHits++;
+      }
     }
   }
   for (let i = 0; !race.timeTrial && i < racers.length; i++) {
@@ -244,6 +253,8 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
     const moveDir = k.heading + (k.speed < 0 ? Math.PI : 0);
     const along = Math.cos(moveDir - pointAt(TRACK, pr.s).heading);
     r.wrongMs = Math.abs(k.speed) > 2 && along < -0.3 && r.lap.finishedAt === null ? r.wrongMs + dtMs : 0;
+    if (r.wrongMs > 0) r.wrongTotalMs += dtMs;
+    if (r.lap.finishedAt === null && Math.abs(k.speed) < 0.5 && now >= k.frozenUntil) r.stoppedMs += dtMs;
   }
   updatePlaces(race);
   for (const r of racers) {
@@ -379,4 +390,19 @@ export function getRaceResults(race: RaceMatch): RaceResultRow[] {
       itemsUsed: used.reduce((a, [, n]) => a + n, 0),
     };
   });
+}
+
+/** Prêmios bobos da corrida. Contra o relógio não tem. */
+export function getRaceAwards(race: RaceMatch): Award[] {
+  if (race.timeTrial) return [];
+  const stats = [...race.racers.values()].map((r) => ({
+    id: r.id,
+    name: r.name,
+    wrongMs: r.wrongTotalMs,
+    itemHits: r.itemHits,
+    wallHits: r.wallHits,
+    stoppedMs: r.stoppedMs,
+    bestLapMs: r.lap.bestLapMs === null ? null : Math.round(r.lap.bestLapMs),
+  }));
+  return pickAwards(raceCandidates(stats), race.seed);
 }

@@ -76,6 +76,11 @@ export interface Racer {
   idleTicks: number;
   stepCredit: number;
   itemsUsed: Partial<Record<ItemId, number>>;
+  /** Contadores só para os prêmios do fim. */
+  itemHits: number;
+  wallHits: number;
+  stoppedMs: number;
+  wrongTotalMs: number;
   rec: LapRecorder;
   bot?: RaceBotBrain;
 }
@@ -108,6 +113,8 @@ export interface RaceMatch {
   cps: number[];
   rng: () => number;
   nextId: number;
+  /** Semente da corrida: também decide o sorteio dos prêmios. */
+  seed: number;
 }
 
 export interface RaceKartPublic {

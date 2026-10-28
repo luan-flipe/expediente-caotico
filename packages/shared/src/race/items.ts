@@ -124,6 +124,8 @@ export function hitRacer(race: RaceMatch, t: Racer, kind: "spin" | "slip" | "res
     race.events.push({ type: "hit", id: t.id, by, kind: "blocked" });
     return;
   }
+  const attacker = by ? race.racers.get(by) : undefined;
+  if (attacker && attacker !== t) attacker.itemHits++;
   if (kind === "spin") k.spinUntil = race.now + ITEM_FX.spinMs;
   if (kind === "slip") k.slipUntil = race.now + ITEM_FX.pocaSlipMs;
   if (kind === "resma") k.speed *= ITEM_FX.resmaSpeedKeep;

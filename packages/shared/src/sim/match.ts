@@ -1,3 +1,4 @@
+import { pickAwards, shooterCandidates, type Award } from "../awards";
 import { BALANCE } from "../data/balance";
 import { OFFICE_MAP } from "../data/map";
 import { mulberry32 } from "../rng";
@@ -61,6 +62,10 @@ function makePlayer(info: MatchPlayerInfo, pos: { x: number; z: number }): Playe
     damageLog: [],
     zoneMs: 0,
     zoneCycleMs: 0,
+    shots: 0,
+    shotHits: 0,
+    damageDealt: 0,
+    dodges: 0,
   };
 }
 
@@ -90,6 +95,7 @@ export function createMatch(opts: { durationMs: number; seed: number; players: M
     events: [],
     rng,
     nextId: 1,
+    seed: opts.seed,
   };
   opts.players.forEach((info, i) => {
     const p = makePlayer(info, spawns[i % spawns.length]);
@@ -142,6 +148,7 @@ function stepPlayer(m: Match, p: PlayerSim, dtMs: number): void {
       p.dodgeDir = len > 0.1 ? { x: p.input.mx / len, z: p.input.mz / len } : dirOf(a.yaw);
       p.dodgeUntil = now + BALANCE.dodgeMs;
       p.dodgeReadyAt = now + BALANCE.dodgeCooldownMs;
+      p.dodges++;
       m.events.push({ type: "fx", kind: "dodge", x: p.pos.x, z: p.pos.z, owner: p.id });
     } else {
       castAbility(m, p, a.slot, a.yaw, a.dist);
@@ -309,4 +316,18 @@ export function buildPrivate(m: Match, id: string): PrivateState | null {
 
 export function getResults(m: Match): ResultRow[] {
   return rankPlayers([...m.players.values()]);
+}
+
+/** Prêmios bobos do tiroteio. */
+export function getAwards(m: Match): Award[] {
+  const stats = [...m.players.values()].map((p) => ({
+    id: p.id,
+    name: p.name,
+    shots: p.shots,
+    hits: p.shotHits,
+    damage: p.damageDealt,
+    deaths: p.deaths,
+    dodges: p.dodges,
+  }));
+  return pickAwards(shooterCandidates(stats), m.seed);
 }
