@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ABILITIES, BALANCE, roomNameAt } from "@ec/shared";
+import { keyLabel, useSettings } from "../settings";
 import { useStore } from "../store";
+import { IS_TOUCH } from "../touch";
 import { Evolution } from "./Evolution";
 import { Scoreboard } from "./Scoreboard";
 
@@ -40,6 +42,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
   const feed = useStore((s) => s.feed);
   const scoreboard = useStore((s) => s.scoreboard);
   const online = useStore((s) => s.online);
+  const keys = useSettings().keys.shooter;
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 120);
@@ -104,7 +107,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
           </div>
         ))}
         <div className="r" style={{ opacity: 0.6, fontSize: 12, marginTop: 4 }}>
-          <span>Tab: placar completo</span>
+          <span>{IS_TOUCH ? "Placar no botão de cima" : `${keyLabel(keys.placar)}: placar completo`}</span>
         </div>
       </div>
 
@@ -148,7 +151,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
             return (
               <Slot
                 key={i}
-                k={"QER"[i]}
+                k={keyLabel([keys.habilidade1, keys.habilidade2, keys.habilidade3][i])}
                 label={def ? def.short : "vazio"}
                 level={a?.level}
                 readyInMs={a?.readyInMs ?? 0}
@@ -157,7 +160,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
               />
             );
           })}
-          <Slot k="ESP" label="Esquiva" readyInMs={me.dodgeInMs} cooldownMs={BALANCE.dodgeCooldownMs} small color="#fff" />
+          <Slot k={keyLabel(keys.esquiva)} label="Esquiva" readyInMs={me.dodgeInMs} cooldownMs={BALANCE.dodgeCooldownMs} small color="#fff" />
         </div>
       )}
 
@@ -178,7 +181,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
         </div>
       )}
 
-      {!locked && snap.phase !== "finished" && <div className="panel lock-hint">Clique na tela para mirar com o mouse</div>}
+      {!locked && !IS_TOUCH && snap.phase !== "finished" && <div className="panel lock-hint">Clique na tela para mirar com o mouse</div>}
       {scoreboard && <Scoreboard snap={snap} myId={myId} />}
     </div>
   );
