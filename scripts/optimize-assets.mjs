@@ -24,7 +24,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "assets-src");
 const out = join(root, "apps", "web", "public", "assets");
 
-const MODELS = ["characters/boneco.glb", "chairs/cadeira_escritorio.glb", "characters/comandante_helicoptero.glb"];
+const MODELS = ["characters/boneco.glb", "characters/boneco_polo_barba.glb", "chairs/cadeira_escritorio.glb", "characters/comandante_helicoptero.glb"];
 const MUSIC = "audio/turbo_pixel_drift.mp3";
 
 const kb = (n) => `${(n / 1024).toFixed(0)} KB`;

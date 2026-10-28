@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import {
+  DEFAULT_AVATAR,
   ITEM_IDS,
   NO_INPUT,
   pointAt,
@@ -65,7 +66,6 @@ const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f"];
 const MUSIC_VOLUME = 0.35;
 /** Treino: os outros pilotos aparecem assim (sem colisão entre cadeiras). */
 const TRIAL_OTHERS_OPACITY = 0.4;
-const DEFAULT_AVATAR: AvatarDNA = { name: "", skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, accessory: 0, height: 1 };
 const DEFAULT_CHAIR: ChairDNA = { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 };
 
 const angleLerp = (a: number, b: number, t: number) => {
