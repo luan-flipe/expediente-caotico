@@ -127,7 +127,25 @@ const COPA_CARPET: [number, number][] = [[6, 8]];
 const COPA_BOXES = [1.5, 5, 9];
 const COPA_CUPS = [3, 8.5, 10.5];
 
+/**
+ * Atalho: segundo corredor que sai da pista principal no índice de controle from e volta nela em to
+ * (podem ser fracionários), passando pelos pontos de ctrl. Mais curto e mais estreito, sem caixas.
+ */
+interface BranchDef {
+  from: number;
+  to: number;
+  ctrl: Ctrl[];
+}
+
+const CORPORATIVO_BRANCH: BranchDef = { from: 2.5, to: 5, ctrl: [{ x: 36, z: -22, w: 5 }] };
+const ESTACIONAMENTO_BRANCH: BranchDef = { from: 2.5, to: 5.5, ctrl: [{ x: 42, z: -10, w: 7 }] };
+const COPA_BRANCH: BranchDef = { from: 8.7, to: 11.4, ctrl: [{ x: -12, z: -2, w: 5 }] };
+
 const STEP = 5;
+/** Nas bocas, só troca de corredor quando o outro centro está tanto mais perto (m). */
+const PATH_SWITCH_MARGIN = 0.3;
+/** Atalho é curto e curvo: amostrado mais fino que a principal. */
+const BRANCH_STEP = 2;
 const DENSE = 24;
 
 export interface CarpetZone {
@@ -150,10 +168,30 @@ export interface Track {
   carpet: CarpetZone[];
   boxRows: number[];
   cupRows: number[];
+  /** Atalhos (vazio nas pistas sem). */
+  branches: Branch[];
+}
+
+/** Corredor do atalho: linha aberta de sFrom a sTo (s da pista principal), com bs próprio em cum. */
+export interface Branch {
+  sFrom: number;
+  sTo: number;
+  points: Vec2[];
+  widths: number[];
+  cum: number[];
+  spacing: number;
+  length: number;
+  /** s de cada ponto, a partir de sFrom (crescente, de 0 até a distância entre as bocas). */
+  sOff: number[];
 }
 
 export interface TrackProgress {
+  /** Distância ao longo da pista principal; no atalho, convertida proporcionalmente. */
   s: number;
+  /** -1 = pista principal; 0.. = índice do atalho. */
+  path: number;
+  /** Direção do caminho neste ponto. */
+  heading: number;
   seg: number;
   /** Distância lateral com sinal (positivo = lado +1). */
   lateral: number;
@@ -181,6 +219,71 @@ interface TrackDef {
   carpet: [number, number][];
   boxes: number[];
   cups: number[];
+  branch?: BranchDef;
+}
+
+/** Curva aberta do atalho, reamostrada a cada STEP, com tangentes iguais às da principal nas pontas. */
+function buildBranch(track: Track, def: BranchDef, sAtCtrl: (c: number) => number): Branch {
+  const sFrom = sAtCtrl(def.from);
+  const sTo = sAtCtrl(def.to);
+  const a = pointAt(track, sFrom);
+  const b = pointAt(track, sTo);
+  const w0 = def.ctrl[0].w;
+  const w1 = def.ctrl[def.ctrl.length - 1].w;
+  const pts: Ctrl[] = [
+    { x: a.pos.x - Math.sin(a.heading) * 8, z: a.pos.z - Math.cos(a.heading) * 8, w: w0 },
+    { x: a.pos.x, z: a.pos.z, w: w0 },
+    ...def.ctrl,
+    { x: b.pos.x, z: b.pos.z, w: w1 },
+    { x: b.pos.x + Math.sin(b.heading) * 8, z: b.pos.z + Math.cos(b.heading) * 8, w: w1 },
+  ];
+  const dense: Ctrl[] = [];
+  for (let i = 1; i < pts.length - 2; i++) {
+    const [p0, p1, p2, p3] = [pts[i - 1], pts[i], pts[i + 1], pts[i + 2]];
+    for (let k = 0; k < DENSE; k++) {
+      const t = k / DENSE;
+      dense.push({ x: catmull(p0.x, p1.x, p2.x, p3.x, t), z: catmull(p0.z, p1.z, p2.z, p3.z, t), w: p1.w + (p2.w - p1.w) * t });
+    }
+  }
+  dense.push(pts[pts.length - 2]);
+  const dcum = [0];
+  for (let i = 1; i < dense.length; i++) dcum.push(dcum[i - 1] + Math.hypot(dense[i].x - dense[i - 1].x, dense[i].z - dense[i - 1].z));
+  const length = dcum[dcum.length - 1];
+  const count = Math.max(2, Math.round(length / BRANCH_STEP));
+  const spacing = length / count;
+  const points: Vec2[] = [];
+  const widths: number[] = [];
+  const cum: number[] = [];
+  let j = 0;
+  for (let k = 0; k <= count; k++) {
+    const s = Math.min(length, k * spacing);
+    while (j < dense.length - 2 && dcum[j + 1] < s) j++;
+    const t = Math.min(1, (s - dcum[j]) / (dcum[j + 1] - dcum[j] || 1));
+    const p = dense[j];
+    const q = dense[j + 1];
+    points.push({ x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t });
+    widths.push(p.w + (q.w - p.w) * t);
+    cum.push(s);
+  }
+  // s de cada ponto do atalho, medido a partir de sFrom. Nas bocas, enquanto o atalho ainda está dentro
+  // da principal, vale a projeção na principal (trocar de corredor ali não dá salto de s); no miolo, linear.
+  const span = deltaS(track, sFrom, sTo);
+  const onMain = points.map((p, k) => {
+    const pr = project(track.points, track.widths, track.cum, track.spacing, true, p);
+    return { off: Math.max(0, Math.min(span, deltaS(track, sFrom, pr.s))), inside: pr.dist + widths[k] / 2 < pr.halfWidth };
+  });
+  let a0 = 0;
+  while (a0 + 1 < points.length && onMain[a0 + 1].inside) a0++;
+  let b0 = points.length - 1;
+  while (b0 - 1 > a0 && onMain[b0 - 1].inside) b0--;
+  const sOff = points.map((_, k) => {
+    if (k <= a0) return onMain[k].off;
+    if (k >= b0) return onMain[k].off;
+    const f = (cum[k] - cum[a0]) / (cum[b0] - cum[a0]);
+    return onMain[a0].off + (onMain[b0].off - onMain[a0].off) * f;
+  });
+  for (let k = 1; k < sOff.length; k++) sOff[k] = Math.max(sOff[k], sOff[k - 1]);
+  return { sFrom, sTo, points, widths, cum, spacing, length, sOff };
 }
 
 function buildTrack(def: TrackDef): Track {
@@ -228,7 +331,8 @@ function buildTrack(def: TrackDef): Track {
     if (b < a) b += length;
     return (a + (b - a) * f) % length;
   };
-  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl), cupRows: def.cups.map(sAtCtrl) };
+  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl), cupRows: def.cups.map(sAtCtrl), branches: [] };
+  if (def.branch) track.branches.push(buildBranch(track, def.branch, sAtCtrl));
   track.carpet = def.carpet.map(([from, to]) => {
     const s0 = sAtCtrl(from);
     const s1 = sAtCtrl(to);
@@ -254,13 +358,14 @@ export function pointAt(track: Track, s: number): { pos: Vec2; heading: number; 
   return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), halfWidth: w / 2 };
 }
 
-/** Projeção de uma posição na linha central (segmento mais próximo). */
-export function progressOf(track: Track, pos: Vec2): TrackProgress {
-  const n = track.points.length;
-  let best: TrackProgress | null = null;
-  for (let i = 0; i < n; i++) {
-    const p = track.points[i];
-    const q = track.points[(i + 1) % n];
+/** Projeção numa polilinha (fechada ou aberta); s é o bs da própria linha. */
+function project(pts: Vec2[], widths: number[], cum: number[], spacing: number, closed: boolean, pos: Vec2): Omit<TrackProgress, "path"> {
+  const n = pts.length;
+  const segs = closed ? n : n - 1;
+  let best: Omit<TrackProgress, "path"> | null = null;
+  for (let i = 0; i < segs; i++) {
+    const p = pts[i];
+    const q = pts[(i + 1) % n];
     const dx = q.x - p.x;
     const dz = q.z - p.z;
     const len2 = dx * dx + dz * dz;
@@ -272,20 +377,112 @@ export function progressOf(track: Track, pos: Vec2): TrackProgress {
     const len = Math.sqrt(len2);
     const nrm = sideNormal(dx / len, dz / len);
     best = {
-      s: (track.cum[i] + t * track.spacing) % track.length,
+      s: cum[i] + t * spacing,
+      heading: Math.atan2(dx, dz),
       seg: i,
       lateral: (pos.x - cx) * nrm.x + (pos.z - cz) * nrm.z,
       dist,
-      halfWidth: (track.widths[i] + (track.widths[(i + 1) % n] - track.widths[i]) * t) / 2,
+      halfWidth: (widths[i] + (widths[(i + 1) % n] - widths[i]) * t) / 2,
       closest: { x: cx, z: cz },
     };
   }
   return best!;
 }
 
+/** Projeção em cada corredor: a principal (path -1) e os atalhos, com s já na escala da principal. */
+function allProgress(track: Track, pos: Vec2): TrackProgress[] {
+  const main = project(track.points, track.widths, track.cum, track.spacing, true, pos);
+  const out: TrackProgress[] = [{ ...main, s: main.s % track.length, path: -1 }];
+  track.branches.forEach((b, i) => {
+    const pr = project(b.points, b.widths, b.cum, b.spacing, false, pos);
+    out.push({ ...pr, s: branchS(track, b, pr.seg, (pr.s - b.cum[pr.seg]) / b.spacing), path: i });
+  });
+  return out;
+}
+
+/** s da principal no segmento seg do atalho, fração t. */
+function branchS(track: Track, b: Branch, seg: number, t: number): number {
+  const L = track.length;
+  const s = b.sFrom + b.sOff[seg] + (b.sOff[seg + 1] - b.sOff[seg]) * t;
+  return ((s % L) + L) % L;
+}
+
+/**
+ * Escolhe o corredor: vale aquele em que a posição cabe (com folga margin). Nas bocas, onde cabe nos
+ * dois, fica com prefer (o caminho do tick anterior; sem ele, a principal). Fora de todos, o que
+ * precisa do menor empurrão.
+ */
+function pickProgress(track: Track, pos: Vec2, margin: number, prefer = -1): TrackProgress {
+  const all = allProgress(track, pos);
+  if (all.length === 1) return all[0];
+  const inside = all.filter((p) => p.dist <= p.halfWidth - margin);
+  if (inside.length) {
+    const best = inside.reduce((a, b) => (b.dist < a.dist ? b : a));
+    const pref = inside.find((p) => p.path === prefer);
+    // troca só com folga clara, senão quem para na boca alternaria de caminho a cada tick
+    const pick = pref && pref.dist <= best.dist + PATH_SWITCH_MARGIN ? pref : best;
+    const main = inside.find((p) => p.path === -1);
+    const branch = inside.find((p) => p.path >= 0);
+    if (!main || !branch) return pick;
+    // na faixa comum o s passa aos poucos do da principal (na borda do atalho) para o do atalho (na
+    // borda da principal): trocar de corredor não dá salto de s, que faria perder checkpoint
+    const inBranch = 1 - branch.dist / branch.halfWidth;
+    const inMain = 1 - main.dist / main.halfWidth;
+    const f = inBranch / (inBranch + inMain || 1);
+    return { ...pick, s: (main.s + f * deltaS(track, main.s, branch.s) + track.length) % track.length };
+  }
+  return all.reduce((a, b) => (b.dist - b.halfWidth < a.dist - a.halfWidth ? b : a));
+}
+
+/** Projeção de uma posição na linha central do corredor em que ela está (prefer = caminho anterior). */
+export function progressOf(track: Track, pos: Vec2, prefer?: number): TrackProgress {
+  return pickProgress(track, pos, 0, prefer);
+}
+
+/** Ponto e direção do caminho path (-1 = principal) no s da principal; no atalho, s fica entre as bocas. */
+export function branchPointAt(track: Track, path: number, s: number): { pos: Vec2; heading: number; halfWidth: number } {
+  const b = track.branches[path];
+  if (!b) return pointAt(track, s);
+  const n = b.points.length;
+  const off = Math.max(0, Math.min(b.sOff[n - 1], deltaS(track, b.sFrom, s)));
+  let i = 0;
+  while (i < n - 2 && b.sOff[i + 1] < off) i++;
+  const t = Math.min(1, (off - b.sOff[i]) / (b.sOff[i + 1] - b.sOff[i] || 1));
+  const p = b.points[i];
+  const q = b.points[i + 1];
+  const w = b.widths[i] + (b.widths[i + 1] - b.widths[i]) * t;
+  return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), halfWidth: w / 2 };
+}
+
+/**
+ * Ponto a ahead metros à frente de pr seguindo a rota route (-1 = principal), medidos no próprio
+ * caminho: entra no atalho na boca e sai dele de volta na principal. Usado pelos bots.
+ */
+export function routeAhead(track: Track, pr: TrackProgress, route: number, ahead: number): { pos: Vec2; heading: number; halfWidth: number } {
+  const b = track.branches[route];
+  if (!b) return pointAt(track, pr.s + ahead);
+  let bs: number;
+  if (pr.path === route) {
+    const bp = project(b.points, b.widths, b.cum, b.spacing, false, pr.closest);
+    bs = bp.s + ahead;
+  } else {
+    const toMouth = deltaS(track, pr.s, b.sFrom);
+    // um pouco depois da boca ainda dá para entrar (a cadeira continua na faixa comum)
+    if (toMouth < -6 || toMouth >= ahead) return pointAt(track, pr.s + ahead);
+    bs = ahead - toMouth;
+  }
+  if (bs >= b.length) return pointAt(track, b.sTo + bs - b.length);
+  const n = b.points.length;
+  const i = Math.min(n - 2, Math.floor(bs / b.spacing));
+  const t = Math.min(1, (bs - b.cum[i]) / b.spacing);
+  const p = b.points[i];
+  const q = b.points[i + 1];
+  return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), halfWidth: (b.widths[i] + (b.widths[i + 1] - b.widths[i]) * t) / 2 };
+}
+
 /** Mantém um círculo de raio r dentro da pista. Devolve a posição corrigida e se bateu na parede. */
-export function clampToTrack(track: Track, pos: Vec2, r: number): { pos: Vec2; hit: boolean; normal: Vec2; progress: TrackProgress } {
-  const pr = progressOf(track, pos);
+export function clampToTrack(track: Track, pos: Vec2, r: number, prefer?: number): { pos: Vec2; hit: boolean; normal: Vec2; progress: TrackProgress } {
+  const pr = pickProgress(track, pos, r, prefer);
   const limit = pr.halfWidth - r;
   if (pr.dist <= limit || pr.dist < 1e-6) return { pos, hit: false, normal: { x: 0, z: 0 }, progress: pr };
   const nx = (pos.x - pr.closest.x) / pr.dist;
@@ -308,6 +505,7 @@ export function deltaS(track: Track, from: number, to: number): number {
 }
 
 export function inCarpet(track: Track, pr: TrackProgress): boolean {
+  if (pr.path >= 0) return false;
   for (const c of track.carpet) {
     const inside = c.from <= c.to ? pr.s >= c.from && pr.s <= c.to : pr.s >= c.from || pr.s <= c.to;
     if (inside && pr.lateral * c.side > pr.halfWidth - RACE.carpetWidth) return true;
@@ -394,9 +592,9 @@ export type TrackId = (typeof TRACK_IDS)[number];
 export const DEFAULT_TRACK_ID: TrackId = "corporativo";
 
 export const TRACKS: Record<TrackId, Track> = {
-  corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES, cups: CORPORATIVO_CUPS }),
-  estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS }),
-  copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS }),
+  corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES, cups: CORPORATIVO_CUPS, branch: CORPORATIVO_BRANCH }),
+  estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS, branch: ESTACIONAMENTO_BRANCH }),
+  copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS, branch: COPA_BRANCH }),
 };
 
 export const isTrackId = (v: unknown): v is TrackId => typeof v === "string" && (TRACK_IDS as readonly string[]).includes(v);
