@@ -1,3 +1,4 @@
+import type { BotLevel } from "./botLevels";
 export type Vec2 = { x: number; z: number };
 
 export type AbilityId = "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3";
@@ -203,6 +204,8 @@ export interface Match {
   zones: AbilityZone[];
   objective: Objective;
   events: GameEvent[];
+  /** Opção do anfitrião: dificuldade dos bots. */
+  botLevel: BotLevel;
   rng: () => number;
   nextId: number;
   /** Semente da partida: também decide o sorteio dos prêmios. */

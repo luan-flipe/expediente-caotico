@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./rng";
+export * from "./botLevels";
 export * from "./awards";
 export * from "./protocol";
 export * from "./data/balance";

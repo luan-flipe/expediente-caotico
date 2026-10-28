@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { BALANCE, DURATIONS_MS, RACE } from "@ec/shared";
+import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN, RACE } from "@ec/shared";
 import { avatarThumbnail } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
 import { canNativeShare, inviteText } from "../invite";
 import { leaveRoom, net, setState, useStore } from "../store";
+
+const LAP_CHOICES = Array.from({ length: LAPS_MAX - LAPS_MIN + 1 }, (_, i) => LAPS_MIN + i);
 
 export function Lobby() {
   const lobby = useStore((s) => s.lobby)!;
@@ -18,6 +20,20 @@ export function Lobby() {
   const full = lobby.players.length >= BALANCE.maxPlayers;
   const trial = lobby.mode === "timetrial";
   const race = lobby.mode === "race" || trial;
+
+  const opts = lobby.options;
+  const botRow = (
+    <div className="row">
+      <span className="muted">Bots:</span>
+      <div className="seg">
+        {BOT_LEVELS.map((level) => (
+          <button key={level} className={opts.botLevel === level ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", botLevel: level })}>
+            {BOT_LEVEL_NAMES[level]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   const copy = async () => {
     const text = inviteText(location.origin, lobby.code);
@@ -138,20 +154,47 @@ export function Lobby() {
                 <span className="muted">Voltas livres sozinho ou com a sala, sem itens e sem colisão. Fantasma da sua melhor volta e do recorde.</span>
               </div>
             ) : race ? (
-              <div className="row">
-                <span className="muted">Corrida de cadeiras: {RACE.laps} voltas no Circuito Corporativo, até {RACE.maxPlayers} pilotos.</span>
-              </div>
-            ) : (
-              <div className="row">
-                <span className="muted">Duração:</span>
-                <div className="seg">
-                  {DURATIONS_MS.map((ms) => (
-                    <button key={ms} className={lobby.durationMs === ms ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "duration", ms })}>
-                      {ms / 60000} min
-                    </button>
-                  ))}
+              <>
+                <div className="row">
+                  <span className="muted">Voltas:</span>
+                  <div className="seg">
+                    {LAP_CHOICES.map((n) => (
+                      <button key={n} className={opts.laps === n ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", laps: n })}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+                <div className="row">
+                  <span className="muted">Itens:</span>
+                  <div className="seg">
+                    <button className={opts.items ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", items: true })}>
+                      Ligados
+                    </button>
+                    <button className={opts.items ? "" : "on"} disabled={!isHost} onClick={() => net.send({ t: "options", items: false })}>
+                      Desligados
+                    </button>
+                  </div>
+                </div>
+                {botRow}
+                <div className="row">
+                  <span className="muted">Corrida de cadeiras no Circuito Corporativo, até {RACE.maxPlayers} pilotos.</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="row">
+                  <span className="muted">Duração:</span>
+                  <div className="seg">
+                    {DURATIONS_MS.map((ms) => (
+                      <button key={ms} className={lobby.durationMs === ms ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "duration", ms })}>
+                        {ms / 60000} min
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {botRow}
+              </>
             )}
             {isHost && (
               <>
