@@ -3,23 +3,26 @@ import { preloadCharacter } from "./game/character";
 import { preloadChair } from "./race/chairMesh";
 import { preloadCommander } from "./race/commander";
 
-const MUSIC_URL = "/assets/audio/turbo_pixel_drift.mp3";
 /** A tela de carregamento nunca segura o jogo por mais que isso (o que faltar segue baixando). */
 export const LOADING_TIMEOUT_MS = 15000;
 
-let music: Promise<AudioBuffer | null> | null = null;
+const music = new Map<string, Promise<AudioBuffer | null>>();
 
 /**
- * Música da corrida, baixada e decodificada uma vez só por visita. Falhou: tenta de novo na próxima
+ * Faixa da corrida, baixada e decodificada uma vez só por visita. Falhou: tenta de novo na próxima
  * corrida em vez de guardar o erro.
  */
-export function loadMusic(): Promise<AudioBuffer | null> {
-  music ??= new AudioLoader().loadAsync(MUSIC_URL).catch((err) => {
-    console.warn("música da corrida não carregou", err);
-    music = null;
-    return null;
-  });
-  return music;
+export function loadMusic(url: string): Promise<AudioBuffer | null> {
+  let p = music.get(url);
+  if (!p) {
+    p = new AudioLoader().loadAsync(url).catch((err) => {
+      console.warn("música da corrida não carregou", err);
+      music.delete(url);
+      return null;
+    });
+    music.set(url, p);
+  }
+  return p;
 }
 
 /**
@@ -63,8 +66,11 @@ export function loadAssets(onProgress: (done: number, total: number) => void): P
     if (background) return;
     background = true;
     void preloadCommander();
-    void loadMusic();
-    void import("./sound").then((m) => m.preloadSounds());
+    void import("./sound").then((m) => {
+      m.preloadSounds();
+      // só a faixa da primeira corrida; a outra baixa quando chegar a vez dela
+      void loadMusic(m.peekRaceTrack());
+    });
   };
 
   report();
