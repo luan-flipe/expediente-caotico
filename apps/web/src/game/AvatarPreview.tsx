@@ -3,12 +3,39 @@ import * as THREE from "three";
 import type { AvatarDNA, ChairDNA } from "@ec/shared";
 import { seatedRacer } from "../race/chairMesh";
 import { useStore } from "../store";
-import { createCharacter, type Character } from "./character";
+import { createCharacter, type Character, type CharacterAction } from "./character";
 
-/** Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira. */
-export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair?: ChairDNA; className?: string }) {
+/** Ação pedida para a prévia; seq muda a cada clique para repetir a mesma ação. */
+export interface PreviewAction {
+  name: CharacterAction;
+  seq: number;
+}
+
+/**
+ * Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira.
+ * walking anda no lugar, action toca uma ação do jogo e spin=false para o giro automático.
+ */
+export function AvatarPreview({
+  dna,
+  chair,
+  className,
+  walking = false,
+  action,
+  spin = true,
+}: {
+  dna: AvatarDNA;
+  chair?: ChairDNA;
+  className?: string;
+  walking?: boolean;
+  action?: PreviewAction;
+  spin?: boolean;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   const rigRef = useRef<Character | null>(null);
+  const walkingRef = useRef(walking);
+  walkingRef.current = walking;
+  const spinRef = useRef(spin);
+  spinRef.current = spin;
   const ready = useStore((s) => s.modelReady);
   const sceneRef = useRef<THREE.Scene | null>(null);
 
@@ -56,11 +83,11 @@ export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair
         cam.aspect = w / h;
         cam.updateProjectionMatrix();
       }
-      if (!dragging) yaw += 0.004;
+      if (!dragging && spinRef.current) yaw += 0.004;
       const rig = rigRef.current;
       if (rig) {
         rig.root.rotation.y = yaw;
-        rig.update(Math.min(0.05, (ms - last) / 1000), 0);
+        rig.update(Math.min(0.05, (ms - last) / 1000), walkingRef.current ? 1 : 0);
       }
       renderer.render(scene, cam);
       last = ms;
@@ -91,6 +118,10 @@ export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair
     scene.add(rig.root);
     rigRef.current = rig;
   }, [dna, chair, ready]);
+
+  useEffect(() => {
+    if (action) rigRef.current?.play(action.name);
+  }, [action]);
 
   return <canvas ref={ref} className={className} />;
 }

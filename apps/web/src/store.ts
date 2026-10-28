@@ -42,7 +42,7 @@ export interface State {
   rme: RacePrivate | null;
   feed: FeedItem[];
   scoreboard: boolean;
-  /** boneco.glb carregado; telas refazem miniaturas e prévias. */
+  /** boneco_completo.glb carregado; telas refazem miniaturas e prévias. */
   modelReady: boolean;
 }
 

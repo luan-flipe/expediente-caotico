@@ -1,16 +1,29 @@
 import { useState } from "react";
 import { BALANCE, DURATIONS_MS, RACE } from "@ec/shared";
-import { avatarThumbnail } from "../game/character";
+import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
+import { avatarThumbnail, type CharacterAction } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
 import { leaveRoom, net, setState, useStore } from "../store";
+
+const ACTIONS: [CharacterAction, string][] = [
+  ["throw", "Arremessar"],
+  ["cafe", "Café"],
+  ["dash", "Dash"],
+  ["tchau", "Tchau"],
+];
 
 export function Lobby() {
   const lobby = useStore((s) => s.lobby)!;
   const myId = useStore((s) => s.myId);
   const error = useStore((s) => s.error);
   const online = useStore((s) => s.online);
+  const avatar = useStore((s) => s.avatar);
   useStore((s) => s.modelReady);
   const [copied, setCopied] = useState(false);
+  const [walking, setWalking] = useState(false);
+  const [spin, setSpin] = useState(true);
+  const [action, setAction] = useState<PreviewAction>();
+  const play = (name: CharacterAction) => setAction((a) => ({ name, seq: (a?.seq ?? 0) + 1 }));
   const isHost = lobby.hostId === myId;
   const me = lobby.players.find((p) => p.id === myId);
   const link = `${location.origin}${location.pathname}?sala=${lobby.code}`;
@@ -82,6 +95,20 @@ export function Lobby() {
             <p className="label" style={{ margin: 0 }}>
               Você
             </p>
+            <AvatarPreview dna={avatar} walking={walking} action={action} spin={spin} className="badge-preview" />
+            <div className="seg">
+              <button className={spin ? "on" : ""} onClick={() => setSpin((s) => !s)}>
+                Girar
+              </button>
+              <button className={walking ? "on" : ""} onClick={() => setWalking((w) => !w)}>
+                Andar
+              </button>
+              {ACTIONS.map(([name, label]) => (
+                <button key={name} onClick={() => play(name)}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="row">
               {!isHost && (
                 <button className={`btn ${me?.ready ? "" : "primary"}`} onClick={() => net.send({ t: "ready", ready: !me?.ready })}>
