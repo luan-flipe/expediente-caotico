@@ -90,15 +90,10 @@ input {
 
 .pair {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* lado a lado só quando cada card tem espaço; senão empilha (coluna estreita ao lado do crachá, celular) */
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
   align-items: stretch;
-}
-
-@media (max-width: 640px) {
-  .pair {
-    grid-template-columns: 1fr;
-  }
 }
 
 .grid-2 {
