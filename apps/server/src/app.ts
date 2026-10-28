@@ -29,7 +29,7 @@ export function publicId(accountId: string, secret: string): string {
 function maskView(view: RankingView, secret: string): RankingView {
   const mask = <R extends { id: string }>(r: R): R => ({ ...r, id: publicId(r.id, secret) });
   const tab = <R extends RankingRowBase>(t: RankingTab<R>): RankingTab<R> => ({ rows: t.rows.map(mask), me: t.me && mask(t.me) });
-  return { mes: tab(view.mes), tiroteio: tab(view.tiroteio), rally: tab(view.rally), voltas: tab(view.voltas), mesPassado: view.mesPassado && mask(view.mesPassado), desafio: { ...view.desafio, completed: view.desafio.completed.map(mask) } };
+  return { mes: tab(view.mes), tiroteio: tab(view.tiroteio), rally: tab(view.rally), voltas: tab(view.voltas), pistas: view.pistas.map((p) => ({ ...p, voltas: tab(p.voltas) })), mesPassado: view.mesPassado && mask(view.mesPassado), desafio: { ...view.desafio, completed: view.desafio.completed.map(mask) } };
 }
 
 /** Serve o build do cliente (produção). Em dev o Vite cuida disso. */

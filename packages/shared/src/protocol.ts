@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Award } from "./awards";
 import { BOT_LEVELS, LAPS_MAX, LAPS_MIN, type RoomOptions } from "./botLevels";
 import type { ChairDNA } from "./race/chair";
+import { TRACK_IDS } from "./race/track";
 import type { RacePrivate, RaceResultRow, RaceSnapshot } from "./race/types";
 import type { GhostSample } from "./ranking/types";
 import type { AvatarDNA, PrivateState, ResultRow, Snapshot } from "./types";
@@ -35,13 +36,14 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("addBot") }),
   z.object({ t: z.literal("removeBot") }),
   z.object({ t: z.literal("duration"), ms: z.union([z.literal(180000), z.literal(300000), z.literal(600000)]) }),
-  /** Só o anfitrião: voltas, itens e dificuldade dos bots. Cada campo é opcional; mensagem sem nenhum é ignorada. */
+  /** Só o anfitrião: voltas, itens, dificuldade dos bots e pista. Cada campo é opcional; mensagem sem nenhum é ignorada. */
   z
     .object({
       t: z.literal("options"),
       laps: z.number().int().min(LAPS_MIN).max(LAPS_MAX).optional(),
       items: z.boolean().optional(),
       botLevel: z.enum(BOT_LEVELS).optional(),
+      track: z.enum(TRACK_IDS).optional(),
     })
     .strict(),
   z.object({ t: z.literal("start") }),

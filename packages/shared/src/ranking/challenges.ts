@@ -26,12 +26,14 @@ export interface WeekProgress {
   racePodiums: number;
   /** Melhor volta da semana no Circuito Corporativo, inclusive no Contra o relógio. */
   bestLapMs: number | null;
+  /** Pistas (ids) em que já fez pódio no Rally na semana, sem repetir. Progresso antigo não tem: vale vazio. */
+  podiumTracks?: string[];
   /** Quando cumpriu o desafio da semana; null enquanto não cumpriu. */
   doneAt: number | null;
 }
 
 export function emptyProgress(): WeekProgress {
-  return { shooterMatches: 0, shooterWins: 0, shooterKills: 0, bestKills: 0, raceMatches: 0, raceFinished: 0, raceWins: 0, racePodiums: 0, bestLapMs: null, doneAt: null };
+  return { shooterMatches: 0, shooterWins: 0, shooterKills: 0, bestKills: 0, raceMatches: 0, raceFinished: 0, raceWins: 0, racePodiums: 0, podiumTracks: [], bestLapMs: null, doneAt: null };
 }
 
 export interface Challenge {
@@ -42,10 +44,7 @@ export interface Challenge {
   value: (p: WeekProgress) => number;
 }
 
-/**
- * Lista fixa de desafios, sorteada por semana. Fica de fora, por enquanto, "Pódio em 3 pistas diferentes":
- * a PR 7 (mais pistas no Rally) acrescenta esse desafio junto com o progresso por pista.
- */
+/** Lista fixa de desafios, sorteada por semana. */
 export const CHALLENGES: Challenge[] = [
   { id: "volta-rapida", text: `Volta abaixo de ${LAP_CHALLENGE_MS / 1000} s no Circuito Corporativo`, target: 1, value: (p) => (p.bestLapMs !== null && p.bestLapMs < LAP_CHALLENGE_MS ? 1 : 0) },
   { id: "tiroteio-3-vitorias", text: "3 vitórias no tiroteio", target: 3, value: (p) => p.shooterWins },
@@ -58,6 +57,7 @@ export const CHALLENGES: Challenge[] = [
   { id: "vencer-os-dois", text: "Vencer um tiroteio e uma corrida", target: 2, value: (p) => Math.min(p.shooterWins, 1) + Math.min(p.raceWins, 1) },
   { id: "tres-de-cada", text: "Jogar 3 tiroteios e 3 corridas", target: 6, value: (p) => Math.min(p.shooterMatches, 3) + Math.min(p.raceMatches, 3) },
   { id: "seis-partidas", text: "Jogar 6 partidas, de qualquer modo", target: 6, value: (p) => p.shooterMatches + p.raceMatches },
+  { id: "podio-3-pistas", text: "Pódio em 3 pistas diferentes", target: 3, value: (p) => new Set(p.podiumTracks ?? []).size },
   { id: "rally-1-vitoria", text: "Vencer uma corrida", target: 1, value: (p) => p.raceWins },
 ];
 

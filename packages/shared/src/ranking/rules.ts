@@ -1,4 +1,5 @@
 import { CHALLENGE_POINTS, WEEKS_KEPT, challengeDone, challengeOfWeek, emptyProgress, weekKey, type WeekProgress } from "./challenges";
+import { DEFAULT_TRACK_ID, TRACKS, TRACK_IDS, type TrackId } from "../race/track";
 import type { ChallengeView, GhostSample, LapRow, MonthRow, PlayerStats, RallyRow, RankingData, RankingRowBase, RankingTab, RankingView, ShooterRow, StoredLap } from "./types";
 
 /** Pontos do mês por colocação (1º, 2º, 3º); os demais ganham PARTICIPATION_POINTS. */
@@ -6,8 +7,8 @@ export const PLACE_POINTS = [10, 6, 4];
 export const PARTICIPATION_POINTS = 1;
 /** Bônus no mês por bater o recorde de volta da firma. */
 export const RECORD_POINTS = 5;
-/** Circuito Corporativo, a única pista com recorde. */
-export const MAIN_TRACK_ID = "corporativo";
+/** Circuito Corporativo: pista padrão e a única do desafio de volta. */
+export const MAIN_TRACK_ID: TrackId = DEFAULT_TRACK_ID;
 /** Linhas por aba na tela de ranking. */
 export const RANKING_ROWS = 20;
 
@@ -103,9 +104,10 @@ export function applyShooterResult(data: RankingData, rows: { accountId: string 
 
 /**
  * `place` de todos que correram, inclusive quem não terminou (conta como corrida jogada).
- * `finished` ausente vale "terminou". Devolve as contas que cumpriram o desafio da semana.
+ * `finished` ausente vale "terminou". `trackId` é a pista da corrida (conta para o desafio de pódio em pistas diferentes).
+ * Devolve as contas que cumpriram o desafio da semana.
  */
-export function applyRaceResult(data: RankingData, rows: { accountId: string | null; place: number; finished?: boolean }[], now: number): string[] {
+export function applyRaceResult(data: RankingData, rows: { accountId: string | null; place: number; finished?: boolean }[], now: number, trackId: string = MAIN_TRACK_ID): string[] {
   if (!matchCounts(rows)) return [];
   const completed: string[] = [];
   for (const r of onePerAccount(rows, (a, b) => a.place < b.place)) {
@@ -118,7 +120,11 @@ export function applyRaceResult(data: RankingData, rows: { accountId: string | n
     w.raceMatches++;
     if (r.finished !== false) w.raceFinished++;
     if (r.place === 1) w.raceWins++;
-    if (r.place <= PLACE_POINTS.length) w.racePodiums++;
+    if (r.place <= PLACE_POINTS.length) {
+      w.racePodiums++;
+      const tracks = (w.podiumTracks ??= []);
+      if (!tracks.includes(trackId)) tracks.push(trackId);
+    }
     if (settleChallenge(data, now, r.accountId, w)) completed.push(r.accountId);
   }
   return completed;
@@ -126,9 +132,11 @@ export function applyRaceResult(data: RankingData, rows: { accountId: string | n
 
 /**
  * Volta válida da conta para o desafio da semana (vale em qualquer modo, inclusive Contra o relógio, sem exigir 2 contas).
- * Chamar a cada volta fechada, mesmo que não melhore a melhor de sempre. Devolve a conta se acabou de cumprir o desafio.
+ * Chamar a cada volta fechada, mesmo que não melhore a melhor de sempre. Só o Circuito Corporativo conta para o
+ * desafio de volta. Devolve a conta se acabou de cumprir o desafio.
  */
-export function applyWeeklyLap(data: RankingData, accountId: string, ms: number, now: number): string[] {
+export function applyWeeklyLap(data: RankingData, accountId: string, ms: number, now: number, trackId: string = MAIN_TRACK_ID): string[] {
+  if (trackId !== MAIN_TRACK_ID) return [];
   const w = weekProgress(data, now, accountId);
   w.bestLapMs = w.bestLapMs === null ? ms : Math.min(w.bestLapMs, ms);
   return settleChallenge(data, now, accountId, w) ? [accountId] : [];
@@ -190,7 +198,7 @@ export function rankingView(data: RankingData, now: number, viewerId?: string): 
     .filter(([, s]) => s.raceMatches > 0)
     .map(([id, s]) => ({ id, name: nameOf(id), wins: s.raceWins, podiums: s.racePodiums, matches: s.raceMatches }))
     .sort((a, b) => b.wins - a.wins || b.podiums - a.podiums || byId(a, b));
-  const voltas: Omit<LapRow, "rank">[] = lapStandings(data, MAIN_TRACK_ID).map(({ id, lap }) => ({ id, name: nameOf(id), ms: lap.ms }));
+  const voltasDe = (trackId: string) => buildTab<LapRow>(lapStandings(data, trackId).map(({ id, lap }) => ({ id, name: nameOf(id), ms: lap.ms })), viewerId);
 
   const prev = previousMonth(current);
   const week = weekKey(new Date(now));
@@ -214,7 +222,8 @@ export function rankingView(data: RankingData, now: number, viewerId?: string): 
     mes: buildTab<MonthRow>(monthRows(current), viewerId),
     tiroteio: buildTab<ShooterRow>(tiroteio, viewerId),
     rally: buildTab<RallyRow>(rally, viewerId),
-    voltas: buildTab<LapRow>(voltas, viewerId),
+    voltas: voltasDe(MAIN_TRACK_ID),
+    pistas: TRACK_IDS.map((id) => ({ id, name: TRACKS[id].name, voltas: voltasDe(id) })),
     desafio,
     mesPassado: top ? { month: prev, id: top.id, name: top.name, points: top.points } : null,
   };

@@ -73,8 +73,9 @@ function Board<R extends RankingRowBase>({ tab, cols, empty, action }: { tab: Ra
   );
 }
 
-/** Aba aberta por último: quem volta do replay cai na mesma aba. */
+/** Aba e pista abertas por último: quem volta do replay cai no mesmo lugar. */
 let lastTab: TabId = "mes";
+let lastPista: string = MAIN_TRACK_ID;
 
 /** Ranking da firma: abas do mês, tiroteio, rally e recordes de volta. */
 export function Ranking() {
@@ -83,6 +84,11 @@ export function Ranking() {
   const setTab = (t: TabId) => {
     lastTab = t;
     setTabNow(t);
+  };
+  const [pista, setPistaNow] = useState(lastPista);
+  const setPista = (p: string) => {
+    lastPista = p;
+    setPistaNow(p);
   };
   const [view, setView] = useState<RankingView | null>(null);
   const [fail, setFail] = useState<string | null>(null);
@@ -98,6 +104,7 @@ export function Ranking() {
   }, [account]);
 
   const leader = view?.mes.rows[0];
+  const pistaView = view?.pistas.find((p) => p.id === pista) ?? view?.pistas[0];
 
   return (
     <div className="screen">
@@ -178,14 +185,23 @@ export function Ranking() {
                 empty="Nenhuma corrida registrada ainda."
               />
             )}
-            {tab === "voltas" && (
+            {tab === "voltas" && pistaView && (
+              <div className="seg" style={{ marginBottom: 12 }}>
+                {view.pistas.map((p) => (
+                  <button key={p.id} className={p.id === pistaView.id ? "on" : ""} onClick={() => setPista(p.id)}>
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {tab === "voltas" && pistaView && (
               <Board
-                tab={view.voltas}
+                tab={pistaView.voltas}
                 cols={[{ title: "Melhor volta", value: (r) => fmtRace(r.ms) }]}
                 action={{
                   title: "Replay",
                   render: (r) => (
-                    <button className="btn small" onClick={() => setState({ replay: { pista: MAIN_TRACK_ID, linha: r.rank } })}>
+                    <button className="btn small" onClick={() => setState({ replay: { pista: pistaView.id, linha: r.rank } })}>
                       Assistir
                     </button>
                   ),

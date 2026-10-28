@@ -1,4 +1,5 @@
 import { RACE } from "./race/balance";
+import { DEFAULT_TRACK_ID, type TrackId } from "./race/track";
 
 /** Dificuldade dos bots, escolhida pelo anfitrião. "normal" é o comportamento de sempre. */
 export const BOT_LEVELS = ["easy", "normal", "hard"] as const;
@@ -10,16 +11,18 @@ export const BOT_LEVEL_NAMES: Record<BotLevel, string> = { easy: "Fácil", norma
 export const LAPS_MIN = 1;
 export const LAPS_MAX = 5;
 
-/** Opções da sala que só o anfitrião muda. Um campo novo (ex.: pista) entra aqui sem mexer no resto. */
+/** Opções da sala que só o anfitrião muda. Um campo novo entra aqui sem mexer no resto. */
 export interface RoomOptions {
   /** Voltas da corrida (o contra o relógio ignora). */
   laps: number;
   /** Caixas e itens na corrida (o contra o relógio nunca tem). */
   items: boolean;
   botLevel: BotLevel;
+  /** Pista do Rally e do Contra o relógio. */
+  track: TrackId;
 }
 
-export const DEFAULT_ROOM_OPTIONS: RoomOptions = { laps: RACE.laps, items: true, botLevel: DEFAULT_BOT_LEVEL };
+export const DEFAULT_ROOM_OPTIONS: RoomOptions = { laps: RACE.laps, items: true, botLevel: DEFAULT_BOT_LEVEL, track: DEFAULT_TRACK_ID };
 
 export interface ShooterBotParams {
   /** Intervalo entre "pensamentos" (troca de alvo e de lado): base + sorteio. Maior = reage mais devagar. */

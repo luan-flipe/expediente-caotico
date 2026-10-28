@@ -93,7 +93,7 @@ describe("painel do anfitrião", () => {
     const a = await connect({ t: "create", name: "Ana", avatar: DEFAULT_AVATAR });
     const lob = await a.c.waitFor("lobby");
     expect(lob.state.options).toEqual(DEFAULT_ROOM_OPTIONS);
-    expect(lob.state.options).toEqual({ laps: 3, items: true, botLevel: "normal" });
+    expect(lob.state.options).toEqual({ laps: 3, items: true, botLevel: "normal", track: "corporativo" });
     a.c.close();
   });
 
@@ -104,23 +104,23 @@ describe("painel do anfitrião", () => {
 
     b.c.send({ t: "options", laps: 5, items: false, botLevel: "hard" });
     await settle(b.c);
-    expect(srv.manager.rooms.get(a.w.code)!.options).toEqual({ laps: 3, items: true, botLevel: "normal" });
+    expect(srv.manager.rooms.get(a.w.code)!.options).toEqual({ laps: 3, items: true, botLevel: "normal", track: "corporativo" });
 
-    a.c.send({ t: "options", laps: 2, botLevel: "easy" });
+    a.c.send({ t: "options", laps: 2, botLevel: "easy", track: "corporativo" });
     await b.c.waitFor("lobby", (m) => m.state.options.laps === 2);
-    expect(b.c.lobby().options).toEqual({ laps: 2, items: true, botLevel: "easy" });
+    expect(b.c.lobby().options).toEqual({ laps: 2, items: true, botLevel: "easy", track: "corporativo" });
     // opção parcial mexe só no que veio
     a.c.send({ t: "options", items: false });
     await b.c.waitFor("lobby", (m) => !m.state.options.items);
-    expect(b.c.lobby().options).toEqual({ laps: 2, items: false, botLevel: "easy" });
+    expect(b.c.lobby().options).toEqual({ laps: 2, items: false, botLevel: "easy", track: "corporativo" });
     for (const x of [a, b]) x.c.close();
   });
 
   it("valores fora dos limites são recusados e nada muda", async () => {
     const a = await connect({ t: "create", name: "Ana", avatar: DEFAULT_AVATAR });
-    for (const bad of [{ laps: 0 }, { laps: 6 }, { laps: 2.5 }, { laps: "3" }, { botLevel: "impossivel" }, { items: "sim" }]) a.c.send({ t: "options", ...bad });
+    for (const bad of [{ laps: 0 }, { laps: 6 }, { laps: 2.5 }, { laps: "3" }, { botLevel: "impossivel" }, { items: "sim" }, { track: "lua" }, { track: "Copa" }]) a.c.send({ t: "options", ...bad });
     await settle(a.c);
-    expect(srv.manager.rooms.get(a.w.code)!.options).toEqual({ laps: 3, items: true, botLevel: "normal" });
+    expect(srv.manager.rooms.get(a.w.code)!.options).toEqual({ laps: 3, items: true, botLevel: "normal", track: "corporativo" });
     a.c.close();
   });
 
@@ -160,7 +160,7 @@ describe("painel do anfitrião", () => {
 
   it("tiroteio leva a dificuldade para a partida", async () => {
     const a = await connect({ t: "create", name: "Ana", avatar: DEFAULT_AVATAR });
-    a.c.send({ t: "options", botLevel: "easy" });
+    a.c.send({ t: "options", botLevel: "easy", track: "corporativo" });
     a.c.send({ t: "addBot" });
     await a.c.waitFor("lobby", (m) => m.state.players.length === 2 && m.state.options.botLevel === "easy");
     a.c.send({ t: "start" });

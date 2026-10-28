@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { sampleGhost, type ReplayData } from "@ec/shared";
+import { sampleGhost, type ReplayData, type Track } from "@ec/shared";
 import { applyQuality } from "../quality";
 import { getSettings } from "../settings";
 import { seatedRacer, type Racer3D } from "./chairMesh";
@@ -49,6 +49,7 @@ export class ReplayEngine {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly data: ReplayData,
+    track: Track,
   ) {
     this.endMs = data.ghost.length ? data.ghost[data.ghost.length - 1][0] : data.ms;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -64,7 +65,7 @@ export class ReplayEngine {
     sun.shadow.bias = -0.0006;
     this.scene.add(sun);
     this.sun = sun;
-    this.disposeTrack = buildTrack(this.scene);
+    this.disposeTrack = buildTrack(this.scene, track);
 
     this.racer = seatedRacer(data.avatar, data.chair);
     this.tag = nameTag(data.name, "#ffd23f");
