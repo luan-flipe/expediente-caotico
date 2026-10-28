@@ -20,6 +20,7 @@ import {
   type Track,
 } from "@ec/shared";
 import { loadMusic } from "../assets";
+import { nextRaceTrack, RaceMusic } from "../sound";
 import { modelReady } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
@@ -109,8 +110,6 @@ interface HazardView {
 const DT = 1000 / 30;
 const INTERP_MS = 110;
 const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f", "#bd34fe"];
-/** Baixo o bastante para o helicóptero e os itens continuarem audíveis (mistura fixa; o jogador ajusta por cima, nas configurações). */
-const MUSIC_VOLUME = 0.35;
 /** Treino: os outros pilotos aparecem assim (sem colisão entre cadeiras). */
 const TRIAL_OTHERS_OPACITY = 0.4;
 const DEFAULT_CHAIR: ChairDNA = { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 };
@@ -154,11 +153,11 @@ export class RaceEngine {
   private sky: DynamicSky;
   private commander: Commander | null;
   private listener = new THREE.AudioListener();
-  /** Trilha de fundo: toca em loop durante toda a corrida, sem posição na cena. */
-  private music = new THREE.Audio(this.listener);
   /** Canais de volume: música e efeitos passam cada um por um ganho antes do volume geral (o AudioListener). */
   private musicBus = this.listener.context.createGain();
   private effectsBus = this.listener.context.createGain();
+  /** Trilha de fundo: toca em loop durante toda a corrida (contagem incluída), sem posição na cena. */
+  private music = new RaceMusic(this.listener.context, this.musicBus);
   private muted = false;
   private rollGain: GainNode | null = null;
   private rollOsc: OscillatorNode | null = null;
@@ -307,14 +306,12 @@ export class RaceEngine {
 
   private startMusic(): void {
     // baixada e decodificada uma vez por visita (assets.ts); a corrida seguinte reaproveita
-    void loadMusic().then((buffer) => {
+    const url = nextRaceTrack();
+    void loadMusic(url).then((buffer) => {
       // a corrida pode ter acabado enquanto o arquivo baixava
       if (!buffer || !this.raf) return;
-      this.music.setFilter(this.musicBus);
-      this.music.setBuffer(buffer);
-      this.music.setLoop(true);
-      this.music.setVolume(MUSIC_VOLUME);
-      this.music.play();
+      this.music.setDucked(getState().pauseOpen);
+      this.music.play(url, buffer);
     });
   }
 
@@ -365,12 +362,13 @@ export class RaceEngine {
     }
     const absSpeed = Math.abs(speed);
     if (this.rollGain && this.rollOsc) {
-      const vol = absSpeed > 0.4 ? Math.min(0.06, (absSpeed / 18) * 0.06) : 0;
+      // níveis da mixagem em sound.ts: rolamento -23 dBFS e derrapagem -31 no máximo, por cima da música (-32)
+      const vol = absSpeed > 0.4 ? Math.min(0.12, (absSpeed / 18) * 0.12) : 0;
       this.rollGain.gain.value += (vol - this.rollGain.gain.value) * 0.18;
       this.rollOsc.frequency.value = 50 + (absSpeed / 18) * 110;
     }
     if (this.skidGain && this.skidOsc) {
-      const skidVol = drifting && absSpeed > 3 ? 0.07 : 0;
+      const skidVol = drifting && absSpeed > 3 ? 0.16 : 0;
       this.skidGain.gain.value += (skidVol - this.skidGain.gain.value) * 0.22;
       this.skidOsc.frequency.value = 480 + (absSpeed / 18) * 130;
     }
@@ -983,6 +981,7 @@ export class RaceEngine {
     this.resize();
     const now = performance.now();
     this.chat.update(now, (id) => this.views.get(id)?.r3d.root);
+    this.music.setDucked(getState().pauseOpen);
 
     if (this.pred && this.snap?.phase === "active" && !this.me?.finished) {
       this.acc += dt * 1000;
@@ -1508,7 +1507,9 @@ export class RaceEngine {
   dispose(): void {
     cancelAnimationFrame(this.raf);
     this.raf = 0;
-    if (this.music.isPlaying) this.music.stop();
+    // o canal de música só se desliga depois do fade de saída
+    const musicBus = this.musicBus;
+    this.music.stop(() => musicBus.disconnect());
     try {
       this.rollOsc?.stop();
       this.rollOsc?.disconnect();
@@ -1528,7 +1529,7 @@ export class RaceEngine {
       this.commander.dispose();
     }
     this.camera.remove(this.listener);
-    for (const bus of [this.musicBus, this.effectsBus]) bus.disconnect();
+    this.effectsBus.disconnect();
     for (const v of this.views.values()) this.dropView(v);
     this.smokeGeo.dispose();
     for (const p of this.itemParticles) this.scene.remove(p.mesh);
