@@ -11,6 +11,16 @@ const ZOMBIE_GROWL_URL = "/assets/audio/zumbi-grunhido.mp3";
 const LOBBY_LOOP_START = 1105 / 48000;
 const LOBBY_LOOP_END = LOBBY_LOOP_START + 821448 / 48000;
 
+/**
+ * Mixagem (RMS medido decodificando cada arquivo com Web Audio, em dBFS):
+ * lobby-music -21.6, turbo_pixel_drift -17.5, race-select-chiptune -18.8, helicoptero -18.0 (x0.6 = -22.4 perto),
+ * rolamento das rodinhas -29.2 e derrapagem -38.0 no máximo antigo.
+ * Efeitos da corrida subiram (rolamento -23.2, derrapagem -30.8) e as músicas da corrida ficam em -32,
+ * uns 9 a 10 dB abaixo do rolamento e do helicóptero. O lobby, sem efeitos competindo, fica em -29.5
+ * no volume padrão da sala (0.8): a troca lobby -> corrida baixa só 2.5 dB.
+ */
+const LOBBY_TRACK_GAIN = 0.5;
+
 const STORAGE_KEY_LOBBY_MUSIC_ENABLED = "ec_lobby_music_enabled";
 const STORAGE_KEY_LOBBY_MUSIC_VOLUME = "ec_lobby_music_volume";
 const DEFAULT_LOBBY_MUSIC_VOLUME = 0.8;
@@ -70,7 +80,7 @@ function applyVolumeSettings(): void {
   effectsGain.gain.setTargetAtTime(s.volume.effects, t, 0.05);
 
   // o volume da sala é por cima do volume de música das configurações, sem alterá-lo
-  const musicVol = getLobbyMusicEnabled() ? s.volume.music * getLobbyMusicVolume() : 0;
+  const musicVol = getLobbyMusicEnabled() ? s.volume.music * getLobbyMusicVolume() * LOBBY_TRACK_GAIN : 0;
   musicGain.gain.setTargetAtTime(musicVol, t, 0.05);
 }
 
@@ -195,6 +205,111 @@ export function stopLobbyMusic(): void {
       /* noop */
     }
     lobbySource = null;
+  }
+}
+
+// ==================== MÚSICA DA CORRIDA ====================
+
+/** As duas faixas se revezam a cada corrida (Rally, Contra o relógio e treino), para a trilha não cansar. */
+export const RACE_TRACKS = ["/assets/audio/turbo_pixel_drift.mp3", "/assets/audio/race-select-chiptune.mp3"] as const;
+/** Ganho de cada faixa para chegar em -32 dBFS de RMS (ver mixagem no topo do arquivo). */
+const RACE_TRACK_GAIN: Record<string, number> = { [RACE_TRACKS[0]]: 0.19, [RACE_TRACKS[1]]: 0.22 };
+export const RACE_MUSIC_FADE_IN = 1.5;
+export const RACE_MUSIC_FADE_OUT = 0.6;
+/** Menu de pausa aberto: a música cai uns 9 dB. */
+export const RACE_MUSIC_DUCK = 0.35;
+const DUCK_RAMP = 0.25;
+
+let raceTrackTurn = 0;
+
+/** A faixa da próxima corrida, sem avançar a vez (para baixar com antecedência). */
+export function peekRaceTrack(): string {
+  return RACE_TRACKS[raceTrackTurn % RACE_TRACKS.length];
+}
+
+/** A faixa desta corrida; a seguinte usa a outra. */
+export function nextRaceTrack(): string {
+  const url = peekRaceTrack();
+  raceTrackTurn++;
+  return url;
+}
+
+export function raceTrackGain(url: string): number {
+  return RACE_TRACK_GAIN[url] ?? 0.2;
+}
+
+/**
+ * Trilha de uma corrida: loop com fade ao entrar e ao sair, e ducking enquanto o menu de pausa está aberto.
+ * Toca no contexto e no canal de música de quem chama (a corrida passa o seu, que segue os volumes e o mudo).
+ */
+export class RaceMusic {
+  private gain: GainNode;
+  private src: AudioBufferSourceNode | null = null;
+  private base = 0;
+  private ducked = false;
+  private stopped = false;
+
+  constructor(
+    private ctx: BaseAudioContext,
+    out: AudioNode,
+  ) {
+    this.gain = ctx.createGain();
+    this.gain.gain.value = 0;
+    this.gain.connect(out);
+  }
+
+  get playing(): boolean {
+    return this.src !== null;
+  }
+
+  private target(): number {
+    return this.base * (this.ducked ? RACE_MUSIC_DUCK : 1);
+  }
+
+  private rampTo(value: number, seconds: number): void {
+    const g = this.gain.gain;
+    const t = this.ctx.currentTime;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(value, t + seconds);
+  }
+
+  play(url: string, buffer: AudioBuffer): void {
+    if (this.stopped || this.src) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    src.connect(this.gain);
+    src.start();
+    this.src = src;
+    this.base = raceTrackGain(url);
+    this.rampTo(this.target(), RACE_MUSIC_FADE_IN);
+  }
+
+  setDucked(ducked: boolean): void {
+    if (ducked === this.ducked) return;
+    this.ducked = ducked;
+    if (this.src && !this.stopped) this.rampTo(this.target(), DUCK_RAMP);
+  }
+
+  /** Fade de saída; `onDone` roda quando o som de fato parou (ou na hora, se nada tocava). */
+  stop(onDone?: () => void): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    const src = this.src;
+    this.src = null;
+    if (!src) {
+      this.gain.disconnect();
+      onDone?.();
+      return;
+    }
+    this.rampTo(0, RACE_MUSIC_FADE_OUT);
+    src.onended = () => {
+      src.disconnect();
+      this.gain.disconnect();
+      onDone?.();
+    };
+    src.stop(this.ctx.currentTime + RACE_MUSIC_FADE_OUT);
   }
 }
 
