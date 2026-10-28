@@ -104,6 +104,32 @@ describe("partida de corrida", () => {
     expect(progressOf(TRACK, p.kart.pos, 0).path).toBe(0);
   });
 
+  it("bots pegam o atalho conforme o nível e não ficam presos nele", () => {
+    const b = TRACK.branches[0];
+    const share = (botLevel: "easy" | "hard") => {
+      let used = 0;
+      for (let seed = 1; seed <= 200; seed++) {
+        const r = createRace({ seed, botLevel, players: [{ id: "b", name: "B", avatar: DEFAULT_AVATAR, chair: DEFAULT_CHAIR, isBot: true }] });
+        const bot = r.racers.get("b")!;
+        let took = false;
+        for (let i = 0; i < 1200 && bot.lap.cpCount < 1 + Math.ceil((b.sTo + 10) / RACE.checkpointEvery); i++) {
+          stepRace(r, DT);
+          if (bot.kart.path === 0) {
+            // no miolo do atalho (as bocas se confundem com a curva da principal)
+            if (deltaS(TRACK, b.sFrom, bot.lap.lastS) > deltaS(TRACK, b.sFrom, b.sTo) / 2) took = true;
+            expect(bot.kart.frozenUntil, `semente ${seed}`).toBeLessThanOrEqual(r.countdownEndsAt);
+          }
+        }
+        if (took) used++;
+      }
+      return used / 200;
+    };
+    const hard = share("hard");
+    expect(hard).toBeGreaterThan(0.6);
+    expect(hard).toBeLessThan(0.9);
+    expect(share("easy")).toBeLessThan(0.25);
+  });
+
   it("comandos numerados: um por tick, na ordem, e o privado confirma o último aplicado", () => {
     const r = race(2, false);
     for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);

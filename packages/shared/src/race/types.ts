@@ -37,6 +37,8 @@ export interface RaceBotBrain {
   nextLaneAt: number;
   stuckMs: number;
   holdMs: number;
+  /** Caminho sorteado para a próxima bifurcação: -1 = principal, 0.. = atalho; ausente = ainda não decidiu. */
+  route?: number;
 }
 
 /** Cronometragem e gravação do fantasma da volta atual, medida a partir da linha de chegada (o grid não conta). */
