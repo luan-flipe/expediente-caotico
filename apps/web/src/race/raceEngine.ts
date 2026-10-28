@@ -107,7 +107,7 @@ function boxTexture(): THREE.CanvasTexture {
 export class RaceEngine {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(68, 1, 0.1, 220);
+  private camera = new THREE.PerspectiveCamera(68, 1, 0.1, 400);
   private views = new Map<string, KartView>();
   private boxes = new Map<number, THREE.Mesh>();
   private hazards = new Map<number, HazardView>();

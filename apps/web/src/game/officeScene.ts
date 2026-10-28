@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OFFICE_MAP, type Box } from "@ec/shared";
+import { createOutdoorGroundMaterial, createRoomFloorMaterial } from "./floorTextures";
 
 const COLORS: Record<Box["kind"], string> = {
   wall: "#25282e",     // Paredes pretas/grafite escuras idênticas à planta
@@ -41,24 +42,18 @@ export function buildOffice(scene: THREE.Scene): void {
   const W = OFFICE_MAP.width;
   const D = OFFICE_MAP.depth;
 
-  // Gramado/entorno externo
-  const ground = mesh(new THREE.PlaneGeometry(W + 50, D + 40), new THREE.MeshStandardMaterial({ color: "#6a785c", roughness: 1 }), 0, -0.02, 0, false);
+  // Gramado/entorno externo com textura orgânica
+  const groundMat = createOutdoorGroundMaterial();
+  const ground = mesh(new THREE.PlaneGeometry(W + 50, D + 40), groundMat, 0, -0.02, 0, false);
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  // Pisos das salas e corredores com azulejos claros suaves
+  // Pisos das salas e corredores com texturas dedicadas e relevo tátil (bump map)
   for (const r of OFFICE_MAP.rooms) {
-    const floor = mesh(new THREE.PlaneGeometry(r.w, r.d), new THREE.MeshStandardMaterial({ color: r.floor, roughness: 0.92 }), r.x, 0, r.z, false);
+    const { material } = createRoomFloorMaterial(r);
+    const floor = mesh(new THREE.PlaneGeometry(r.w, r.d), material, r.x, 0, r.z, false);
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
-
-    // Linhas de rejunte/azulejo quadriculado sutil
-    const lines = new THREE.GridHelper(Math.max(r.w, r.d), Math.round(Math.max(r.w, r.d) / 1.5), "#000000", "#000000");
-    (lines.material as THREE.Material).opacity = 0.045;
-    (lines.material as THREE.Material).transparent = true;
-    lines.position.set(r.x, 0.008, r.z);
-    lines.scale.set(r.w / Math.max(r.w, r.d), 1, r.d / Math.max(r.w, r.d));
-    scene.add(lines);
   }
 
   const mats = new Map<string, THREE.Material>();

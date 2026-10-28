@@ -86,7 +86,7 @@ function makeTag(name: string, hp: number, maxHp: number, shield: number): THREE
 export class Engine {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(70, 1, 0.1, 200);
+  private camera = new THREE.PerspectiveCamera(70, 1, 0.1, 400);
   private fx: FxSystem;
   private views = new Map<string, View>();
   private projectiles = new Map<number, THREE.Object3D>();
@@ -559,8 +559,9 @@ export class Engine {
     this.objWall.rotation.y += dt * 0.3;
 
     this.fx.update(dt);
-    this.sky.update(dt, this.camera.position);
+
     this.updateCamera();
+    this.sky.update(dt, this.camera.position);
   }
 
   private updateCamera(): void {
