@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BALANCE, DURATIONS_MS, RACE } from "@ec/shared";
 import { avatarThumbnail } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
+import { canNativeShare, inviteText } from "../invite";
 import { leaveRoom, net, setState, useStore } from "../store";
 
 export function Lobby() {
@@ -13,19 +14,28 @@ export function Lobby() {
   const [copied, setCopied] = useState(false);
   const isHost = lobby.hostId === myId;
   const me = lobby.players.find((p) => p.id === myId);
-  const link = `${location.origin}${location.pathname}?sala=${lobby.code}`;
   const bots = lobby.players.filter((p) => p.isBot).length;
   const full = lobby.players.length >= BALANCE.maxPlayers;
   const trial = lobby.mode === "timetrial";
   const race = lobby.mode === "race" || trial;
 
   const copy = async () => {
+    const text = inviteText(location.origin, lobby.code);
+    // Celular com toque: abre o menu nativo de compartilhar (WhatsApp, Teams...).
+    if (canNativeShare(navigator)) {
+      try {
+        await navigator.share({ title: "Expediente Caótico", text });
+        return;
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return; // a pessoa fechou o menu
+      }
+    }
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      prompt("Copie o link:", link);
+      prompt("Copie o convite:", text);
     }
   };
 
@@ -44,7 +54,7 @@ export function Lobby() {
             </p>
             <div className="code">{lobby.code}</div>
             <button className="btn small" onClick={copy}>
-              {copied ? "Link copiado" : "Copiar link de convite"}
+              {copied ? "Copiado!" : "Copiar convite"}
             </button>
           </div>
         </div>
