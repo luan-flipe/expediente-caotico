@@ -108,7 +108,7 @@ export function RaceHud({ myId }: { myId: string }) {
         </div>
       )}
 
-      {me && !trial && (
+      {me && !trial && !snap.itemsOff && (
         <div className={`race-item ${me.item ? "full" : ""}`}>
           <div className="ico">{me.item ? ITEM_ICON[me.item] : ""}</div>
           <div className="name">{me.item ? `${ITEM_NAMES[me.item]}${me.charges > 1 ? ` x${me.charges}` : ""}` : "Sem item"}</div>
@@ -134,7 +134,7 @@ export function RaceHud({ myId }: { myId: string }) {
       {snap.phase === "countdown" && (
         <div className="center-msg">
           <div className="big-count">{Math.max(1, Math.ceil(snap.countdownMs / 1000))}</div>
-          <div className="panel race-help">{keyLabel(keys.acelerar)} acelera · {keyLabel(keys.esquerda)}/{keyLabel(keys.direita)} vira · {keyLabel(keys.derrapar)} derrapa (solte para o turbo){trial ? "" : ` · ${keyLabel(keys.item)} usa item`} · {keyLabel(keys.voltar)} volta para a pista · {keyLabel(keys.mudo)} som</div>
+          <div className="panel race-help">{keyLabel(keys.acelerar)} acelera · {keyLabel(keys.esquerda)}/{keyLabel(keys.direita)} vira · {keyLabel(keys.derrapar)} derrapa (solte para o turbo){trial || snap.itemsOff ? "" : ` · ${keyLabel(keys.item)} usa item`} · {keyLabel(keys.voltar)} volta para a pista · {keyLabel(keys.mudo)} som</div>
         </div>
       )}
       {snap.phase === "active" && snap.elapsedMs < 900 && (

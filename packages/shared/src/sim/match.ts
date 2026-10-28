@@ -1,4 +1,5 @@
 import { pickAwards, shooterCandidates, type Award } from "../awards";
+import type { BotLevel } from "../botLevels";
 import { BALANCE } from "../data/balance";
 import { OFFICE_MAP } from "../data/map";
 import { mulberry32 } from "../rng";
@@ -69,7 +70,7 @@ function makePlayer(info: MatchPlayerInfo, pos: { x: number; z: number }): Playe
   };
 }
 
-export function createMatch(opts: { durationMs: number; seed: number; players: MatchPlayerInfo[] }): Match {
+export function createMatch(opts: { durationMs: number; seed: number; players: MatchPlayerInfo[]; botLevel?: BotLevel }): Match {
   const rng = mulberry32(opts.seed);
   const spawns = [...OFFICE_MAP.spawns].sort(() => rng() - 0.5);
   const countdownEndsAt = BALANCE.countdownMs;
@@ -93,6 +94,7 @@ export function createMatch(opts: { durationMs: number; seed: number; players: M
       contested: false,
     },
     events: [],
+    botLevel: opts.botLevel ?? "normal",
     rng,
     nextId: 1,
     seed: opts.seed,

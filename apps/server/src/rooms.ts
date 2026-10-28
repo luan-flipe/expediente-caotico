@@ -9,6 +9,7 @@ import {
   applyRaceResult,
   applyShooterResult,
   DEFAULT_CHAIR,
+  DEFAULT_ROOM_OPTIONS,
   buildPrivate,
   buildRacePrivate,
   buildRaceSnapshot,
@@ -43,6 +44,7 @@ import {
   type LobbyState,
   type Match,
   type RaceMatch,
+  type RoomOptions,
   type Award,
   type RaceResultRow,
   type ResultRow,
@@ -106,6 +108,8 @@ export class Room {
   phase: LobbyState["phase"] = "lobby";
   mode: GameMode = "shooter";
   durationMs = 300000;
+  /** Opções do anfitrião. As voltas começam no que a sala recebeu (testes encurtam a corrida). */
+  options: RoomOptions;
   members = new Map<string, Member>();
   match: Match | null = null;
   race: RaceMatch | null = null;
@@ -126,7 +130,9 @@ export class Room {
     readonly code: string,
     private readonly raceOpts: { laps?: number; graceMs?: number } = {},
     private readonly store?: Store,
-  ) {}
+  ) {
+    this.options = { ...DEFAULT_ROOM_OPTIONS, laps: raceOpts.laps ?? DEFAULT_ROOM_OPTIONS.laps };
+  }
 
   humans(): Member[] {
     return [...this.members.values()].filter((m) => !m.isBot);
@@ -139,6 +145,7 @@ export class Room {
       phase: this.phase,
       mode: this.mode,
       durationMs: this.durationMs,
+      options: { ...this.options },
       players: [...this.members.values()].map((m) => ({
         id: m.id,
         name: m.name,
@@ -195,8 +202,9 @@ export class Room {
     const players = [...this.members.values()]
       .filter((m) => !trial || !m.isBot)
       .map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
-    if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, timeTrial: trial });
-    else this.match = createMatch({ durationMs: this.durationMs, seed, players });
+    const { laps, items, botLevel } = this.options;
+    if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial });
+    else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel });
     this.phase = "match";
     this.results = null;
     this.raceResults = null;
@@ -422,6 +430,12 @@ export class Room {
         if (!isHost || this.phase !== "lobby") return;
         this.durationMs = msg.ms;
         return this.broadcastLobby();
+      case "options":
+        if (!isHost || this.phase !== "lobby") return;
+        if (msg.laps !== undefined) this.options.laps = msg.laps;
+        if (msg.items !== undefined) this.options.items = msg.items;
+        if (msg.botLevel !== undefined) this.options.botLevel = msg.botLevel;
+        return this.broadcastLobby();
       case "start": {
         if (!isHost) return;
         const err = this.start();
@@ -464,7 +478,7 @@ export class Room {
         if (isHost && this.race?.timeTrial) endTraining(this.race);
         return;
       case "kdebug": {
-        const racer = DEV_TOOLS && !this.race?.timeTrial ? this.race?.racers.get(member.id) : undefined;
+        const racer = DEV_TOOLS && !this.race?.timeTrial && !this.race?.itemsOff ? this.race?.racers.get(member.id) : undefined;
         if (racer) giveItem(racer, msg.item);
         return;
       }

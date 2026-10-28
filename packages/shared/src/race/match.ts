@@ -1,6 +1,7 @@
 import { pickAwards, raceCandidates, type Award } from "../awards";
 import type { AvatarDNA } from "../types";
 import { mulberry32 } from "../rng";
+import type { BotLevel } from "../botLevels";
 import { RACE } from "./balance";
 import { stepRaceBot } from "./bots";
 import type { ChairDNA } from "./chair";
@@ -19,7 +20,8 @@ export interface RacePlayerInfo {
   isBot: boolean;
 }
 
-export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps?: number; graceMs?: number; timeTrial?: boolean }): RaceMatch {
+export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps?: number; graceMs?: number; timeTrial?: boolean; itemsOff?: boolean; botLevel?: BotLevel }): RaceMatch {
+  const itemsOff = opts.itemsOff === true;
   const timeTrial = opts.timeTrial === true;
   const rng = mulberry32(opts.seed);
   const order = opts.players.filter((p) => !timeTrial || !p.isBot).sort(() => rng() - 0.5);
@@ -33,8 +35,10 @@ export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps
     graceMs: opts.graceMs ?? RACE.finishGraceMs,
     racers: new Map(),
     hazards: [],
-    boxes: timeTrial ? [] : boxSpots(TRACK).map((pos, i) => ({ id: i, pos, readyAt: 0 })),
+    boxes: timeTrial || itemsOff ? [] : boxSpots(TRACK).map((pos, i) => ({ id: i, pos, readyAt: 0 })),
     events: [],
+    itemsOff,
+    botLevel: opts.botLevel ?? "normal",
     timeTrial,
     completedLaps: [],
     cps: checkpoints(TRACK),
@@ -95,7 +99,7 @@ export function setKartInput(race: RaceMatch, id: string, input: KartInput, seq?
 
 export function queueItemUse(race: RaceMatch, id: string): void {
   const r = race.racers.get(id);
-  if (r && !race.timeTrial) r.useQueued = true;
+  if (r && !race.timeTrial && !race.itemsOff) r.useQueued = true;
 }
 
 /** Contra o relógio: o anfitrião encerra o treino. Depois disso a sala monta os resultados. */
@@ -304,6 +308,7 @@ export function buildRaceSnapshot(race: RaceMatch): RaceSnapshot {
     graceMs: race.graceEndsAt === null ? null : Math.max(0, race.graceEndsAt - now),
     laps: race.laps,
     timeTrial: race.timeTrial,
+    itemsOff: race.itemsOff,
     karts: [...race.racers.values()].map((r) => {
       const k = r.kart;
       const drift = !k.drifting ? -1 : k.driftMs >= RACE.driftLevel2Ms ? 2 : k.driftMs >= RACE.driftLevel1Ms ? 1 : 0;
