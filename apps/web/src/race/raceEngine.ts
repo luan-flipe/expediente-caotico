@@ -142,7 +142,9 @@ function boxTexture(): THREE.CanvasTexture {
 export class RaceEngine {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(68, 1, 0.1, 220);
+  private camera = new THREE.PerspectiveCamera(68, 1, 0.1, 260);
+  private sun: THREE.DirectionalLight;
+  private wasInCutscene = false;
   private views = new Map<string, KartView>();
   private boxes = new Map<number, THREE.Mesh>();
   private hazards = new Map<number, HazardView>();
@@ -203,21 +205,28 @@ export class RaceEngine {
     private readonly canvas: HTMLCanvasElement,
     private readonly myId: string,
   ) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.scene.background = new THREE.Color("#b9c4cf");
-    this.scene.fog = new THREE.Fog("#b9c4cf", 55, 120);
-    this.scene.add(new THREE.HemisphereLight("#ffffff", "#8a8070", 1.7));
-    const sun = new THREE.DirectionalLight("#fff3dd", 2.1);
-    sun.position.set(25, 45, 18);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    Object.assign(sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
-    sun.shadow.bias = -0.0006;
-    this.scene.add(sun);
+    this.renderer.toneMappingExposure = 1.05;
+
+    // Céu azul cartoon vibrante e neblina atmosférica suave estilo Super Mario
+    this.scene.background = new THREE.Color("#5dade2");
+    this.scene.fog = new THREE.FogExp2("#8ec5ec", 0.0055);
+    this.scene.add(new THREE.HemisphereLight("#d6edff", "#ffeed4", 1.35));
+
+    this.sun = new THREE.DirectionalLight("#fff8e8", 1.15);
+    this.sun.position.set(22, 38, 18);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(this.sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 2, far: 95 });
+    this.sun.shadow.bias = -0.0003;
+    this.sun.shadow.normalBias = 0.02;
+    this.scene.add(this.sun);
+    this.scene.add(this.sun.target);
+
     buildTrack(this.scene);
 
     const skidGeo = new THREE.PlaneGeometry(0.18, 0.4);
@@ -1063,8 +1072,13 @@ export class RaceEngine {
     const intro = this.snap?.phase === "countdown" ? RACE.countdownMs - this.snap.countdownMs + since : RACE.introMs;
     const raceMs = this.snap && this.snap.phase !== "countdown" ? this.snap.elapsedMs + since : null;
     this.commander?.update(dt, intro, raceMs);
-    if (intro < RACE.introMs) this.cutsceneCamera(intro / RACE.introMs, dt);
-    else this.updateCamera(dt);
+    if (intro < RACE.introMs) {
+      this.wasInCutscene = true;
+      this.cutsceneCamera(intro / RACE.introMs, dt);
+    } else {
+      this.updateCamera(dt);
+    }
+
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -1333,10 +1347,11 @@ export class RaceEngine {
 
     const want = new THREE.Vector3(p.x - fx * camDist + rx * this.camDriftOffset, camHeight, p.z - fz * camDist + rz * this.camDriftOffset);
     const look = new THREE.Vector3(p.x + fx * 10 + rx * this.camLookOffset, 0.6, p.z + fz * 10 + rz * this.camLookOffset);
-    if (!this.camReady) {
+    if (!this.camReady || this.wasInCutscene) {
       this.camPos.copy(want);
       this.camLook.copy(look);
       this.camReady = true;
+      this.wasInCutscene = false;
     }
     const k = 1 - Math.exp(-dt * 7.5);
     this.camPos.lerp(want, k);
@@ -1362,6 +1377,11 @@ export class RaceEngine {
     }
     this.camera.position.set(this.camPos.x + sx, this.camPos.y + sy, this.camPos.z + sz);
     this.camera.lookAt(this.camLook);
+
+    // O cone de sombra e a luz solar acompanham o kart do jogador para máxima nitidez de contato
+    this.sun.position.set(p.x + 22, 38, p.z + 18);
+    this.sun.target.position.set(p.x, 0.5, p.z);
+    this.sun.target.updateMatrixWorld();
 
     // FOV dinâmico elástico que abre suavemente de 66° a 82° com a velocidade e o turbo
     const fov = 66 + speedRatio * 7 + (boosting ? 9 : 0);
