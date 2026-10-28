@@ -70,6 +70,7 @@ export function applyDamage(m: Match, target: PlayerSim, amount: number, sourceI
   const src = sourceId ? m.players.get(sourceId) : undefined;
   if (src) {
     target.damageLog.push({ from: src.id, amount: effective, at: m.now });
+    src.damageDealt += effective;
     grantXp(m, src, effective);
   }
   if (target.hp <= 0) handleDeath(m, target, sourceId);

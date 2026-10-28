@@ -116,6 +116,11 @@ export interface PlayerSim {
   damageLog: { from: string; amount: number; at: number }[];
   zoneMs: number;
   zoneCycleMs: number;
+  /** Contadores só para os prêmios do fim: disparos da bola, acertos dela, dano causado e esquivas. */
+  shots: number;
+  shotHits: number;
+  damageDealt: number;
+  dodges: number;
   bot?: BotBrain;
 }
 
@@ -200,6 +205,8 @@ export interface Match {
   events: GameEvent[];
   rng: () => number;
   nextId: number;
+  /** Semente da partida: também decide o sorteio dos prêmios. */
+  seed: number;
 }
 
 export interface PublicAbility {
