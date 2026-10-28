@@ -93,7 +93,7 @@ export function Home() {
             Jogo de navegador gratuito para colegas de escritório: tiroteio de bolinha de papel, corrida de cadeiras (Rally da Firma) e treino contra o relógio. Não precisa de cadastro. O login com Google é opcional e serve só para guardar seus resultados no ranking da firma.
           </p>
           <p className="muted" style={{ margin: "8px 0 0" }}>
-            <a href="/privacidade.html">Política de privacidade</a> · <a href="/termos.html">Termos de serviço</a> · Contato: <a href="mailto:dev@luanfelipe.com.br">dev@luanfelipe.com.br</a>
+            <a href="/privacidade.html">Política de privacidade</a> · <a href="/termos.html">Termos de serviço</a>
           </p>
         </div>
       </div>
