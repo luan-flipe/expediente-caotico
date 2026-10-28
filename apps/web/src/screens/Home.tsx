@@ -94,6 +94,7 @@ export function Home() {
 
           <div className="stack">
             {error && <div className="error">{error}</div>}
+            <div className="pair">
             <div className="card stack">
               <div>
                 <p className="label">Seu nome no crachá</p>
@@ -119,6 +120,7 @@ export function Home() {
                 Entrar na sala
               </button>
             </div>
+            </div>
             <div className="card stack">
               <div>
                 <p className="label">Ranking da firma</p>
@@ -142,23 +144,24 @@ export function Home() {
                 )}
               </div>
             </div>
-            <div className="card stack">
-              <div>
-                <p className="label">Controles</p>
-                <p className="muted" style={{ margin: 0, lineHeight: 1.6 }}>
-                  {[keys.frente, keys.esquerda, keys.tras, keys.direita].map(keyLabel).join(" ")} anda · mouse mira · clique atira · {[keys.habilidade1, keys.habilidade2, keys.habilidade3].map(keyLabel).join(" ")} habilidades · {keyLabel(keys.esquiva)} esquiva ·{" "}
-                  {[keys.evolucao1, keys.evolucao2, keys.evolucao3].map(keyLabel).join(" ")} escolhem evolução · {keyLabel(keys.placar)} placar · Esc solta o mouse e abre as configurações
-                </p>
-              </div>
-              <div className="row">
-                <button className="btn" onClick={() => setState({ settingsOpen: true })}>
-                  Configurações
-                </button>
-              </div>
-            </div>
           </div>
         </div>
-        <div className="card" style={{ marginTop: 16 }}>
+        <div className="pair" style={{ marginTop: 16 }}>
+        <div className="card stack">
+          <div>
+            <p className="label">Controles</p>
+            <p className="muted" style={{ margin: 0, lineHeight: 1.6 }}>
+              {[keys.frente, keys.esquerda, keys.tras, keys.direita].map(keyLabel).join(" ")} anda · mouse mira · clique atira · {[keys.habilidade1, keys.habilidade2, keys.habilidade3].map(keyLabel).join(" ")} habilidades · {keyLabel(keys.esquiva)} esquiva ·{" "}
+              {[keys.evolucao1, keys.evolucao2, keys.evolucao3].map(keyLabel).join(" ")} escolhem evolução · {keyLabel(keys.placar)} placar · Esc solta o mouse e abre as configurações
+            </p>
+          </div>
+          <div className="row">
+            <button className="btn" onClick={() => setState({ settingsOpen: true })}>
+              Configurações
+            </button>
+          </div>
+        </div>
+        <div className="card">
           <p className="label">Sobre o jogo</p>
           <p className="muted" style={{ margin: 0, lineHeight: 1.6 }}>
             Jogo de navegador gratuito para colegas de escritório: tiroteio de bolinha de papel, corrida de cadeiras (Rally da Firma) e treino contra o relógio. Não precisa de cadastro. O login com Google é opcional e serve só para guardar seus resultados no ranking da firma.
@@ -166,6 +169,7 @@ export function Home() {
           <p className="muted" style={{ margin: "8px 0 0" }}>
             <a href="/privacidade.html">Política de privacidade</a> · <a href="/termos.html">Termos de serviço</a>
           </p>
+        </div>
         </div>
       </div>
     </div>
