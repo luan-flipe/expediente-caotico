@@ -449,7 +449,6 @@ export class Engine {
     } else {
       this.nextZombieAmbientSoundTime = 0;
     }
-    }
   }
 
   private reconcile(p: PublicPlayer, now: number): void {
