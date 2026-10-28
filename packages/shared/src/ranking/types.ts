@@ -71,6 +71,8 @@ export interface RankingData {
   laps: Record<string, Record<string, StoredLap>>;
   /** Semana (segunda, "YYYY-MM-DD") -> progresso do desafio por conta. Arquivos antigos não têm: vale vazio. */
   challenges: Record<string, Record<string, WeekProgress>>;
+  /** Limpezas únicas já aplicadas ao arquivo (ver RESETS no store do servidor). Arquivos antigos não têm. */
+  resets?: string[];
 }
 
 /** Linha de qualquer aba; `rank` é a posição real (1 = líder), mesmo na linha `me`. */
