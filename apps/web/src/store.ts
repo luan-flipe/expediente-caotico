@@ -19,6 +19,7 @@ import {
   type Snapshot,
 } from "@ec/shared";
 import { Connection } from "./net/connection";
+import { perfilDaUrl } from "./perfil";
 import { loadAccount, loginSession, storeAccount, type Account } from "./net/session";
 
 export interface FeedItem {
@@ -65,10 +66,14 @@ export interface State {
   account: Account | null;
   /** Tela do ranking da firma aberta por cima da tela inicial ou do lobby. */
   ranking: boolean;
+  /** Perfil aberto: apelido público do jogador ("eu" = o próprio, com a conta logada). Vem do link ?perfil= ou do clique no ranking. */
+  perfil: string | null;
   /** Replay de um recorde de volta aberto por cima do ranking (pista e linha da aba). */
   replay: { pista: string; linha: number } | null;
   /** Configurações abertas por cima da tela atual (inclusive da partida, que segue rodando). */
   settingsOpen: boolean;
+  /** Menu de pausa aberto na partida: cobre a tela e trava o comando, mas o servidor segue rodando. */
+  pauseOpen: boolean;
   /** Fantasmas da pista no contra o relógio (o último enviado pelo servidor). */
   ghosts: Ghosts | null;
   /** Últimas mensagens do chat rápido (o canto do lobby mostra as recentes). */
@@ -131,8 +136,10 @@ let state: State = {
   loadProgress: 0,
   account: loadAccount(),
   ranking: false,
+  perfil: typeof location === "undefined" ? null : perfilDaUrl(location.search),
   replay: null,
   settingsOpen: false,
+  pauseOpen: false,
   ghosts: null,
   chat: [],
   chatOpen: false,
@@ -212,7 +219,7 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null, chat: [], chatOpen: false });
+  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null, chat: [], chatOpen: false, pauseOpen: false, settingsOpen: false });
 }
 
 let feedId = 0;

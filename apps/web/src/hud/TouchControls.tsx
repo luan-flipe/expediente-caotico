@@ -104,7 +104,7 @@ function useDrag(onMove: (dx: number, dy: number, mx: number, my: number) => voi
   return { origin, handlers: { ...handlers, onPointerCancel: handlers.onPointerUp } };
 }
 
-/** Engrenagem, chat e placar: o que no teclado é Esc, T e Tab. */
+/** Pausa, chat e placar: o que no teclado é Esc, T e Tab. */
 function TopButtons() {
   const scoreboard = useStore((s) => s.scoreboard);
   return (
@@ -115,8 +115,8 @@ function TopButtons() {
       <TapButton className="small" label="Chat rápido" onTap={() => setState({ chatOpen: true })}>
         Chat
       </TapButton>
-      <TapButton className="small icon" label="Configurações" onTap={() => setState({ settingsOpen: true })}>
-        ⚙
+      <TapButton className="small icon" label="Pausar" onTap={() => setState({ pauseOpen: true })}>
+        ❚❚
       </TapButton>
     </div>
   );
@@ -242,9 +242,10 @@ function RaceControls() {
             R
           </TapButton>
           {items && (
-            <TapButton code={keys.item} className={`mid ${me?.item ? "ready" : ""}`} label="Usar item">
+            // segurar o botão segura resma, poça e grampeador atrás como escudo; soltar usa
+            <HoldButton code={keys.item} className={`mid ${me?.item ? "ready" : ""}`} label="Usar item (segure para escudo)">
               Item
-            </TapButton>
+            </HoldButton>
           )}
           <HoldButton code={keys.derrapar} className="mid" label="Derrapar">
             Derrapar

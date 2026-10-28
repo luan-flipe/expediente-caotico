@@ -61,10 +61,12 @@ export interface RaceBotParams {
   holdScale: number;
   /** Multiplica a distância em que acha que vale usar o item. */
   rangeScale: number;
+  /** Chance de pegar o atalho em cada bifurcação. */
+  shortcutChance: number;
 }
 
 export const RACE_BOT: Record<BotLevel, RaceBotParams> = {
-  easy: { lookBase: 4, lookSpeed: 0.25, steerGain: 1.8, throttleMax: 0.85, cornerThrottle: 0.2, laneSpread: 1.2, holdScale: 1.8, rangeScale: 0.6 },
-  normal: { lookBase: 6, lookSpeed: 0.35, steerGain: 2.5, throttleMax: 1, cornerThrottle: 0.2, laneSpread: 0.9, holdScale: 1, rangeScale: 1 },
-  hard: { lookBase: 7, lookSpeed: 0.38, steerGain: 2.8, throttleMax: 1, cornerThrottle: 0.25, laneSpread: 0.5, holdScale: 0.6, rangeScale: 1.4 },
+  easy: { lookBase: 4, lookSpeed: 0.25, steerGain: 1.8, throttleMax: 0.85, cornerThrottle: 0.2, laneSpread: 1.2, holdScale: 1.8, rangeScale: 0.6, shortcutChance: 0.1 },
+  normal: { lookBase: 6, lookSpeed: 0.35, steerGain: 2.5, throttleMax: 1, cornerThrottle: 0.2, laneSpread: 0.9, holdScale: 1, rangeScale: 1, shortcutChance: 0.4 },
+  hard: { lookBase: 7, lookSpeed: 0.38, steerGain: 2.8, throttleMax: 1, cornerThrottle: 0.25, laneSpread: 0.5, holdScale: 0.6, rangeScale: 1.4, shortcutChance: 0.75 },
 };

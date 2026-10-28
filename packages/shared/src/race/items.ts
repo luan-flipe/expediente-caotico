@@ -5,6 +5,9 @@ import type { Hazard, ItemId, RaceMatch, Racer } from "./types";
 
 export const ITEM_IDS: ItemId[] = ["expresso", "triplo", "grampeador", "poca", "resma", "aviao", "pasta", "postit"];
 
+/** Itens que dá para segurar atrás da cadeira como escudo (segura a tecla, solta para usar). */
+export const HOLDABLE_ITEMS: ReadonlySet<ItemId> = new Set<ItemId>(["resma", "poca", "grampeador"]);
+
 export const ITEM_NAMES: Record<ItemId, string> = {
   expresso: "Café Expresso",
   triplo: "Café Expresso Triplo",
@@ -129,6 +132,9 @@ export function hitRacer(race: RaceMatch, t: Racer, kind: "spin" | "slip" | "res
   if (kind === "spin") k.spinUntil = race.now + ITEM_FX.spinMs;
   if (kind === "slip") k.slipUntil = race.now + ITEM_FX.pocaSlipMs;
   if (kind === "resma") k.speed *= ITEM_FX.resmaSpeedKeep;
+  if (k.cups && k.cups > 0) {
+    k.cups = Math.max(0, k.cups - 3);
+  }
   k.drifting = false;
   k.driftDir = 0;
   k.driftMs = 0;
@@ -196,6 +202,27 @@ export function stepHazards(race: RaceMatch, dtMs: number): void {
       if (r.id === h.owner && now - h.bornAt < ITEM_FX.ownerGraceMs) continue;
       if (h.kind === "aviao" && h.targetId && r.id !== h.targetId) continue;
       if (Math.hypot(r.kart.pos.x - h.pos.x, r.kart.pos.z - h.pos.z) >= RADIUS[h.kind] + RACE.kartRadius) continue;
+      // poça e resma ficam no chão: quem voa passa por cima
+      if ((h.kind === "poca" || h.kind === "resma") && (r.kart.y ?? 0) > RACE.airHitHeight) continue;
+      // Escudo protetor traseiro: segurar item na traseira absorve projéteis que vêm de trás
+      if (r.holdingItem && r.item && HOLDABLE_ITEMS.has(r.item)) {
+        const fx = Math.sin(r.kart.heading);
+        const fz = Math.cos(r.kart.heading);
+        const hx = h.pos.x - r.kart.pos.x;
+        const hz = h.pos.z - r.kart.pos.z;
+        const dot = hx * fx + hz * fz;
+        if (dot < 0.2) {
+          r.charges--;
+          if (r.charges <= 0) {
+            r.item = null;
+            r.charges = 0;
+            r.holdingItem = false;
+          }
+          race.events.push({ type: "hit", id: r.id, by: h.owner, kind: "blocked" });
+          gone.add(h.id);
+          break;
+        }
+      }
       hitRacer(race, r, h.kind === "poca" ? "slip" : h.kind === "resma" ? "resma" : "spin", h.owner);
       gone.add(h.id);
       break;

@@ -1,6 +1,8 @@
 import * as THREE from "three";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { EYE_COLORS, HAIR_COLORS, PANTS, SHIRTS, SKINS, type AvatarDNA } from "@ec/shared";
+import { EYE_COLORS, HAIR_COLORS, PANTS, SHIRTS, SKINS, type AvatarDNA, type ItemId } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
 
@@ -10,16 +12,31 @@ export type CharacterAction = "throw" | "cafe" | "dash";
 export interface Character {
   root: THREE.Group;
   update(dt: number, speed01: number): void;
+  /** Atualização dinâmica na cadeira de corrida (inclinação do corpo, cabeça na curva, braços esterçando). */
+  updateSeated?(dt: number, speed: number, steer: number, driftDir: number, boosting: boolean): void;
   play(action: CharacterAction): void;
-  /** Pose sentada (modo corrida): pernas para a frente e braços no apoio. Para as animações. */
-  sit(): void;
+  /** Executa um gesto animado ao usar um item/power-up na corrida de cadeiras. */
+  playItemGesture?(item: ItemId): void;
+  /**
+   * Pose sentada (modo corrida): pernas para a frente e braços no apoio. Para as animações.
+   * Devolve a altura da parte de baixo das coxas, para apoiá-las no assento.
+   */
+  sit(): number;
   dispose(): void;
 }
 
-/** Altura do quadril do boneco em pé, para encaixar no assento. */
-export const HIP_HEIGHT = 0.82;
+/** Altura (no espaço do boneco) da parte mais baixa das peças, já na pose sentada. */
+function bottomOf(root: THREE.Object3D, parts: (THREE.Object3D | undefined)[]): number {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const box = new THREE.Box3();
+  for (const p of parts) if (p) box.union(new THREE.Box3().setFromObject(p).applyMatrix4(inv));
+  return box.isEmpty() ? 0 : box.min.y;
+}
 
 const MODEL_URL = "/assets/characters/boneco.glb";
+const ZOMBIE_URL = "/assets/characters/Zombie.fbx";
+const ZOMBIE_TEXTURE_URL = "/assets/characters/zombie_texture.png";
 
 interface SkinDef {
   url: string;
@@ -48,6 +65,12 @@ interface Loaded {
   scale: number;
 }
 
+interface LoadedZombie {
+  scene: THREE.Group;
+  clip: THREE.AnimationClip | null;
+  scale: number;
+}
+
 /** Cabelo e barba tirados de uma skin, com a cor por vértice virada em sombra neutra. */
 interface Parts {
   hair?: THREE.BufferGeometry;
@@ -62,6 +85,10 @@ let loading: Promise<boolean> | null = null;
 const skins = new Map<number, Loaded>();
 const parts: Parts = {};
 
+let loadedZombie: LoadedZombie | null = null;
+let loadingZombie: Promise<boolean> | null = null;
+let zombieTexture: THREE.Texture | null = null;
+
 /**
  * Remove trilhas que brigam com o jogo: deslocamento do corpo (a posição vem do servidor)
  * e a bolinha que voa sozinha (o projétil de verdade já é desenhado).
@@ -72,10 +99,31 @@ function cleanClip(clip: THREE.AnimationClip): THREE.AnimationClip {
   return c;
 }
 
+/**
+ * Zera o deslocamento lateral/frontal (root motion X e Z) dos ossos na animação do zumbi,
+ * mantendo o balanço vertical Y e todas as rotações das articulações da caminhada.
+ */
+function cleanZombieClip(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const c = clip.clone();
+  for (const track of c.tracks) {
+    if (track.name.endsWith(".position") && track instanceof THREE.VectorKeyframeTrack) {
+      const vals = track.values;
+      for (let i = 0; i < vals.length; i += 3) {
+        vals[i] = 0; // zera deslocamento X
+        vals[i + 2] = 0; // zera deslocamento Z
+      }
+    }
+  }
+  return c;
+}
+
 export function modelReady(): boolean {
   return loaded !== null;
 }
 
+export function zombieReady(): boolean {
+  return loadedZombie !== null;
+}
 /** Quanto o corpo sobe para as pernas crescerem; os pés ficam no mesmo lugar. */
 const LEG_GROW = 0.16;
 /** Topo da perna no espaço do quadril, escondido sob o quadril da calça. */
@@ -496,6 +544,116 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
       return false;
     });
   return loading;
+}
+
+/** Carrega o Zombie.fbx com sua animação embutida de zumbi em movimento. */
+/** Só baixa quando aparece o primeiro zumbi: são cerca de 5 MB que quem não joga o modo não precisa. */
+export function preloadZombie(): Promise<boolean> {
+  if (loadingZombie) return loadingZombie;
+  // a textura chega junto com o modelo, porque é aplicada quando o zumbi é criado
+  const texture = new THREE.TextureLoader().loadAsync(ZOMBIE_TEXTURE_URL).then(
+    (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      zombieTexture = tex;
+    },
+    (err) => console.warn("Falha ao carregar zombie_texture.png, usando fallback procedural ou de cor", err),
+  );
+  loadingZombie = Promise.all([new FBXLoader().loadAsync(ZOMBIE_URL), texture])
+    .then(([fbx]) => {
+      const bbox = new THREE.Box3().setFromObject(fbx);
+      const size = new THREE.Vector3();
+      bbox.getSize(size);
+      const h = size.y > 0 ? size.y : 1.0;
+      const rawClip = fbx.animations && fbx.animations.length > 0 ? fbx.animations[0] : null;
+      const clip = rawClip ? cleanZombieClip(rawClip) : null;
+      loadedZombie = {
+        scene: fbx,
+        clip,
+        scale: TARGET_HEIGHT / h,
+      };
+      return true;
+    })
+    .catch((err) => {
+      console.warn("Zombie.fbx não carregou, usando fallback procedural", err);
+      return false;
+    });
+  return loadingZombie;
+}
+
+export function createZombieCharacter(): Character {
+  if (!loadedZombie) {
+    const zombieDna: AvatarDNA = {
+      name: "Zumbi",
+      model: 0,
+      skin: 5,
+      hair: 0,
+      hairColor: 0,
+      eyes: 0,
+      beard: 0,
+      beardColor: 0,
+      glasses: 0,
+      top: 0,
+      bottom: 0,
+      shirt: 0,
+      pants: 0,
+      shoes: 0,
+      accessory: 0,
+      height: 1,
+    };
+    return proceduralCharacter(zombieDna);
+  }
+
+  const root = new THREE.Group();
+  // Usa SkeletonUtils.clone para preservar as ligações dos ossos do SkinnedMesh
+  const inner = SkeletonUtils.clone(loadedZombie.scene) as THREE.Group;
+  inner.scale.setScalar(loadedZombie.scale);
+  const mats: THREE.Material[] = [];
+
+  inner.traverse((o) => {
+    const mesh = o as THREE.SkinnedMesh;
+    if (mesh.isMesh) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      const orig = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const origMap = (orig as { map?: THREE.Texture })?.map ?? null;
+      const map = zombieTexture ?? origMap;
+      const standardMat = new THREE.MeshStandardMaterial({
+        map,
+        color: map ? 0xffffff : 0x5a7d52,
+        roughness: 0.75,
+        metalness: 0.1,
+      });
+      mesh.material = standardMat;
+      mats.push(standardMat);
+    }
+  });
+  root.add(inner);
+
+  const mixer = new THREE.AnimationMixer(inner);
+  if (loadedZombie.clip) {
+    const action = mixer.clipAction(loadedZombie.clip);
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.play();
+  }
+
+  return {
+    root,
+    update(dt, speed01) {
+      // Como o zumbi já está em movimento contínuo na animação, escala proporcionalmente à velocidade
+      const rate = 0.6 + Math.max(0.2, speed01) * 0.8;
+      mixer.update(dt * rate);
+    },
+    play() {},
+    // zumbi nunca senta numa cadeira
+    sit() {
+      return 0;
+    },
+    dispose() {
+      mixer.stopAllAction();
+      for (const m of mats) m.dispose();
+    },
+  };
 }
 
 function shade(hex: string, k: number): THREE.Color {
@@ -960,7 +1118,6 @@ function dress(inner: THREE.Object3D, dna: AvatarDNA, mats: THREE.Material[]): v
     // olhos, sobrancelhas e boca dividem o material "Olhos": a cor dos olhos vai pelo nome da peça
     const color = mesh.name.startsWith("Olho_") ? new THREE.Color(EYE_COLORS[dna.eyes]) : palette[src.name];
     if (color) m.color.copy(color);
-    // mechas do modelo são brilhantes e viram um reflexo cinza em cabelo recolorido
     if (src.name.startsWith("Cabelo")) m.roughness = 0.9;
     mesh.material = m;
     mats.push(m);
@@ -1046,17 +1203,220 @@ function glbCharacter(dna: AvatarDNA, base: Loaded): Character {
     actions.set(k, a);
   }
 
+  // ossos usados pela pose dinâmica na cadeira de corrida
+  const head = inner.getObjectByName("Cabeca");
+  const body = inner.getObjectByName("Boneco");
+  const ombroD = inner.getObjectByName("Ombro_D");
+  const ombroE = inner.getObjectByName("Ombro_E");
+  const quadrilD = inner.getObjectByName("Quadril_D");
+  const quadrilE = inner.getObjectByName("Quadril_E");
   let seated = false;
+  let smoothedSpeed = 0;
+  let seatedHeadX = 0;
+  let seatedHeadY = 0;
+  let seatedHeadZ = 0;
+  let seatedBodyZ = 0;
+  let seatedBodyX = 0;
+  let seatedArmD = -0.75;
+  let seatedArmE = -0.75;
+  let activeGesture: { item: ItemId; time: number; duration: number } | null = null;
   return {
     root,
     update(dt, speed01) {
       if (seated) return;
       const busy = [...actions.values()].some((a) => a.isRunning());
+      smoothedSpeed += (speed01 - smoothedSpeed) * Math.min(1, dt * 12);
       if (walk) {
-        walk.setEffectiveWeight(busy ? 0 : speed01);
-        walk.timeScale = 0.6 + speed01 * 0.8;
+        walk.setEffectiveWeight(busy ? 0 : smoothedSpeed);
+        walk.timeScale = 0.6 + smoothedSpeed * 0.8;
       }
       mixer.update(dt);
+    },
+    playItemGesture(item) {
+      activeGesture = { item, time: 0, duration: 0.45 };
+    },
+    updateSeated(dt, speed, steer, driftDir, boosting) {
+      if (!seated) return;
+      // Proporção de velocidade para a postura aerodinâmica de vácuo (a partir de 4 m/s até a velocidade máxima)
+      const speedRatio = Math.min(1, Math.max(0, (speed - 4) / 12));
+
+      // Gestos animados para cada power-up / item usado
+      let gArmD_x = 0;
+      let gArmD_y = 0;
+      let gArmD_z = 0;
+      let gArmE_x = 0;
+      let gArmE_y = 0;
+      let gArmE_z = 0;
+      let gBody_x = 0;
+      let gBody_y = 0;
+      let gBody_z = 0;
+      let gHead_x = 0;
+      let gHead_y = 0;
+
+      if (activeGesture) {
+        activeGesture.time += dt;
+        const u = activeGesture.time / activeGesture.duration;
+        if (u >= 1) {
+          activeGesture = null;
+        } else {
+          const peak = Math.sin(u * Math.PI);
+          switch (activeGesture.item) {
+            case "resma":
+              // Jogar resma pesada para trás: gira tronco e braço direito arremessa para trás
+              gBody_y = -0.35 * peak;
+              gBody_x = 0.12 * peak;
+              gArmD_x = 1.35 * peak;
+              gArmD_y = -0.25 * peak;
+              gArmD_z = 0.3 * peak;
+              gHead_y = -0.25 * peak;
+              break;
+            case "pasta":
+              // Pasta do Jurídico: postura de bloqueio/escudo defensivo com os dois braços
+              gArmD_x = -0.75 * peak;
+              gArmD_z = -0.35 * peak;
+              gArmE_x = -0.75 * peak;
+              gArmE_z = 0.35 * peak;
+              gBody_x = 0.15 * peak;
+              gHead_x = -0.2 * peak;
+              break;
+            case "aviao":
+              // Aviãozinho de papel: arremesso vigoroso por cima do ombro
+              if (u < 0.35) {
+                const p = u / 0.35;
+                gArmD_x = 0.5 * p;
+                gArmD_z = -0.25 * p;
+                gBody_y = 0.2 * p;
+                gHead_y = 0.15 * p;
+              } else {
+                const p = (1 - u) / 0.65;
+                gArmD_x = -0.95 * p;
+                gArmD_z = 0.15 * p;
+                gBody_x = -0.2 * p;
+                gHead_x = 0.2 * p;
+              }
+              break;
+            case "grampeador":
+              // Disparo do grampeador: mira à frente e recuo no disparo
+              if (u < 0.25) {
+                const p = u / 0.25;
+                gArmD_x = -0.8 * p;
+              } else {
+                const p = (1 - u) / 0.75;
+                gArmD_x = -0.3 * p;
+                gArmD_z = 0.15 * p;
+                gBody_x = 0.12 * p;
+              }
+              break;
+            case "poca":
+              // Poça de café: despeja a caneca quente pelo lado/traseira esquerda
+              gBody_z = -0.22 * peak;
+              gBody_y = 0.18 * peak;
+              gArmE_x = 1.15 * peak;
+              gArmE_y = 0.25 * peak;
+              gArmE_z = -0.4 * peak;
+              gHead_y = 0.3 * peak;
+              break;
+            case "postit":
+              // Tapa de post-it na tela: estocada rápida com a palma aberta para a frente
+              gArmD_x = -0.9 * peak;
+              gArmD_z = 0.2 * peak;
+              gBody_x = -0.15 * peak;
+              gHead_x = 0.25 * peak;
+              break;
+            case "expresso":
+            case "triplo":
+              // Gole rápido de café puro antes da arrancada
+              gArmD_x = -0.6 * peak;
+              gArmD_z = -0.25 * peak;
+              gHead_x = -0.3 * peak;
+              break;
+          }
+        }
+      }
+
+      // 1. Inclinação do corpo para a frente (positivo em +X inclina o tronco em direção a +Z / frente da pista):
+      // No boost de café expresso: mergulha para a frente como um míssil (+0.30 rad = ~17°)
+      // Na corrida em alta velocidade: postura de pegar vácuo (+0.20 rad * speedRatio = ~11°)
+      // Math.max(0, ...) garante que o corpo NUNCA inclina para trás, impossibilitando atravessar o encosto da cadeira!
+      const targetBodyX = Math.max(
+        0,
+        (boosting
+          ? 0.30
+          : speed > 2
+            ? 0.20 * speedRatio
+            : 0) + gBody_x,
+      );
+
+      // 2. Elevação da cabeça:
+      // Com o tronco inclinado para a frente (+X), a cabeça ergue o queixo (-X) para mirar a pista à frente
+      const targetHeadX = (boosting
+        ? -0.24
+        : speed > 2
+          ? -0.15 * speedRatio
+          : 0) + gHead_x;
+
+      // 3. Olhar e inclinação na curva e no drift
+      const targetHeadY = -steer * 0.38 - driftDir * 0.42 + gHead_y;
+      const targetHeadZ = steer * 0.08 + driftDir * 0.12;
+      const targetBodyZ = (driftDir !== 0 ? driftDir * 0.18 : -steer * 0.12) + gBody_z;
+
+      // 4. Braços firmes esticados nos apoios
+      const armForward = boosting ? -0.20 : -speedRatio * 0.10;
+      const targetArmD = -0.75 + armForward + steer * 0.22 + driftDir * 0.18 + gArmD_x;
+      const targetArmE = -0.75 + armForward - steer * 0.22 - driftDir * 0.18 + gArmE_x;
+
+      const k = Math.min(1, dt * 12);
+      seatedHeadX += (targetHeadX - seatedHeadX) * k;
+      seatedHeadY += (targetHeadY - seatedHeadY) * k;
+      seatedHeadZ += (targetHeadZ - seatedHeadZ) * k;
+      seatedBodyX += (targetBodyX - seatedBodyX) * k;
+      seatedBodyZ += (targetBodyZ - seatedBodyZ) * k;
+      seatedArmD += (targetArmD - seatedArmD) * k;
+      seatedArmE += (targetArmE - seatedArmE) * k;
+
+      // Vibração intensa de alta frequência do café expresso (efeito cafeína pura no turbo)
+      const now = performance.now();
+      const jitterTorsoX = boosting ? Math.sin(now * 0.065) * 0.025 : 0;
+      const jitterTorsoY = boosting ? Math.cos(now * 0.052) * 0.02 : 0;
+      const jitterHeadX = boosting ? -Math.sin(now * 0.07) * 0.025 : 0;
+      const jitterHeadZ = boosting ? Math.cos(now * 0.06) * 0.02 : 0;
+      const jitterArm = boosting ? Math.sin(now * 0.08) * 0.035 : 0;
+
+      if (head) {
+        head.rotation.x = seatedHeadX + jitterHeadX;
+        head.rotation.y = seatedHeadY;
+        head.rotation.z = seatedHeadZ + jitterHeadZ;
+      }
+      if (body) {
+        body.rotation.x = Math.max(0, seatedBodyX + jitterTorsoX);
+        body.rotation.y = (boosting ? jitterTorsoY : 0) + gBody_y;
+        body.rotation.z = seatedBodyZ;
+        body.position.set(0, 0, 0);
+      }
+      if (ombroD) {
+        ombroD.rotation.x = seatedArmD + jitterArm;
+        ombroD.rotation.y = gArmD_y;
+        ombroD.rotation.z = gArmD_z;
+      }
+      if (ombroE) {
+        ombroE.rotation.x = seatedArmE - jitterArm;
+        ombroE.rotation.y = gArmE_y;
+        ombroE.rotation.z = gArmE_z;
+      }
+      // Dinâmica realista das pernas: pé no chão no drift para apoio e remadas na arrancada lenta
+      let legD_x = -Math.PI / 2;
+      let legE_x = -Math.PI / 2;
+      if (driftDir > 0) {
+        legD_x += 0.38; // pé direito raspa no asfalto apoiando o drift à direita
+      } else if (driftDir < 0) {
+        legE_x += 0.38; // pé esquerdo raspa no asfalto apoiando o drift à esquerda
+      } else if (speed > 0.1 && speed < 3.2) {
+        const push = Math.sin(now * 0.012);
+        legD_x += Math.max(0, push) * 0.32;
+        legE_x += Math.max(0, -push) * 0.32;
+      }
+      if (quadrilD) quadrilD.rotation.x += (legD_x - quadrilD.rotation.x) * Math.min(1, dt * 10);
+      if (quadrilE) quadrilE.rotation.x += (legE_x - quadrilE.rotation.x) * Math.min(1, dt * 10);
     },
     play(action) {
       const a = actions.get(action);
@@ -1075,6 +1435,10 @@ function glbCharacter(dna: AvatarDNA, base: Loaded): Character {
         const o = inner.getObjectByName(n);
         if (o) o.rotation.x = x;
       }
+      return bottomOf(
+        root,
+        ["Quadril_Calca", "Perna_D", "Perna_E"].map((n) => inner.getObjectByName(n)),
+      );
     },
     dispose() {
       // geometrias do GLB e das peças de skin são compartilhadas; só as peças extras são deste boneco
@@ -1093,13 +1457,203 @@ function proceduralCharacter(dna: AvatarDNA): Character {
   let t = 0;
   let aimUntil = 0;
   let seated = false;
+  let smoothedSpeed = 0;
+  let seatedHeadX = 0;
+  let seatedHeadY = 0;
+  let seatedHeadZ = 0;
+  let seatedBodyZ = 0;
+  let seatedBodyX = 0;
+  let seatedArmD = -0.75;
+  let seatedArmE = -0.75;
+  let activeGesture: { item: ItemId; time: number; duration: number } | null = null;
   return {
     root: rig.root,
     update(dt, speed01) {
       if (seated) return;
-      t += dt * Math.max(0.05, speed01);
+      smoothedSpeed += (speed01 - smoothedSpeed) * Math.min(1, dt * 12);
+      t += dt * Math.max(0.05, smoothedSpeed);
       aimUntil -= dt;
-      animateAvatar(rig, speed01, t, aimUntil > 0);
+      animateAvatar(rig, smoothedSpeed, t, aimUntil > 0);
+    },
+    playItemGesture(item) {
+      activeGesture = { item, time: 0, duration: 0.45 };
+    },
+    updateSeated(dt, speed, steer, driftDir, boosting) {
+      if (!seated) return;
+      // Proporção de velocidade para a postura aerodinâmica de vácuo (a partir de 4 m/s até a velocidade máxima)
+      const speedRatio = Math.min(1, Math.max(0, (speed - 4) / 12));
+
+      // Gestos animados para cada power-up / item usado
+      let gArmD_x = 0;
+      let gArmD_y = 0;
+      let gArmD_z = 0;
+      let gArmE_x = 0;
+      let gArmE_y = 0;
+      let gArmE_z = 0;
+      let gBody_x = 0;
+      let gBody_y = 0;
+      let gBody_z = 0;
+      let gHead_x = 0;
+      let gHead_y = 0;
+
+      if (activeGesture) {
+        activeGesture.time += dt;
+        const u = activeGesture.time / activeGesture.duration;
+        if (u >= 1) {
+          activeGesture = null;
+        } else {
+          const peak = Math.sin(u * Math.PI);
+          switch (activeGesture.item) {
+            case "resma":
+              // Jogar resma pesada para trás: gira tronco e braço direito arremessa para trás
+              gBody_y = -0.35 * peak;
+              gBody_x = 0.12 * peak;
+              gArmD_x = 1.35 * peak;
+              gArmD_y = -0.25 * peak;
+              gArmD_z = 0.3 * peak;
+              gHead_y = -0.25 * peak;
+              break;
+            case "pasta":
+              // Pasta do Jurídico: postura de bloqueio/escudo defensivo com os dois braços
+              gArmD_x = -0.75 * peak;
+              gArmD_z = -0.35 * peak;
+              gArmE_x = -0.75 * peak;
+              gArmE_z = 0.35 * peak;
+              gBody_x = 0.15 * peak;
+              gHead_x = -0.2 * peak;
+              break;
+            case "aviao":
+              // Aviãozinho de papel: arremesso vigoroso por cima do ombro
+              if (u < 0.35) {
+                const p = u / 0.35;
+                gArmD_x = 0.5 * p;
+                gArmD_z = -0.25 * p;
+                gBody_y = 0.2 * p;
+                gHead_y = 0.15 * p;
+              } else {
+                const p = (1 - u) / 0.65;
+                gArmD_x = -0.95 * p;
+                gArmD_z = 0.15 * p;
+                gBody_x = -0.2 * p;
+                gHead_x = 0.2 * p;
+              }
+              break;
+            case "grampeador":
+              // Disparo do grampeador: mira à frente e recuo no disparo
+              if (u < 0.25) {
+                const p = u / 0.25;
+                gArmD_x = -0.8 * p;
+              } else {
+                const p = (1 - u) / 0.75;
+                gArmD_x = -0.3 * p;
+                gArmD_z = 0.15 * p;
+                gBody_x = 0.12 * p;
+              }
+              break;
+            case "poca":
+              // Poça de café: despeja a caneca quente pelo lado/traseira esquerda
+              gBody_z = -0.22 * peak;
+              gBody_y = 0.18 * peak;
+              gArmE_x = 1.15 * peak;
+              gArmE_y = 0.25 * peak;
+              gArmE_z = -0.4 * peak;
+              gHead_y = 0.3 * peak;
+              break;
+            case "postit":
+              // Tapa de post-it na tela: estocada rápida com a palma aberta para a frente
+              gArmD_x = -0.9 * peak;
+              gArmD_z = 0.2 * peak;
+              gBody_x = -0.15 * peak;
+              gHead_x = 0.25 * peak;
+              break;
+            case "expresso":
+            case "triplo":
+              // Gole rápido de café puro antes da arrancada
+              gArmD_x = -0.6 * peak;
+              gArmD_z = -0.25 * peak;
+              gHead_x = -0.3 * peak;
+              break;
+          }
+        }
+      }
+
+      // 1. Inclinação do corpo para a frente (positivo em +X inclina o tronco em direção a +Z / frente da pista):
+      // No boost de café expresso: mergulha para a frente como um míssil (+0.30 rad = ~17°)
+      // Na corrida em alta velocidade: postura de pegar vácuo (+0.20 rad * speedRatio = ~11°)
+      // Math.max(0, ...) garante que o corpo NUNCA inclina para trás, impossibilitando atravessar o encosto da cadeira!
+      const targetBodyX = Math.max(
+        0,
+        (boosting
+          ? 0.30
+          : speed > 2
+            ? 0.20 * speedRatio
+            : 0) + gBody_x,
+      );
+
+      // 2. Elevação da cabeça:
+      // Com o tronco inclinado para a frente (+X), a cabeça ergue o queixo (-X) para mirar a pista à frente
+      const targetHeadX = (boosting
+        ? -0.24
+        : speed > 2
+          ? -0.15 * speedRatio
+          : 0) + gHead_x;
+
+      // 3. Olhar e inclinação na curva e no drift
+      const targetHeadY = -steer * 0.38 - driftDir * 0.42 + gHead_y;
+      const targetHeadZ = steer * 0.08 + driftDir * 0.12;
+      const targetBodyZ = (driftDir !== 0 ? driftDir * 0.18 : -steer * 0.12) + gBody_z;
+
+      // 4. Braços firmes esticados nos apoios
+      const armForward = boosting ? -0.20 : -speedRatio * 0.10;
+      const targetArmD = -0.75 + armForward + steer * 0.22 + driftDir * 0.18 + gArmD_x;
+      const targetArmE = -0.75 + armForward - steer * 0.22 - driftDir * 0.18 + gArmE_x;
+
+      const k = Math.min(1, dt * 12);
+      seatedHeadX += (targetHeadX - seatedHeadX) * k;
+      seatedHeadY += (targetHeadY - seatedHeadY) * k;
+      seatedHeadZ += (targetHeadZ - seatedHeadZ) * k;
+      seatedBodyX += (targetBodyX - seatedBodyX) * k;
+      seatedBodyZ += (targetBodyZ - seatedBodyZ) * k;
+      seatedArmD += (targetArmD - seatedArmD) * k;
+      seatedArmE += (targetArmE - seatedArmE) * k;
+
+      // Vibração intensa de alta frequência do café expresso (efeito cafeína pura no turbo)
+      const now = performance.now();
+      const jitterTorsoX = boosting ? Math.sin(now * 0.065) * 0.025 : 0;
+      const jitterTorsoY = boosting ? Math.cos(now * 0.052) * 0.02 : 0;
+      const jitterHeadX = boosting ? -Math.sin(now * 0.07) * 0.025 : 0;
+      const jitterHeadZ = boosting ? Math.cos(now * 0.06) * 0.02 : 0;
+      const jitterArm = boosting ? Math.sin(now * 0.08) * 0.035 : 0;
+
+      rig.head.rotation.x = seatedHeadX + jitterHeadX;
+      rig.head.rotation.y = seatedHeadY;
+      rig.head.rotation.z = seatedHeadZ + jitterHeadZ;
+      rig.body.rotation.x = Math.max(0, seatedBodyX + jitterTorsoX);
+      rig.body.rotation.y = (boosting ? jitterTorsoY : 0) + gBody_y;
+      rig.body.rotation.z = seatedBodyZ;
+      rig.body.position.set(0, 0, 0);
+
+      rig.armR.rotation.x = seatedArmD + jitterArm;
+      rig.armR.rotation.y = gArmD_y;
+      rig.armR.rotation.z = gArmD_z;
+      rig.armL.rotation.x = seatedArmE - jitterArm;
+      rig.armL.rotation.y = gArmE_y;
+      rig.armL.rotation.z = gArmE_z;
+
+      // Dinâmica realista das pernas: pé no chão no drift para apoio e remadas na arrancada lenta
+      let legD_x = -Math.PI / 2;
+      let legE_x = -Math.PI / 2;
+      if (driftDir > 0) {
+        legD_x += 0.38;
+      } else if (driftDir < 0) {
+        legE_x += 0.38;
+      } else if (speed > 0.1 && speed < 3.2) {
+        const push = Math.sin(now * 0.012);
+        legD_x += Math.max(0, push) * 0.32;
+        legE_x += Math.max(0, -push) * 0.32;
+      }
+      rig.legR.rotation.x += (legD_x - rig.legR.rotation.x) * Math.min(1, dt * 10);
+      rig.legL.rotation.x += (legE_x - rig.legL.rotation.x) * Math.min(1, dt * 10);
     },
     play(action) {
       if (action === "throw") aimUntil = ACTION_SECONDS.throw;
@@ -1108,6 +1662,7 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       seated = true;
       rig.legL.rotation.x = rig.legR.rotation.x = -Math.PI / 2;
       rig.armL.rotation.x = rig.armR.rotation.x = -0.75;
+      return bottomOf(rig.root, [rig.legL, rig.legR]);
     },
     dispose() {
       disposeAvatar(rig);

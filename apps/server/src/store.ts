@@ -4,6 +4,21 @@ import { emptyRankingData, type RankingData } from "@ec/shared";
 
 const SAVE_DELAY_MS = 2000;
 
+/**
+ * Limpezas que rodam uma vez por arquivo. "voltas-pr31": a física nova da corrida (PR 31) deixou as voltas
+ * bem mais rápidas, então recordes, fantasmas e melhor volta de antes deixaram de ser comparáveis.
+ * Pontos do mês, vitórias e contas ficam.
+ */
+const RESETS: { id: string; apply: (d: RankingData) => void }[] = [
+  {
+    id: "voltas-pr31",
+    apply: (d) => {
+      d.laps = {};
+      for (const st of Object.values(d.stats)) st.bestLapMs = null;
+    },
+  },
+];
+
 function isRankingData(v: unknown): v is RankingData {
   if (!v || typeof v !== "object") return false;
   const d = v as Record<string, unknown>;
@@ -44,6 +59,7 @@ export class Store {
         // arquivo anterior ao desafio da semana: sem o campo, vale vazio
         const challenges = (parsed as Partial<RankingData>).challenges;
         if (!challenges || typeof challenges !== "object" || Array.isArray(challenges)) parsed.challenges = {};
+        if (this.applyResets(parsed)) this.dirty = true;
         return parsed;
       }
     } catch {
@@ -58,6 +74,18 @@ export class Store {
     }
     console.warn(`ranking.json inválido ou de versão desconhecida, guardado em ${bad}. Começando com dados vazios.`);
     return emptyRankingData();
+  }
+
+  /** Aplica as limpezas pendentes; true se mudou algo (o arquivo precisa ser regravado). */
+  private applyResets(d: RankingData): boolean {
+    const done = Array.isArray(d.resets) ? d.resets : [];
+    const pending = RESETS.filter((r) => !done.includes(r.id));
+    for (const r of pending) {
+      r.apply(d);
+      console.log(`ranking: limpeza "${r.id}" aplicada`);
+    }
+    d.resets = [...done, ...pending.map((r) => r.id)];
+    return pending.length > 0;
   }
 
   /** Marca os dados como alterados; a gravação sai em até 2 s e junta chamadas seguidas. */

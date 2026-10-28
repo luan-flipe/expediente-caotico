@@ -125,3 +125,30 @@ describe("Store com arquivo ilegível", () => {
     expect((await fsp.readdir(root)).sort()).toEqual(["ranking.json"]);
   });
 });
+
+describe("Store: zerar recordes depois da física nova (PR 31)", () => {
+  it("apaga voltas, fantasmas e melhor volta uma única vez e mantém o resto", async () => {
+    const old = emptyRankingData();
+    old.accounts["g1"] = { email: "a@b.c", name: "Ana", since: 1 };
+    old.stats["g1"] = { shooterWins: 2, shooterMatches: 3, shooterKills: 9, raceWins: 1, racePodiums: 1, raceMatches: 2, bestLapMs: 25000 };
+    old.months["2026-10"] = { g1: 21 };
+    old.laps["corporativo"] = { g1: { ms: 25000, at: 1, ghost: [[0, 0, 0, 0]] } };
+    delete (old as Partial<typeof old>).resets;
+    await fsp.writeFile(join(root, "ranking.json"), JSON.stringify(old));
+
+    const a = new Store(root);
+    expect(a.data.laps).toEqual({});
+    expect(a.data.stats["g1"].bestLapMs).toBeNull();
+    expect(a.data.stats["g1"].shooterWins).toBe(2);
+    expect(a.data.months["2026-10"].g1).toBe(21);
+    expect(a.data.accounts["g1"].name).toBe("Ana");
+    await a.flush();
+
+    // depois de gravado, uma volta nova não é apagada no próximo início
+    a.data.laps["copa"] = { g1: { ms: 11000, at: 2, ghost: [] } };
+    a.save();
+    await a.flush();
+    const b = new Store(root);
+    expect(b.data.laps["copa"]["g1"].ms).toBe(11000);
+  });
+});

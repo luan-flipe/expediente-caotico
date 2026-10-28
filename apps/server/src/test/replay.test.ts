@@ -9,9 +9,10 @@ import { signSession } from "../auth";
 import { Store } from "../store";
 
 const SECRET = "segredo-de-teste";
+// amostras de 4 números (gravadas antes da altura) e de 5 (com y, no voo da rampa) no mesmo fantasma
 const ghost = (ms: number): GhostSample[] => [
   [0, 0, 0, 0],
-  [ms / 2, 5, 5, 1],
+  [ms / 2, 5, 5, 1, 1.5],
   [ms, 10, 0, 2],
 ];
 

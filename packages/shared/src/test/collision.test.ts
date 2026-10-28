@@ -35,6 +35,12 @@ describe("moveCircle", () => {
     const p = moveCircle({ x: 0, z: 0 }, 20, 0, r, [thin], bounds);
     expect(p.x).toBeLessThan(5);
   });
+
+  it("recuar após penetração ligeira não teleporta para o outro lado da parede", () => {
+    const p = moveCircle({ x: 3.501, z: 0 }, -0.0002, 0, r, [wall], bounds);
+    expect(p.x).toBeLessThan(3.501);
+    expect(p.x).toBeGreaterThan(3.0);
+  });
 });
 
 describe("segmentos", () => {

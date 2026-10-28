@@ -229,4 +229,41 @@ describe("itens", () => {
     expect(rs[1].item).toBe("postit");
     expect(rs[2].blindUntil).toBe(0);
   });
+
+  it("segurar item na traseira bloqueia projétil vindo de trás", () => {
+    const { race, rs } = setup(2);
+    // rs[1] está à frente de rs[0]
+    giveItem(rs[1], "resma");
+    rs[1].holdingItem = true;
+    giveItem(rs[0], "grampeador");
+    useItem(race, rs[0]); // dispara grampo para a frente em direção a rs[1]
+    tick(race, 500);
+    expect(rs[1].kart.spinUntil).toBe(0);
+    expect(rs[1].item).toBeNull(); // item segurado absorveu o dano e sumiu
+    expect(race.events.some((e) => e.type === "hit" && e.kind === "blocked" && e.id === "p1")).toBe(true);
+  });
+
+  it("acerto de obstáculo faz perder 3 xícaras de café", () => {
+    const { race, rs } = setup(2);
+    rs[1].kart.cups = 5;
+    giveItem(rs[0], "grampeador");
+    useItem(race, rs[0]);
+    tick(race, 500);
+    expect(rs[1].kart.spinUntil).toBeGreaterThan(0);
+    expect(rs[1].kart.cups).toBe(2);
+  });
+});
+
+describe("itens e altura", () => {
+  it("poça e resma não pegam quem está no ar; grampeador e avião pegam", () => {
+    for (const kind of ["poca", "resma", "grampo", "aviao"] as const) {
+      const { race, rs } = setup(2);
+      const t = rs[1];
+      t.kart = { ...t.kart, y: RACE.airHitHeight + 0.5, air: true, speed: 10 };
+      race.hazards = [{ id: 99, kind, pos: { ...t.kart.pos }, vel: { x: 0, z: 0 }, owner: rs[0].id, until: race.now + 5000, bornAt: 0, targetId: kind === "aviao" ? t.id : undefined }];
+      tick(race, DT);
+      const hit = race.events.some((e) => e.type === "hit" && e.id === t.id);
+      expect(hit, kind).toBe(kind === "grampo" || kind === "aviao");
+    }
+  });
 });

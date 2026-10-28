@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BALANCE } from "../data/balance";
+import { OFFICE_MAP } from "../data/map";
 import { castAbility, resolveAbility } from "../sim/abilities";
 import { applyDamage, applyStatus, hasStatus, speedMult } from "../sim/combat";
 import { stepMatch } from "../sim/match";
@@ -104,21 +105,33 @@ describe("habilidades", () => {
   });
 
   it("Choque do TI não atravessa parede", () => {
-    const { m, ps } = activeMatch(2);
-    give(ps[0], "A1");
-    ps[0].pos = { x: 5, z: -11 };
-    ps[1].pos = { x: 5, z: -5 };
-    castAbility(m, ps[0], 0, 0, 10);
-    expect(ps[1].hp).toBe(100);
+    const orig = OFFICE_MAP.boxes;
+    try {
+      OFFICE_MAP.boxes = [{ x: 5, z: -8, w: 10, d: 2, h: 3, kind: "wall" }];
+      const { m, ps } = activeMatch(2);
+      give(ps[0], "A1");
+      ps[0].pos = { x: 5, z: -11 };
+      ps[1].pos = { x: 5, z: -5 };
+      castAbility(m, ps[0], 0, 0, 10);
+      expect(ps[1].hp).toBe(100);
+    } finally {
+      OFFICE_MAP.boxes = orig;
+    }
   });
 
   it("projétil para na parede", () => {
-    const { m, ps } = activeMatch(2);
-    ps[0].pos = { x: 5, z: -11 };
-    ps[1].pos = { x: 5, z: -5 };
-    ps[0].input = { mx: 0, mz: 0, yaw: 0, fire: true };
-    for (let i = 0; i < 60; i++) stepMatch(m, 1000 / 30);
-    expect(ps[1].hp).toBe(100);
+    const orig = OFFICE_MAP.boxes;
+    try {
+      OFFICE_MAP.boxes = [{ x: 5, z: -8, w: 10, d: 2, h: 3, kind: "wall" }];
+      const { m, ps } = activeMatch(2);
+      ps[0].pos = { x: 5, z: -11 };
+      ps[1].pos = { x: 5, z: -5 };
+      ps[0].input = { mx: 0, mz: 0, yaw: 0, fire: true };
+      for (let i = 0; i < 60; i++) stepMatch(m, 1000 / 30);
+      expect(ps[1].hp).toBe(100);
+    } finally {
+      OFFICE_MAP.boxes = orig;
+    }
   });
 
   it("bolinha acerta em linha livre", () => {
@@ -129,13 +142,19 @@ describe("habilidades", () => {
   });
 
   it("teletransporte não termina dentro de caixa", () => {
-    const { m, ps } = activeMatch(1);
-    give(ps[0], "D3");
-    ps[0].pos = { x: 4, z: 3 };
-    castAbility(m, ps[0], 0, Math.PI, 5);
-    const p = ps[0].pos;
-    const inside = (bx: number, bz: number, w: number, d: number) =>
-      Math.abs(p.x - bx) < w / 2 + BALANCE.playerRadius && Math.abs(p.z - bz) < d / 2 + BALANCE.playerRadius;
-    expect(inside(4, -1, 4, 3)).toBe(false);
+    const orig = OFFICE_MAP.boxes;
+    try {
+      OFFICE_MAP.boxes = [{ x: 4, z: -1, w: 4, d: 3, h: 1, kind: "desk" }];
+      const { m, ps } = activeMatch(1);
+      give(ps[0], "D3");
+      ps[0].pos = { x: 4, z: 3 };
+      castAbility(m, ps[0], 0, Math.PI, 5);
+      const p = ps[0].pos;
+      const inside = (bx: number, bz: number, w: number, d: number) =>
+        Math.abs(p.x - bx) < w / 2 + BALANCE.playerRadius && Math.abs(p.z - bz) < d / 2 + BALANCE.playerRadius;
+      expect(inside(4, -1, 4, 3)).toBe(false);
+    } finally {
+      OFFICE_MAP.boxes = orig;
+    }
   });
 });

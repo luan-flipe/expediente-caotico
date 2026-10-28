@@ -1,7 +1,21 @@
 import { RACE_BOT } from "../botLevels";
 import { RACE } from "./balance";
-import { pointAt, sideNormal, turnAhead } from "./track";
+import { deltaS, pointAt, progressOf, routeAhead, sideNormal, turnAhead } from "./track";
 import type { RaceMatch, Racer } from "./types";
+
+/** Perto da boca de um atalho, o lado da principal (-1/+1) oposto a ele; 0 longe das bocas. */
+function awaySide(race: RaceMatch, s: number): number {
+  for (const br of race.track.branches) {
+    const span = deltaS(race.track, br.sFrom, br.sTo);
+    const into = deltaS(race.track, br.sFrom - 10, s);
+    if (into < 0 || into > 20) continue;
+    const mid = br.points[Math.floor(br.points.length / 2)];
+    const at = pointAt(race.track, br.sFrom + span / 2);
+    const n = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    return (mid.x - at.pos.x) * n.x + (mid.z - at.pos.z) * n.z > 0 ? -1 : 1;
+  }
+  return 0;
+}
 
 /** Piloto automático simples: segue a linha central com desvio, derrapa nas curvas e usa itens. */
 export function stepRaceBot(race: RaceMatch, r: Racer, dtMs: number): void {
@@ -14,18 +28,37 @@ export function stepRaceBot(race: RaceMatch, r: Racer, dtMs: number): void {
     b.nextLaneAt = race.now + 2500 + race.rng() * 3500;
   }
 
-  const ahead = pointAt(race.track, s + P.lookBase + Math.max(0, k.speed) * P.lookSpeed);
+  // bifurcação: sorteia uma vez a 20 m da boca e esquece depois de sair do atalho
+  race.track.branches.forEach((br, i) => {
+    const toMouth = deltaS(race.track, s, br.sFrom);
+    // atalho com vão: só quem chega rápido o bastante para atravessar
+    const gap = race.track.ramps.some((rp) => rp.path === i && rp.gap);
+    const fast = !gap || k.speed >= RACE.minLaunchSpeed + 6;
+    if (b.route === undefined && toMouth >= 0 && toMouth <= 20) b.route = fast && race.rng() < P.shortcutChance ? i : -1;
+    const past = deltaS(race.track, br.sTo, s);
+    if (b.route !== undefined && past > 0 && past < 30 && (k.path ?? -1) === -1) b.route = undefined;
+  });
+  const route = b.route ?? -1;
+  const pr = progressOf(race.track, k.pos, k.path);
+  const ahead = routeAhead(race.track, pr, route, P.lookBase + Math.max(0, k.speed) * P.lookSpeed);
   const n = sideNormal(Math.sin(ahead.heading), Math.cos(ahead.heading));
-  const lane = b.lane * (ahead.halfWidth - 1.5);
+  // perto da bifurcação: no atalho, pelo centro; na principal, um pouco para longe da boca do atalho
+  const away = route === -1 ? awaySide(race, pr.s) : 0;
+  const lane = b.route === undefined ? b.lane * (ahead.halfWidth - 1.5) : away * Math.min(1.5, ahead.halfWidth - 2);
   const tx = ahead.pos.x + n.x * lane;
   const tz = ahead.pos.z + n.z * lane;
   const want = Math.atan2(tx - k.pos.x, tz - k.pos.z);
   const diff = Math.atan2(Math.sin(want - k.heading), Math.cos(want - k.heading));
   const steer = Math.max(-1, Math.min(1, -diff * P.steerGain));
-  const turn = turnAhead(race.track, s + 3, 18);
+  const turnOn = (from: number, len: number) => {
+    const h0 = routeAhead(race.track, pr, route, from).heading;
+    const h1 = routeAhead(race.track, pr, route, from + len).heading;
+    return Math.atan2(Math.sin(h1 - h0), Math.cos(h1 - h0));
+  };
+  const turn = turnOn(3, 18);
 
   const drift = k.drifting
-    ? Math.abs(turnAhead(race.track, s, 10)) > 0.15 && k.driftMs < RACE.driftLevel2Ms + 150
+    ? Math.abs(turnOn(0.1, 10)) > 0.15 && k.driftMs < RACE.driftLevel2Ms + 150
     : Math.abs(turn) > 0.6 && k.speed > 10 && Math.abs(steer) > 0.35;
   const throttle = Math.abs(turn) > 1.3 && k.speed > 12 && !k.drifting ? P.cornerThrottle : P.throttleMax;
   r.input = { steer, throttle, drift };

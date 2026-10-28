@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHAIR, sanitizeChair } from "../race/chair";
-import { boxSpots, checkpoints, clampToTrack, gridSlots, inCarpet, pointAt, progressOf, TRACK } from "../race/track";
+import { RACE } from "../race/balance";
+import { boxSpots, branchPointAt, checkpoints, clampToTrack, deltaS, gridSlots, inCarpet, pointAt, progressOf, TRACK, TRACK_IDS, TRACKS } from "../race/track";
 
 describe("pista", () => {
   const n = TRACK.points.length;
@@ -78,6 +79,114 @@ describe("pista", () => {
       expect(inCarpet(TRACK, pr)).toBe(false);
     }
     expect(inCarpet(TRACK, progressOf(TRACK, pointAt(TRACK, TRACK.carpet[0].from + 3).pos))).toBe(false);
+  });
+});
+
+describe("atalhos", () => {
+  const T = TRACKS.corporativo;
+
+  function insideAny(p: { x: number; z: number }, r = 0): boolean {
+    return [-1, 0].some((path) => {
+      const pr = progressOf(T, p, path);
+      return pr.path === path && pr.dist <= pr.halfWidth - r;
+    });
+  }
+
+  it("atalho existe nas 3 pistas", () => {
+    for (const id of TRACK_IDS) expect(TRACKS[id].branches.length, id).toBe(1);
+  });
+
+  it("progresso no atalho vira s da principal", () => {
+    const b = T.branches[0];
+    const mid = b.points[Math.floor(b.points.length / 2)];
+    const pr = progressOf(T, mid, 0);
+    expect(pr.path).toBe(0);
+    expect(deltaS(T, b.sFrom, pr.s)).toBeGreaterThan(0);
+    expect(deltaS(T, pr.s, b.sTo)).toBeGreaterThan(0);
+  });
+
+  it("s cresce ao percorrer o atalho", () => {
+    for (const id of TRACK_IDS) {
+      const tr = TRACKS[id];
+      const b = tr.branches[0];
+      const span = deltaS(tr, b.sFrom, b.sTo);
+      let prev = progressOf(tr, branchPointAt(tr, 0, b.sFrom).pos, 0);
+      let path = 0;
+      for (let d = 1; d < b.length; d += 1) {
+        const pos = branchPointAt(tr, 0, b.sFrom + (d / b.length) * span).pos;
+        const pr = progressOf(tr, pos, path);
+        path = pr.path;
+        const step = deltaS(tr, prev.s, pr.s);
+        expect(step, `${id} em ${d} m`).toBeGreaterThan(0);
+        expect(step, `${id} em ${d} m`).toBeLessThan(RACE.maxProgressStep);
+        prev = pr;
+      }
+    }
+  });
+
+  it("boca da bifurcação respeita prefer, sem trocar de caminho nem de s parado no meio", () => {
+    for (const id of TRACK_IDS) {
+      const tr = TRACKS[id];
+      const s = tr.branches[0].sFrom + 2;
+      const a = pointAt(tr, s).pos;
+      const b = branchPointAt(tr, 0, s).pos;
+      // equidistante dos dois centros (bissecção entre os dois pontos)
+      const near = (p: { x: number; z: number }, path: number) => {
+        let d = Infinity;
+        for (let ds = -8; ds <= 8; ds += 0.05) {
+          const q = branchPointAt(tr, path, s + ds).pos;
+          d = Math.min(d, Math.hypot(q.x - p.x, q.z - p.z));
+        }
+        return d;
+      };
+      let lo = 0;
+      let hi = 1;
+      let pos = a;
+      for (let i = 0; i < 30; i++) {
+        const m = (lo + hi) / 2;
+        pos = { x: a.x + (b.x - a.x) * m, z: a.z + (b.z - a.z) * m };
+        if (near(pos, -1) < near(pos, 0)) lo = m;
+        else hi = m;
+      }
+      const onMain = progressOf(tr, pos, -1);
+      const onBranch = progressOf(tr, pos, 0);
+      expect(onMain.path, id).toBe(-1);
+      expect(onBranch.path, id).toBe(0);
+      expect(onBranch.s, id).toBeCloseTo(onMain.s, 6);
+      // clamp parado ali também não troca
+      expect(clampToTrack(tr, pos, 0.7, -1).progress.path, id).toBe(-1);
+      expect(clampToTrack(tr, pos, 0.7, 0).progress.path, id).toBe(0);
+    }
+  });
+
+  it("clamp fora dos corredores", () => {
+    const b = T.branches[0];
+    const mid = b.points[Math.floor(b.points.length / 2)];
+    const main = pointAt(T, b.sFrom + deltaS(T, b.sFrom, b.sTo) / 2).pos;
+    // ponto no infield entre o atalho e a principal, fora dos dois
+    let p = { x: (mid.x + main.x) / 2, z: (mid.z + main.z) / 2 };
+    for (let f = 0.45; f > 0.05 && insideAny(p); f -= 0.05) p = { x: mid.x + (main.x - mid.x) * f, z: mid.z + (main.z - mid.z) * f };
+    expect(insideAny(p)).toBe(false);
+    const c = clampToTrack(T, p, 0.7);
+    expect(c.hit).toBe(true);
+    expect(insideAny(c.pos, 0.7 - 1e-6)).toBe(true);
+  });
+
+  it("atalho não encosta no resto da pista", () => {
+    for (const id of TRACK_IDS) {
+      const tr = TRACKS[id];
+      const b = tr.branches[0];
+      const span = deltaS(tr, b.sFrom, b.sTo);
+      for (let i = 0; i < tr.points.length; i++) {
+        // perto das bocas a principal encosta no atalho por definição
+        const into = deltaS(tr, b.sFrom - 20, tr.cum[i]);
+        if (into >= 0 && into <= span + 40) continue;
+        for (let k = 0; k < b.points.length; k++) {
+          const d = Math.hypot(tr.points[i].x - b.points[k].x, tr.points[i].z - b.points[k].z);
+          expect(d, `${id}: ponto ${i} e atalho ${k}`).toBeGreaterThan(tr.widths[i] / 2 + b.widths[k] / 2 + 3);
+        }
+      }
+    }
   });
 });
 

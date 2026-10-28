@@ -4,6 +4,7 @@ import {
   BALANCE,
   OFFICE_MAP,
   dirOf,
+  getGroundHeight,
   moveCircle,
   resolveAbility,
   segmentBoxT,
@@ -17,11 +18,14 @@ import {
 import { ChatBubbles, chatText } from "../chatBubbles";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
+import { playShootSound, playZombieSound } from "../sound";
 import { getState, net, setState } from "../store";
+import { inputBlocked } from "../pause";
 import { IS_TOUCH, resetTouchInput, takeLook, touchInput } from "../touch";
-import { createCharacter, modelReady, type Character } from "./character";
+import { createCharacter, createZombieCharacter, modelReady, preloadZombie, zombieReady, type Character } from "./character";
 import { FxSystem } from "./fx";
 import { buildOffice } from "./officeScene";
+import { createDynamicSky, type DynamicSky } from "./sky";
 
 interface Sample {
   t: number;
@@ -89,7 +93,7 @@ function makeTag(name: string, hp: number, maxHp: number, shield: number): THREE
 export class Engine {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(70, 1, 0.1, 200);
+  private camera = new THREE.PerspectiveCamera(70, 1, 0.1, 400);
   private fx: FxSystem;
   private sun: THREE.DirectionalLight;
   private quality: Quality | null = null;
@@ -100,6 +104,7 @@ export class Engine {
   private objRing: THREE.Mesh;
   private objWall: THREE.Mesh;
   private snap: Snapshot | null = null;
+  private sky: DynamicSky;
   private snapAt = 0;
   private me: PrivateState | null = null;
   private avatars = new Map<string, AvatarDNA>();
@@ -109,6 +114,9 @@ export class Engine {
   private pitch = -0.08;
   private keys = new Set<string>();
   private firing = false;
+  private nextZombieAmbientSoundTime = 0;
+  /** Projéteis que já estavam no ar ao entrar na partida não tocam som todos de uma vez. */
+  private projectileSounds = false;
   private locked = false;
   private pred: Vec2 | null = null;
   private history: { t: number; x: number; z: number }[] = [];
@@ -121,6 +129,10 @@ export class Engine {
   private inputTimer: ReturnType<typeof setInterval>;
   private cleanup: (() => void)[] = [];
   private initialized = false;
+  private camPos = new THREE.Vector3();
+  private camLook = new THREE.Vector3();
+  private camReady = false;
+  private shake = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -131,16 +143,16 @@ export class Engine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
-    this.scene.background = new THREE.Color("#b9c4cf");
-    this.scene.fog = new THREE.Fog("#b9c4cf", 45, 95);
-    this.scene.add(new THREE.HemisphereLight("#ffffff", "#8a8070", 1.6));
-    const sun = new THREE.DirectionalLight("#fff3dd", 2.2);
-    sun.position.set(18, 30, 12);
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -38, right: 38, top: 28, bottom: -28, near: 1, far: 80 });
-    sun.shadow.bias = -0.0005;
-    this.scene.add(sun);
-    this.sun = sun;
+    this.sky = createDynamicSky(this.scene, {
+      sunPosition: new THREE.Vector3(18, 32, 14),
+      sunIntensity: 2.2,
+      cloudCoverage: 0.44,
+      cloudSpeed: 0.9,
+      groundSize: 220,
+      groundY: 0.02,
+    });
+    this.sun = this.sky.sunLight;
+    Object.assign(this.sun.shadow.camera, { left: -38, right: 38, top: 28, bottom: -28, near: 1, far: 80 });
 
     buildOffice(this.scene);
     this.fx = new FxSystem(this.scene);
@@ -220,7 +232,7 @@ export class Engine {
     });
     on<KeyboardEvent>("keydown", (e) => {
       // com as configurações ou o chat rápido abertos o teclado é deles, não do jogo
-      if (getState().settingsOpen || getState().chatOpen) return;
+      if (inputBlocked(getState())) return;
       const k = e.code;
       const map = getSettings().keys.shooter;
       if (!e.ctrlKey && !e.metaKey && !e.altKey && Object.values(map).includes(k)) e.preventDefault();
@@ -293,8 +305,10 @@ export class Engine {
 
   private sendInput(): void {
     if (!this.snap || this.snap.phase === "finished") return;
-    const mv = this.canAct() ? this.moveVector() : { x: 0, z: 0 };
-    const fire = (this.firing || this.keys.has(getSettings().keys.shooter.atirar)) && this.canAct();
+    // menu, configurações ou chat por cima: comando parado (nada de tecla presa andando ou atirando sozinha)
+    const act = this.canAct() && !inputBlocked(getState());
+    const mv = act ? this.moveVector() : { x: 0, z: 0 };
+    const fire = (this.firing || this.keys.has(getSettings().keys.shooter.atirar)) && act;
     net.send({ t: "input", mx: mv.x, mz: mv.z, yaw: this.aimYaw, fire });
   }
 
@@ -310,12 +324,13 @@ export class Engine {
       const v = this.viewFor(p);
       v.buf.push({ t: now, x: p.x, z: p.z, yaw: p.yaw });
       if (v.buf.length > 20) v.buf.shift();
-      const tagKey = `${p.name}|${p.hp}|${p.maxHp}|${p.shield}`;
+      const displayName = p.isZombie ? "ZUMBI" : p.name;
+      const tagKey = `${displayName}|${p.hp}|${p.maxHp}|${p.shield}`;
       if (tagKey !== v.tagKey) {
         v.char.root.remove(v.tag);
         (v.tag.material as THREE.SpriteMaterial).map?.dispose();
         v.tag.material.dispose();
-        v.tag = makeTag(p.name, p.hp, p.maxHp, p.shield);
+        v.tag = makeTag(displayName, p.hp, p.maxHp, p.shield);
         v.tag.position.y = 2.45;
         if (p.id !== this.myId) v.char.root.add(v.tag);
         v.tagKey = tagKey;
@@ -336,6 +351,7 @@ export class Engine {
     }
 
     const ids = new Set<number>();
+    const myPos = this.myView()?.char.root.position ?? this.camera.position;
     for (const pr of s.projectiles) {
       ids.add(pr.id);
       if (!this.projectiles.has(pr.id)) {
@@ -344,9 +360,17 @@ export class Engine {
         this.scene.add(m);
         this.projectiles.set(pr.id, m);
         if (pr.kind === "ball") this.views.get(pr.owner)?.char.play("throw");
+        if (this.projectileSounds) playShootSound({
+          x: pr.x,
+          z: pr.z,
+          listenerX: myPos.x,
+          listenerZ: myPos.z,
+          isLocal: pr.owner === this.myId,
+        });
       }
       this.projectiles.get(pr.id)!.userData = pr;
     }
+    this.projectileSounds = true;
     for (const [id, m] of this.projectiles) {
       if (ids.has(id)) continue;
       this.scene.remove(m);
@@ -384,8 +408,52 @@ export class Engine {
     for (const e of s.events) {
       this.fx.handle(e, this.myId);
       if (e.type === "fx" && e.kind === "B1" && e.owner) this.views.get(e.owner)?.char.play("cafe");
-      if (e.type === "hit" && e.from === this.myId) this.onUi("hit");
-      if (e.type === "hit" && e.target === this.myId) this.onUi("hurt");
+      if (e.type === "hit") {
+        const fromZombie = !!(e.from && (e.from.startsWith("zombie") || s.players.find((p) => p.id === e.from)?.isZombie));
+        if (fromZombie) {
+          playZombieSound({
+            x: e.x,
+            z: e.z,
+            listenerX: myPos.x,
+            listenerZ: myPos.z,
+            volume: 1.0,
+          });
+        }
+        if (e.from === this.myId) this.onUi("hit");
+        if (e.target === this.myId) {
+          this.shake = Math.min(1, this.shake + 0.35);
+          this.onUi("hurt");
+        }
+      }
+    }
+
+    // Grunhidos periódicos espaçados dos zumbis vivos na partida
+    const aliveZombies = s.players.filter((p) => (p.isZombie || p.id.startsWith("zombie")) && p.alive);
+    if (aliveZombies.length > 0 && s.phase === "active") {
+      const now = performance.now();
+      if (this.nextZombieAmbientSoundTime === 0) {
+        this.nextZombieAmbientSoundTime = now + 2500 + Math.random() * 2000;
+      } else if (now >= this.nextZombieAmbientSoundTime) {
+        let closestDist = Infinity;
+        let closest = aliveZombies[0];
+        for (const z of aliveZombies) {
+          const d = Math.hypot(z.x - myPos.x, z.z - myPos.z);
+          if (d < closestDist) {
+            closestDist = d;
+            closest = z;
+          }
+        }
+        playZombieSound({
+          x: closest.x,
+          z: closest.z,
+          listenerX: myPos.x,
+          listenerZ: myPos.z,
+          volume: 0.6,
+        });
+        this.nextZombieAmbientSoundTime = now + 4500 + Math.random() * 4000;
+      }
+    } else {
+      this.nextZombieAmbientSoundTime = 0;
     }
   }
 
@@ -414,12 +482,20 @@ export class Engine {
   }
 
   private viewFor(p: PublicPlayer): View {
+    const isZombie = !!(p.isZombie || p.id.startsWith("zombie"));
+    // o modelo do zumbi só baixa agora; até chegar, o zumbi aparece na versão procedural e troca sozinho
+    if (isZombie && !zombieReady()) void preloadZombie();
     const dna = this.avatars.get(p.id);
-    const key = (dna ? JSON.stringify(dna) : p.name) + (modelReady() ? "|glb" : "");
+    const key = isZombie
+      ? "zombie|" + (zombieReady() ? "fbx" : "procedural")
+      : (dna ? JSON.stringify(dna) : p.name) + (modelReady() ? "|glb" : "");
+
     let v = this.views.get(p.id);
     if (v && v.avatarKey === key) return v;
     if (v) this.dropView(v);
-    const char = createCharacter(dna ?? { name: p.name, model: 0, skin: 1, hair: 1, hairColor: 0, eyes: 0, beard: 0, beardColor: 0, glasses: 0, top: 0, bottom: 0, shirt: 0, pants: 0, shoes: 2, accessory: 0, height: 1 });
+    const char = isZombie
+      ? createZombieCharacter()
+      : createCharacter(dna ?? { name: p.name, model: 0, skin: 1, hair: 1, hairColor: 0, eyes: 0, beard: 0, beardColor: 0, glasses: 0, top: 0, bottom: 0, shirt: 0, pants: 0, shoes: 2, accessory: 0, height: 1 });
     const bubble = new THREE.Mesh(new THREE.SphereGeometry(1.05, 20, 14), new THREE.MeshBasicMaterial({ color: "#8f9cff", transparent: true, opacity: 0.22, depthWrite: false }));
     bubble.position.y = 1;
     const stars = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.05, 6, 12), new THREE.MeshBasicMaterial({ color: "#ffe14d" }));
@@ -429,7 +505,9 @@ export class Engine {
     slowRing.rotation.x = -Math.PI / 2;
     slowRing.position.y = 0.05;
     char.root.add(bubble, stars, slowRing);
-    const tag = makeTag(p.name, p.hp, p.maxHp, p.shield);
+
+    const displayName = isZombie ? "ZUMBI" : p.name;
+    const tag = makeTag(displayName, p.hp, p.maxHp, p.shield);
     tag.position.y = 2.45;
     if (p.id !== this.myId) char.root.add(tag);
     this.scene.add(char.root);
@@ -536,7 +614,7 @@ export class Engine {
       while (this.history.length && now - this.history[0].t > 1000) this.history.shift();
     }
 
-    // jogadores
+    // jogadores e zumbis
     const rt = now - INTERP_MS;
     for (const [id, v] of this.views) {
       const p = v.last;
@@ -565,7 +643,8 @@ export class Engine {
       }
       const prev = v.char.root.position;
       const moved = Math.hypot(x - prev.x, z - prev.z) / Math.max(dt, 0.001);
-      v.char.root.position.set(x, 0, z);
+      const groundY = getGroundHeight(x, z);
+      v.char.root.position.set(x, groundY, z);
       v.char.root.rotation.y = yaw;
       v.char.root.visible = p.alive && !(p.flags.includes("invuln") && !p.flags.includes("dodge") && !p.flags.includes("dash") && Math.floor(now / 90) % 2 === 0);
       const dashing = p.flags.includes("dodge") || p.flags.includes("dash");
@@ -578,45 +657,73 @@ export class Engine {
       v.slowRing.visible = p.flags.includes("slow");
     }
 
-    // projéteis extrapolados a partir do último snapshot
+    // projéteis extrapolados a partir do último snapshot com acompanhamento de altura
     const since = (now - this.snapAt) / 1000;
     for (const m of this.projectiles.values()) {
       const pr = m.userData as Snapshot["projectiles"][number];
-      m.position.set(pr.x + pr.vx * since, BALANCE.shotHeight, pr.z + pr.vz * since);
+      const curX = pr.x + pr.vx * since;
+      const curZ = pr.z + pr.vz * since;
+      const curY = BALANCE.shotHeight + getGroundHeight(curX, curZ);
+      m.position.set(curX, curY, curZ);
       if (pr.kind === "ball" || pr.kind === "B3") m.rotation.x += dt * 12;
     }
     for (const z of this.zones.values()) z.scale.setScalar(1 + Math.sin(now / 160) * 0.03);
     this.objWall.rotation.y += dt * 0.3;
 
     this.fx.update(dt);
-    this.updateCamera();
+
+    this.updateCamera(dt);
+    this.sky.update(dt, this.camera.position);
   }
 
-  private updateCamera(): void {
+  private updateCamera(dt: number): void {
     const me = this.myView();
     const base = me ? me.char.root.position : new THREE.Vector3(0, 0, 0);
     const cp = Math.cos(this.pitch);
     const fwd = new THREE.Vector3(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
     const right = new THREE.Vector3(-Math.cos(this.yaw), 0, Math.sin(this.yaw));
-    const head = new THREE.Vector3(base.x, HEAD_Y, base.z);
+    const head = new THREE.Vector3(base.x, base.y + HEAD_Y, base.z);
     const offset = fwd.clone().multiplyScalar(-CAM_DIST).addScaledVector(right, CAM_SIDE).add(new THREE.Vector3(0, 0.6, 0));
     const want = head.clone().add(offset);
     const t = segmentBoxT({ x: head.x, z: head.z }, { x: want.x, z: want.z }, OFFICE_MAP.boxes, 0.25, 2);
     if (t !== null) want.copy(head).addScaledVector(offset, Math.max(0.15, t * 0.9));
-    want.y = Math.max(0.5, want.y);
-    this.camera.position.copy(want);
-    this.camera.lookAt(want.clone().add(fwd));
+    want.y = Math.max(base.y + 0.5, want.y);
 
-    // mira: raio da retícula até a altura do tiro ou até um adversário
+    const targetLook = want.clone().add(fwd);
+    if (!this.camReady) {
+      this.camPos.copy(want);
+      this.camLook.copy(targetLook);
+      this.camReady = true;
+    } else {
+      const kPos = 1 - Math.exp(-dt * 14);
+      const kLook = 1 - Math.exp(-dt * 20);
+      this.camPos.lerp(want, kPos);
+      this.camLook.lerp(targetLook, kLook);
+    }
+
+    this.shake = Math.max(0, this.shake - dt * 4);
+    if (this.shake > 0.005) {
+      const sh = this.shake * 0.14;
+      this.camera.position.set(
+        this.camPos.x + (Math.random() - 0.5) * sh,
+        this.camPos.y + (Math.random() - 0.5) * sh,
+        this.camPos.z + (Math.random() - 0.5) * sh,
+      );
+    } else {
+      this.camera.position.copy(this.camPos);
+    }
+    this.camera.lookAt(this.camLook);
+
+    // mira: raio da retícula até a altura do tiro ou até um adversário/zumbi
     let dist = 60;
-    if (fwd.y < -0.02) dist = Math.min(dist, (BALANCE.shotHeight - want.y) / fwd.y);
+    if (fwd.y < -0.02) dist = Math.min(dist, (base.y + BALANCE.shotHeight - want.y) / fwd.y);
     for (const [id, v] of this.views) {
       if (id === this.myId || !v.last.alive) continue;
-      const c = new THREE.Vector3(v.char.root.position.x, 1.1, v.char.root.position.z);
+      const c = new THREE.Vector3(v.char.root.position.x, v.char.root.position.y + 1.1, v.char.root.position.z);
       const along = c.clone().sub(want).dot(fwd);
       if (along <= 0 || along > dist) continue;
       const closest = want.clone().addScaledVector(fwd, along);
-      if (Math.hypot(closest.x - c.x, closest.z - c.z) < 0.55 && Math.abs(closest.y - c.y) < 1.1) dist = along;
+      if (Math.hypot(closest.x - c.x, closest.z - c.z) < 0.65 && Math.abs(closest.y - c.y) < 1.3) dist = along;
     }
     const point = want.clone().addScaledVector(fwd, dist);
     const px = point.x - base.x;
@@ -633,7 +740,6 @@ export class Engine {
     resetTouchInput();
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.chat.dispose();
-    // bonecos saem da cena antes da limpeza geral: a geometria do GLB é compartilhada e não pode ser liberada
     for (const v of this.views.values()) this.dropView(v);
     this.views.clear();
     this.fx.dispose();
@@ -646,12 +752,15 @@ export class Engine {
         x.dispose();
       }
     });
-    // projéteis compartilham geometria e material por tipo e podem não estar na cena neste instante
     for (const [geo, mat] of this.projectileParts.values()) {
       geo.dispose();
       mat.dispose();
     }
     this.projectileParts.clear();
     this.renderer.dispose();
+  }
+
+  destroy(): void {
+    this.dispose();
   }
 }

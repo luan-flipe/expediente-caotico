@@ -31,6 +31,8 @@ function oldFile() {
     months: {},
     laps: { corporativo: { "g-ana": { ms: 31000, at: 1, ghost: ghost(31000) } } },
     challenges: { "2026-10-12": { "g-ana": { shooterMatches: 0, shooterWins: 0, shooterKills: 0, bestKills: 0, raceMatches: 3, raceFinished: 3, raceWins: 1, racePodiums: 2, bestLapMs: 31000, doneAt: null } } },
+    // a limpeza de recordes do PR 31 já rodou: aqui o teste é só sobre as pistas
+    resets: ["voltas-pr31"],
   };
 }
 

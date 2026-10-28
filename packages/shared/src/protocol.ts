@@ -8,6 +8,7 @@ import type { GhostSample } from "./ranking/types";
 import type { AvatarDNA, PrivateState, ResultRow, Snapshot } from "./types";
 
 export type GameMode = "shooter" | "race" | "timetrial";
+export type ShooterSubmode = "pvp" | "zombies";
 
 /** Chat rápido: só índices, nunca texto livre. Frases e emotes ficam aqui para cliente e servidor concordarem. */
 export const CHAT_PHRASES = ["Café!", "Foi sem querer", "Rematch?", "Boa!", "Corre!", "Volto já", "GG", "Isso é RH"] as const;
@@ -33,6 +34,7 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("ready"), ready: z.boolean() }),
   z.object({ t: z.literal("avatar"), avatar, chair }),
   z.object({ t: z.literal("mode"), mode: z.enum(["shooter", "race", "timetrial"]) }),
+  z.object({ t: z.literal("shooterSubmode"), submode: z.enum(["pvp", "zombies"]) }),
   z.object({ t: z.literal("addBot") }),
   z.object({ t: z.literal("removeBot") }),
   z.object({ t: z.literal("duration"), ms: z.union([z.literal(180000), z.literal(300000), z.literal(600000)]) }),
@@ -56,8 +58,8 @@ export const ClientMsg = z.discriminatedUnion("t", [
     dist: num.min(0).max(100).optional(),
   }),
   z.object({ t: z.literal("evolve"), optionId: z.string().max(32), seq: z.number().int().min(0) }),
-  z.object({ t: z.literal("kinput"), steer: unit, throttle: unit, drift: z.boolean(), seq: z.number().int().min(1).max(2 ** 31) }),
-  z.object({ t: z.literal("kitem") }),
+  z.object({ t: z.literal("kinput"), steer: unit, throttle: unit, drift: z.boolean(), seq: z.number().int().min(1).max(2 ** 31), itemHold: z.boolean().optional() }),
+  z.object({ t: z.literal("kitem"), release: z.boolean().optional() }),
   z.object({ t: z.literal("krespawn") }),
   /** Só o anfitrião, só no contra o relógio: encerra o treino. */
   z.object({ t: z.literal("endTraining") }),
@@ -89,6 +91,7 @@ export interface LobbyState {
   hostId: string;
   phase: "lobby" | "match" | "results";
   mode: GameMode;
+  shooterSubmode?: ShooterSubmode;
   durationMs: number;
   options: RoomOptions;
   players: LobbyPlayer[];

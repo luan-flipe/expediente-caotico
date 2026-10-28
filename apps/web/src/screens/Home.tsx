@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AvatarPreview } from "../game/AvatarPreview";
 import { loadConfig, loadGoogle, login, loginSession } from "../net/session";
 import { ChallengeCard, useChallenge } from "./ChallengeCard";
+import { instalar, useInstalavel } from "../pwa/registrar";
 import { keyLabel, useSettings } from "../settings";
 import { net, saveAvatar, setAccount, setState, useStore } from "../store";
 
@@ -39,6 +40,7 @@ export function Home() {
   const account = useStore((s) => s.account);
   const keys = useSettings().keys.shooter;
   const challenge = useChallenge();
+  const instalavel = useInstalavel();
   const [code, setCode] = useState(() => new URLSearchParams(location.search).get("sala")?.toUpperCase() ?? "");
   const [name, setName] = useState(avatar.name);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -140,6 +142,11 @@ export function Home() {
                   Ver ranking
                 </button>
                 {account && (
+                  <button className="btn" onClick={() => setState({ perfil: "eu" })}>
+                    Meu perfil
+                  </button>
+                )}
+                {account && (
                   <button className="btn" onClick={() => setAccount(null)}>
                     Sair da conta
                   </button>
@@ -159,13 +166,18 @@ export function Home() {
             <p className="label">Controles</p>
             <p className="muted" style={{ margin: 0, lineHeight: 1.6 }}>
               {[keys.frente, keys.esquerda, keys.tras, keys.direita].map(keyLabel).join(" ")} anda · mouse mira · clique atira · {[keys.habilidade1, keys.habilidade2, keys.habilidade3].map(keyLabel).join(" ")} habilidades · {keyLabel(keys.esquiva)} esquiva ·{" "}
-              {[keys.evolucao1, keys.evolucao2, keys.evolucao3].map(keyLabel).join(" ")} escolhem evolução · {keyLabel(keys.placar)} placar · Esc solta o mouse e abre as configurações
+              {[keys.evolucao1, keys.evolucao2, keys.evolucao3].map(keyLabel).join(" ")} escolhem evolução · {keyLabel(keys.placar)} placar · Esc pausa (solta o mouse e abre o menu)
             </p>
           </div>
           <div className="row">
             <button className="btn" onClick={() => setState({ settingsOpen: true })}>
               Configurações
             </button>
+            {instalavel && (
+              <button className="btn" onClick={() => void instalar()}>
+                Instalar o jogo
+              </button>
+            )}
           </div>
         </div>
         <div className="card">
