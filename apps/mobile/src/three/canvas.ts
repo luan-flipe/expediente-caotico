@@ -23,28 +23,41 @@ export async function preloadTypefaces(): Promise<void> {
   fonts.clear();
 }
 
-/** Fonte a partir da sintaxe CSS usada no código da web ("800 30px 'Bricolage Grotesque', sans-serif"). */
+function systemFont(size: number, kind: "mono" | "emoji" | "sans"): SkFont {
+  const family =
+    kind === "emoji"
+      ? Platform.select({ ios: "Apple Color Emoji", android: "Noto Color Emoji", default: "sans-serif" })
+      : kind === "mono"
+        ? Platform.select({ ios: "Menlo", default: "monospace" })
+        : Platform.select({ ios: "Helvetica", default: "sans-serif" });
+  try {
+    return matchFont({ fontFamily: family, fontSize: size, fontWeight: kind === "emoji" ? "normal" : "bold" });
+  } catch {
+    return matchFont({ fontSize: size });
+  }
+}
+
+/** Fonte a partir da sintaxe CSS usada no código da web ("800 30px 'Bricolage Grotesque', sans-serif" ou "56px emoji"). */
 function fontFor(spec: string): SkFont {
   const size = Number(/(\d+(?:\.\d+)?)px/.exec(spec)?.[1] ?? 16);
-  const isMono = /mono/i.test(spec);
-  const key = `${isMono ? "m" : "d"}${size}`;
+  const isEmoji = /emoji/i.test(spec);
+  const isMono = !isEmoji && /mono/i.test(spec);
+  const key = `${isEmoji ? "e" : isMono ? "m" : "d"}${size}`;
   let font = fonts.get(key);
   if (!font) {
-    const face = isMono ? mono : display;
-    font = face
-      ? Skia.Font(face, size)
-      : matchFont({
-          fontFamily: Platform.select({ ios: isMono ? "Menlo" : "Helvetica", default: isMono ? "monospace" : "sans-serif" }),
-          fontSize: size,
-          fontWeight: "bold",
-        });
+    if (isEmoji) {
+      font = systemFont(size, "emoji");
+    } else {
+      const face = isMono ? mono : display;
+      font = face ? Skia.Font(face, size) : systemFont(size, isMono ? "mono" : "sans");
+    }
     fonts.set(key, font);
   }
   return font;
 }
 
 /**
- * Subconjunto do CanvasRenderingContext2D usado pelos letreiros do jogo, desenhado com Skia
+ * Subconjunto do CanvasRenderingContext2D usado pelos letreiros e texturas do jogo, desenhado com Skia
  * numa superfície em memória. `texture()` devolve a imagem como DataTexture do three e libera a superfície nativa.
  */
 export class Canvas2D {
@@ -68,13 +81,13 @@ export class Canvas2D {
     this.canvas.clear(Skia.Color("transparent"));
   }
 
-  private paint(color: string, stroke: boolean) {
+  private paint(color: string, stroke: boolean, strokeWidth = this.lineWidth) {
     const p = Skia.Paint();
     p.setColor(Skia.Color(color));
     p.setAntiAlias(true);
     if (stroke) {
       p.setStyle(PaintStyle.Stroke);
-      p.setStrokeWidth(this.lineWidth);
+      p.setStrokeWidth(strokeWidth);
       p.setStrokeJoin(StrokeJoin.Round);
     }
     return p;
@@ -92,23 +105,81 @@ export class Canvas2D {
     p.dispose();
   }
 
-  private text(text: string, x: number, y: number, color: string, stroke: boolean): void {
-    const font = fontFor(this.font);
-    const w = font.measureText(text).width;
-    const ax = this.textAlign === "center" ? x - w / 2 : this.textAlign === "right" ? x - w : x;
-    const m = font.getMetrics();
-    const ay = this.textBaseline === "middle" ? y - (m.ascent + m.descent) / 2 : y;
-    const p = this.paint(color, stroke);
-    this.canvas.drawText(text, ax, ay, p, font);
+  fillRoundRect(x: number, y: number, w: number, h: number, r: number): void {
+    const p = this.paint(this.fillStyle, false);
+    this.canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(x, y, w, h), r, r), p);
     p.dispose();
   }
 
-  fillText(text: string, x: number, y: number): void {
-    this.text(text, x, y, this.fillStyle, false);
+  strokeRoundRect(x: number, y: number, w: number, h: number, r: number): void {
+    const p = this.paint(this.strokeStyle, true);
+    this.canvas.drawRRect(Skia.RRectXY(Skia.XYWHRect(x, y, w, h), r, r), p);
+    p.dispose();
   }
 
-  strokeText(text: string, x: number, y: number): void {
-    this.text(text, x, y, this.strokeStyle, true);
+  fillCircle(cx: number, cy: number, r: number): void {
+    const p = this.paint(this.fillStyle, false);
+    this.canvas.drawCircle(cx, cy, r, p);
+    p.dispose();
+  }
+
+  drawLine(x1: number, y1: number, x2: number, y2: number): void {
+    const p = this.paint(this.strokeStyle, true);
+    this.canvas.drawLine(x1, y1, x2, y2, p);
+    p.dispose();
+  }
+
+  /** Desenha um balão de fala arredondado com rabinho inferior e borda contínua sem costura interna. */
+  speechBubble(x: number, y: number, w: number, h: number, r: number, tailX: number, tailTipY: number, tailHalfW: number): void {
+    const rrect = Skia.RRectXY(Skia.XYWHRect(x, y, w, h), r, r);
+    const pb = Skia.PathBuilder.Make();
+    pb.moveTo(tailX - tailHalfW, y + h - 4);
+    pb.lineTo(tailX, tailTipY);
+    pb.lineTo(tailX + tailHalfW, y + h - 4);
+    pb.close();
+    const tail = pb.build();
+    pb.dispose();
+
+    // Contorno primeiro com largura dobrada (a metade interna é coberta pelo preenchimento logo em seguida)
+    const sp = this.paint(this.strokeStyle, true, this.lineWidth * 2);
+    this.canvas.drawRRect(rrect, sp);
+    this.canvas.drawPath(tail, sp);
+    sp.dispose();
+
+    const fp = this.paint(this.fillStyle, false);
+    this.canvas.drawRRect(rrect, fp);
+    this.canvas.drawPath(tail, fp);
+    fp.dispose();
+    tail.dispose();
+  }
+
+  private text(text: string, x: number, y: number, color: string, stroke: boolean, maxWidth?: number): void {
+    const font = fontFor(this.font);
+    const w = font.measureText(text).width;
+    const scaleX = maxWidth && w > maxWidth ? maxWidth / w : 1;
+    const drawW = w * scaleX;
+    const ax = this.textAlign === "center" ? x - drawW / 2 : this.textAlign === "right" ? x - drawW : x;
+    const m = font.getMetrics();
+    const ay = this.textBaseline === "middle" ? y - (m.ascent + m.descent) / 2 : y;
+    const p = this.paint(color, stroke);
+    if (scaleX < 1) {
+      this.canvas.save();
+      this.canvas.translate(ax, ay);
+      this.canvas.scale(scaleX, 1);
+      this.canvas.drawText(text, 0, 0, p, font);
+      this.canvas.restore();
+    } else {
+      this.canvas.drawText(text, ax, ay, p, font);
+    }
+    p.dispose();
+  }
+
+  fillText(text: string, x: number, y: number, maxWidth?: number): void {
+    this.text(text, x, y, this.fillStyle, false, maxWidth);
+  }
+
+  strokeText(text: string, x: number, y: number, maxWidth?: number): void {
+    this.text(text, x, y, this.strokeStyle, true, maxWidth);
   }
 
   /** Pixels RGBA de cima para baixo; libera a superfície nativa após a leitura. */

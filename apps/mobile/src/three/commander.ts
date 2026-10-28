@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { createAudioPlayer, type AudioPlayer } from "expo-audio";
-import { pointAt, RACE, TRACK } from "@ec/shared";
+import { pointAt, RACE, type Track } from "@ec/shared";
+import { effectiveEffectsGain } from "../sound";
 import { COMANDANTE_GLB, HELICOPTERO_SOM } from "./assets";
 import { loadGLB } from "./loaders";
 import { Canvas2D } from "./canvas";
@@ -80,7 +81,7 @@ export interface Commander {
 }
 
 /** null se o GLB não carregou: a corrida funciona sem o Comandante. Com withSound, o helicóptero faz barulho. */
-export function createCommander(withSound = false): Commander | null {
+export function createCommander(track: Track, withSound = false): Commander | null {
   if (!loaded) return null;
   const root = new THREE.Group();
   let muted = false;
@@ -103,7 +104,7 @@ export function createCommander(withSound = false): Commander | null {
     if (!audio) return;
     const d = ear ? root.position.distanceTo(ear) : SOUND_FAR;
     const k = d <= SOUND_NEAR ? 1 : Math.max(0, 1 - (d - SOUND_NEAR) / (SOUND_FAR - SOUND_NEAR));
-    audio.volume = muted ? 0 : 0.6 * k;
+    audio.volume = muted ? 0 : 0.6 * k * effectiveEffectsGain();
     // o expo-audio não tem trecho de loop: volta para o começo do som contínuo antes do corte do arquivo
     loopCheck += dt;
     if (loopCheck > 0.1) {
@@ -112,7 +113,7 @@ export function createCommander(withSound = false): Commander | null {
     }
   };
   const heli = loaded.scene.clone(true);
-  heli.traverse((o) => (o.castShadow = (o as THREE.Mesh).isMesh === true));
+  // sem sombra no celular: são 130 peças, e cada uma seria desenhada de novo no mapa de sombra a cada quadro
   root.add(heli);
   const mixer = new THREE.AnimationMixer(heli);
   if (loaded.rotor) {
@@ -130,7 +131,6 @@ export function createCommander(withSound = false): Commander | null {
   const bannerMat = new THREE.MeshStandardMaterial({ map: tex });
   const banner = new THREE.Group();
   banner.position.set(0, 1.2, -8.2);
-  // tecido dividido em faixas para ondular; cada face sabe qual ponta está presa na corda
   const faces = [
     { ry: Math.PI / 2, attach: -1, side: 1 },
     { ry: -Math.PI / 2, attach: 1, side: -1 },
@@ -150,18 +150,13 @@ export function createCommander(withSound = false): Commander | null {
   rope.rotation.x = Math.PI / 2 - 0.3;
   root.add(rope);
 
-  /**
-   * Onda que corre da ponta presa até a solta, crescendo no caminho, mais um leve sobe e desce.
-   * As duas faces recebem o mesmo deslocamento no mundo (a de trás está girada meia volta).
-   */
   const flutter = (time: number) => {
     for (const f of faces) {
       const pos = f.geo.attributes.position;
       for (let i = 0; i < pos.count; i++) {
         const x = f.base[i * 3];
         const y = f.base[i * 3 + 1];
-        // 0 na corda, 1 na ponta solta; o Float32 da borda dá -0,00000005 e Math.pow de negativo é NaN
-        const e = Math.max(0, (BANNER_W / 2 - f.attach * x) / BANNER_W);
+        const e = Math.min(1, Math.max(0, (BANNER_W / 2 - f.attach * x) / BANNER_W));
         const amp = 0.08 + 0.42 * Math.pow(e, 1.4);
         const wave = Math.sin(e * Math.PI * 2.6 - time * 7.5) * amp;
         const ripple = Math.sin(e * Math.PI * 5 - time * 11 + y * 2) * 0.06 * e;
@@ -187,19 +182,17 @@ export function createCommander(withSound = false): Commander | null {
         s = (raceMs / 1000) * FLY_SPEED;
         y = FLY_HEIGHT;
       } else {
-        // abertura: desce pela reta final e para sobre a linha de chegada, virado para o grid
         const u = Math.min(1, introMs / RACE.introMs);
         const ease = 1 - Math.pow(1 - u, 3);
         s = -INTRO_DIST * (1 - ease);
         y = HOVER_HEIGHT + 4 * (1 - ease);
         faceGrid = u > 0.45;
       }
-      const at = pointAt(TRACK, s);
+      const at = pointAt(track, s);
       root.position.set(at.pos.x, y + Math.sin(t * 1.8) * 0.2, at.pos.z);
       const facing = faceGrid ? at.heading + Math.PI : at.heading;
       root.rotation.y = placed ? angleTo(root.rotation.y, facing, dt * 2) : facing;
       placed = true;
-      // inclina para a frente em voo, como helicóptero de verdade
       heli.rotation.x = raceMs !== null || !faceGrid ? 0.12 : 0;
       heli.rotation.z = Math.sin(t * 1.1) * 0.04;
       banner.rotation.z = Math.sin(t * 2.3) * 0.04;
@@ -215,7 +208,6 @@ export function createCommander(withSound = false): Commander | null {
       else audio.pause();
     },
     dispose() {
-      // geometria e materiais do GLB são compartilhados entre clones; só as peças desta cena saem
       audio?.release();
       mixer.stopAllAction();
       for (const o of [...faces.map((f) => f.geo), bannerMat, tex, ropeGeo, ropeMat, tag.material, (tag.material as THREE.SpriteMaterial).map!]) o.dispose();

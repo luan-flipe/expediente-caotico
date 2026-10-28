@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { AvatarPreview } from "../game/AvatarPreview";
-import { loadConfig, loadGoogle, login, loginSession } from "../net/session";
+import { loadConfig, loadGoogle, login, loginSession, type Account } from "../net/session";
 import { ChallengeCard, useChallenge } from "./ChallengeCard";
 import { instalar, useInstalavel } from "../pwa/registrar";
 import { keyLabel, useSettings } from "../settings";
 import { net, saveAvatar, setAccount, setState, useStore } from "../store";
 
+function appReturnUrl(acc: Account): string {
+  return `expedientecaotico://?conta=${encodeURIComponent(acc.session)}&nome=${encodeURIComponent(acc.name)}`;
+}
+
 /** Botão oficial do Google; só existe com client id no servidor e sem conta logada. */
-function GoogleButton({ clientId }: { clientId: string }) {
+function GoogleButton({ clientId, forApp }: { clientId: string; forApp: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let alive = true;
@@ -19,7 +23,10 @@ function GoogleButton({ clientId }: { clientId: string }) {
           callback: (r) => {
             if (!r.credential) return;
             login(r.credential)
-              .then((acc) => setAccount(acc))
+              .then((acc) => {
+                setAccount(acc);
+                if (forApp) window.location.href = appReturnUrl(acc);
+              })
               .catch((e: Error) => setState({ error: e.message }));
           },
         });
@@ -29,7 +36,7 @@ function GoogleButton({ clientId }: { clientId: string }) {
     return () => {
       alive = false;
     };
-  }, [clientId]);
+  }, [clientId, forApp]);
   return <div ref={ref} style={{ minHeight: 44 }} />;
 }
 
@@ -42,6 +49,7 @@ export function Home() {
   const challenge = useChallenge();
   const instalavel = useInstalavel();
   const [code, setCode] = useState(() => new URLSearchParams(location.search).get("sala")?.toUpperCase() ?? "");
+  const [forApp] = useState(() => new URLSearchParams(location.search).get("app") === "1");
   const [name, setName] = useState(avatar.name);
   const [clientId, setClientId] = useState<string | null>(null);
 
@@ -136,7 +144,12 @@ export function Home() {
                   </p>
                 )}
               </div>
-              {!account && clientId && <GoogleButton clientId={clientId} />}
+              {!account && clientId && <GoogleButton clientId={clientId} forApp={forApp} />}
+              {forApp && account && (
+                <a className="btn primary" href={appReturnUrl(account)}>
+                  Continuar no aplicativo como {account.name}
+                </a>
+              )}
               <div className="row">
                 <button className="btn" onClick={() => setState({ ranking: true })}>
                   Ver ranking

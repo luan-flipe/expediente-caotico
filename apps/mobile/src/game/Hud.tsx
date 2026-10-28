@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useMemo, type RefObject } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Canvas, Path, RadialGradient, Rect, Skia, vec } from "@shopify/react-native-skia";
 import { LinearGradient } from "expo-linear-gradient";
@@ -6,8 +6,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { ABILITIES, BALANCE, roomNameAt, type EvolutionOption, type PrivateState, type Snapshot } from "@ec/shared";
 import { leaveRoom, setState, useStore } from "../store";
-import { HoldButton } from "../ui/controls";
-import { Feed, hud, Panel } from "../ui/hud";
+import { HoldButton, Tap, TouchDown } from "../ui/controls";
+import { Feed, hud, Panel, useHudFrame } from "../ui/hud";
 import { Btn } from "../ui/kit";
 import { Table } from "../ui/Table";
 import { C, F, fill } from "../ui/theme";
@@ -67,9 +67,9 @@ function Slot({
 }) {
   const pct = cooldownMs > 0 ? Math.min(1, Math.max(0, readyInMs / cooldownMs)) : 0;
   return (
-    <View
+    <TouchDown
       style={[st.slot, { width: size, height: size, borderRadius: size / 2, borderColor: readyInMs <= 0 && color ? color : C.hudLine }]}
-      onTouchStart={() => {
+      onDown={() => {
         void Haptics.selectionAsync();
         onPress();
       }}
@@ -84,7 +84,7 @@ function Slot({
           <Text style={st.slotCd}>{Math.ceil(readyInMs / 1000)}</Text>
         </View>
       )}
-    </View>
+    </TouchDown>
   );
 }
 
@@ -110,16 +110,18 @@ function Evolution({
 }) {
   const full = abilities.length >= BALANCE.maxAbilities;
   return (
-    <View style={st.evo}>
-      <Text style={st.evoTitle}>
+    <View style={st.evo} pointerEvents="box-none">
+      <Text style={st.evoTitle} pointerEvents="none">
         {abilities.length === 0 ? "Escolha sua primeira ferramenta de trabalho" : "Promoção! Escolha uma evolução"}
         {pending > 0 ? ` (+${pending} na fila)` : ""}
       </Text>
-      <View style={st.evoCards}>
+      <View style={st.evoCards} pointerEvents="box-none">
         {options.map((o, i) => (
-          <Pressable
+          <Tap
             key={o.id}
-            style={({ pressed }) => [st.evoCard, pressed && st.evoCardPressed]}
+            style={st.evoCard}
+            bg={C.card}
+            pressedBg={C.postit}
             onPress={() => {
               void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               onPick(i);
@@ -140,13 +142,15 @@ function Evolution({
                 {o.type === "unlock" && full ? " (espaços cheios)" : ""}
               </Text>
             ) : null}
-          </Pressable>
+          </Tap>
         ))}
       </View>
-      <View style={st.evoTimer}>
+      <View style={st.evoTimer} pointerEvents="none">
         <View style={{ height: "100%", width: `${(msLeft / BALANCE.evolutionTimeoutMs) * 100}%`, backgroundColor: C.postit }} />
       </View>
-      <Text style={[hud.small, { textAlign: "center" }]}>Sem escolha em {Math.ceil(msLeft / 1000)} s, vale a primeira.</Text>
+      <Text style={[hud.small, { textAlign: "center" }]} pointerEvents="none">
+        Sem escolha em {Math.ceil(msLeft / 1000)} s, vale a primeira.
+      </Text>
     </View>
   );
 }
@@ -193,16 +197,10 @@ function Scoreboard({ snap, myId }: { snap: Snapshot; myId: string }) {
 }
 
 export function Hud({ myId, engine, hitAt, hurtAt }: { myId: string; engine: RefObject<Engine | null>; hitAt: number; hurtAt: number }) {
-  const snap = useStore((st) => st.snap);
-  const me = useStore((st) => st.me);
+  const { snap, me } = useHudFrame();
   const scoreboard = useStore((st) => st.scoreboard);
   const inset = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [, force] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 120);
-    return () => clearInterval(t);
-  }, []);
 
   if (!snap) {
     return (
@@ -280,7 +278,7 @@ export function Hud({ myId, engine, hitAt, hurtAt }: { myId: string; engine: Ref
 
       <Feed style={{ top: pad.top, left: pad.left }} />
 
-      <Pressable style={[st.board, { top: pad.top, right: pad.right }]} onPress={() => setState({ scoreboard: true })}>
+      <Tap style={[st.board, { top: pad.top, right: pad.right }]} onPress={() => setState({ scoreboard: true })}>
         <Panel>
           {top.map((p, i) => (
             <View key={p.id} style={st.boardRow}>
@@ -292,7 +290,7 @@ export function Hud({ myId, engine, hitAt, hurtAt }: { myId: string; engine: Ref
           ))}
           <Text style={[hud.small, { opacity: 0.65, marginTop: 4 }]}>Toque: placar · sair</Text>
         </Panel>
-      </Pressable>
+      </Tap>
 
       {self && me && (
         <View pointerEvents="none" style={[st.status, { bottom: pad.bottom }]}>
@@ -440,7 +438,6 @@ const st = StyleSheet.create({
   evoTitle: { fontFamily: F.black, fontSize: 18, color: C.hudInk, textShadowColor: "#000", textShadowRadius: 4, textAlign: "center" },
   evoCards: { flexDirection: "row", gap: 10, alignSelf: "stretch" },
   evoCard: { flex: 1, backgroundColor: C.card, borderWidth: 2, borderColor: C.ink, padding: 10, borderRadius: 4, boxShadow: "4px 4px 0px rgba(0,0,0,0.6)" },
-  evoCardPressed: { backgroundColor: C.postit, transform: [{ scale: 0.97 }] },
   evoKey: {
     position: "absolute",
     top: 8,

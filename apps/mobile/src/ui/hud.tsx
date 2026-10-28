@@ -1,7 +1,25 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import { useStore } from "../store";
+import { getState, useStore } from "../store";
 import { C, F, fill } from "./theme";
+
+const readFrame = () => {
+  const s = getState();
+  return { snap: s.snap, me: s.me, rsnap: s.rsnap, rme: s.rme };
+};
+
+/**
+ * Estado da partida para o HUD, relido a 10 Hz em vez de a cada snapshot:
+ * o Three.js desenha na mesma thread JS, e cada render do HUD a menos é quadro a mais no 3D.
+ */
+export function useHudFrame(): ReturnType<typeof readFrame> {
+  const [frame, setFrame] = useState(readFrame);
+  useEffect(() => {
+    const t = setInterval(() => setFrame(readFrame()), 100);
+    return () => clearInterval(t);
+  }, []);
+  return frame;
+}
 
 /** Painel escuro translúcido do HUD. */
 export function Panel({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {

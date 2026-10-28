@@ -87,7 +87,7 @@ export function Home({ initialCode }: { initialCode?: string }) {
               <Label>Servidor</Label>
               {editServer ? (
                 <Stack gap={10}>
-                  <Field value={serverDraft} onChangeText={setServerDraft} autoCapitalize="none" keyboardType="url" placeholder="192.168.0.10:2567" />
+                  <Field value={serverDraft} onChangeText={setServerDraft} autoCapitalize="none" keyboardType="url" placeholder="expedientecaotico.cavel.com.br" />
                   <Row>
                     <Btn
                       small

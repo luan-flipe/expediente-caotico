@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CHAIR_BASES, CHAIR_SEATS, type AvatarDNA, type ChairDNA } from "@ec/shared";
 import { CADEIRA_GLB } from "./assets";
-import { createCharacter, HIP_HEIGHT, type Character } from "./character";
+import { createCharacter, type Character } from "./character";
 import { loadGLB } from "./loaders";
 
 function shade(hex: string, k: number): THREE.Color {
@@ -26,7 +27,7 @@ export interface ChairModel {
   anchors: Anchors;
   /** Saída do turbo (bocal do extintor no GLB). */
   exhaust: THREE.Vector3;
-  update(dt: number, speed: number): void;
+  update(dt: number, speed: number, steer?: number, driftDir?: number): void;
   dispose(): void;
 }
 
@@ -53,6 +54,37 @@ export function preloadChair(): Promise<boolean> {
 }
 
 const ENCOSTO_K = [0.7, 1, 1.2];
+
+/**
+ * Junta as peças fixas do GLB (tudo menos as rodas, que giram) num mesh por material: são 68 peças e,
+ * no expo-gl, cada uma custaria uma chamada de desenho por quadro em cada cadeira da corrida.
+ * As originais saem do desenho pela camada, não por visible, que esconderia as rodas penduradas nelas.
+ */
+function mergeFixedParts(group: THREE.Group, inner: THREE.Object3D, wheels: Set<THREE.Object3D>): THREE.BufferGeometry[] {
+  group.updateMatrixWorld(true);
+  const batches = new Map<string, THREE.Mesh[]>();
+  inner.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || wheels.has(mesh) || Array.isArray(mesh.material)) return;
+    const g = mesh.geometry;
+    const key = [mesh.material.uuid, !!g.index, Object.keys(g.attributes).sort().join()].join("|");
+    const list = batches.get(key);
+    if (list) list.push(mesh);
+    else batches.set(key, [mesh]);
+  });
+  const out: THREE.BufferGeometry[] = [];
+  for (const list of batches.values()) {
+    if (list.length < 2) continue;
+    const geo = mergeGeometries(list.map((m) => m.geometry.clone().applyMatrix4(m.matrixWorld)));
+    if (!geo) continue;
+    for (const m of list) m.layers.disableAll();
+    const mergedMesh = new THREE.Mesh(geo, list[0].material);
+    mergedMesh.castShadow = true;
+    group.add(mergedMesh);
+    out.push(geo);
+  }
+  return out;
+}
 
 function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
   const group = new THREE.Group();
@@ -154,17 +186,26 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
   const exhaust = new THREE.Vector3(0, 0.6, -0.7);
   inner.getObjectByName("Bocal_Saida")?.getWorldPosition(exhaust);
   addTrinket(group, chair.trinket, anchors, extras);
+  const merged = mergeFixedParts(group, inner, wheels);
 
   return {
     group,
     anchors,
     exhaust,
-    update(dt, speed) {
-      for (const w of wheelNodes) w.rotation.x += (speed * dt) / 0.04;
+    update(dt, speed, steer = 0, driftDir = 0) {
+      const now = performance.now();
+      const casterYawTarget = driftDir !== 0 ? -driftDir * 0.48 : steer !== 0 ? -steer * 0.3 : 0;
+      for (let i = 0; i < wheelNodes.length; i++) {
+        const w = wheelNodes[i];
+        w.rotation.x += (speed * dt) / 0.04;
+        const casterJitter = driftDir !== 0 ? Math.sin(now * 0.03 + i * 1.3) * 0.12 : 0;
+        const target = casterYawTarget + casterJitter;
+        w.rotation.y += (target - w.rotation.y) * Math.min(1, dt * 14);
+      }
     },
     dispose() {
-      // geometrias do GLB são compartilhadas entre clones; só as peças extras são desta cadeira
       for (const m of [...mats.values(), ...wheelMats.values()]) m.dispose();
+      for (const g of merged) g.dispose();
       for (const e of extras) {
         e.geometry.dispose();
         (e.material as THREE.Material).dispose();
@@ -193,7 +234,6 @@ function proceduralChair(chair: ChairDNA): ChairModel {
     return mesh;
   };
 
-  // base em estrela, pistão e rodas
   const wheelR = chair.wheels === 2 ? 0.09 : 0.055;
   const wheelMat =
     chair.wheels === 1
@@ -201,16 +241,17 @@ function proceduralChair(chair: ChairDNA): ChairModel {
       : chair.wheels === 2
         ? new THREE.MeshStandardMaterial({ color: "#ff4fa3", roughness: 0.4 })
         : plastic;
+  const wheelMeshes: THREE.Mesh[] = [];
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2;
     add(new THREE.BoxGeometry(0.06, 0.05, 0.36), metal, Math.sin(a) * 0.18, wheelR * 2 + 0.03, Math.cos(a) * 0.18, 0, a);
     const w = add(new THREE.CylinderGeometry(wheelR, wheelR, chair.wheels === 2 ? 0.07 : 0.05, 14), wheelMat, Math.sin(a) * 0.35, wheelR, Math.cos(a) * 0.35, 0, a, Math.PI / 2);
     w.castShadow = false;
+    wheelMeshes.push(w);
   }
   add(new THREE.CylinderGeometry(0.045, 0.06, 0.32, 10), metal, 0, wheelR * 2 + 0.2, 0);
   add(new THREE.CylinderGeometry(0.06, 0.06, 0.08, 10), plastic, 0, SEAT_TOP - 0.16, 0);
 
-  // assento e encosto
   add(new RoundedBoxGeometry(0.64, 0.12, 0.6, 3, 0.05), fabric, 0, SEAT_TOP - 0.06, 0.02);
   const backH = [0.42, 0.68, 0.86][chair.back] ?? 0.68;
   const backW = chair.back === 2 ? 0.58 : 0.54;
@@ -234,7 +275,17 @@ function proceduralChair(chair: ChairDNA): ChairModel {
     group: g,
     anchors,
     exhaust: new THREE.Vector3(0, 0.35, -0.75),
-    update() {},
+    update(dt, speed, steer = 0, driftDir = 0) {
+      const now = performance.now();
+      const casterYawTarget = driftDir !== 0 ? -driftDir * 0.48 : steer !== 0 ? -steer * 0.3 : 0;
+      for (let i = 0; i < wheelMeshes.length; i++) {
+        const w = wheelMeshes[i];
+        w.rotation.x += (speed * dt) / wheelR;
+        const casterJitter = driftDir !== 0 ? Math.sin(now * 0.03 + i * 1.3) * 0.12 : 0;
+        const target = casterYawTarget + casterJitter;
+        w.rotation.y += (target - w.rotation.y) * Math.min(1, dt * 14);
+      }
+    },
     dispose() {
       g.traverse((o) => {
         const m = o as THREE.Mesh;
@@ -308,7 +359,7 @@ export interface Racer3D {
   root: THREE.Group;
   char: Character;
   exhaust: THREE.Vector3;
-  update(dt: number, speed: number): void;
+  update(dt: number, speed: number, steer?: number, driftDir?: number, boosting?: boolean): void;
   dispose(): void;
 }
 
@@ -317,14 +368,17 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
   const root = new THREE.Group();
   const seat = buildChair(chair);
   const char = createCharacter(avatar);
-  char.sit();
-  char.root.position.set(0, seat.anchors.seatTop - HIP_HEIGHT, seat.anchors.seatZ - 0.06);
+  const thighBottom = char.sit();
+  char.root.position.set(0, seat.anchors.seatTop - thighBottom, seat.anchors.seatZ - 0.06);
   root.add(seat.group, char.root);
   return {
     root,
     char,
     exhaust: seat.exhaust,
-    update: seat.update,
+    update(dt, speed, steer = 0, driftDir = 0, boosting = false) {
+      seat.update(dt, speed, steer, driftDir);
+      char.updateSeated?.(dt, speed, steer, driftDir, boosting);
+    },
     dispose() {
       char.dispose();
       seat.dispose();

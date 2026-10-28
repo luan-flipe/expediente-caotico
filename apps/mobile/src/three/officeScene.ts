@@ -11,6 +11,7 @@ const COLORS: Record<Box["kind"], string> = {
   plant: "#7a5236",
   partition: "#6d86a6",
   sofa: "#3f6b8a",
+  railing: "#4a4f57",
 };
 
 function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, shadow = true): THREE.Mesh {

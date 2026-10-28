@@ -3,6 +3,7 @@ import type { ExpoWebGLRenderingContext } from "expo-gl";
 import {
   ABILITIES,
   BALANCE,
+  DEFAULT_AVATAR,
   OFFICE_MAP,
   dirOf,
   moveCircle,
@@ -21,6 +22,7 @@ import { createCharacter, modelReady, type Character } from "../three/character"
 import { FxSystem } from "../three/fx";
 import { createRenderer, fitRenderer } from "../three/gl";
 import { buildOffice } from "../three/officeScene";
+import { PERF_TMP } from "../three/perfTmp";
 
 interface Sample {
   t: number;
@@ -53,6 +55,9 @@ const PITCH_MAX = 0.6;
 /** Sensibilidade do arrasto da câmera, em radianos por ponto da tela. */
 const LOOK_YAW = 0.0065;
 const LOOK_PITCH = 0.005;
+/** Fração da sensibilidade enquanto a retícula está sobre um adversário visível. */
+const AIM_FRICTION = 0.55;
+const AIM_FRICTION_RADIUS = 0.9;
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -123,6 +128,7 @@ export class Engine {
   private localDash = { until: 0, dir: { x: 0, z: 0 }, speed: 0 };
   private aimYaw = 0;
   private aimDist = 10;
+  private onTarget = false;
   private raf = 0;
   private lastFrame = performance.now();
   private inputTimer: ReturnType<typeof setInterval>;
@@ -184,8 +190,9 @@ export class Engine {
 
   /** Arrastar o dedo na metade direita (ou sobre o botão de tiro) gira a câmera (dx, dy em pontos da tela). */
   look(dx: number, dy: number): void {
-    this.yaw -= dx * LOOK_YAW;
-    this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - dy * LOOK_PITCH));
+    const k = this.onTarget ? AIM_FRICTION : 1;
+    this.yaw -= dx * LOOK_YAW * k;
+    this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - dy * LOOK_PITCH * k));
   }
 
   setFiring(on: boolean): void {
@@ -358,7 +365,8 @@ export class Engine {
       this.pred = { x: p.x, z: p.z };
       this.history = [];
     } else {
-      this.pred = { x: this.pred.x + ex * 0.25, z: this.pred.z + ez * 0.25 };
+      // a correção também colide: dentro de uma caixa, o moveCircle seguinte jogaria o boneco para a outra borda
+      this.pred = moveCircle(this.pred, ex * 0.25, ez * 0.25, BALANCE.playerRadius, OFFICE_MAP.boxes, { w: OFFICE_MAP.width, d: OFFICE_MAP.depth });
     }
   }
 
@@ -369,7 +377,7 @@ export class Engine {
     if (v && v.avatarKey === key) return v;
     const prevBuf = v?.buf ?? [];
     if (v) disposeView(this.scene, v);
-    const char = createCharacter(dna ?? { name: p.name, skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, accessory: 0, height: 1 });
+    const char = createCharacter(dna ?? { ...DEFAULT_AVATAR, name: p.name });
     const bubble = new THREE.Mesh(new THREE.SphereGeometry(1.05, 20, 14), new THREE.MeshBasicMaterial({ color: "#8f9cff", transparent: true, opacity: 0.22, depthWrite: false }));
     bubble.position.y = 1;
     const stars = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.05, 6, 12), new THREE.MeshBasicMaterial({ color: "#ffe14d" }));
@@ -421,8 +429,11 @@ export class Engine {
     this.lastFrame = ms;
     fitRenderer(this.gl, this.renderer, this.camera);
     this.step(dt, performance.now());
+    const tR0 = performance.now();
     this.renderer.render(this.scene, this.camera);
+    const tR1 = performance.now();
     this.gl.endFrameEXP();
+    PERF_TMP(this.renderer, ms, tR0, tR1, "shooter");
     this.raf = requestAnimationFrame(this.loop);
   };
 
@@ -523,14 +534,19 @@ export class Engine {
     // mira: raio da retícula até a altura do tiro ou até um adversário
     let dist = 60;
     if (fwd.y < -0.02) dist = Math.min(dist, (BALANCE.shotHeight - want.y) / fwd.y);
+    let onTarget = false;
     for (const [id, v] of this.views) {
       if (id === this.myId || !v.last.alive) continue;
       const c = new THREE.Vector3(v.char.root.position.x, 1.1, v.char.root.position.z);
       const along = c.clone().sub(want).dot(fwd);
       if (along <= 0 || along > dist) continue;
       const closest = want.clone().addScaledVector(fwd, along);
-      if (Math.hypot(closest.x - c.x, closest.z - c.z) < 0.55 && Math.abs(closest.y - c.y) < 1.1) dist = along;
+      const side = Math.hypot(closest.x - c.x, closest.z - c.z);
+      if (Math.abs(closest.y - c.y) >= 1.1) continue;
+      if (side < 0.55) dist = along;
+      if (side < AIM_FRICTION_RADIUS && segmentBoxT({ x: want.x, z: want.z }, { x: c.x, z: c.z }, OFFICE_MAP.boxes) === null) onTarget = true;
     }
+    this.onTarget = onTarget && this.snap?.phase === "active";
     const point = want.clone().addScaledVector(fwd, dist);
     const px = point.x - base.x;
     const pz = point.z - base.z;

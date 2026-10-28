@@ -2,11 +2,15 @@ import { useState } from "react";
 import { Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
-import { BALANCE, DURATIONS_MS, RACE } from "@ec/shared";
+import { BALANCE, BOT_LEVEL_NAMES, BOT_LEVELS, DEFAULT_ROOM_OPTIONS, DURATIONS_MS, LAPS_MAX, LAPS_MIN, RACE, TRACK_IDS, TRACKS, type GameMode } from "@ec/shared";
 import { leaveRoom, net, setState, useStore } from "../store";
 import { Thumb } from "../ui/Badge";
 import { Brand, Btn, Card, ErrorBox, Label, Muted, Row, Screen, Seg, Stack, Tag, useWide } from "../ui/kit";
 import { C, F, hardShadow } from "../ui/theme";
+
+const MODES: GameMode[] = ["shooter", "race", "timetrial"];
+const MODE_NAMES = ["Tiroteio", "Rally da Firma", "Contra o relógio"];
+const LAPS = Array.from({ length: LAPS_MAX - LAPS_MIN + 1 }, (_, i) => LAPS_MIN + i);
 
 export function Lobby() {
   const lobby = useStore((st) => st.lobby)!;
@@ -22,6 +26,9 @@ export function Lobby() {
   const bots = lobby.players.filter((p) => p.isBot).length;
   const full = lobby.players.length >= BALANCE.maxPlayers;
   const race = lobby.mode === "race";
+  const trial = lobby.mode === "timetrial";
+  const racing = race || trial;
+  const opts = lobby.options ?? DEFAULT_ROOM_OPTIONS;
   const [rosterW, setRosterW] = useState(0);
   const cols = width >= 1000 ? 4 : width >= 560 ? 3 : 2;
   const slotW = Math.floor((rosterW - 14 * (cols - 1)) / cols);
@@ -65,7 +72,7 @@ export function Lobby() {
           {rosterW > 0 &&
             lobby.players.map((p) => (
               <View key={p.id} style={[st.slot, hardShadow(3), { width: slotW }]}>
-                <Thumb dna={p.avatar} chair={race ? p.chair : undefined} size={slotW - 4} />
+                <Thumb dna={p.avatar} chair={racing ? p.chair : undefined} size={slotW - 4} />
                 {p.id === lobby.hostId && (
                   <View style={st.hostTag}>
                     <Tag kind="host">ANFITRIÃO</Tag>
@@ -101,7 +108,7 @@ export function Lobby() {
                   onPress={() => net.send({ t: "ready", ready: !me?.ready })}
                 />
               )}
-              <Btn title={race ? "Editar boneco e cadeira" : "Editar boneco"} onPress={() => setState({ editing: true })} />
+              <Btn title={racing ? "Editar boneco e cadeira" : "Editar boneco"} onPress={() => setState({ editing: true })} />
               <Btn title="Sair da sala" onPress={leaveRoom} />
             </Row>
           </Stack>
@@ -112,13 +119,37 @@ export function Lobby() {
             <Label>{isHost ? "Controle do anfitrião" : "Configuração da partida"}</Label>
             <Row>
               <Muted>Modo:</Muted>
-              <Seg items={["Tiroteio", "Rally da Firma"]} value={race ? 1 : 0} disabled={!isHost} onPick={(i) => net.send({ t: "mode", mode: i === 1 ? "race" : "shooter" })} />
+              <Seg items={MODE_NAMES} value={MODES.indexOf(lobby.mode)} disabled={!isHost} onPick={(i) => net.send({ t: "mode", mode: MODES[i] })} />
             </Row>
-            {race ? (
-              <Muted>
-                Corrida de cadeiras: {RACE.laps} voltas no Circuito Corporativo, até {RACE.maxPlayers} pilotos.
-              </Muted>
-            ) : (
+            {racing && (
+              <Row>
+                <Muted>Pista:</Muted>
+                <Seg items={TRACK_IDS.map((id) => TRACKS[id].name)} value={TRACK_IDS.indexOf(opts.track)} disabled={!isHost} onPick={(i) => net.send({ t: "options", track: TRACK_IDS[i] })} />
+              </Row>
+            )}
+            {race && (
+              <>
+                <Row>
+                  <Muted>Voltas:</Muted>
+                  <Seg items={LAPS.map(String)} value={LAPS.indexOf(opts.laps)} disabled={!isHost} onPick={(i) => net.send({ t: "options", laps: LAPS[i] })} />
+                </Row>
+                <Row>
+                  <Muted>Itens:</Muted>
+                  <Seg items={["Com itens", "Sem itens"]} value={opts.items ? 0 : 1} disabled={!isHost} onPick={(i) => net.send({ t: "options", items: i === 0 })} />
+                </Row>
+                <Muted>
+                  Corrida de cadeiras: {opts.laps} {opts.laps === 1 ? "volta" : "voltas"} no {TRACKS[opts.track].name}, até {RACE.maxPlayers} pilotos.
+                </Muted>
+              </>
+            )}
+            {trial && <Muted>Treino de volta rápida, sem itens nem bots. O anfitrião encerra quando quiser.</Muted>}
+            {!trial && (
+              <Row>
+                <Muted>Bots:</Muted>
+                <Seg items={BOT_LEVELS.map((l) => BOT_LEVEL_NAMES[l])} value={BOT_LEVELS.indexOf(opts.botLevel)} disabled={!isHost} onPick={(i) => net.send({ t: "options", botLevel: BOT_LEVELS[i] })} />
+              </Row>
+            )}
+            {!racing && (
               <Row>
                 <Muted>Duração:</Muted>
                 <Seg
@@ -131,11 +162,13 @@ export function Lobby() {
             )}
             {isHost ? (
               <>
-                <Row>
-                  <Btn small title="+ Bot estagiário" disabled={full} onPress={() => net.send({ t: "addBot" })} />
-                  <Btn small title="- Bot" disabled={bots === 0} onPress={() => net.send({ t: "removeBot" })} />
-                </Row>
-                <Btn kind="primary" title={race ? "Iniciar corrida" : "Iniciar expediente"} onPress={() => net.send({ t: "start" })} />
+                {!trial && (
+                  <Row>
+                    <Btn small title="+ Bot estagiário" disabled={full} onPress={() => net.send({ t: "addBot" })} />
+                    <Btn small title="- Bot" disabled={bots === 0} onPress={() => net.send({ t: "removeBot" })} />
+                  </Row>
+                )}
+                <Btn kind="primary" title={race ? "Iniciar corrida" : trial ? "Iniciar treino" : "Iniciar expediente"} onPress={() => net.send({ t: "start" })} />
               </>
             ) : (
               <Muted>O anfitrião inicia quando todos estiverem prontos.</Muted>

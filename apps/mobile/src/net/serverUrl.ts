@@ -1,16 +1,20 @@
 /** Porta padrão do servidor do jogo (apps/server). */
 export const SERVER_PORT = 2567;
 
+const LOCAL_HOST = /^(localhost|\d{1,3}(\.\d{1,3}){3}|[^.:]+\.local)(:\d+)?$/i;
+
 /**
  * Normaliza o que a pessoa digitou ("192.168.0.10", "jogo.firma.com", "https://jogo.firma.com/")
- * para uma origem http(s) sem barra no fim. Sem porta e sem protocolo, assume a porta do servidor.
+ * para uma origem http(s) sem barra no fim. Sem protocolo: IP ou localhost é o servidor de dev
+ * (http, porta padrão se faltar); domínio é o jogo publicado atrás de proxy (https, porta 443).
  */
 export function normalizeServer(input: string): string {
   let s = input.trim().replace(/\/+$/, "");
   if (!s) return "";
   if (!/^[a-z]+:\/\//i.test(s)) {
     const hasPort = /:\d+$/.test(s);
-    s = `http://${s}${hasPort ? "" : `:${SERVER_PORT}`}`;
+    if (LOCAL_HOST.test(s)) s = `http://${s}${hasPort ? "" : `:${SERVER_PORT}`}`;
+    else s = `${hasPort ? "http" : "https"}://${s}`;
   }
   return s.replace(/^ws(s?):\/\//i, "http$1://");
 }

@@ -12,6 +12,13 @@ describe("endereço do servidor", () => {
     expect(normalizeServer("wss://jogo.firma.com")).toBe("https://jogo.firma.com");
   });
 
+  it("domínio sem protocolo é o jogo publicado: https sem porta", () => {
+    expect(normalizeServer("expedientecaotico.cavel.com.br/")).toBe("https://expedientecaotico.cavel.com.br");
+    expect(normalizeServer("jogo.firma.com:8080")).toBe("http://jogo.firma.com:8080");
+    expect(normalizeServer("localhost")).toBe("http://localhost:2567");
+    expect(normalizeServer("meupc.local")).toBe("http://meupc.local:2567");
+  });
+
   it("vazio continua vazio", () => {
     expect(normalizeServer("   ")).toBe("");
   });

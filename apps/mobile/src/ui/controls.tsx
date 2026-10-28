@@ -1,18 +1,35 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { AppState, StyleSheet, Text, View, type GestureResponderEvent, type StyleProp, type ViewStyle } from "react-native";
+import { AppState, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { GestureDetector, usePanGesture, useTapGesture } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { C, F } from "./theme";
-import { STICK_RADIUS } from "./touch";
+import { followStick, STICK_RADIUS } from "./touch";
 
 /*
- * Os controles usam os eventos crus de toque (onTouchStart/Move/End) e não o sistema de responder
- * do React Native: o responder só aceita um dedo por vez, e aqui se anda, mira e atira ao mesmo tempo.
- * As posições visuais rodam na UI thread via Reanimated 4 (sem re-renderizar componentes React).
+ * Todo controle de partida usa Gesture Handler, nunca onTouchStart/Pressable do React Native:
+ * no Android o RN entrega todos os dedos à view tocada pelo primeiro dedo, então com o polegar
+ * no manche o toque em Atirar, Derrapar ou numa carta de evolução nunca chegaria ao botão.
+ * Os callbacks rodam na thread JS (runOnJS) porque falam com o motor do jogo.
  */
 
-type Touch = GestureResponderEvent["nativeEvent"];
-const idOf = (t: Touch) => String(t.identifier);
+function useLatest<T>(value: T) {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
+}
+
+function useOnBackground(fn: () => void) {
+  const ref = useLatest(fn);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s !== "active") ref.current();
+    });
+    return () => sub.remove();
+  }, [ref]);
+}
 
 /**
  * Área de toque da tela de jogo. Um dedo que começa na parte esquerda vira joystick (aparece onde tocou);
@@ -22,42 +39,59 @@ export function TouchPad({
   onStick,
   onLook,
   split = 0.45,
-  style,
 }: {
   onStick: (dx: number, dy: number) => void;
   onLook?: (dx: number, dy: number) => void;
   split?: number;
-  style?: StyleProp<ViewStyle>;
 }) {
-  const width = useRef(1);
-  const stick = useRef<{ id: string; x: number; y: number } | null>(null);
-  const look = useRef<{ id: string; x: number; y: number } | null>(null);
-  const onStickRef = useRef(onStick);
+  const base = useRef<{ x: number; y: number } | null>(null);
+  const onStickRef = useLatest(onStick);
+  const onLookRef = useLatest(onLook);
   const baseX = useSharedValue(-999);
   const baseY = useSharedValue(-999);
   const knobX = useSharedValue(0);
   const knobY = useSharedValue(0);
   const opacity = useSharedValue(0);
 
-  useEffect(() => {
-    onStickRef.current = onStick;
-  }, [onStick]);
+  const release = () => {
+    if (!base.current) return;
+    base.current = null;
+    knobX.value = withSpring(0, { damping: 18, stiffness: 260 });
+    knobY.value = withSpring(0, { damping: 18, stiffness: 260 });
+    opacity.value = withTiming(0, { duration: 140 });
+    onStickRef.current(0, 0);
+  };
+  useOnBackground(release);
 
-  // solta o manche e a câmera se o app sair de foco (notificação, chamada ou troca de app)
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (s) => {
-      if (s === "active") return;
-      look.current = null;
-      if (stick.current) {
-        stick.current = null;
-        knobX.value = 0;
-        knobY.value = 0;
-        opacity.value = 0;
-        onStickRef.current(0, 0);
-      }
-    });
-    return () => sub.remove();
-  }, [knobX, knobY, opacity]);
+  const stick = usePanGesture({
+    runOnJS: true,
+    minDistance: 0,
+    onBegin: (e) => {
+      base.current = { x: e.x, y: e.y };
+      baseX.value = e.x - STICK_RADIUS;
+      baseY.value = e.y - STICK_RADIUS;
+      knobX.value = 0;
+      knobY.value = 0;
+      opacity.value = withTiming(1, { duration: 90 });
+    },
+    onUpdate: (e) => {
+      if (!base.current) return;
+      const s = followStick(base.current, { x: e.x, y: e.y });
+      base.current = s.base;
+      baseX.value = s.base.x - STICK_RADIUS;
+      baseY.value = s.base.y - STICK_RADIUS;
+      knobX.value = s.dx;
+      knobY.value = s.dy;
+      onStickRef.current(s.dx, s.dy);
+    },
+    onFinalize: release,
+  });
+
+  const look = usePanGesture({
+    runOnJS: true,
+    minDistance: 0,
+    onUpdate: (e) => onLookRef.current?.(e.changeX, e.changeY),
+  });
 
   const baseStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
@@ -68,67 +102,20 @@ export function TouchPad({
     transform: [{ translateX: knobX.value }, { translateY: knobY.value }],
   }));
 
-  const start = (e: GestureResponderEvent) => {
-    for (const t of e.nativeEvent.changedTouches) {
-      const leftSide = t.locationX < width.current * split;
-      if (leftSide && !stick.current) {
-        stick.current = { id: idOf(t), x: t.pageX, y: t.pageY };
-        baseX.value = t.locationX - STICK_RADIUS;
-        baseY.value = t.locationY - STICK_RADIUS;
-        knobX.value = 0;
-        knobY.value = 0;
-        opacity.value = withTiming(1, { duration: 90 });
-      } else if (onLook && !leftSide && !look.current) {
-        look.current = { id: idOf(t), x: t.pageX, y: t.pageY };
-      }
-    }
-  };
-
-  const move = (e: GestureResponderEvent) => {
-    for (const t of e.nativeEvent.changedTouches) {
-      const id = idOf(t);
-      if (stick.current?.id === id) {
-        const dx = t.pageX - stick.current.x;
-        const dy = t.pageY - stick.current.y;
-        const len = Math.hypot(dx, dy);
-        const k = len > STICK_RADIUS ? STICK_RADIUS / len : 1;
-        knobX.value = dx * k;
-        knobY.value = dy * k;
-        onStick(dx, dy);
-      } else if (look.current?.id === id) {
-        onLook?.(t.pageX - look.current.x, t.pageY - look.current.y);
-        look.current.x = t.pageX;
-        look.current.y = t.pageY;
-      }
-    }
-  };
-
-  const end = (e: GestureResponderEvent) => {
-    for (const t of e.nativeEvent.changedTouches) {
-      const id = idOf(t);
-      if (stick.current?.id === id) {
-        stick.current = null;
-        knobX.value = withSpring(0, { damping: 18, stiffness: 260 });
-        knobY.value = withSpring(0, { damping: 18, stiffness: 260 });
-        opacity.value = withTiming(0, { duration: 140 });
-        onStick(0, 0);
-      }
-      if (look.current?.id === id) look.current = null;
-    }
-  };
-
   return (
-    <View
-      style={[StyleSheet.absoluteFill, style]}
-      onLayout={(e) => (width.current = e.nativeEvent.layout.width)}
-      onTouchStart={start}
-      onTouchMove={move}
-      onTouchEnd={end}
-      onTouchCancel={end}
-    >
-      <Animated.View pointerEvents="none" style={[st.stickBase, baseStyle]}>
-        <Animated.View style={[st.knob, knobStyle]} />
-      </Animated.View>
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      <GestureDetector gesture={stick}>
+        <View collapsable={false} style={[st.region, { left: 0, width: `${split * 100}%` }]}>
+          <Animated.View pointerEvents="none" style={[st.stickBase, baseStyle]}>
+            <Animated.View style={[st.knob, knobStyle]} />
+          </Animated.View>
+        </View>
+      </GestureDetector>
+      {onLook && (
+        <GestureDetector gesture={look}>
+          <View collapsable={false} style={[st.region, { left: `${split * 100}%`, right: 0 }]} />
+        </GestureDetector>
+      )}
     </View>
   );
 }
@@ -158,27 +145,35 @@ export function HoldButton({
   style?: StyleProp<ViewStyle>;
   children?: ReactNode;
 }) {
-  const fingers = useRef(new Map<string, { x: number; y: number }>());
   const isDown = useRef(false);
-  const onUpRef = useRef(onUp);
+  const onDownRef = useLatest(onDown);
+  const onUpRef = useLatest(onUp);
+  const onMoveRef = useLatest(onMove);
   const pressed = useSharedValue(0);
 
-  useEffect(() => {
-    onUpRef.current = onUp;
-  }, [onUp]);
+  const up = () => {
+    if (!isDown.current) return;
+    isDown.current = false;
+    pressed.value = withSpring(0, { damping: 16, stiffness: 320 });
+    onUpRef.current?.();
+  };
+  useOnBackground(up);
 
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (s) => {
-      if (s === "active") return;
-      fingers.current.clear();
-      if (isDown.current) {
-        isDown.current = false;
-        pressed.value = 0;
-        onUpRef.current?.();
-      }
-    });
-    return () => sub.remove();
-  }, [pressed]);
+  const pan = usePanGesture({
+    runOnJS: true,
+    minDistance: 0,
+    onBegin: () => {
+      if (isDown.current) return;
+      isDown.current = true;
+      pressed.value = withSpring(1, { damping: 16, stiffness: 320 });
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onDownRef.current();
+    },
+    onUpdate: (e) => {
+      if (isDown.current) onMoveRef.current?.(e.changeX, e.changeY);
+    },
+    onFinalize: up,
+  });
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pressed.value ? 0.92 : 1 }],
@@ -186,54 +181,76 @@ export function HoldButton({
   }));
 
   return (
-    <Animated.View
-      style={[st.round, { width: size, height: size, borderRadius: size / 2, backgroundColor: color }, animStyle, style]}
-      onTouchStart={(e) => {
-        for (const t of e.nativeEvent.changedTouches) {
-          fingers.current.set(idOf(t), { x: t.pageX, y: t.pageY });
-        }
-        if (!isDown.current) {
-          isDown.current = true;
-          pressed.value = withSpring(1, { damping: 16, stiffness: 320 });
-          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          onDown();
-        }
-      }}
-      onTouchMove={(e) => {
-        if (!onMove) return;
-        for (const t of e.nativeEvent.changedTouches) {
-          const prev = fingers.current.get(idOf(t));
-          if (!prev) continue;
-          onMove(t.pageX - prev.x, t.pageY - prev.y);
-          prev.x = t.pageX;
-          prev.y = t.pageY;
-        }
-      }}
-      onTouchEnd={(e) => {
-        for (const t of e.nativeEvent.changedTouches) fingers.current.delete(idOf(t));
-        if (fingers.current.size === 0 && isDown.current) {
-          isDown.current = false;
-          pressed.value = withSpring(0, { damping: 16, stiffness: 320 });
-          onUp?.();
-        }
-      }}
-      onTouchCancel={() => {
-        fingers.current.clear();
-        if (isDown.current) {
-          isDown.current = false;
-          pressed.value = 0;
-          onUp?.();
-        }
-      }}
-    >
-      {children}
-      {label ? <Text style={[st.label, { fontSize: Math.max(11, size * 0.17) }]}>{label}</Text> : null}
-      {sub ? <Text style={st.sub}>{sub}</Text> : null}
-    </Animated.View>
+    <GestureDetector gesture={pan}>
+      <Animated.View
+        collapsable={false}
+        style={[st.round, { width: size, height: size, borderRadius: size / 2, backgroundColor: color }, animStyle, style]}
+      >
+        {children}
+        {label ? <Text style={[st.label, { fontSize: Math.max(11, size * 0.17) }]}>{label}</Text> : null}
+        {sub ? <Text style={st.sub}>{sub}</Text> : null}
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
+/** Dispara no instante do toque (habilidades, esquiva, item): numa briga, esperar soltar o dedo atrasa. */
+export function TouchDown({ onDown, style, children }: { onDown: () => void; style?: StyleProp<ViewStyle>; children?: ReactNode }) {
+  const onDownRef = useLatest(onDown);
+  const tap = useTapGesture({
+    runOnJS: true,
+    onBegin: () => onDownRef.current(),
+  });
+  return (
+    <GestureDetector gesture={tap}>
+      <View collapsable={false} style={style}>
+        {children}
+      </View>
+    </GestureDetector>
+  );
+}
+
+export function Tap({
+  onPress,
+  style,
+  bg,
+  pressedBg,
+  children,
+}: {
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+  bg?: string;
+  pressedBg?: string;
+  children?: ReactNode;
+}) {
+  const onPressRef = useLatest(onPress);
+  const pressed = useSharedValue(0);
+  const tap = useTapGesture({
+    runOnJS: true,
+    maxDistance: 24,
+    onBegin: () => {
+      pressed.value = 1;
+    },
+    onActivate: () => onPressRef.current(),
+    onFinalize: () => {
+      pressed.value = 0;
+    },
+  });
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressed.value ? 0.96 : 1 }],
+    ...(bg && pressedBg ? { backgroundColor: pressed.value ? pressedBg : bg } : {}),
+  }));
+  return (
+    <GestureDetector gesture={tap}>
+      <Animated.View collapsable={false} style={[style, animStyle]}>
+        {children}
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
 const st = StyleSheet.create({
+  region: { position: "absolute", top: 0, bottom: 0 },
   stickBase: {
     position: "absolute",
     left: 0,

@@ -51,14 +51,16 @@
         {
           "backgroundColor": "#f4efe4",
           "image": "./assets/splash-icon.png",
-          "imageWidth": 160
+          "imageWidth": 180
         }
       ],
       [
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "enableMinifyInReleaseBuilds": false,
+            "extraProguardRules": "-keep class expo.modules.** { *; }\n-keep class com.shopify.reactnative.skia.** { *; }\n-keep class com.swmansion.worklets.** { *; }\n-keep class com.swmansion.gesturehandler.** { *; }"
           }
         }
       ]

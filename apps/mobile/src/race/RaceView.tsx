@@ -3,6 +3,7 @@ import { StyleSheet, View } from "react-native";
 import type { ExpoWebGLRenderingContext } from "expo-gl";
 import { StatusBar } from "expo-status-bar";
 import * as Haptics from "expo-haptics";
+import { getTrack } from "@ec/shared";
 import { getState, net, useStore } from "../store";
 import { TouchPad } from "../ui/controls";
 import { brakeFromStick, steerFrom } from "../ui/touch";
@@ -38,12 +39,14 @@ export function RaceView({ myId }: { myId: string }) {
 
   const onContextCreate = (gl: ExpoWebGLRenderingContext) => {
     const onUi = (sig: RaceUiSignal) => {
-      if (sig === "boost2") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (sig === "charge1" || sig === "charge2") void Haptics.selectionAsync();
+      else if (sig === "boost2") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       else if (sig === "boost1" || sig === "blocked") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       else if (sig === "hit") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       else if (sig === "wall") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     };
-    const engine = new RaceEngine(gl, myId, onUi);
+    // a pista não muda durante a partida: vale a do lobby na largada
+    const engine = new RaceEngine(gl, myId, getTrack(getState().lobby?.options.track), onUi);
     engineRef.current = engine;
     engine.setPeople(getState().lobby?.players ?? []);
     push({});
@@ -73,7 +76,7 @@ export function RaceView({ myId }: { myId: string }) {
     <View style={st.game}>
       <StatusBar hidden />
       <GameGL style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} />
-      <TouchPad split={0.5} onStick={(dx, dy) => push({ steer: steerFrom(dx), stickReverse: brakeFromStick(dy) })} />
+      <TouchPad split={0.5} onStick={(dx, dy) => push({ steer: steerFrom(dx), stickReverse: brakeFromStick(dx, dy) })} />
       <RaceHud myId={myId} engine={engineRef} onPedals={push} />
     </View>
   );

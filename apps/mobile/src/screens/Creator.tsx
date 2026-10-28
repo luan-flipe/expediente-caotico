@@ -4,19 +4,27 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import {
   ACCESSORIES,
+  BEARDS,
+  BOTTOMS,
   CHAIR_BACKS,
   CHAIR_BASES,
   CHAIR_SEATS,
   CHAIR_TRINKETS,
   CHAIR_WHEELS,
+  DRESS,
+  EYE_COLORS,
   GLASSES,
   HAIR_COLORS,
+  HAIR_ORDER,
   HAIR_STYLES,
   HEIGHTS,
+  MODELS,
   PANTS,
   PRESETS,
   SHIRTS,
+  SHOES,
   SKINS,
+  TOPS,
   randomAvatar,
   randomChair,
   type AvatarDNA,
@@ -27,20 +35,12 @@ import { Badge, Thumb } from "../ui/Badge";
 import { Brand, Btn, Card, Columns, Field, Label, Muted, Row, RuledPaper, Screen, Seg, Stack, Swatches, useWide } from "../ui/kit";
 import { C } from "../ui/theme";
 
-type NumKey = "skin" | "hair" | "hairColor" | "glasses" | "shirt" | "pants" | "accessory" | "height";
+type NumKey = Exclude<keyof AvatarDNA, "name">;
+
+const HAIR_ITEMS = HAIR_ORDER.map((i) => HAIR_STYLES[i]);
 
 function sameVisualDna(a: AvatarDNA, b: AvatarDNA): boolean {
-  return (
-    a.skin === b.skin &&
-    a.hair === b.hair &&
-    a.hairColor === b.hairColor &&
-    a.glasses === b.glasses &&
-    a.beard === b.beard &&
-    a.shirt === b.shirt &&
-    a.pants === b.pants &&
-    a.accessory === b.accessory &&
-    a.height === b.height
-  );
+  return (Object.keys(a) as (keyof AvatarDNA)[]).every((k) => k === "name" || a[k] === b[k]);
 }
 
 function Opt({ label, half, children }: { label: string; half?: boolean; children: ReactNode }) {
@@ -58,7 +58,7 @@ export function Creator() {
   const mode = useStore((st) => st.lobby?.mode);
   const [dna, setDna] = useState<AvatarDNA>(saved);
   const [chair, setChair] = useState<ChairDNA>(savedChair);
-  const [tab, setTab] = useState(mode === "race" ? 1 : 0);
+  const [tab, setTab] = useState(mode === "race" || mode === "timetrial" ? 1 : 0);
   const wide = useWide();
   const { width } = useWindowDimensions();
   const inset = useSafeAreaInsets();
@@ -73,7 +73,7 @@ export function Creator() {
   };
 
   const randomize = () => {
-    setDna((d) => randomAvatar(Math.random, d.name));
+    setDna((d) => ({ ...randomAvatar(Math.random, d.name), model: 0 }));
     setChair(randomChair(Math.random));
   };
 
@@ -111,35 +111,70 @@ export function Creator() {
         </Card>
         <Card>
           <View style={st.grid}>
-            <Opt label="Pele" half={twoCol}>
-              <Swatches colors={SKINS} value={dna.skin} onPick={set("skin")} />
-            </Opt>
-            <Opt label="Cor do cabelo" half={twoCol}>
-              <Swatches colors={HAIR_COLORS} value={dna.hairColor} onPick={set("hairColor")} />
-            </Opt>
-            <Opt label="Cabelo">
-              <Seg items={HAIR_STYLES} value={dna.hair} onPick={set("hair")} />
-            </Opt>
-            <Opt label="Camisa" half={twoCol}>
-              <Swatches colors={SHIRTS} value={dna.shirt} onPick={set("shirt")} />
-            </Opt>
-            <Opt label="Calça" half={twoCol}>
-              <Swatches colors={PANTS} value={dna.pants} onPick={set("pants")} />
-            </Opt>
-            <Opt label="Óculos" half={twoCol}>
-              <Seg items={GLASSES} value={dna.glasses} onPick={set("glasses")} />
-            </Opt>
-            <Opt label="Barba" half={twoCol}>
-              <Seg items={["Sem barba", "Com barba"]} value={dna.beard ? 1 : 0} onPick={(i) => setDna((d) => ({ ...d, beard: i === 1 }))} />
-            </Opt>
-            <Opt label="Acessório" half={twoCol}>
-              <Seg items={ACCESSORIES} value={dna.accessory} onPick={set("accessory")} />
+            <Opt label="Boneco">
+              <Seg items={MODELS} value={dna.model} onPick={set("model")} />
             </Opt>
             <Opt label="Altura" half={twoCol}>
               <Seg items={HEIGHTS} value={dna.height} onPick={set("height")} />
             </Opt>
+            {dna.model !== 0 && (
+              <Opt label="Skin pronta" half={twoCol}>
+                <Muted>Personagem completo, do jeito que veio. Para escolher cada detalhe, use Montar o meu.</Muted>
+              </Opt>
+            )}
           </View>
         </Card>
+        {dna.model === 0 && (
+          <Card>
+            <View style={st.grid}>
+              <Opt label="Pele" half={twoCol}>
+                <Swatches colors={SKINS} value={dna.skin} onPick={set("skin")} />
+              </Opt>
+              <Opt label="Cor dos olhos" half={twoCol}>
+                <Swatches colors={EYE_COLORS} value={dna.eyes} onPick={set("eyes")} />
+              </Opt>
+              <Opt label="Corte">
+                <Seg items={HAIR_ITEMS} value={HAIR_ORDER.indexOf(dna.hair)} onPick={(i) => set("hair")(HAIR_ORDER[i])} />
+              </Opt>
+              <Opt label="Cor do cabelo" half={twoCol}>
+                <Swatches colors={HAIR_COLORS} value={dna.hairColor} onPick={set("hairColor")} />
+              </Opt>
+              <Opt label="Barba" half={twoCol}>
+                <Seg items={BEARDS} value={dna.beard} onPick={set("beard")} />
+              </Opt>
+              {dna.beard > 0 && (
+                <Opt label="Cor da barba" half={twoCol}>
+                  <Swatches colors={HAIR_COLORS} value={dna.beardColor} onPick={set("beardColor")} />
+                </Opt>
+              )}
+              <Opt label="Óculos" half={twoCol}>
+                <Seg items={GLASSES} value={dna.glasses} onPick={set("glasses")} />
+              </Opt>
+              <Opt label="Parte de cima">
+                <Seg items={TOPS} value={dna.top} onPick={set("top")} />
+              </Opt>
+              <Opt label={dna.top === DRESS ? "Cor do vestido" : "Cor da parte de cima"} half={twoCol}>
+                <Swatches colors={SHIRTS} value={dna.shirt} onPick={set("shirt")} />
+              </Opt>
+              {dna.top !== DRESS && (
+                <>
+                  <Opt label="Parte de baixo" half={twoCol}>
+                    <Seg items={BOTTOMS} value={dna.bottom} onPick={set("bottom")} />
+                  </Opt>
+                  <Opt label="Cor da parte de baixo" half={twoCol}>
+                    <Swatches colors={PANTS} value={dna.pants} onPick={set("pants")} />
+                  </Opt>
+                </>
+              )}
+              <Opt label="Calçado">
+                <Seg items={SHOES} value={dna.shoes} onPick={set("shoes")} />
+              </Opt>
+              <Opt label="Acessório">
+                <Seg items={ACCESSORIES} value={dna.accessory} onPick={set("accessory")} />
+              </Opt>
+            </View>
+          </Card>
+        )}
         <Card>
           <Label>Começar de um funcionário pronto</Label>
           <View style={st.presets}>

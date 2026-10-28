@@ -1,11 +1,11 @@
-import { useEffect, useState, type RefObject } from "react";
+import type { RefObject } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { ITEM_NAMES, RACE } from "@ec/shared";
-import { leaveRoom, setMuted, setState, useStore } from "../store";
-import { HoldButton } from "../ui/controls";
-import { Feed, hud, Panel } from "../ui/hud";
+import { getTrack, ITEM_NAMES, RACE } from "@ec/shared";
+import { leaveRoom, net, setMuted, setState, useStore } from "../store";
+import { HoldButton, Tap, TouchDown } from "../ui/controls";
+import { Feed, hud, Panel, useHudFrame } from "../ui/hud";
 import { Btn } from "../ui/kit";
 import { Table } from "../ui/Table";
 import { C, F, fill, hardShadow } from "../ui/theme";
@@ -17,30 +17,28 @@ import type { Pedals } from "./RaceView";
 /** Botão pequeno do HUD (som, voltar para a pista, placar). */
 function Chip({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <Pressable
-      style={({ pressed }) => [hud.panel, st.chip, pressed && { borderColor: C.postit }]}
+    <Tap
+      style={[hud.panel, st.chip]}
+      bg={C.hudBg}
+      pressedBg="rgba(255,225,77,0.35)"
       onPress={() => {
         void Haptics.selectionAsync();
         onPress();
       }}
     >
       <Text style={hud.small}>{label}</Text>
-    </Pressable>
+    </Tap>
   );
 }
 
 export function RaceHud({ myId, engine, onPedals }: { myId: string; engine: RefObject<RaceEngine | null>; onPedals: (p: Partial<Pedals>) => void }) {
-  const snap = useStore((st) => st.rsnap);
-  const me = useStore((st) => st.rme);
+  const { rsnap: snap, rme: me } = useHudFrame();
   const scoreboard = useStore((st) => st.scoreboard);
   const muted = useStore((st) => st.muted);
+  const track = getTrack(useStore((st) => st.lobby?.options?.track));
+  const isHost = useStore((st) => st.lobby?.hostId === myId);
   const inset = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [, force] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 120);
-    return () => clearInterval(t);
-  }, []);
 
   if (!snap) {
     return (
@@ -52,6 +50,8 @@ export function RaceHud({ myId, engine, onPedals }: { myId: string; engine: RefO
   const order = [...snap.karts].sort((a, b) => a.place - b.place);
   const frozen = snap.karts.find((k) => k.id === myId)?.flags.includes("frozen");
   const introLeft = snap.phase === "countdown" ? snap.countdownMs - (RACE.countdownMs - RACE.introMs) : 0;
+  const trial = !!snap.timeTrial;
+  const items = !trial && !snap.itemsOff;
   const pad = { top: inset.top + 10, left: inset.left + 12, right: inset.right + 12, bottom: inset.bottom + 12 };
   // Post-it quadrado central, deixando as laterais da pista visíveis como na versão web (.postit-cover)
   const postitSize = Math.round(Math.min(width * 0.52, height * 0.76, 360));
@@ -95,10 +95,11 @@ export function RaceHud({ myId, engine, onPedals }: { myId: string; engine: RefO
         </View>
       )}
 
-      <View pointerEvents="none" style={[st.top, { top: pad.top }]}>
+      <View pointerEvents="box-none" style={[st.top, { top: pad.top }]}>
         <Panel>
           <Text style={hud.timer}>{fmtRace(me?.raceMs ?? snap.elapsedMs)}</Text>
         </Panel>
+        {trial && isHost && snap.phase === "active" && <Chip label="Encerrar treino" onPress={() => net.send({ t: "endTraining" })} />}
         {snap.graceMs !== null && (
           <Panel>
             <Text style={hud.small}>Fim da corrida em {Math.ceil(snap.graceMs / 1000)} s</Text>
@@ -108,7 +109,17 @@ export function RaceHud({ myId, engine, onPedals }: { myId: string; engine: RefO
 
       <Feed style={{ top: pad.top + 96, left: pad.left }} />
 
-      {me && (
+      {me && trial && (
+        <View pointerEvents="none" style={[st.place, { top: pad.top, left: pad.left }]}>
+          <Text style={[hud.bold, st.placeShadow]}>Volta {me.lap}</Text>
+          <Text style={st.lapNow}>{fmtRace(me.lapMs > 0 ? me.lapMs : null)}</Text>
+          <Text style={[hud.mono, st.placeShadow]}>
+            Última {fmtRace(me.lastLapMs)} · Melhor da sessão {fmtRace(me.sessionBestMs)}
+          </Text>
+        </View>
+      )}
+
+      {me && !trial && (
         <View pointerEvents="none" style={[st.place, { top: pad.top, left: pad.left }]}>
           <Text style={st.pos}>
             {me.place}
@@ -125,11 +136,11 @@ export function RaceHud({ myId, engine, onPedals }: { myId: string; engine: RefO
       )}
 
       <View style={[st.right, { top: pad.top, right: pad.right }]} pointerEvents="box-none">
-        <Pressable onPress={() => setState({ scoreboard: !scoreboard })}>
+        <Tap onPress={() => setState({ scoreboard: !scoreboard })}>
           <Panel style={{ padding: 6 }}>
-            <Minimap karts={snap.karts} myId={myId} size={128} />
+            <Minimap karts={snap.karts} myId={myId} size={128} track={track} />
           </Panel>
-        </Pressable>
+        </Tap>
         <View style={st.chips}>
           <Chip label={muted ? "Som: não" : "Som: sim"} onPress={() => setMuted(!muted)} />
           <Chip label="Pista" onPress={() => engine.current?.respawn()} />
@@ -141,22 +152,24 @@ export function RaceHud({ myId, engine, onPedals }: { myId: string; engine: RefO
       {me && (
         <View style={[st.pedals, { right: pad.right, bottom: pad.bottom }]} pointerEvents="box-none">
           <View style={st.pedalCol} pointerEvents="box-none">
-            <View
-              style={[st.item, me.item && st.itemFull]}
-              onTouchStart={() => {
-                if (!me.item) return;
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                engine.current?.useItem();
-              }}
-            >
-              <Text style={st.itemIco}>{me.item ? ITEM_ICON[me.item] : "?"}</Text>
-              <Text style={st.itemName} numberOfLines={1}>
-                {me.item ? `${ITEM_NAMES[me.item]}${me.charges > 1 ? ` x${me.charges}` : ""}` : "Sem item"}
-              </Text>
-              <Text style={st.itemHint} numberOfLines={1}>
-                {me.item ? "Toque p/ usar" : "Passe na caixa"}
-              </Text>
-            </View>
+            {items && (
+              <TouchDown
+                style={[st.item, me.item && st.itemFull]}
+                onDown={() => {
+                  if (!me.item) return;
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  engine.current?.useItem();
+                }}
+              >
+                <Text style={st.itemIco}>{me.item ? ITEM_ICON[me.item] : "?"}</Text>
+                <Text style={st.itemName} numberOfLines={1}>
+                  {me.item ? `${ITEM_NAMES[me.item]}${me.charges > 1 ? ` x${me.charges}` : ""}` : "Sem item"}
+                </Text>
+                <Text style={st.itemHint} numberOfLines={1}>
+                  {me.item ? "Toque p/ usar" : "Passe na caixa"}
+                </Text>
+              </TouchDown>
+            )}
             <HoldButton size={64} label="Ré" onDown={() => onPedals({ reverse: true })} onUp={() => onPedals({ reverse: false })} />
           </View>
           <HoldButton
@@ -175,7 +188,8 @@ export function RaceHud({ myId, engine, onPedals }: { myId: string; engine: RefO
           <Text style={hud.count}>{Math.max(1, Math.ceil(snap.countdownMs / 1000))}</Text>
           <Panel>
             <Text style={hud.small}>
-              Polegar esquerdo vira (puxe p/ baixo p/ frear) · acelera sozinha · segure Derrapar e solte para o turbo · toque no item para usar
+              Polegar esquerdo vira (puxe p/ baixo p/ frear) · acelera sozinha · segure Derrapar e solte para o turbo
+              {items ? " · toque no item para usar" : ""}
             </Text>
           </Panel>
         </View>
@@ -262,6 +276,7 @@ const st = StyleSheet.create({
   pos: { fontFamily: F.black, fontSize: 56, lineHeight: 60, color: C.postit, textShadowColor: C.ink, textShadowOffset: { width: 3, height: 3 }, textShadowRadius: 1 },
   posSmall: { fontSize: 26 },
   of: { fontSize: 22, color: C.hudInk },
+  lapNow: { fontFamily: F.monoBold, fontSize: 34, color: C.postit, textShadowColor: C.ink, textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 1 },
   placeShadow: { textShadowColor: C.ink, textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 1 },
   right: { position: "absolute", alignItems: "flex-end", gap: 8 },
   chips: { flexDirection: "row", gap: 6 },

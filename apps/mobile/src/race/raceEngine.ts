@@ -3,11 +3,11 @@ import { AppState } from "react-native";
 import type { ExpoWebGLRenderingContext } from "expo-gl";
 import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 import {
+  DEFAULT_AVATAR,
   ITEM_IDS,
   NO_INPUT,
   pointAt,
   RACE,
-  TRACK,
   newKart,
   stepKart,
   type AvatarDNA,
@@ -18,6 +18,7 @@ import {
   type RaceKartPublic,
   type RacePrivate,
   type RaceSnapshot,
+  type Track,
 } from "@ec/shared";
 import { getState, net } from "../store";
 import { MUSICA_CORRIDA } from "../three/assets";
@@ -27,8 +28,9 @@ import { modelReady } from "../three/character";
 import { createCommander, preloadCommander, type Commander } from "../three/commander";
 import { createRenderer, fitRenderer } from "../three/gl";
 import { buildTrack } from "../three/trackScene";
+import { PERF_TMP } from "../three/perfTmp";
 
-export type RaceUiSignal = "boost1" | "boost2" | "wall" | "hit" | "blocked";
+export type RaceUiSignal = "boost1" | "boost2" | "charge1" | "charge2" | "wall" | "hit" | "blocked";
 
 interface Sample {
   t: number;
@@ -48,6 +50,8 @@ interface KartView {
   flame: THREE.Mesh;
   bubble: THREE.Mesh;
   spin: number;
+  /** Treino: devolve os materiais originais da cadeira semitransparente. */
+  restore: (() => void) | null;
 }
 
 interface HazardView {
@@ -64,6 +68,11 @@ const INTERP_MS = 110;
 const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f"];
 /** Baixo o bastante para o helicóptero e os itens continuarem audíveis. */
 const MUSIC_VOLUME = 0.35;
+/** Treino: os outros pilotos aparecem assim (sem colisão entre cadeiras). */
+const TRIAL_OTHERS_OPACITY = 0.4;
+const DEFAULT_CHAIR: ChairDNA = { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 };
+
+const driftLevel = (k: KartState): 0 | 1 | 2 => (!k.drifting ? 0 : k.driftMs >= RACE.driftLevel2Ms ? 2 : k.driftMs >= RACE.driftLevel1Ms ? 1 : 0);
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -104,8 +113,49 @@ function boxTexture(): THREE.DataTexture {
   return g.texture();
 }
 
+/** Mancha escura de bordas suaves para a sombra redonda das cadeiras. */
+function blobTexture(): THREE.DataTexture {
+  const n = 64;
+  const data = new Uint8Array(n * n * 4);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const a = Math.max(0, 1 - Math.hypot(x - n / 2 + 0.5, y - n / 2 + 0.5) / (n / 2));
+      data[(y * n + x) * 4 + 3] = Math.round(255 * a * a);
+    }
+  }
+  const t = new THREE.DataTexture(data, n, n);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
+/** Troca os materiais por cópias translúcidas; a função devolvida põe os originais de volta. */
+function fadeMaterials(root: THREE.Object3D, opacity: number): () => void {
+  const swaps: { mesh: THREE.Mesh; orig: THREE.Material | THREE.Material[] }[] = [];
+  const copies: THREE.Material[] = [];
+  const fade = (m: THREE.Material) => {
+    const c = m.clone();
+    c.transparent = true;
+    c.opacity = opacity;
+    copies.push(c);
+    return c;
+  };
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.material) return;
+    swaps.push({ mesh, orig: mesh.material });
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(fade) : fade(mesh.material);
+  });
+  return () => {
+    for (const sw of swaps) sw.mesh.material = sw.orig;
+    for (const c of copies) c.dispose();
+  };
+}
+
 function disposeKartView(scene: THREE.Scene, v: KartView): void {
   scene.remove(v.r3d.root);
+  v.restore?.();
   if (v.tag) {
     (v.tag.material as THREE.SpriteMaterial).map?.dispose();
     v.tag.material.dispose();
@@ -151,14 +201,18 @@ export class RaceEngine {
   private boxGeo = new THREE.BoxGeometry(0.8, 0.6, 0.8);
   private boxMat = new THREE.MeshStandardMaterial({ map: boxTexture(), roughness: 0.9 });
   private hazardMats = new Map<string, THREE.Material>();
+  private blobGeo = new THREE.PlaneGeometry(1.7, 1.7).rotateX(-Math.PI / 2);
+  private blobMat = new THREE.MeshBasicMaterial({ map: blobTexture(), color: "#000000", transparent: true, opacity: 0.45, depthWrite: false });
   private raf = 0;
   private lastFrame = performance.now();
   private lastWallAt = 0;
+  private driftCharge: 0 | 1 | 2 = 0;
   private appSub: { remove(): void };
 
   constructor(
     private readonly gl: ExpoWebGLRenderingContext,
     private readonly myId: string,
+    private readonly track: Track,
     private readonly onUi?: (s: RaceUiSignal) => void,
   ) {
     this.renderer = createRenderer(gl);
@@ -175,7 +229,7 @@ export class RaceEngine {
     Object.assign(sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
     sun.shadow.bias = -0.0006;
     this.scene.add(sun);
-    buildTrack(this.scene);
+    buildTrack(this.scene, track);
     this.attachCommander();
     this.startMusic();
     this.appSub = AppState.addEventListener("change", (s) => {
@@ -189,7 +243,7 @@ export class RaceEngine {
   }
 
   private attachCommander(): void {
-    this.commander = createCommander(true);
+    this.commander = createCommander(this.track, true);
     if (this.commander) {
       this.commander.setMuted(this.muted);
       this.scene.add(this.commander.root);
@@ -198,7 +252,7 @@ export class RaceEngine {
     // se a partida reabriu antes do GLB de 3,1 MB terminar, entra assim que ficar pronto
     void preloadCommander().then((ok) => {
       if (!ok || !this.raf || this.commander) return;
-      this.commander = createCommander(true);
+      this.commander = createCommander(this.track, true);
       if (this.commander) {
         this.commander.setMuted(this.muted);
         this.commander.setActive(AppState.currentState === "active");
@@ -341,7 +395,7 @@ export class RaceEngine {
       return;
     }
     let next = server;
-    for (const p of this.pending) next = stepKart(next, p.input, DT, p.t, TRACK).state;
+    for (const p of this.pending) next = stepKart(next, p.input, DT, p.t, this.track).state;
     const dx = old.pos.x - next.pos.x;
     const dz = old.pos.z - next.pos.z;
     if (Math.hypot(dx, dz) > 4) {
@@ -364,10 +418,9 @@ export class RaceEngine {
     if (old && old.key === key) return old;
     const prevBuf = old?.buf ?? [];
     if (old) disposeKartView(this.scene, old);
-    const r3d = seatedRacer(
-      person?.avatar ?? { name: k.name, skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, accessory: 0, height: 1 },
-      person?.chair ?? { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 },
-    );
+    const r3d = seatedRacer(person?.avatar ?? { ...DEFAULT_AVATAR, name: k.name }, person?.chair ?? DEFAULT_CHAIR);
+    const faded = !!this.snap?.timeTrial && k.id !== this.myId;
+    const restore = faded ? fadeMaterials(r3d.root, TRIAL_OTHERS_OPACITY) : null;
     // r3d.root fica no chão; body inclina e gira por cima dele
     const body = new THREE.Group();
     while (r3d.root.children.length) body.add(r3d.root.children[0]);
@@ -393,9 +446,15 @@ export class RaceEngine {
     r3d.root.add(bubble);
     const tag = k.id === this.myId ? null : nameTag(k.name);
     if (tag) r3d.root.add(tag);
-    r3d.root.traverse((o) => (o.castShadow = o instanceof THREE.Mesh && o !== bubble));
+    // sombra redonda em vez de castShadow: são ~120 peças por cadeira com boneco, desenhadas de novo no mapa de sombra
+    r3d.root.traverse((o) => (o.castShadow = false));
+    if (!faded) {
+      const blob = new THREE.Mesh(this.blobGeo, this.blobMat);
+      blob.position.y = 0.04;
+      r3d.root.add(blob);
+    }
     this.scene.add(r3d.root);
-    const v: KartView = { r3d, key, body, tag, buf: prevBuf, last: k, sparks, flame, bubble, spin: 0 };
+    const v: KartView = { r3d, key, body, tag, buf: prevBuf, last: k, sparks, flame, bubble, spin: 0, restore };
     this.views.set(k.id, v);
     return v;
   }
@@ -455,10 +514,13 @@ export class RaceEngine {
         this.pending.push({ seq, input, t: this.clock });
         if (this.pending.length > 90) this.pending.shift();
         this.prevPred = this.pred;
-        const step = stepKart(this.pred, input, DT, this.clock, TRACK);
+        const step = stepKart(this.pred, input, DT, this.clock, this.track);
         this.pred = step.state;
         if (step.boost === 2) this.onUi?.("boost2");
         else if (step.boost === 1) this.onUi?.("boost1");
+        const charge = driftLevel(step.state);
+        if (charge > this.driftCharge) this.onUi?.(charge === 2 ? "charge2" : "charge1");
+        this.driftCharge = charge;
         if (step.wall && now - this.lastWallAt > 250) {
           this.lastWallAt = now;
           this.onUi?.("wall");
@@ -477,7 +539,8 @@ export class RaceEngine {
       let x: number;
       let z: number;
       let heading: number;
-      const mine = id === this.myId && this.pred;
+      // depois da chegada (ou fora da fase ativa) a própria cadeira vem do buffer, como as outras
+      const mine = id === this.myId && this.pred && this.snap?.phase === "active" && !this.me?.finished;
       if (mine) {
         // desenha entre os dois últimos passos de 30 Hz para não andar aos degraus em telas de 60 Hz ou mais
         const a = this.prevPred ?? this.pred!;
@@ -524,8 +587,11 @@ export class RaceEngine {
     this.commander?.update(dt, intro, raceMs, this.camera.position);
     if (intro < RACE.introMs) this.cutsceneCamera(intro / RACE.introMs, dt);
     else this.updateCamera(dt);
+    const tR0 = performance.now();
     this.renderer.render(this.scene, this.camera);
+    const tR1 = performance.now();
     this.gl.endFrameEXP();
+    PERF_TMP(this.renderer, ms, tR0, tR1, "race");
     this.raf = requestAnimationFrame(this.loop);
   };
 
@@ -559,17 +625,17 @@ export class RaceEngine {
 
   /** Abertura: primeiro segue o Comandante pela reta final, depois mostra o grid com ele chegando. */
   private cutsceneCamera(u: number, dt: number): void {
-    const start = pointAt(TRACK, 0).pos;
+    const start = pointAt(this.track, 0).pos;
     const c = this.commander?.root.position ?? new THREE.Vector3(start.x, 5.5, start.z);
     let want: THREE.Vector3;
     let look: THREE.Vector3;
     if (u < 0.55) {
-      const h = pointAt(TRACK, -40).heading;
+      const h = pointAt(this.track, -40).heading;
       want = new THREE.Vector3(c.x - Math.sin(h) * 11 + Math.cos(h) * 4, c.y + 3, c.z - Math.cos(h) * 11 - Math.sin(h) * 4);
       look = new THREE.Vector3(c.x, c.y + 1.6, c.z);
     } else {
       // atrás do grid: as cadeiras de costas e o Comandante sobre o pórtico, de frente para elas
-      const back = pointAt(TRACK, TRACK.length - 17);
+      const back = pointAt(this.track, this.track.length - 17);
       want = new THREE.Vector3(back.pos.x, 2.4, back.pos.z);
       look = new THREE.Vector3(c.x, c.y - 1.2, c.z);
     }
@@ -627,6 +693,9 @@ export class RaceEngine {
     }
     for (const v of this.views.values()) disposeKartView(this.scene, v);
     this.views.clear();
+    this.blobGeo.dispose();
+    this.blobMat.map?.dispose();
+    this.blobMat.dispose();
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();

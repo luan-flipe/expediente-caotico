@@ -47,7 +47,7 @@ export default function Index() {
     return () => sub.remove();
   }, []);
 
-  if (lobby?.phase === "match" && myId) return lobby.mode === "race" ? <RaceView myId={myId} /> : <GameView myId={myId} />;
+  if (lobby?.phase === "match" && myId) return lobby.mode === "shooter" ? <GameView myId={myId} /> : <RaceView myId={myId} />;
   if (editing) return <Creator />;
   if (!lobby) return <Home key={wanted ?? ""} initialCode={wanted} />;
   if (lobby.phase === "results" && raceResults) return <RaceResults />;

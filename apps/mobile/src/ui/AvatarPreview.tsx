@@ -49,7 +49,7 @@ interface Live {
 }
 
 function buildRig(dna: AvatarDNA, chair?: ChairDNA): Character {
-  return chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit() {} } : createCharacter(dna);
+  return chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit: () => 0 } : createCharacter(dna);
 }
 
 /** Prévia 3D girando. Arraste na horizontal para girar sem travar a rolagem vertical da tela. */

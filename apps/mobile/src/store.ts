@@ -7,7 +7,9 @@ import {
   sanitizeAvatar,
   sanitizeChair,
   type AvatarDNA,
+  type Award,
   type ChairDNA,
+  type GhostLap,
   type LobbyState,
   type PrivateState,
   type RacePrivate,
@@ -19,6 +21,8 @@ import {
 } from "@ec/shared";
 import { Connection } from "./net/connection";
 import { normalizeServer, serverFromHostUri } from "./net/serverUrl";
+import { loadAccount, loginSession, storeAccount, type Account } from "./net/session";
+import { setGlobalAudioMuted } from "./sound";
 import { readJson, writeJson } from "./storage";
 
 export interface FeedItem {
@@ -26,6 +30,20 @@ export interface FeedItem {
   at: number;
   text: string;
   kind: "kill" | "info" | "me";
+}
+
+/** Uma mensagem do chat rápido, como aparece no canto da sala de espera. */
+export interface ChatItem {
+  id: number;
+  at: number;
+  from: string;
+  kind: "phrase" | "emote";
+  index: number;
+}
+
+export interface Ghosts {
+  mine: GhostLap | null;
+  record: (GhostLap & { name: string }) | null;
 }
 
 export interface State {
@@ -36,6 +54,7 @@ export interface State {
   code: string | null;
   lobby: LobbyState | null;
   results: ResultRow[] | null;
+  awards: Award[];
   raceResults: RaceResultRow[] | null;
   error: string | null;
   online: boolean;
@@ -50,6 +69,26 @@ export interface State {
   /** Origem http(s) do servidor do jogo. */
   server: string;
   muted: boolean;
+  /** Conta logada (Google); null joga como visitante. */
+  account: Account | null;
+  /** Tela do ranking da firma aberta por cima da tela inicial ou do lobby. */
+  ranking: boolean;
+  /** Perfil aberto: apelido público do jogador ("eu" = o próprio, com conta logada). */
+  perfil: string | null;
+  /** Replay de um recorde de volta aberto por cima do ranking (pista e linha da aba). */
+  replay: { pista: string; linha: number } | null;
+  /** Configurações abertas por cima da tela atual (inclusive da partida). */
+  settingsOpen: boolean;
+  /** Menu de pausa aberto na partida: trava controles locais enquanto o servidor segue rodando. */
+  pauseOpen: boolean;
+  /** Fantasmas da pista no contra o relógio. */
+  ghosts: Ghosts | null;
+  /** Últimas mensagens do chat rápido. */
+  chat: ChatItem[];
+  /** Painel do chat rápido aberto. */
+  chatOpen: boolean;
+  /** Aviso de desafio da semana cumprido. */
+  toast: { id: number; text: string; points: number } | null;
 }
 
 const AVATAR_KEY = "ec.avatar";
@@ -78,6 +117,9 @@ function defaultServer(): string {
   return serverFromHostUri(Constants.expoConfig?.hostUri) ?? "http://localhost:2567";
 }
 
+const initialMuted = readJson<boolean>(MUTED_KEY) ?? false;
+setGlobalAudioMuted(initialMuted);
+
 let state: State = {
   editing: false,
   avatar: loadAvatar(),
@@ -86,6 +128,7 @@ let state: State = {
   code: null,
   lobby: null,
   results: null,
+  awards: [],
   raceResults: null,
   error: null,
   online: false,
@@ -97,7 +140,17 @@ let state: State = {
   scoreboard: false,
   modelReady: false,
   server: defaultServer(),
-  muted: readJson<boolean>(MUTED_KEY) ?? false,
+  muted: initialMuted,
+  account: loadAccount(),
+  ranking: false,
+  perfil: null,
+  replay: null,
+  settingsOpen: false,
+  pauseOpen: false,
+  ghosts: null,
+  chat: [],
+  chatOpen: false,
+  toast: null,
 };
 const listeners = new Set<() => void>();
 
@@ -133,6 +186,11 @@ export function saveChair(chair: ChairDNA): void {
   if (state.lobby) net.send({ t: "avatar", avatar: state.avatar, chair: clean });
 }
 
+export function setAccount(account: Account | null): void {
+  storeAccount(account);
+  setState({ account });
+}
+
 export function saveServer(input: string): void {
   const server = normalizeServer(input);
   if (!server || server === state.server) return;
@@ -143,6 +201,7 @@ export function saveServer(input: string): void {
 
 export function setMuted(muted: boolean): void {
   writeJson(MUTED_KEY, muted);
+  setGlobalAudioMuted(muted);
   setState({ muted });
 }
 
@@ -157,6 +216,7 @@ export function leaveRoom(): void {
   setState({
     lobby: null,
     results: null,
+    awards: [],
     raceResults: null,
     code: null,
     myId: null,
@@ -166,10 +226,19 @@ export function leaveRoom(): void {
     rme: null,
     feed: [],
     scoreboard: false,
+    ghosts: null,
+    chat: [],
+    chatOpen: false,
+    pauseOpen: false,
+    settingsOpen: false,
   });
 }
 
 let feedId = 0;
+let chatId = 0;
+let toastId = 0;
+const TOAST_MS = 7000;
+
 function pushFeed(items: Omit<FeedItem, "id" | "at">[]): void {
   if (!items.length) return;
   const now = performance.now();
@@ -179,7 +248,9 @@ function pushFeed(items: Omit<FeedItem, "id" | "at">[]): void {
 
 function nameOf(id: string | null): string {
   if (!id) return "o escritório";
-  return state.snap?.players.find((p) => p.id === id)?.name ?? state.lobby?.players.find((p) => p.id === id)?.name ?? "alguém";
+  const sp = state.snap?.players.find((p) => p.id === id);
+  if (sp?.isZombie) return "um zumbi";
+  return sp?.name ?? state.lobby?.players.find((p) => p.id === id)?.name ?? "alguém";
 }
 
 const HIT_TEXT = { spin: "grampeou", slip: "molhou de café", resma: "barrou com papel", postit: "colou um post-it em" } as const;
@@ -208,17 +279,36 @@ function onMessage(msg: ServerMsg): void {
       setState({ myId: msg.id, code: msg.code, error: null });
       return;
     case "lobby":
-      setState({ lobby: msg.state, scoreboard: false, ...(msg.state.phase === "match" ? { results: null, raceResults: null } : {}) });
+      setState({
+        lobby: msg.state,
+        scoreboard: false,
+        pauseOpen: false,
+        ...(msg.state.phase === "match" ? { results: null, raceResults: null, awards: [] } : {}),
+      });
       return;
     case "results":
-      setState({ results: msg.rows, raceResults: null, snap: null, me: null, feed: [], scoreboard: false });
+      setState({ results: msg.rows, awards: msg.awards, raceResults: null, snap: null, me: null, feed: [], scoreboard: false, pauseOpen: false, chatOpen: false });
       return;
     case "rresults":
-      setState({ raceResults: msg.rows, results: null, rsnap: null, rme: null, feed: [], scoreboard: false });
+      setState({ raceResults: msg.rows, awards: msg.awards, results: null, rsnap: null, rme: null, feed: [], scoreboard: false, pauseOpen: false, chatOpen: false });
       return;
     case "rsnap":
       setState({ rsnap: msg.s, rme: msg.me });
       raceFeed(msg.s);
+      return;
+    case "chat":
+      setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });
+      return;
+    case "challenge": {
+      const id = ++toastId;
+      setState({ toast: { id, text: msg.text, points: msg.points } });
+      setTimeout(() => {
+        if (state.toast?.id === id) setState({ toast: null });
+      }, TOAST_MS);
+      return;
+    }
+    case "ghosts":
+      setState({ ghosts: { mine: msg.mine, record: msg.record } });
       return;
     case "snap": {
       const items: Omit<FeedItem, "id" | "at">[] = [];
@@ -226,7 +316,10 @@ function onMessage(msg: ServerMsg): void {
       for (const e of msg.s.events) {
         if (e.type === "kill") {
           const mine = e.killer === state.myId || e.victim === state.myId;
-          items.push({ kind: mine ? "me" : "kill", text: e.killer ? `${nameOf(e.killer)} demitiu ${nameOf(e.victim)}` : `${nameOf(e.victim)} pediu as contas` });
+          const victimZombie = msg.s.players.find((p) => p.id === e.victim)?.isZombie;
+          if (!victimZombie) {
+            items.push({ kind: mine ? "me" : "kill", text: e.killer ? `${nameOf(e.killer)} demitiu ${nameOf(e.victim)}` : `${nameOf(e.victim)} pediu as contas` });
+          }
         } else if (e.type === "info" && (!e.player || e.player === state.myId)) {
           items.push({ kind: "info", text: e.text });
         }
@@ -236,7 +329,7 @@ function onMessage(msg: ServerMsg): void {
     }
     case "error":
       if (msg.msg === "Sessão expirada") leaveRoom();
-      if (msg.msg === "Sessão aberta em outra aba") setState({ lobby: null, snap: null, me: null, rsnap: null, rme: null, scoreboard: false });
+      if (msg.msg === "Sessão aberta em outra aba") setState({ lobby: null, snap: null, me: null, rsnap: null, rme: null, scoreboard: false, pauseOpen: false });
       setState({ error: msg.msg });
       return;
     default:
@@ -249,4 +342,5 @@ export const net = new Connection(
   (online) => setState({ online }),
   savedSession,
   () => state.server,
+  loginSession,
 );

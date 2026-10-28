@@ -477,7 +477,8 @@ export class Engine {
       this.pred = { x: p.x, z: p.z };
       this.history = [];
     } else {
-      this.pred = { x: this.pred.x + ex * 0.25, z: this.pred.z + ez * 0.25 };
+      // a correção também colide: dentro de uma caixa, o moveCircle seguinte jogaria o boneco para a outra borda
+      this.pred = moveCircle(this.pred, ex * 0.25, ez * 0.25, BALANCE.playerRadius, OFFICE_MAP.boxes, { w: OFFICE_MAP.width, d: OFFICE_MAP.depth });
     }
   }
 

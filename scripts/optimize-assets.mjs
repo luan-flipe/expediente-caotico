@@ -17,12 +17,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeIO, PropertyType } from "@gltf-transform/core";
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from "@gltf-transform/extensions";
-import { dedup, quantize, reorder, weld } from "@gltf-transform/functions";
-import { MeshoptDecoder, MeshoptEncoder } from "meshoptimizer";
+import { dedup, quantize, reorder, simplify, weld } from "@gltf-transform/functions";
+import { MeshoptDecoder, MeshoptEncoder, MeshoptSimplifier } from "meshoptimizer";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "assets-src");
 const out = join(root, "apps", "web", "public", "assets");
+const mobileOut = join(root, "apps", "mobile", "assets", "models");
+
+/**
+ * App: sem meshopt (o Hermes não tem WebAssembly) e com menos triângulos onde ninguém repara.
+ * Erro relativo ao tamanho de cada peça. Cabelo e barba ficam de fora: os penteados deformam a malha vértice a vértice.
+ */
+const MOBILE_SIMPLIFY = { "characters/comandante_helicoptero.glb": 0.005 };
 
 const MODELS = ["characters/boneco.glb", "characters/boneco_polo_barba.glb", "chairs/cadeira_escritorio.glb", "characters/comandante_helicoptero.glb"];
 const MUSIC = "audio/turbo_pixel_drift.mp3";
@@ -31,7 +38,7 @@ const kb = (n) => `${(n / 1024).toFixed(0)} KB`;
 /** Tudo menos POSITION e NORMAL, que ficam em float. */
 const QUANTIZED = /^(TEXCOORD|COLOR|JOINTS|WEIGHTS)(_\d+)?$/;
 
-await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready]);
+await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
 const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ "meshopt.encoder": MeshoptEncoder, "meshopt.decoder": MeshoptDecoder });
@@ -50,6 +57,16 @@ async function optimizeModel(rel) {
   mkdirSync(dirname(to), { recursive: true });
   await io.write(to, doc);
   console.log(`${rel}: ${kb(statSync(from).size)} -> ${kb(statSync(to).size)}`);
+}
+
+async function simplifyForMobile(rel, error) {
+  const from = join(src, rel);
+  const to = join(mobileOut, rel);
+  const doc = await io.read(from);
+  await doc.transform(weld(), simplify({ simplifier: MeshoptSimplifier, ratio: 0, error }));
+  mkdirSync(dirname(to), { recursive: true });
+  await io.write(to, doc);
+  console.log(`${rel} (app): ${kb(statSync(from).size)} -> ${kb(statSync(to).size)}`);
 }
 
 /** Tamanho da tag ID3v2 no começo do arquivo (0 se não houver). */
@@ -77,4 +94,5 @@ function stripMusic(rel) {
 }
 
 for (const m of MODELS) await optimizeModel(m);
+for (const [rel, error] of Object.entries(MOBILE_SIMPLIFY)) await simplifyForMobile(rel, error);
 stripMusic(MUSIC);

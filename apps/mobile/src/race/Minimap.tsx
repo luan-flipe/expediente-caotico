@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { Canvas, Circle, Group, Path, Skia } from "@shopify/react-native-skia";
-import { TRACK, trackEdges, type RaceKartPublic } from "@ec/shared";
+import { trackEdges, type RaceKartPublic, type Track } from "@ec/shared";
 
 const PAD = 4;
 
 /** Traçado da pista visto de cima, com um ponto por participante (desenhado com Skia). */
-export function Minimap({ karts, myId, size }: { karts: RaceKartPublic[]; myId: string; size: number }) {
+export function Minimap({ karts, myId, size, track }: { karts: RaceKartPublic[]; myId: string; size: number; track: Track }) {
   const { path, minX, minZ, scale, h } = useMemo(() => {
-    const e = trackEdges(TRACK);
+    const e = trackEdges(track);
     const all = [...e.plus, ...e.minus];
     // x invertido: com a câmera atrás da cadeira, +x fica à esquerda da tela
     const xs = all.map((p) => -p.x);
@@ -17,11 +17,11 @@ export function Minimap({ karts, myId, size }: { karts: RaceKartPublic[]; myId: 
     const w = Math.max(...xs) + PAD - minX;
     const hh = Math.max(...zs) + PAD - minZ;
     const b = Skia.PathBuilder.Make();
-    TRACK.points.forEach((pt, i) => (i ? b.lineTo(-pt.x - minX, -pt.z - minZ) : b.moveTo(-pt.x - minX, -pt.z - minZ)));
+    track.points.forEach((pt, i) => (i ? b.lineTo(-pt.x - minX, -pt.z - minZ) : b.moveTo(-pt.x - minX, -pt.z - minZ)));
     b.close();
     return { path: b.build(), minX, minZ, scale: size / w, h: hh };
-  }, [size]);
-  const start = TRACK.points[0];
+  }, [size, track]);
+  const start = track.points[0];
   const order = [...karts].sort((a) => (a.id === myId ? 1 : -1));
 
   return (

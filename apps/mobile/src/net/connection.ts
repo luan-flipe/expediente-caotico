@@ -21,6 +21,8 @@ export class Connection {
     private readonly onStatus: (online: boolean) => void,
     private readonly session: () => Session,
     private readonly server: () => string,
+    /** Sessão de login (conta); vai junto no resume para a partida continuar contando no ranking. */
+    private readonly login: () => string | undefined = () => undefined,
   ) {
     setInterval(() => this.send({ t: "ping", c: performance.now() }, false), 2000);
     // o sistema derruba o socket com o app em segundo plano; na volta, retoma a sala salva
@@ -74,7 +76,7 @@ export class Connection {
     if (!s) return false;
     this.closedByUser = false;
     this.ensure();
-    this.send({ t: "resume", code: s.code, token: s.token });
+    this.send({ t: "resume", code: s.code, token: s.token, session: this.login() });
     return true;
   }
 
