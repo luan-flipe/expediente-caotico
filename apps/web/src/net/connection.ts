@@ -18,6 +18,8 @@ export class Connection {
     private readonly onMsg: (m: ServerMsg) => void,
     private readonly onStatus: (online: boolean) => void,
     private readonly session: () => Session,
+    /** Sessão de login (conta); vai junto no resume para a partida continuar contando. */
+    private readonly login: () => string | undefined,
   ) {
     setInterval(() => this.send({ t: "ping", c: performance.now() }, false), 2000);
   }
@@ -61,7 +63,7 @@ export class Connection {
     if (!s) return false;
     this.closedByUser = false;
     this.ensure();
-    this.send({ t: "resume", code: s.code, token: s.token });
+    this.send({ t: "resume", code: s.code, token: s.token, session: this.login() });
     return true;
   }
 

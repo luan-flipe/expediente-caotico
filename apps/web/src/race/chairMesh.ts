@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { CHAIR_BASES, CHAIR_SEATS, type AvatarDNA, type ChairDNA } from "@ec/shared";
 import { createCharacter, HIP_HEIGHT, modelReady, type Character } from "../game/character";
+import { createGltfLoader } from "../game/gltfLoader";
 
 const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
 
@@ -40,9 +40,9 @@ export function chairModelReady(): boolean {
 }
 
 /** Carrega o GLB da cadeira uma vez. Resolve false se falhar (a corrida segue com a cadeira procedural). */
-export function preloadChair(): Promise<boolean> {
-  loading ??= new GLTFLoader()
-    .loadAsync(MODEL_URL)
+export function preloadChair(onProgress?: (e: ProgressEvent) => void): Promise<boolean> {
+  loading ??= createGltfLoader()
+    .loadAsync(MODEL_URL, onProgress)
     .then((gltf) => {
       loaded = gltf.scene;
       return true;

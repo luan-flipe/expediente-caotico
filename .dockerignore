@@ -4,3 +4,4 @@ node_modules
 .git
 .superpowers
 .vitest
+assets-src

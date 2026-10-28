@@ -1,24 +1,27 @@
 import { z } from "zod";
 import type { ChairDNA } from "./race/chair";
 import type { RacePrivate, RaceResultRow, RaceSnapshot } from "./race/types";
+import type { GhostSample } from "./ranking/types";
 import type { AvatarDNA, PrivateState, ResultRow, Snapshot } from "./types";
 
-export type GameMode = "shooter" | "race";
+export type GameMode = "shooter" | "race" | "timetrial";
 
 const num = z.number().finite();
 const avatar = z.unknown();
 const chair = z.unknown().optional();
 const unit = num.min(-1).max(1);
 const code = z.string().regex(/^[A-Z]{5}$/);
+/** Sessão do jogo (ver auth.ts do servidor); inválida ou ausente vira visitante. */
+const session = z.string().max(512).optional();
 
 /** Mensagens do cliente: só intenções. Nada de dano, pontos, vida ou recarga. */
 export const ClientMsg = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("create"), name: z.string().max(64), avatar, chair }),
-  z.object({ t: z.literal("join"), code, name: z.string().max(64), avatar, chair }),
-  z.object({ t: z.literal("resume"), code, token: z.string().min(16).max(64) }),
+  z.object({ t: z.literal("create"), name: z.string().max(64), avatar, chair, session }),
+  z.object({ t: z.literal("join"), code, name: z.string().max(64), avatar, chair, session }),
+  z.object({ t: z.literal("resume"), code, token: z.string().min(16).max(64), session }),
   z.object({ t: z.literal("ready"), ready: z.boolean() }),
   z.object({ t: z.literal("avatar"), avatar, chair }),
-  z.object({ t: z.literal("mode"), mode: z.enum(["shooter", "race"]) }),
+  z.object({ t: z.literal("mode"), mode: z.enum(["shooter", "race", "timetrial"]) }),
   z.object({ t: z.literal("addBot") }),
   z.object({ t: z.literal("removeBot") }),
   z.object({ t: z.literal("duration"), ms: z.union([z.literal(180000), z.literal(300000), z.literal(600000)]) }),
@@ -35,6 +38,8 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("kinput"), steer: unit, throttle: unit, drift: z.boolean(), seq: z.number().int().min(1).max(2 ** 31) }),
   z.object({ t: z.literal("kitem") }),
   z.object({ t: z.literal("krespawn") }),
+  /** Só o anfitrião, só no contra o relógio: encerra o treino. */
+  z.object({ t: z.literal("endTraining") }),
   /** Só fora de produção: pede um item específico para testar. */
   z.object({ t: z.literal("kdebug"), item: z.enum(["expresso", "triplo", "grampeador", "poca", "resma", "aviao", "pasta", "postit"]) }),
   z.object({ t: z.literal("leave") }),
@@ -51,6 +56,8 @@ export interface LobbyPlayer {
   ready: boolean;
   isBot: boolean;
   connected: boolean;
+  /** Logado com conta: a partida pode contar para o ranking. */
+  ranked: boolean;
 }
 
 export interface LobbyState {
@@ -62,6 +69,12 @@ export interface LobbyState {
   players: LobbyPlayer[];
 }
 
+/** Um fantasma: tempo da volta e amostras [tempo na volta, x, z, direção]. */
+export interface GhostLap {
+  ms: number;
+  samples: GhostSample[];
+}
+
 export type ServerMsg =
   | { t: "welcome"; id: string; token: string; code: string }
   | { t: "lobby"; state: LobbyState }
@@ -69,5 +82,7 @@ export type ServerMsg =
   | { t: "results"; rows: ResultRow[] }
   | { t: "rsnap"; s: RaceSnapshot; me: RacePrivate | null }
   | { t: "rresults"; rows: RaceResultRow[] }
+  /** Fantasmas da pista: o do próprio jogador (conta ou sessão) e o do recordista. Reenviado quando algum muda. */
+  | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null }
   | { t: "error"; msg: string }
   | { t: "pong"; c: number };

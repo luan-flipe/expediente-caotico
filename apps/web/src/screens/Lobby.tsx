@@ -16,7 +16,8 @@ export function Lobby() {
   const link = `${location.origin}${location.pathname}?sala=${lobby.code}`;
   const bots = lobby.players.filter((p) => p.isBot).length;
   const full = lobby.players.length >= BALANCE.maxPlayers;
-  const race = lobby.mode === "race";
+  const trial = lobby.mode === "timetrial";
+  const race = lobby.mode === "race" || trial;
 
   const copy = async () => {
     try {
@@ -59,7 +60,8 @@ export function Lobby() {
             {lobby.players.map((p) => (
               <div className="slot" key={p.id}>
                 {p.id === lobby.hostId && <span className="tag host">ANFITRIÃO</span>}
-                <img src={race ? chairThumbnail(p.avatar, p.chair) : avatarThumbnail(p.avatar)} alt={p.name} />
+                {!p.isBot && <span className={`tag seal ${p.ranked ? "ranked" : ""}`}>{p.ranked ? "NO RANKING" : "VISITANTE"}</span>}
+                <img src={race ?chairThumbnail(p.avatar, p.chair) : avatarThumbnail(p.avatar)} alt={p.name} />
                 <div className="who">
                   <span>
                     {p.name}
@@ -91,6 +93,12 @@ export function Lobby() {
               <button className="btn" onClick={() => setState({ editing: true })}>
                 {race ? "Editar boneco e cadeira" : "Editar boneco"}
               </button>
+              <button className="btn" onClick={() => setState({ ranking: true })}>
+                Ranking
+              </button>
+              <button className="btn" onClick={() => setState({ settingsOpen: true })}>
+                Configurações
+              </button>
               <button className="btn" onClick={leaveRoom}>
                 Sair da sala
               </button>
@@ -104,15 +112,22 @@ export function Lobby() {
             <div className="row">
               <span className="muted">Modo:</span>
               <div className="seg">
-                <button className={!race ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "shooter" })}>
+                <button className={lobby.mode === "shooter" ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "shooter" })}>
                   Tiroteio
                 </button>
-                <button className={race ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "race" })}>
+                <button className={lobby.mode === "race" ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "race" })}>
                   Rally da Firma
+                </button>
+                <button className={trial ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "timetrial" })}>
+                  Contra o relógio
                 </button>
               </div>
             </div>
-            {race ? (
+            {trial ? (
+              <div className="row">
+                <span className="muted">Voltas livres sozinho ou com a sala, sem itens e sem colisão. Fantasma da sua melhor volta e do recorde.</span>
+              </div>
+            ) : race ? (
               <div className="row">
                 <span className="muted">Corrida de cadeiras: {RACE.laps} voltas no Circuito Corporativo, até {RACE.maxPlayers} pilotos.</span>
               </div>
@@ -130,16 +145,18 @@ export function Lobby() {
             )}
             {isHost && (
               <>
-                <div className="row">
-                  <button className="btn small" disabled={full} onClick={() => net.send({ t: "addBot" })}>
-                    + Bot estagiário
-                  </button>
-                  <button className="btn small" disabled={bots === 0} onClick={() => net.send({ t: "removeBot" })}>
-                    - Bot
-                  </button>
-                </div>
+                {!trial && (
+                  <div className="row">
+                    <button className="btn small" disabled={full} onClick={() => net.send({ t: "addBot" })}>
+                      + Bot estagiário
+                    </button>
+                    <button className="btn small" disabled={bots === 0} onClick={() => net.send({ t: "removeBot" })}>
+                      - Bot
+                    </button>
+                  </div>
+                )}
                 <button className="btn primary" onClick={() => net.send({ t: "start" })}>
-                  {race ? "Iniciar corrida" : "Iniciar expediente"}
+                  {trial ? "Iniciar treino" : race ? "Iniciar corrida" : "Iniciar expediente"}
                 </button>
               </>
             )}

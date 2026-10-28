@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { EYE_COLORS, HAIR_COLORS, PANTS, SHIRTS, SKINS, type AvatarDNA } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
+import { createGltfLoader } from "./gltfLoader";
 
 export type CharacterAction = "throw" | "cafe" | "dash";
 
@@ -156,8 +156,8 @@ function reshape(scene: THREE.Object3D): void {
   scene.getObjectByName("Quadril_Calca")?.scale.set(0.36, 0.2, 0.27);
 }
 
-async function loadModel(url: string, root: string): Promise<{ model: Loaded; animations: THREE.AnimationClip[] }> {
-  const gltf = await new GLTFLoader().loadAsync(url);
+async function loadModel(url: string, root: string, onProgress?: (e: ProgressEvent) => void): Promise<{ model: Loaded; animations: THREE.AnimationClip[] }> {
+  const gltf = await createGltfLoader().loadAsync(url, onProgress);
   const scene = gltf.scene;
   scene.getObjectByName("Pedestal")?.removeFromParent();
   reshape(scene);
@@ -456,24 +456,38 @@ function beardFor(kind: number): THREE.BufferGeometry | undefined {
   return geo;
 }
 
-async function loadSkin(id: number, def: SkinDef): Promise<void> {
-  const { model, animations } = await loadModel(def.url, def.root);
+async function loadSkin(id: number, def: SkinDef, onProgress?: (e: ProgressEvent) => void): Promise<void> {
+  const { model, animations } = await loadModel(def.url, def.root, onProgress);
   for (const a of animations) model.clips.set(a.name, cleanClip(a));
   skins.set(id, model);
   if (id === PARTS_SKIN) takeParts(model.scene);
 }
 
-/** Carrega os GLBs uma vez. Resolve false se o boneco base falhar (o jogo segue com o procedural). */
-export function preloadCharacter(): Promise<boolean> {
-  loading ??= loadModel(MODEL_URL, "Boneco")
+/**
+ * Carrega os GLBs uma vez, o boneco base e as skins ao mesmo tempo. Resolve false se o boneco base falhar
+ * (o jogo segue com o procedural). onProgress soma os bytes de todos os arquivos.
+ */
+export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promise<boolean> {
+  if (loading) return loading;
+  const defs = Object.entries(SKIN_DEFS);
+  const files = [MODEL_URL, ...defs.map(([, def]) => def.url)].map(() => ({ loaded: 0, total: 0 }));
+  const progress = (i: number) => (e: ProgressEvent) => {
+    if (!e.lengthComputable) return;
+    files[i].loaded = e.loaded;
+    files[i].total = e.total;
+    if (onProgress && files.every((f) => f.total > 0)) {
+      const sum = (k: "loaded" | "total") => files.reduce((n, f) => n + f[k], 0);
+      onProgress(new ProgressEvent("progress", { lengthComputable: true, loaded: sum("loaded"), total: sum("total") }));
+    }
+  };
+  // skin que falha cai no boneco do crachá; o resto do jogo segue
+  const skinsDone = Promise.all(
+    defs.map(([id, def], i) => loadSkin(Number(id), def, progress(i + 1)).catch((err) => console.warn(`${def.url} não carregou`, err))),
+  );
+  loading = loadModel(MODEL_URL, "Boneco", progress(0))
     .then(async ({ model, animations }) => {
       for (const a of animations) model.clips.set(a.name, cleanClip(a));
-      // skin que falha cai no boneco do crachá; o resto do jogo segue
-      await Promise.all(
-        Object.entries(SKIN_DEFS).map(([id, def]) =>
-          loadSkin(Number(id), def).catch((err) => console.warn(`${def.url} não carregou`, err)),
-        ),
-      );
+      await skinsDone;
       loaded = model;
       return true;
     })
