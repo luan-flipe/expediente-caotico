@@ -28,6 +28,15 @@ export interface FeedItem {
   kind: "kill" | "info" | "me";
 }
 
+/** Uma mensagem do chat rápido, como aparece no canto do lobby. */
+export interface ChatItem {
+  id: number;
+  at: number;
+  from: string;
+  kind: "phrase" | "emote";
+  index: number;
+}
+
 export interface State {
   editing: boolean;
   avatar: AvatarDNA;
@@ -60,6 +69,10 @@ export interface State {
   settingsOpen: boolean;
   /** Fantasmas da pista no contra o relógio (o último enviado pelo servidor). */
   ghosts: Ghosts | null;
+  /** Últimas mensagens do chat rápido (o canto do lobby mostra as recentes). */
+  chat: ChatItem[];
+  /** Painel do chat rápido aberto: o jogo ignora o teclado e solta o mouse enquanto isso. */
+  chatOpen: boolean;
 }
 
 export interface Ghosts {
@@ -116,6 +129,8 @@ let state: State = {
   ranking: false,
   settingsOpen: false,
   ghosts: null,
+  chat: [],
+  chatOpen: false,
 };
 const listeners = new Set<() => void>();
 
@@ -191,10 +206,11 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null });
+  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null, chat: [], chatOpen: false });
 }
 
 let feedId = 0;
+let chatId = 0;
 function pushFeed(items: Omit<FeedItem, "id" | "at">[]): void {
   if (!items.length) return;
   const now = performance.now();
@@ -245,6 +261,9 @@ function onMessage(msg: ServerMsg): void {
     case "rsnap":
       setState({ rsnap: msg.s, rme: msg.me });
       raceFeed(msg.s);
+      return;
+    case "chat":
+      setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });
       return;
     case "ghosts":
       setState({ ghosts: { mine: msg.mine, record: msg.record } });

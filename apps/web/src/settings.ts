@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from "react";
 
 /** Ações com tecla própria no tiroteio. O clique esquerdo do mouse também atira (fixo). */
-export const SHOOTER_ACTIONS = ["frente", "tras", "esquerda", "direita", "atirar", "habilidade1", "habilidade2", "habilidade3", "esquiva", "evolucao1", "evolucao2", "evolucao3", "placar"] as const;
+export const SHOOTER_ACTIONS = ["frente", "tras", "esquerda", "direita", "atirar", "habilidade1", "habilidade2", "habilidade3", "esquiva", "evolucao1", "evolucao2", "evolucao3", "placar", "chat"] as const;
 /** Ações com tecla própria na corrida. As setas e o clique esquerdo (item) valem sempre como alternativa. */
-export const RACE_ACTIONS = ["acelerar", "frear", "esquerda", "direita", "derrapar", "item", "voltar", "placar", "mudo"] as const;
+export const RACE_ACTIONS = ["acelerar", "frear", "esquerda", "direita", "derrapar", "item", "voltar", "placar", "mudo", "chat"] as const;
 
 export type ShooterAction = (typeof SHOOTER_ACTIONS)[number];
 export type RaceAction = (typeof RACE_ACTIONS)[number];
@@ -40,6 +40,7 @@ export const DEFAULT_SETTINGS: Settings = {
       evolucao2: "Digit2",
       evolucao3: "Digit3",
       placar: "Tab",
+      chat: "KeyT",
     },
     race: {
       acelerar: "KeyW",
@@ -51,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
       voltar: "KeyR",
       placar: "Tab",
       mudo: "KeyM",
+      chat: "KeyT",
     },
   },
   quality: "alta",
@@ -70,6 +72,7 @@ export const SHOOTER_LABELS: Record<ShooterAction, string> = {
   evolucao2: "Evolução 2",
   evolucao3: "Evolução 3",
   placar: "Placar completo",
+  chat: "Chat rápido (abre as frases e emotes)",
 };
 
 export const RACE_LABELS: Record<RaceAction, string> = {
@@ -82,6 +85,7 @@ export const RACE_LABELS: Record<RaceAction, string> = {
   voltar: "Voltar para a pista",
   placar: "Placar da corrida",
   mudo: "Silenciar tudo",
+  chat: "Chat rápido (abre as frases e emotes)",
 };
 
 const STORAGE_KEY = "ec.settings";

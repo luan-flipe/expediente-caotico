@@ -3,6 +3,7 @@ import { Creator } from "./screens/Creator";
 import { Home } from "./screens/Home";
 import { Loading } from "./screens/Loading";
 import { Lobby } from "./screens/Lobby";
+import { QuickChat } from "./screens/QuickChat";
 import { Ranking } from "./screens/Ranking";
 import { Results } from "./screens/Results";
 import { Settings } from "./screens/Settings";
@@ -50,6 +51,7 @@ export function App() {
   return (
     <>
       <Suspense fallback={<Loading />}>{screen()}</Suspense>
+      <QuickChat />
       {settingsOpen && <Settings />}
     </>
   );

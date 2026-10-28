@@ -7,6 +7,14 @@ import type { AvatarDNA, PrivateState, ResultRow, Snapshot } from "./types";
 
 export type GameMode = "shooter" | "race" | "timetrial";
 
+/** Chat rápido: só índices, nunca texto livre. Frases e emotes ficam aqui para cliente e servidor concordarem. */
+export const CHAT_PHRASES = ["Café!", "Foi sem querer", "Rematch?", "Boa!", "Corre!", "Volto já", "GG", "Isso é RH"] as const;
+export const CHAT_EMOTES = ["😂", "😡", "👏", "☕", "💀", "🔥"] as const;
+/** Intervalo mínimo entre duas mensagens do mesmo jogador (o servidor descarta as que chegam antes). */
+export const CHAT_COOLDOWN_MS = 2000;
+/** Quanto tempo o balão fica visível. */
+export const CHAT_BUBBLE_MS = 3000;
+
 const num = z.number().finite();
 const avatar = z.unknown();
 const chair = z.unknown().optional();
@@ -43,6 +51,9 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("endTraining") }),
   /** Só fora de produção: pede um item específico para testar. */
   z.object({ t: z.literal("kdebug"), item: z.enum(["expresso", "triplo", "grampeador", "poca", "resma", "aviao", "pasta", "postit"]) }),
+  /** Chat rápido: índice da frase ou do emote (ver CHAT_PHRASES e CHAT_EMOTES). */
+  z.object({ t: z.literal("chat"), index: z.number().int().min(0).max(CHAT_PHRASES.length - 1) }),
+  z.object({ t: z.literal("emote"), index: z.number().int().min(0).max(CHAT_EMOTES.length - 1) }),
   z.object({ t: z.literal("leave") }),
   z.object({ t: z.literal("lobby") }),
   z.object({ t: z.literal("ping"), c: num }),
@@ -85,5 +96,7 @@ export type ServerMsg =
   | { t: "rresults"; rows: RaceResultRow[]; awards: Award[] }
   /** Fantasmas da pista: o do próprio jogador (conta ou sessão) e o do recordista. Reenviado quando algum muda. */
   | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null }
+  /** Chat rápido de alguém da sala (inclusive de quem mandou). */
+  | { t: "chat"; from: string; kind: "phrase" | "emote"; index: number }
   | { t: "error"; msg: string }
   | { t: "pong"; c: number };

@@ -19,6 +19,7 @@ export function RaceView({ myId }: { myId: string }) {
     if (rsnap) engine.applySnapshot(rsnap, rme);
     const off = net.listen((m) => {
       if (m.t === "rsnap") engine.applySnapshot(m.s, m.me);
+      else if (m.t === "chat") engine.showChat(m.from, m.kind, m.index);
     });
     return () => {
       off();
