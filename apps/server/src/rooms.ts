@@ -176,12 +176,25 @@ export class Room {
     return m;
   }
 
-  /** A conta guarda o nome de crachá mais recente do jogador logado. */
+  /** A conta guarda o nome de crachá, o boneco e a cadeira mais recentes do jogador logado (o replay do recorde usa). */
   syncAccountName(member: Member): void {
     const acc = member.accountId ? this.store?.data.accounts[member.accountId] : undefined;
-    if (!acc || acc.name === member.name) return;
-    acc.name = member.name;
-    this.store?.save();
+    if (!acc) return;
+    let changed = false;
+    if (acc.name !== member.name) {
+      acc.name = member.name;
+      changed = true;
+    }
+    // já sanitizados na entrada; compara pelo conteúdo para não gravar o arquivo à toa
+    if (JSON.stringify(acc.avatar) !== JSON.stringify(member.avatar)) {
+      acc.avatar = { ...member.avatar };
+      changed = true;
+    }
+    if (JSON.stringify(acc.chair) !== JSON.stringify(member.chair)) {
+      acc.chair = { ...member.chair };
+      changed = true;
+    }
+    if (changed) this.store?.save();
   }
 
   removeMember(id: string): void {
@@ -404,8 +417,8 @@ export class Room {
         if (this.phase === "match") return;
         member.avatar = sanitizeAvatar(msg.avatar);
         member.name = member.avatar.name;
-        this.syncAccountName(member);
         if (msg.chair !== undefined) member.chair = sanitizeChair(msg.chair);
+        this.syncAccountName(member);
         return this.broadcastLobby();
       case "addBot": {
         if (!isHost || this.phase !== "lobby" || this.mode === "timetrial") return;

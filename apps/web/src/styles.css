@@ -634,6 +634,52 @@ input {
   padding: 6px 16px;
 }
 
+/* replay do recorde */
+.replay-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px;
+  color: var(--hud-ink);
+  font-family: var(--display);
+}
+
+.replay-hud .panel,
+.replay-hud button {
+  pointer-events: auto;
+}
+
+.replay-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.replay-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.replay-bar {
+  align-self: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  max-width: 100%;
+}
+
+.replay-hint {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
 .zone-pill {
   margin-top: 6px;
   font-size: 13px;

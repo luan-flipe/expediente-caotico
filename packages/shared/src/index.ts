@@ -26,3 +26,4 @@ export { createRace, stepRace, setKartInput, queueItemUse, endTraining, respawnR
 export type { RacePlayerInfo } from "./race/match";
 export * from "./ranking/types";
 export * from "./ranking/rules";
+export * from "./ranking/ghost";

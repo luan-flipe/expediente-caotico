@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { rankingView, type RankingRowBase, type RankingTab, type RankingView } from "@ec/shared";
+import { DEFAULT_AVATAR, lapStandings, rankingView, sanitizeAvatar, sanitizeChair, type RankingRowBase, type RankingTab, type RankingView } from "@ec/shared";
 import { readSession, signSession, verifyGoogleToken } from "./auth";
 import { RoomManager, type Conn } from "./rooms";
 import { TokenBucket } from "./ratelimit";
@@ -160,7 +160,29 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       const viewer = bearer && auth ? (readSession(bearer, auth.secret) ?? undefined) : undefined;
       return sendJson(res, 200, maskView(rankingView(store.data, Date.now(), viewer), aliasKey));
     }
+    if (path === "/api/replay" && store) return replay(req, res);
     sendJson(res, 404, { error: "Não encontrado" });
+  }
+
+  /** GET /api/replay?pista=X&linha=N: a volta da linha N (1 = recorde) da aba Recordes de volta, sem ids de conta. */
+  function replay(req: IncomingMessage, res: ServerResponse): void {
+    if (!store) return sendJson(res, 404, { error: "Não encontrado" });
+    const q = new URL(req.url ?? "/", "http://localhost").searchParams;
+    const pista = q.get("pista") ?? "";
+    const linha = q.get("linha") ?? "";
+    if (!/^[a-z0-9_-]{1,32}$/.test(pista) || q.getAll("pista").length !== 1) return sendJson(res, 400, { error: "Pista inválida" });
+    if (!/^[1-9]\d{0,5}$/.test(linha) || q.getAll("linha").length !== 1) return sendJson(res, 400, { error: "Linha inválida" });
+    const entry = lapStandings(store.data, pista)[Number(linha) - 1];
+    if (!entry) return sendJson(res, 404, { error: "Volta não encontrada" });
+    const acc = store.data.accounts[entry.id];
+    const name = acc?.name ?? "Jogador";
+    sendJson(res, 200, {
+      name,
+      ms: entry.lap.ms,
+      avatar: sanitizeAvatar({ ...DEFAULT_AVATAR, ...acc?.avatar, name }),
+      chair: sanitizeChair(acc?.chair),
+      ghost: entry.lap.ghost,
+    });
   }
 
   const http: Server = createServer((req, res) => {

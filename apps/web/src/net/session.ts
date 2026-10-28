@@ -1,4 +1,4 @@
-import type { RankingView } from "@ec/shared";
+import type { RankingView, ReplayData } from "@ec/shared";
 
 /** Conta logada: sessão do jogo (assinada pelo servidor) e o nome guardado na conta. */
 export interface Account {
@@ -83,6 +83,13 @@ export async function login(credential: string): Promise<Account> {
   const body = (await r.json().catch(() => ({}))) as { session?: string; name?: string; error?: string };
   if (!r.ok || !body.session) throw new Error(body.error ?? "Não foi possível entrar");
   return { session: body.session, name: body.name ?? "" };
+}
+
+export async function fetchReplay(pista: string, linha: number): Promise<ReplayData> {
+  const r = await fetch(`/api/replay?pista=${encodeURIComponent(pista)}&linha=${linha}`);
+  if (r.status === 404) throw new Error("Essa volta não está mais no ranking");
+  if (!r.ok) throw new Error("Replay indisponível");
+  return (await r.json()) as ReplayData;
 }
 
 export async function fetchRanking(): Promise<RankingView> {
