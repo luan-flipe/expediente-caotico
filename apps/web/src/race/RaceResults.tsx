@@ -1,5 +1,6 @@
 import { ITEM_NAMES } from "@ec/shared";
 import { net, useStore } from "../store";
+import { Awards } from "../screens/Awards";
 import { chairThumbnail } from "./chairMesh";
 import { fmtRace, ITEM_ICON } from "./RaceHud";
 
@@ -9,15 +10,24 @@ export function RaceResults() {
   const myId = useStore((s) => s.myId);
   useStore((s) => s.modelReady);
   const isHost = lobby?.hostId === myId;
-  const podium = [rows[1], rows[0], rows[2]].filter(Boolean);
+  const trial = lobby?.mode === "timetrial";
+  // no treino só sobe ao pódio quem fechou uma volta válida
+  const top = trial ? rows.filter((r) => r.bestLapMs !== null) : rows;
+  const podium = [top[1], top[0], top[2]].filter(Boolean);
 
   return (
     <div className="screen">
       <div className="wrap stack">
         <div className="brand" style={{ marginBottom: 0 }}>
-          <h1>
-            Rally da <span>Firma</span>
-          </h1>
+          {trial ? (
+            <h1>
+              Fim do <span>treino</span>
+            </h1>
+          ) : (
+            <h1>
+              Rally da <span>Firma</span>
+            </h1>
+          )}
         </div>
         <div className="podium">
           {podium.map((r) => (
@@ -34,9 +44,9 @@ export function RaceResults() {
               <tr>
                 <th className="num">#</th>
                 <th>Piloto</th>
-                <th className="num">Tempo</th>
+                {!trial && <th className="num">Tempo</th>}
                 <th className="num">Melhor volta</th>
-                <th>Item favorito</th>
+                {!trial && <th>Item favorito</th>}
               </tr>
             </thead>
             <tbody>
@@ -50,13 +60,14 @@ export function RaceResults() {
                       {r.isBot && <span className="tag">BOT</span>}
                     </div>
                   </td>
-                  <td className="num">{r.totalMs !== null ? fmtRace(r.totalMs) : `${r.lapsDone} volta${r.lapsDone === 1 ? "" : "s"}`}</td>
+                  {!trial && <td className="num">{r.totalMs !== null ? fmtRace(r.totalMs) : `${r.lapsDone} volta${r.lapsDone === 1 ? "" : "s"}`}</td>}
                   <td className="num">{fmtRace(r.bestLapMs)}</td>
-                  <td>{r.favItem ? `${ITEM_ICON[r.favItem]} ${ITEM_NAMES[r.favItem]}` : "Nenhum"}</td>
+                  {!trial && <td>{r.favItem ? `${ITEM_ICON[r.favItem]} ${ITEM_NAMES[r.favItem]}` : "Nenhum"}</td>}
                 </tr>
               ))}
             </tbody>
           </table>
+          <Awards />
           <div className="row" style={{ marginTop: 16 }}>
             {isHost ? (
               <button className="btn primary" onClick={() => net.send({ t: "lobby" })}>

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ABILITIES, BALANCE, roomNameAt } from "@ec/shared";
+import { keyLabel, useSettings } from "../settings";
 import { useStore } from "../store";
+import { IS_TOUCH } from "../touch";
 import { Evolution } from "./Evolution";
 import { Scoreboard } from "./Scoreboard";
 
@@ -40,6 +42,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
   const feed = useStore((s) => s.feed);
   const scoreboard = useStore((s) => s.scoreboard);
   const online = useStore((s) => s.online);
+  const keys = useSettings().keys.shooter;
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 120);
@@ -49,7 +52,8 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
   if (!snap) return <div className="hud center-msg">Entrando no escritório...</div>;
   const now = performance.now();
   const self = snap.players.find((p) => p.id === myId);
-  const top = [...snap.players].sort((a, b) => b.score - a.score || b.kills - a.kills).slice(0, 4);
+  const humanPlayers = snap.players.filter((p) => !p.isZombie);
+  const top = [...humanPlayers].sort((a, b) => b.score - a.score || b.kills - a.kills).slice(0, 4);
   const obj = snap.objective;
   const objOwner = obj.owner ? snap.players.find((p) => p.id === obj.owner)?.name : null;
   const flags = self?.flags.filter((f) => STATUS_TEXT[f] && f !== "invuln") ?? [];
@@ -61,6 +65,8 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
     arrowRot = Math.atan2(obj.x - self.x, obj.z - self.z) - self.yaw;
   }
 
+  const zw = snap.zombieWave;
+
   return (
     <div className="hud">
       {me && me.blindMs > 0 && <div className="blind" style={{ opacity: Math.min(1, me.blindMs / 600) }} />}
@@ -68,19 +74,34 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
       <div className={`crosshair ${now - hitAt < 150 ? "hit" : ""}`} />
 
       <div className="hud-top">
-        <div className="panel timer">{fmt(snap.remainingMs)}</div>
-        <div className="panel zone-pill">
-          <span className="zone-arrow" style={{ transform: `rotate(${-arrowRot}rad)` }} />
-          <span>
-            Reunião Relâmpago · {roomNameAt(obj.x, obj.z)} · {Math.round(objDist)} m
-          </span>
-          <span style={{ color: obj.contested ? "#ff4d3d" : obj.owner === myId ? "#1fae6b" : "#ffe14d" }}>
-            {obj.contested ? "disputada" : objOwner ? `com ${obj.owner === myId ? "você" : objOwner}` : "livre"}
-          </span>
-          <span className="muted" style={{ color: "#cfc8b8" }}>
-            muda em {fmt(obj.cycleMs)}
-          </span>
-        </div>
+        {zw ? (
+          <div className="panel zone-pill" style={{ background: "#1c251d", borderColor: "#4caf50", color: "#e8f5e9" }}>
+            <span style={{ fontSize: "16px", fontWeight: "bold", color: "#81c784" }}>
+              🧟 HORDA {zw.wave} / {zw.maxWaves}
+            </span>
+            <span>
+              {zw.waveState === "waiting"
+                ? `Próxima horda em ${Math.ceil(zw.nextWaveCountdownMs / 1000)}s`
+                : `${zw.remainingZombies} zumbis restantes`}
+            </span>
+          </div>
+        ) : (
+          <>
+            <div className="panel timer">{fmt(snap.remainingMs)}</div>
+            <div className="panel zone-pill">
+              <span className="zone-arrow" style={{ transform: `rotate(${-arrowRot}rad)` }} />
+              <span>
+                Reunião Relâmpago · {roomNameAt(obj.x, obj.z)} · {Math.round(objDist)} m
+              </span>
+              <span style={{ color: obj.contested ? "#ff4d3d" : obj.owner === myId ? "#1fae6b" : "#ffe14d" }}>
+                {obj.contested ? "disputada" : objOwner ? `com ${obj.owner === myId ? "você" : objOwner}` : "livre"}
+              </span>
+              <span className="muted" style={{ color: "#cfc8b8" }}>
+                muda em {fmt(obj.cycleMs)}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="feed">
@@ -104,7 +125,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
           </div>
         ))}
         <div className="r" style={{ opacity: 0.6, fontSize: 12, marginTop: 4 }}>
-          <span>Tab: placar completo</span>
+          <span>{IS_TOUCH ? "Placar no botão de cima" : `${keyLabel(keys.placar)}: placar completo`}</span>
         </div>
       </div>
 
@@ -148,7 +169,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
             return (
               <Slot
                 key={i}
-                k={"QER"[i]}
+                k={keyLabel([keys.habilidade1, keys.habilidade2, keys.habilidade3][i])}
                 label={def ? def.short : "vazio"}
                 level={a?.level}
                 readyInMs={a?.readyInMs ?? 0}
@@ -157,7 +178,7 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
               />
             );
           })}
-          <Slot k="ESP" label="Esquiva" readyInMs={me.dodgeInMs} cooldownMs={BALANCE.dodgeCooldownMs} small color="#fff" />
+          <Slot k={keyLabel(keys.esquiva)} label="Esquiva" readyInMs={me.dodgeInMs} cooldownMs={BALANCE.dodgeCooldownMs} small color="#fff" />
         </div>
       )}
 
@@ -169,16 +190,29 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
         </div>
       )}
 
-      {self && !self.alive && me && (
+      {zw && zw.waveState === "waiting" && snap.phase === "active" && (
         <div className="center-msg">
-          <div className="death">
-            <h2>Você foi demitido!</h2>
-            <div>Recontratação em {Math.ceil(me.respawnInMs / 1000)} s</div>
+          <div className="death" style={{ background: "rgba(20, 35, 20, 0.9)", borderColor: "#4caf50" }}>
+            <h2 style={{ color: "#a5d6a7" }}>Horda Concluída!</h2>
+            <div>Próxima horda em {Math.ceil(zw.nextWaveCountdownMs / 1000)} s</div>
           </div>
         </div>
       )}
 
-      {!locked && snap.phase !== "finished" && <div className="panel lock-hint">Clique na tela para mirar com o mouse</div>}
+      {self && !self.alive && me && (
+        <div className="center-msg">
+          <div className="death">
+            <h2>{snap.zombieWave ? "Você foi infectado!" : "Você foi demitido!"}</h2>
+            <div>
+              {snap.zombieWave
+                ? "Aguardando próxima horda..."
+                : `Recontratação em ${Math.ceil(me.respawnInMs / 1000)} s`}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!locked && !IS_TOUCH && snap.phase !== "finished" && <div className="panel lock-hint">Clique na tela para mirar com o mouse</div>}
       {scoreboard && <Scoreboard snap={snap} myId={myId} />}
     </div>
   );
