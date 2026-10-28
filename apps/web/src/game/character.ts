@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { EYE_COLORS, HAIR_COLORS, PANTS, SHIRTS, SKINS, type AvatarDNA } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
@@ -29,6 +31,8 @@ function bottomOf(root: THREE.Object3D, parts: (THREE.Object3D | undefined)[]): 
 }
 
 const MODEL_URL = "/assets/characters/boneco.glb";
+const ZOMBIE_URL = "/assets/characters/Zombie.fbx";
+const ZOMBIE_TEXTURE_URL = "/assets/characters/zombie_texture.png";
 
 interface SkinDef {
   url: string;
@@ -57,6 +61,12 @@ interface Loaded {
   scale: number;
 }
 
+interface LoadedZombie {
+  scene: THREE.Group;
+  clip: THREE.AnimationClip | null;
+  scale: number;
+}
+
 /** Cabelo e barba tirados de uma skin, com a cor por vértice virada em sombra neutra. */
 interface Parts {
   hair?: THREE.BufferGeometry;
@@ -71,6 +81,10 @@ let loading: Promise<boolean> | null = null;
 const skins = new Map<number, Loaded>();
 const parts: Parts = {};
 
+let loadedZombie: LoadedZombie | null = null;
+let loadingZombie: Promise<boolean> | null = null;
+let zombieTexture: THREE.Texture | null = null;
+
 /**
  * Remove trilhas que brigam com o jogo: deslocamento do corpo (a posição vem do servidor)
  * e a bolinha que voa sozinha (o projétil de verdade já é desenhado).
@@ -81,10 +95,31 @@ function cleanClip(clip: THREE.AnimationClip): THREE.AnimationClip {
   return c;
 }
 
+/**
+ * Zera o deslocamento lateral/frontal (root motion X e Z) dos ossos na animação do zumbi,
+ * mantendo o balanço vertical Y e todas as rotações das articulações da caminhada.
+ */
+function cleanZombieClip(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const c = clip.clone();
+  for (const track of c.tracks) {
+    if (track.name.endsWith(".position") && track instanceof THREE.VectorKeyframeTrack) {
+      const vals = track.values;
+      for (let i = 0; i < vals.length; i += 3) {
+        vals[i] = 0; // zera deslocamento X
+        vals[i + 2] = 0; // zera deslocamento Z
+      }
+    }
+  }
+  return c;
+}
+
 export function modelReady(): boolean {
   return loaded !== null;
 }
 
+export function zombieReady(): boolean {
+  return loadedZombie !== null;
+}
 /** Quanto o corpo sobe para as pernas crescerem; os pés ficam no mesmo lugar. */
 const LEG_GROW = 0.16;
 /** Topo da perna no espaço do quadril, escondido sob o quadril da calça. */
@@ -505,6 +540,113 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
       return false;
     });
   return loading;
+}
+
+/** Carrega o Zombie.fbx com sua animação embutida de zumbi em movimento. */
+/** Só baixa quando aparece o primeiro zumbi: são cerca de 5 MB que quem não joga o modo não precisa. */
+export function preloadZombie(): Promise<boolean> {
+  if (loadingZombie) return loadingZombie;
+  // a textura chega junto com o modelo, porque é aplicada quando o zumbi é criado
+  const texture = new THREE.TextureLoader().loadAsync(ZOMBIE_TEXTURE_URL).then(
+    (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      zombieTexture = tex;
+    },
+    (err) => console.warn("Falha ao carregar zombie_texture.png, usando fallback procedural ou de cor", err),
+  );
+  loadingZombie = Promise.all([new FBXLoader().loadAsync(ZOMBIE_URL), texture])
+    .then(([fbx]) => {
+      const bbox = new THREE.Box3().setFromObject(fbx);
+      const size = new THREE.Vector3();
+      bbox.getSize(size);
+      const h = size.y > 0 ? size.y : 1.0;
+      const rawClip = fbx.animations && fbx.animations.length > 0 ? fbx.animations[0] : null;
+      const clip = rawClip ? cleanZombieClip(rawClip) : null;
+      loadedZombie = {
+        scene: fbx,
+        clip,
+        scale: TARGET_HEIGHT / h,
+      };
+      return true;
+    })
+    .catch((err) => {
+      console.warn("Zombie.fbx não carregou, usando fallback procedural", err);
+      return false;
+    });
+  return loadingZombie;
+}
+
+export function createZombieCharacter(): Character {
+  if (!loadedZombie) {
+    const zombieDna: AvatarDNA = {
+      name: "Zumbi",
+      model: 0,
+      skin: 5,
+      hair: 0,
+      hairColor: 0,
+      eyes: 0,
+      beard: 0,
+      beardColor: 0,
+      glasses: 0,
+      top: 0,
+      bottom: 0,
+      shirt: 0,
+      pants: 0,
+      shoes: 0,
+      accessory: 0,
+      height: 1,
+    };
+    return proceduralCharacter(zombieDna);
+  }
+
+  const root = new THREE.Group();
+  // Usa SkeletonUtils.clone para preservar as ligações dos ossos do SkinnedMesh
+  const inner = SkeletonUtils.clone(loadedZombie.scene) as THREE.Group;
+  inner.scale.setScalar(loadedZombie.scale);
+  const mats: THREE.Material[] = [];
+
+  inner.traverse((o) => {
+    const mesh = o as THREE.SkinnedMesh;
+    if (mesh.isMesh) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      const orig = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const origMap = (orig as { map?: THREE.Texture })?.map ?? null;
+      const map = zombieTexture ?? origMap;
+      const standardMat = new THREE.MeshStandardMaterial({
+        map,
+        color: map ? 0xffffff : 0x5a7d52,
+        roughness: 0.75,
+        metalness: 0.1,
+      });
+      mesh.material = standardMat;
+      mats.push(standardMat);
+    }
+  });
+  root.add(inner);
+
+  const mixer = new THREE.AnimationMixer(inner);
+  if (loadedZombie.clip) {
+    const action = mixer.clipAction(loadedZombie.clip);
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.play();
+  }
+
+  return {
+    root,
+    update(dt, speed01) {
+      // Como o zumbi já está em movimento contínuo na animação, escala proporcionalmente à velocidade
+      const rate = 0.6 + Math.max(0.2, speed01) * 0.8;
+      mixer.update(dt * rate);
+    },
+    play() {},
+    sit() {},
+    dispose() {
+      mixer.stopAllAction();
+      for (const m of mats) m.dispose();
+    },
+  };
 }
 
 function shade(hex: string, k: number): THREE.Color {
@@ -969,7 +1111,6 @@ function dress(inner: THREE.Object3D, dna: AvatarDNA, mats: THREE.Material[]): v
     // olhos, sobrancelhas e boca dividem o material "Olhos": a cor dos olhos vai pelo nome da peça
     const color = mesh.name.startsWith("Olho_") ? new THREE.Color(EYE_COLORS[dna.eyes]) : palette[src.name];
     if (color) m.color.copy(color);
-    // mechas do modelo são brilhantes e viram um reflexo cinza em cabelo recolorido
     if (src.name.startsWith("Cabelo")) m.roughness = 0.9;
     mesh.material = m;
     mats.push(m);

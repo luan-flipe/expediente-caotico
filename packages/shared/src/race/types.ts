@@ -2,7 +2,9 @@ import type { AvatarDNA, Phase, Vec2 } from "../types";
 import type { GhostSample } from "../ranking/types";
 import type { ChairDNA } from "./chair";
 import type { KartInput, KartState } from "./kart";
+import type { BotLevel } from "../botLevels";
 import type { LapState } from "./laps";
+import type { Track } from "./track";
 
 export type ItemId = "expresso" | "triplo" | "grampeador" | "poca" | "resma" | "aviao" | "pasta" | "postit";
 export type HazardKind = "poca" | "resma" | "grampo" | "aviao";
@@ -76,6 +78,11 @@ export interface Racer {
   idleTicks: number;
   stepCredit: number;
   itemsUsed: Partial<Record<ItemId, number>>;
+  /** Contadores só para os prêmios do fim. */
+  itemHits: number;
+  wallHits: number;
+  stoppedMs: number;
+  wrongTotalMs: number;
   rec: LapRecorder;
   bot?: RaceBotBrain;
 }
@@ -101,6 +108,10 @@ export interface RaceMatch {
   hazards: Hazard[];
   boxes: ItemBox[];
   events: RaceEvent[];
+  /** Opção do anfitrião: sem caixas nem uso de itens. */
+  itemsOff: boolean;
+  /** Opção do anfitrião: dificuldade dos bots. */
+  botLevel: BotLevel;
   /** Contra o relógio: sem caixas, itens, colisão entre cadeiras, limite de voltas nem bots. */
   timeTrial: boolean;
   /** Voltas válidas ainda não consumidas pela sala (humanos, corrida e treino). */
@@ -108,6 +119,10 @@ export interface RaceMatch {
   cps: number[];
   rng: () => number;
   nextId: number;
+  /** Pista da corrida, escolhida pelo anfitrião. */
+  track: Track;
+  /** Semente da corrida: também decide o sorteio dos prêmios. */
+  seed: number;
 }
 
 export interface RaceKartPublic {
@@ -136,6 +151,8 @@ export interface RaceSnapshot {
   graceMs: number | null;
   laps: number;
   timeTrial: boolean;
+  /** Itens desligados pelo anfitrião: o HUD esconde o item. */
+  itemsOff: boolean;
   karts: RaceKartPublic[];
   boxes: { id: number; x: number; z: number; ready: boolean }[];
   hazards: { id: number; kind: HazardKind; x: number; z: number; vx: number; vz: number }[];

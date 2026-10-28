@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 
-export type BoxKind = "wall" | "glass" | "desk" | "cabinet" | "counter" | "plant" | "partition" | "sofa";
+export type BoxKind = "wall" | "glass" | "desk" | "cabinet" | "counter" | "plant" | "partition" | "sofa" | "railing";
 
 /** Caixa alinhada aos eixos: centro (x, z), largura em x (w), profundidade em z (d), altura (h). */
 export interface Box {
@@ -21,6 +21,30 @@ export interface Room {
   floor: string;
 }
 
+export interface ElevationArea {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  h: number;
+}
+
+export interface StairArea {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  axis: "x" | "z";
+  direction: 1 | -1; // 1 = sobe na direção positiva; -1 = sobe na direção negativa
+  h0: number;
+  h1: number;
+  steps: number;
+}
+
 export interface GameMap {
   width: number;
   depth: number;
@@ -28,113 +52,84 @@ export interface GameMap {
   spawns: Vec2[];
   objectivePoints: Vec2[];
   rooms: Room[];
+  elevations: ElevationArea[];
+  stairs: StairArea[];
 }
 
-const T = 0.4;
-const H = 3;
-
-/** Parede ao longo de x (z fixo), com vãos [centro, largura]. */
-function wallX(z: number, x0: number, x1: number, gaps: [number, number][], kind: BoxKind = "wall"): Box[] {
-  const cuts = gaps.map(([c, w]) => [c - w / 2, c + w / 2]).sort((a, b) => a[0] - b[0]);
-  const out: Box[] = [];
-  let start = x0;
-  for (const [a, b] of [...cuts, [x1, x1]]) {
-    if (a > start) out.push({ x: (start + a) / 2, z, w: a - start, d: T, h: H, kind });
-    start = b;
-  }
-  return out;
-}
-
-/** Parede ao longo de z (x fixo), com vãos [centro, largura]. */
-function wallZ(x: number, z0: number, z1: number, gaps: [number, number][], kind: BoxKind = "wall"): Box[] {
-  return wallX(0, z0, z1, gaps, kind).map((b) => ({ ...b, x, z: b.x, w: T, d: b.w }));
-}
-
-const box = (x: number, z: number, w: number, d: number, h: number, kind: BoxKind): Box => ({ x, z, w, d, h, kind });
-
-const deskCluster = (cx: number, cz: number): Box[] => [
-  box(cx, cz - 0.8, 4, 1.4, 0.8, "desk"),
-  box(cx, cz + 0.8, 4, 1.4, 0.8, "desk"),
-  box(cx, cz, 4, 0.15, 1.5, "partition"),
-];
-
-const W = 64;
+const W = 70;
 const D = 44;
 
 export const OFFICE_MAP: GameMap = {
   width: W,
   depth: D,
   rooms: [
-    { name: "Sala de reunião", x: -21, z: -15, w: 22, d: 14, floor: "#cfd8e3" },
-    { name: "Copa", x: -1, z: -15, w: 18, d: 14, floor: "#e9dcc4" },
-    { name: "Área de TI", x: 20, z: -15, w: 24, d: 14, floor: "#c9ccd6" },
-    { name: "Recepção", x: -23, z: 7, w: 18, d: 30, floor: "#e4d6c6" },
-    { name: "Área de mesas", x: 9, z: 7, w: 46, d: 30, floor: "#d9dde3" },
+    { name: "Campo Gramado", x: 0, z: 0, w: W, d: D, floor: "#4f7d3d" },
   ],
-  boxes: [
-    // perímetro
-    box(0, -D / 2 - T / 2, W + 2 * T, T, H, "wall"),
-    box(0, D / 2 + T / 2, W + 2 * T, T, H, "wall"),
-    box(-W / 2 - T / 2, 0, T, D, H, "wall"),
-    box(W / 2 + T / 2, 0, T, D, H, "wall"),
-    // divisórias internas
-    ...wallX(-8, -32, -10, [[-21, 4]], "glass"),
-    ...wallX(-8, -10, 32, [[-1, 4], [20, 4]]),
-    ...wallZ(-10, -22, -8, [[-15, 3]], "glass"),
-    ...wallZ(8, -22, -8, [[-15, 3]]),
-    ...wallZ(-14, -8, 22, [[2, 5], [15, 4]]),
-    // sala de reunião
-    box(-21, -15, 8, 3, 0.8, "desk"),
-    box(-21, -21.5, 4, 0.4, 2, "cabinet"),
-    box(-31, -21, 0.9, 0.9, 1.6, "plant"),
-    box(-11, -21, 0.9, 0.9, 1.6, "plant"),
-    // copa
-    box(-1, -20.8, 10, 1.2, 1, "counter"),
-    box(6.6, -20.8, 1.2, 1.2, 2.1, "cabinet"),
-    box(-3, -13, 2.2, 2.2, 0.8, "desk"),
-    box(3, -13, 2.2, 2.2, 0.8, "desk"),
-    box(-8.6, -12, 1, 1.2, 2, "cabinet"),
-    // área de TI
-    box(14, -17, 1.2, 4, 2.2, "cabinet"),
-    box(18, -17, 1.2, 4, 2.2, "cabinet"),
-    box(26, -17, 1.2, 4, 2.2, "cabinet"),
-    box(22, -11.5, 4, 1.4, 0.8, "desk"),
-    // recepção
-    box(-23, -1, 6, 1.4, 1.1, "counter"),
-    box(-29, 10, 1.4, 4, 0.7, "sofa"),
-    box(-23, 18, 5, 1.4, 0.7, "sofa"),
-    box(-17, 20, 0.9, 0.9, 1.6, "plant"),
-    box(-31, -6, 0.9, 0.9, 1.6, "plant"),
-    // área de mesas
-    ...deskCluster(-6, -1),
-    ...deskCluster(4, -1),
-    ...deskCluster(14, -1),
-    ...deskCluster(24, -1),
-    ...deskCluster(-6, 10),
-    ...deskCluster(4, 10),
-    ...deskCluster(14, 10),
-    ...deskCluster(24, 10),
-    box(31.2, 3, 1, 3, 2, "cabinet"),
-    box(31.2, 16, 1, 3, 2, "cabinet"),
-    box(0, 20.5, 0.9, 0.9, 1.6, "plant"),
-    box(20, 20.5, 0.9, 0.9, 1.6, "plant"),
-    box(-11.5, 19, 1.2, 1, 1.2, "cabinet"),
+  elevations: [
+    // 1. Colina / Platô Central do Campo
+    { id: "elev-central", name: "Colina Central", x: 0, z: 0, w: 8.0, d: 8.0, h: 1.0 },
+    // 2. Mirante Norte
+    { id: "elev-norte", name: "Mirante Norte", x: 18, z: -11, w: 9.0, d: 7.0, h: 1.2 },
+    // 3. Mirante Sul
+    { id: "elev-sul", name: "Mirante Sul", x: -18, z: 11, w: 9.0, d: 7.0, h: 1.1 },
   ],
+  stairs: [
+    // Escadas para a Colina Central (oeste e leste)
+    { id: "stair-central-w", name: "Escada Central Oeste", x: -5.0, z: 0, w: 2.0, d: 4.0, axis: "x", direction: 1, h0: 0, h1: 1.0, steps: 5 },
+    { id: "stair-central-e", name: "Escada Central Leste", x: 5.0, z: 0, w: 2.0, d: 4.0, axis: "x", direction: -1, h0: 0, h1: 1.0, steps: 5 },
+    // Escada para o Mirante Norte (subindo pelo sul em direção a z=-11)
+    { id: "stair-norte", name: "Escada Mirante Norte", x: 18, z: -6.5, w: 4.0, d: 2.0, axis: "z", direction: -1, h0: 0, h1: 1.2, steps: 6 },
+    // Escada para o Mirante Sul (subindo pelo norte em direção a z=11)
+    { id: "stair-sul", name: "Escada Mirante Sul", x: -18, z: 6.5, w: 4.0, d: 2.0, axis: "z", direction: 1, h0: 0, h1: 1.1, steps: 5 },
+  ],
+  // Campo 100% aberto: todos os objetos e paredes foram removidos
+  boxes: [],
   spawns: [
-    { x: -28, z: -12 },
-    { x: -1, z: -10.5 },
-    { x: 28, z: -10.5 },
-    { x: -27, z: 3 },
-    { x: -20, z: 14 },
-    { x: -9, z: 5 },
-    { x: 19, z: 4.5 },
-    { x: 9, z: 19 },
+    { x: -26, z: -14 },
+    { x: 26, z: -14 },
+    { x: -26, z: 14 },
+    { x: 26, z: 14 },
+    { x: -28, z: 0 },
+    { x: 28, z: 0 },
+    { x: 0, z: -16 },
+    { x: 0, z: 16 },
   ],
   objectivePoints: [
-    { x: 9, z: 4.5 },
-    { x: -21, z: -11 },
-    { x: 20, z: -14 },
-    { x: -23, z: 6 },
-    { x: -1, z: -17 },
+    { x: 0, z: 0 },
+    { x: 18, z: -11 },
+    { x: -18, z: 11 },
+    { x: -20, z: -10 },
+    { x: 20, z: 10 },
   ],
 };
+
+/** Retorna a altura da superfície (chão, escada ou plataforma elevada) no ponto (x, z). */
+export function getGroundHeight(x: number, z: number, map: GameMap = OFFICE_MAP): number {
+  if (map.stairs) {
+    for (const s of map.stairs) {
+      const halfW = s.w / 2;
+      const halfD = s.d / 2;
+      if (Math.abs(x - s.x) <= halfW && Math.abs(z - s.z) <= halfD) {
+        if (s.axis === "x") {
+          const t = s.direction > 0 ? (x - (s.x - halfW)) / s.w : (s.x + halfW - x) / s.w;
+          const clamped = Math.max(0, Math.min(1, t));
+          return s.h0 + (s.h1 - s.h0) * clamped;
+        } else {
+          const t = s.direction > 0 ? (z - (s.z - halfD)) / s.d : (s.z + halfD - z) / s.d;
+          const clamped = Math.max(0, Math.min(1, t));
+          return s.h0 + (s.h1 - s.h0) * clamped;
+        }
+      }
+    }
+  }
+
+  if (map.elevations) {
+    for (const e of map.elevations) {
+      if (Math.abs(x - e.x) <= e.w / 2 && Math.abs(z - e.z) <= e.d / 2) {
+        return e.h;
+      }
+    }
+  }
+
+  return 0;
+}

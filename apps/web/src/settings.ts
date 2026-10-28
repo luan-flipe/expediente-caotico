@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from "react";
+import { IS_TOUCH, defaultQuality } from "./touch";
 
 /** Ações com tecla própria no tiroteio. O clique esquerdo do mouse também atira (fixo). */
-export const SHOOTER_ACTIONS = ["frente", "tras", "esquerda", "direita", "atirar", "habilidade1", "habilidade2", "habilidade3", "esquiva", "evolucao1", "evolucao2", "evolucao3", "placar"] as const;
+export const SHOOTER_ACTIONS = ["frente", "tras", "esquerda", "direita", "atirar", "habilidade1", "habilidade2", "habilidade3", "esquiva", "evolucao1", "evolucao2", "evolucao3", "placar", "chat"] as const;
 /** Ações com tecla própria na corrida. As setas e o clique esquerdo (item) valem sempre como alternativa. */
-export const RACE_ACTIONS = ["acelerar", "frear", "esquerda", "direita", "derrapar", "item", "voltar", "placar", "mudo"] as const;
+export const RACE_ACTIONS = ["acelerar", "frear", "esquerda", "direita", "derrapar", "item", "voltar", "placar", "mudo", "chat"] as const;
 
 export type ShooterAction = (typeof SHOOTER_ACTIONS)[number];
 export type RaceAction = (typeof RACE_ACTIONS)[number];
@@ -15,6 +16,8 @@ export interface Settings {
   volume: { master: number; music: number; effects: number };
   keys: { shooter: Record<ShooterAction, string>; race: Record<RaceAction, string> };
   quality: Quality;
+  /** Celular: segurar o botão de disparo atira sem parar (desligado, cada toque é um tiro). */
+  touchAutoFire: boolean;
 }
 
 export const SENS_MIN = 0.25;
@@ -40,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
       evolucao2: "Digit2",
       evolucao3: "Digit3",
       placar: "Tab",
+      chat: "KeyT",
     },
     race: {
       acelerar: "KeyW",
@@ -51,9 +55,11 @@ export const DEFAULT_SETTINGS: Settings = {
       voltar: "KeyR",
       placar: "Tab",
       mudo: "KeyM",
+      chat: "KeyT",
     },
   },
   quality: "alta",
+  touchAutoFire: true,
 };
 
 export const SHOOTER_LABELS: Record<ShooterAction, string> = {
@@ -70,6 +76,7 @@ export const SHOOTER_LABELS: Record<ShooterAction, string> = {
   evolucao2: "Evolução 2",
   evolucao3: "Evolução 3",
   placar: "Placar completo",
+  chat: "Chat rápido (abre as frases e emotes)",
 };
 
 export const RACE_LABELS: Record<RaceAction, string> = {
@@ -82,6 +89,7 @@ export const RACE_LABELS: Record<RaceAction, string> = {
   voltar: "Voltar para a pista",
   placar: "Placar da corrida",
   mudo: "Silenciar tudo",
+  chat: "Chat rápido (abre as frases e emotes)",
 };
 
 const STORAGE_KEY = "ec.settings";
@@ -128,8 +136,11 @@ function sanitizeKeys<A extends string>(raw: unknown, defaults: Record<A, string
   return out;
 }
 
-/** Aceita qualquer coisa (JSON antigo, adulterado, parcial) e devolve configurações válidas e novas. */
-export function sanitizeSettings(raw: unknown): Settings {
+/**
+ * Aceita qualquer coisa (JSON antigo, adulterado, parcial) e devolve configurações válidas e novas.
+ * Sem qualidade escolhida, o padrão segue o aparelho (toque começa no Leve).
+ */
+export function sanitizeSettings(raw: unknown, touch = IS_TOUCH): Settings {
   const d = DEFAULT_SETTINGS;
   const src = isObj(raw) ? raw : {};
   const vol = isObj(src.volume) ? src.volume : {};
@@ -146,7 +157,8 @@ export function sanitizeSettings(raw: unknown): Settings {
       shooter: sanitizeKeys(keys.shooter, d.keys.shooter),
       race: sanitizeKeys(keys.race, d.keys.race),
     },
-    quality: src.quality === "leve" || src.quality === "alta" ? src.quality : d.quality,
+    quality: src.quality === "leve" || src.quality === "alta" ? src.quality : defaultQuality(touch),
+    touchAutoFire: typeof src.touchAutoFire === "boolean" ? src.touchAutoFire : d.touchAutoFire,
   };
 }
 

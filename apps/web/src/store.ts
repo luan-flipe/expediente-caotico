@@ -11,6 +11,7 @@ import {
   type LobbyState,
   type PrivateState,
   type RacePrivate,
+  type Award,
   type RaceResultRow,
   type RaceSnapshot,
   type ResultRow,
@@ -27,6 +28,15 @@ export interface FeedItem {
   kind: "kill" | "info" | "me";
 }
 
+/** Uma mensagem do chat rápido, como aparece no canto do lobby. */
+export interface ChatItem {
+  id: number;
+  at: number;
+  from: string;
+  kind: "phrase" | "emote";
+  index: number;
+}
+
 export interface State {
   editing: boolean;
   avatar: AvatarDNA;
@@ -35,6 +45,7 @@ export interface State {
   code: string | null;
   lobby: LobbyState | null;
   results: ResultRow[] | null;
+  awards: Award[];
   raceResults: RaceResultRow[] | null;
   error: string | null;
   online: boolean;
@@ -54,10 +65,18 @@ export interface State {
   account: Account | null;
   /** Tela do ranking da firma aberta por cima da tela inicial ou do lobby. */
   ranking: boolean;
+  /** Replay de um recorde de volta aberto por cima do ranking (pista e linha da aba). */
+  replay: { pista: string; linha: number } | null;
   /** Configurações abertas por cima da tela atual (inclusive da partida, que segue rodando). */
   settingsOpen: boolean;
   /** Fantasmas da pista no contra o relógio (o último enviado pelo servidor). */
   ghosts: Ghosts | null;
+  /** Últimas mensagens do chat rápido (o canto do lobby mostra as recentes). */
+  chat: ChatItem[];
+  /** Painel do chat rápido aberto: o jogo ignora o teclado e solta o mouse enquanto isso. */
+  chatOpen: boolean;
+  /** Aviso de desafio da semana cumprido (some sozinho depois de alguns segundos). */
+  toast: { id: number; text: string; points: number } | null;
 }
 
 export interface Ghosts {
@@ -97,6 +116,7 @@ let state: State = {
   code: null,
   lobby: null,
   results: null,
+  awards: [],
   raceResults: null,
   error: null,
   online: false,
@@ -111,8 +131,12 @@ let state: State = {
   loadProgress: 0,
   account: loadAccount(),
   ranking: false,
+  replay: null,
   settingsOpen: false,
   ghosts: null,
+  chat: [],
+  chatOpen: false,
+  toast: null,
 };
 const listeners = new Set<() => void>();
 
@@ -188,10 +212,13 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, raceResults: null, code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null });
+  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null, chat: [], chatOpen: false });
 }
 
 let feedId = 0;
+let chatId = 0;
+let toastId = 0;
+const TOAST_MS = 7000;
 function pushFeed(items: Omit<FeedItem, "id" | "at">[]): void {
   if (!items.length) return;
   const now = performance.now();
@@ -234,15 +261,26 @@ function onMessage(msg: ServerMsg): void {
       setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null } : {}) });
       return;
     case "results":
-      setState({ results: msg.rows, raceResults: null, snap: null, me: null, feed: [] });
+      setState({ results: msg.rows, awards: msg.awards, raceResults: null, snap: null, me: null, feed: [] });
       return;
     case "rresults":
-      setState({ raceResults: msg.rows, results: null, rsnap: null, rme: null, feed: [] });
+      setState({ raceResults: msg.rows, awards: msg.awards, results: null, rsnap: null, rme: null, feed: [] });
       return;
     case "rsnap":
       setState({ rsnap: msg.s, rme: msg.me });
       raceFeed(msg.s);
       return;
+    case "chat":
+      setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });
+      return;
+    case "challenge": {
+      const id = ++toastId;
+      setState({ toast: { id, text: msg.text, points: msg.points } });
+      setTimeout(() => {
+        if (state.toast?.id === id) setState({ toast: null });
+      }, TOAST_MS);
+      return;
+    }
     case "ghosts":
       setState({ ghosts: { mine: msg.mine, record: msg.record } });
       return;

@@ -1,4 +1,5 @@
 import { useStore } from "../store";
+import mascote from "./mascote.webp";
 
 /** Tela da primeira abertura: aparece só se o boneco e a cadeira demorarem (o CSS atrasa o fade-in). */
 export function Loading() {
@@ -7,6 +8,7 @@ export function Loading() {
   return (
     <div className="screen loading" role="status" aria-live="polite">
       <div className="loading-box">
+        <img className="loading-mascot" src={mascote} width={192} height={192} alt="" />
         <div className="brand">
           <h1>
             Expediente <span>Caótico</span>

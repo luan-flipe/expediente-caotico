@@ -1,6 +1,7 @@
 import { BALANCE, type EvolutionOption, type PrivateState } from "@ec/shared";
 import { keyLabel, useSettings } from "../settings";
 import { net } from "../store";
+import { IS_TOUCH } from "../touch";
 
 const TYPE_TEXT: Record<EvolutionOption["type"], string> = {
   unlock: "Nova habilidade",
@@ -23,7 +24,7 @@ export function Evolution({ options, seq, msLeft, pending, abilities }: { option
       <div className="evo-cards">
         {options.map((o, i) => (
           <button key={o.id} className="evo-card" onClick={() => net.send({ t: "evolve", optionId: o.id, seq })}>
-            <span className="k">{pickKeys[i]}</span>
+            {!IS_TOUCH && <span className="k">{pickKeys[i]}</span>}
             <div className="type">{TYPE_TEXT[o.type]}</div>
             <div className="t">{o.title}</div>
             <div className="d">{o.desc}</div>
@@ -40,7 +41,7 @@ export function Evolution({ options, seq, msLeft, pending, abilities }: { option
       <div className="evo-timer">
         <i style={{ width: `${(msLeft / BALANCE.evolutionTimeoutMs) * 100}%` }} />
       </div>
-      <div style={{ fontSize: 12, marginTop: 4, textShadow: "0 1px 3px #000" }}>Teclas {pickKeys.join(", ")}. Sem escolha em {Math.ceil(msLeft / 1000)} s, vale a primeira.</div>
+      <div style={{ fontSize: 12, marginTop: 4, textShadow: "0 1px 3px #000" }}>{IS_TOUCH ? "Toque numa carta." : `Teclas ${pickKeys.join(", ")}.`} Sem escolha em {Math.ceil(msLeft / 1000)} s, vale a primeira.</div>
     </div>
   );
 }
