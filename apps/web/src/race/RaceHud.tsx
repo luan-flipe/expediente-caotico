@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ITEM_NAMES, RACE, type ItemId } from "@ec/shared";
+import { getTrack, ITEM_NAMES, RACE, type ItemId } from "@ec/shared";
 import { keyLabel, useSettings } from "../settings";
 import { net, useStore } from "../store";
 import { Minimap } from "./Minimap";
@@ -30,6 +30,7 @@ export function RaceHud({ myId }: { myId: string }) {
   const scoreboard = useStore((s) => s.scoreboard);
   const online = useStore((s) => s.online);
   const ghosts = useStore((s) => s.ghosts);
+  const track = getTrack(useStore((s) => s.lobby?.options.track));
   const isHost = useStore((s) => s.lobby?.hostId === myId);
   const keys = useSettings().keys.race;
   const [, force] = useState(0);
@@ -128,7 +129,7 @@ export function RaceHud({ myId }: { myId: string }) {
       </div>
 
       <div className="panel minimap-wrap">
-        <Minimap karts={snap.karts} myId={myId} />
+        <Minimap karts={snap.karts} myId={myId} track={track} />
       </div>
 
       {snap.phase === "countdown" && (

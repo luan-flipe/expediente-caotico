@@ -1,6 +1,6 @@
 import { RACE_BOT } from "../botLevels";
 import { RACE } from "./balance";
-import { pointAt, sideNormal, TRACK, turnAhead } from "./track";
+import { pointAt, sideNormal, turnAhead } from "./track";
 import type { RaceMatch, Racer } from "./types";
 
 /** Piloto automático simples: segue a linha central com desvio, derrapa nas curvas e usa itens. */
@@ -14,7 +14,7 @@ export function stepRaceBot(race: RaceMatch, r: Racer, dtMs: number): void {
     b.nextLaneAt = race.now + 2500 + race.rng() * 3500;
   }
 
-  const ahead = pointAt(TRACK, s + P.lookBase + Math.max(0, k.speed) * P.lookSpeed);
+  const ahead = pointAt(race.track, s + P.lookBase + Math.max(0, k.speed) * P.lookSpeed);
   const n = sideNormal(Math.sin(ahead.heading), Math.cos(ahead.heading));
   const lane = b.lane * (ahead.halfWidth - 1.5);
   const tx = ahead.pos.x + n.x * lane;
@@ -22,10 +22,10 @@ export function stepRaceBot(race: RaceMatch, r: Racer, dtMs: number): void {
   const want = Math.atan2(tx - k.pos.x, tz - k.pos.z);
   const diff = Math.atan2(Math.sin(want - k.heading), Math.cos(want - k.heading));
   const steer = Math.max(-1, Math.min(1, -diff * P.steerGain));
-  const turn = turnAhead(TRACK, s + 3, 18);
+  const turn = turnAhead(race.track, s + 3, 18);
 
   const drift = k.drifting
-    ? Math.abs(turnAhead(TRACK, s, 10)) > 0.15 && k.driftMs < RACE.driftLevel2Ms + 150
+    ? Math.abs(turnAhead(race.track, s, 10)) > 0.15 && k.driftMs < RACE.driftLevel2Ms + 150
     : Math.abs(turn) > 0.6 && k.speed > 10 && Math.abs(steer) > 0.35;
   const throttle = Math.abs(turn) > 1.3 && k.speed > 12 && !k.drifting ? P.cornerThrottle : P.throttleMax;
   r.input = { steer, throttle, drift };
@@ -48,7 +48,7 @@ export function stepRaceBot(race: RaceMatch, r: Racer, dtMs: number): void {
     if (d > 0) near.ahead = Math.min(near.ahead, d);
     else near.behind = Math.min(near.behind, -d);
   }
-  const straight = Math.abs(turnAhead(TRACK, s, 25)) < 0.35;
+  const straight = Math.abs(turnAhead(race.track, s, 25)) < 0.35;
   let use = false;
   switch (r.item) {
     case "expresso":

@@ -2,9 +2,10 @@ import type { Vec2 } from "../types";
 import { RACE } from "./balance";
 
 /**
- * Circuito Corporativo. Pontos de controle da linha central (sentido da corrida),
- * com a largura da pista em cada um. A curva final passa suavemente por todos.
- * Para trocar a pista (ex.: escritório real), edite só esta lista e as zonas abaixo.
+ * Pistas do Rally. Cada uma é uma lista de pontos de controle da linha central (sentido da corrida),
+ * com a largura da pista em cada um; a curva final passa suavemente por todos. Paredes, checkpoints,
+ * carpete, caixas e grid saem daí. Para criar ou mudar uma pista, edite só a definição dela abaixo
+ * (o teste race-track.test.ts avisa se ficou curta, longa ou encostando nela mesma).
  */
 interface Ctrl {
   x: number;
@@ -12,7 +13,8 @@ interface Ctrl {
   w: number;
 }
 
-const CTRL: Ctrl[] = [
+/** Circuito Corporativo: a pista original, com o escritório inteiro. */
+const CORPORATIVO: Ctrl[] = [
   { x: -10, z: -36, w: 12 }, // 0 recepção, linha de chegada
   { x: 10, z: -36, w: 12 },
   { x: 30, z: -36, w: 12 }, // 2 corredor longo
@@ -40,8 +42,13 @@ const CTRL: Ctrl[] = [
   { x: -22, z: -36, w: 12 },
 ];
 
-/** Nomes dos ambientes por ponto de controle inicial (para HUD e decoração). */
-export const TRACK_ROOMS: { name: string; ctrl: number }[] = [
+/** Ambiente por ponto de controle inicial (para HUD e decoração). */
+export interface TrackRoom {
+  name: string;
+  ctrl: number;
+}
+
+const CORPORATIVO_ROOMS: TrackRoom[] = [
   { name: "Recepção", ctrl: 0 },
   { name: "Corredor", ctrl: 2 },
   { name: "Ilhas de mesas", ctrl: 5 },
@@ -52,13 +59,70 @@ export const TRACK_ROOMS: { name: string; ctrl: number }[] = [
 ];
 
 /** Carpete na borda interna destas curvas (índices de controle). */
-const CARPET_CTRL: [number, number][] = [
+const CORPORATIVO_CARPET: [number, number][] = [
   [3, 5],
   [9, 12],
   [13, 16],
 ];
 /** Fileiras de caixas de item (índice de controle, pode ser fracionário). */
-const BOX_CTRL = [1.5, 8, 12.5, 21];
+const CORPORATIVO_BOXES = [1.5, 8, 12.5, 21];
+
+/** Estacionamento: pista larga e rápida, curvas abertas entre vagas e pilares. */
+const ESTACIONAMENTO: Ctrl[] = [
+  { x: -36, z: -34, w: 13 }, // 0 cancela, linha de chegada
+  { x: -10, z: -36, w: 13 },
+  { x: 16, z: -36, w: 13 }, // 2 reta das vagas
+  { x: 40, z: -32, w: 13 },
+  { x: 55, z: -18, w: 13 }, // 4 curva aberta da rampa
+  { x: 57, z: 2, w: 13 },
+  { x: 48, z: 20, w: 12 },
+  { x: 30, z: 26, w: 12 }, // 7 pilares, S rápido
+  { x: 12, z: 16, w: 12 },
+  { x: -6, z: 12, w: 12 },
+  { x: -22, z: 22, w: 12 },
+  { x: -36, z: 34, w: 13 }, // 11 vagas do fundo
+  { x: -54, z: 28, w: 13 },
+  { x: -62, z: 8, w: 13 },
+  { x: -58, z: -16, w: 13 },
+];
+
+const ESTACIONAMENTO_ROOMS: TrackRoom[] = [
+  { name: "Cancela", ctrl: 0 },
+  { name: "Vagas", ctrl: 2 },
+  { name: "Rampa", ctrl: 4 },
+  { name: "Pilares", ctrl: 7 },
+  { name: "Vagas do fundo", ctrl: 11 },
+  { name: "Cancela", ctrl: 14 },
+];
+const ESTACIONAMENTO_CARPET: [number, number][] = [[12, 14]];
+const ESTACIONAMENTO_BOXES = [1.5, 5, 8.5, 11.2];
+
+/** Copa: curta e travada, entre mesas, geladeira e máquina de café. */
+const COPA: Ctrl[] = [
+  { x: -14, z: -20, w: 10 }, // 0 balcão, linha de chegada
+  { x: 4, z: -20, w: 10 },
+  { x: 18, z: -16, w: 9 }, // 2 mesas
+  { x: 22, z: -4, w: 9 },
+  { x: 12, z: 3, w: 9 },
+  { x: 8, z: 12, w: 9 },
+  { x: 16, z: 22, w: 9 }, // 6 geladeira, grampo
+  { x: 4, z: 30, w: 9 },
+  { x: -10, z: 24, w: 9 },
+  { x: -14, z: 12, w: 9 }, // 9 cafeteira
+  { x: -24, z: 4, w: 9 },
+  { x: -26, z: -10, w: 10 },
+];
+
+const COPA_ROOMS: TrackRoom[] = [
+  { name: "Balcão", ctrl: 0 },
+  { name: "Mesas", ctrl: 2 },
+  { name: "Geladeira", ctrl: 6 },
+  { name: "Cafeteira", ctrl: 9 },
+  { name: "Balcão", ctrl: 11 },
+];
+const COPA_CARPET: [number, number][] = [[6, 8]];
+const COPA_BOXES = [1.5, 5, 9];
+
 
 const STEP = 5;
 const DENSE = 24;
@@ -70,6 +134,9 @@ export interface CarpetZone {
 }
 
 export interface Track {
+  id: TrackId;
+  name: string;
+  rooms: TrackRoom[];
   points: Vec2[];
   widths: number[];
   /** Distância ao longo da linha central de cada ponto (s). */
@@ -102,7 +169,17 @@ const wrapIdx = (i: number, n: number) => ((i % n) + n) % n;
 /** Normal do lado +1 para a direção (tx, tz). */
 export const sideNormal = (tx: number, tz: number): Vec2 => ({ x: tz, z: -tx });
 
-function buildTrack(ctrl: Ctrl[]): Track {
+interface TrackDef {
+  id: TrackId;
+  name: string;
+  ctrl: Ctrl[];
+  rooms: TrackRoom[];
+  carpet: [number, number][];
+  boxes: number[];
+}
+
+function buildTrack(def: TrackDef): Track {
+  const ctrl = def.ctrl;
   const n = ctrl.length;
   const dense: { x: number; z: number; w: number }[] = [];
   const ctrlDense: number[] = [];
@@ -146,8 +223,8 @@ function buildTrack(ctrl: Ctrl[]): Track {
     if (b < a) b += length;
     return (a + (b - a) * f) % length;
   };
-  const track: Track = { points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: BOX_CTRL.map(sAtCtrl) };
-  track.carpet = CARPET_CTRL.map(([from, to]) => {
+  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl) };
+  track.carpet = def.carpet.map(([from, to]) => {
     const s0 = sAtCtrl(from);
     const s1 = sAtCtrl(to);
     const h0 = pointAt(track, s0).heading;
@@ -292,5 +369,23 @@ export function turnAhead(track: Track, s: number, ahead: number): number {
   return Math.atan2(Math.sin(h1 - h0), Math.cos(h1 - h0));
 }
 
-export const TRACK: Track = buildTrack(CTRL);
+/** Ids das pistas, na ordem do seletor. O id vai para o arquivo de dados (laps[id]): nunca renomear. */
+export const TRACK_IDS = ["corporativo", "estacionamento", "copa"] as const;
+export type TrackId = (typeof TRACK_IDS)[number];
+export const DEFAULT_TRACK_ID: TrackId = "corporativo";
+
+export const TRACKS: Record<TrackId, Track> = {
+  corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES }),
+  estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES }),
+  copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES }),
+};
+
+export const isTrackId = (v: unknown): v is TrackId => typeof v === "string" && (TRACK_IDS as readonly string[]).includes(v);
+
+/** Pista pelo id; id desconhecido cai no Circuito Corporativo. */
+export const getTrack = (id: string | undefined): Track => (isTrackId(id) ? TRACKS[id] : TRACKS[DEFAULT_TRACK_ID]);
+
+/** Circuito Corporativo (atalho para quem só conhece a pista original). */
+export const TRACK: Track = TRACKS.corporativo;
 export const TRACK_LENGTH = TRACK.length;
+export const TRACK_ROOMS = CORPORATIVO_ROOMS;

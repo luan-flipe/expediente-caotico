@@ -101,7 +101,10 @@ export interface RankingView {
   mes: RankingTab<MonthRow>;
   tiroteio: RankingTab<ShooterRow>;
   rally: RankingTab<RallyRow>;
+  /** Recordes de volta do Circuito Corporativo (o mesmo que pistas[0]). */
   voltas: RankingTab<LapRow>;
+  /** Recordes de volta de cada pista, na ordem do seletor. */
+  pistas: { id: string; name: string; voltas: RankingTab<LapRow> }[];
   /** Líder do mês anterior ("Funcionário do mês passado"). */
   desafio: ChallengeView;
   mesPassado: { month: string; id: string; name: string; points: number } | null;

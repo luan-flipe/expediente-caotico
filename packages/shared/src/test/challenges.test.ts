@@ -89,6 +89,7 @@ describe("lista de desafios", () => {
       ["tres-de-cada", { shooterMatches: 3, raceMatches: 3 }, { shooterMatches: 3, raceMatches: 2 }],
       ["seis-partidas", { shooterMatches: 2, raceMatches: 4 }, { shooterMatches: 2, raceMatches: 3 }],
       ["rally-1-vitoria", { raceWins: 1 }, { racePodiums: 7 }],
+      ["podio-3-pistas", { podiumTracks: ["corporativo", "copa", "estacionamento"] }, { podiumTracks: ["copa", "copa"], racePodiums: 9 }],
     ];
     expect(cases.map(([id]) => id).sort()).toEqual(CHALLENGES.map((c) => c.id).sort());
     for (const [id, ok, no] of cases) {

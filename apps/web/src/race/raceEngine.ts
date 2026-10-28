@@ -5,7 +5,6 @@ import {
   NO_INPUT,
   pointAt,
   RACE,
-  TRACK,
   newKart,
   stepKart,
   type AvatarDNA,
@@ -16,6 +15,7 @@ import {
   type RaceKartPublic,
   type RacePrivate,
   type RaceSnapshot,
+  type Track,
 } from "@ec/shared";
 import { loadMusic } from "../assets";
 import { modelReady } from "../game/character";
@@ -144,6 +144,7 @@ export class RaceEngine {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly myId: string,
+    private readonly track: Track,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -158,10 +159,10 @@ export class RaceEngine {
     sun.shadow.bias = -0.0006;
     this.scene.add(sun);
     this.sun = sun;
-    this.disposeTrack = buildTrack(this.scene);
+    this.disposeTrack = buildTrack(this.scene, track);
     this.camera.add(this.listener);
     for (const bus of [this.musicBus, this.effectsBus]) bus.connect(this.listener.getInput());
-    this.commander = createCommander(this.listener, this.effectsBus);
+    this.commander = createCommander(track, this.listener, this.effectsBus);
     if (this.commander) this.scene.add(this.commander.root);
     this.applySettings();
     this.cleanup.push(subscribeSettings(() => this.applySettings()));
@@ -334,7 +335,7 @@ export class RaceEngine {
       return;
     }
     let next = server;
-    for (const p of this.pending) next = stepKart(next, p.input, DT, p.t, TRACK).state;
+    for (const p of this.pending) next = stepKart(next, p.input, DT, p.t, this.track).state;
     const dx = old.pos.x - next.pos.x;
     const dz = old.pos.z - next.pos.z;
     if (Math.hypot(dx, dz) > 4) {
@@ -484,7 +485,7 @@ export class RaceEngine {
         this.pending.push({ seq, input, t: this.clock });
         if (this.pending.length > 90) this.pending.shift();
         this.prevPred = this.pred;
-        this.pred = stepKart(this.pred, input, DT, this.clock, TRACK).state;
+        this.pred = stepKart(this.pred, input, DT, this.clock, this.track).state;
       }
     } else {
       this.acc = 0;
@@ -585,17 +586,17 @@ export class RaceEngine {
 
   /** Abertura: primeiro segue o Comandante pela reta final, depois mostra o grid com ele chegando. */
   private cutsceneCamera(u: number, dt: number): void {
-    const start = pointAt(TRACK, 0).pos;
+    const start = pointAt(this.track, 0).pos;
     const c = this.commander?.root.position ?? new THREE.Vector3(start.x, 5.5, start.z);
     let want: THREE.Vector3;
     let look: THREE.Vector3;
     if (u < 0.55) {
-      const h = pointAt(TRACK, -40).heading;
+      const h = pointAt(this.track, -40).heading;
       want = new THREE.Vector3(c.x - Math.sin(h) * 11 + Math.cos(h) * 4, c.y + 3, c.z - Math.cos(h) * 11 - Math.sin(h) * 4);
       look = new THREE.Vector3(c.x, c.y + 1.6, c.z);
     } else {
       // atrás do grid: as cadeiras de costas e o Comandante sobre o pórtico, de frente para elas
-      const back = pointAt(TRACK, TRACK.length - 17);
+      const back = pointAt(this.track, this.track.length - 17);
       want = new THREE.Vector3(back.pos.x, 2.4, back.pos.z);
       look = new THREE.Vector3(c.x, c.y - 1.2, c.z);
     }

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getTrack } from "@ec/shared";
 import { getState, net, useStore } from "../store";
 import { RaceEngine } from "./raceEngine";
 import { RaceHud } from "./RaceHud";
@@ -11,7 +12,8 @@ export function RaceView({ myId }: { myId: string }) {
   useStore((s) => s.modelReady);
 
   useEffect(() => {
-    const engine = new RaceEngine(canvasRef.current!, myId);
+    // a pista não muda durante a partida: vale a do lobby na largada
+    const engine = new RaceEngine(canvasRef.current!, myId, getTrack(getState().lobby?.options.track));
     engineRef.current = engine;
     if (import.meta.env.DEV) Object.assign(window, { __race: engine });
     engine.setPeople(getState().lobby?.players ?? []);
