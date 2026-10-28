@@ -56,7 +56,10 @@ export function Creator() {
   const set = (k: NumKey) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
   const setC = (k: keyof ChairDNA) => (i: number) => setChair((c) => ({ ...c, [k]: i }));
   const ready = useStore((s) => s.modelReady);
-  const thumbs = useMemo(() => PRESETS.map((p) => avatarThumbnail(p.dna, 120)), [ready]);
+  const thumbs = useMemo(() => {
+    void ready;
+    return PRESETS.map((p) => avatarThumbnail(p.dna, 120));
+  }, [ready]);
 
   const done = () => {
     saveChair(chair);

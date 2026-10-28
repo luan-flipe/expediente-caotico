@@ -3,7 +3,7 @@ import { DEFAULT_AVATAR } from "../data/avatar";
 import { RACE } from "../race/balance";
 import { DEFAULT_CHAIR } from "../race/chair";
 import { buildRacePrivate, buildRaceSnapshot, createRace, getRaceResults, respawnRequest, setKartInput, stepRace } from "../race/match";
-import { progressOf, TRACK } from "../race/track";
+import { pointAt, progressOf, TRACK } from "../race/track";
 
 const DT = 1000 / 30;
 
@@ -147,5 +147,54 @@ describe("partida de corrida", () => {
     expect(s).not.toContain("grampeador");
     expect(buildRacePrivate(r, "p1")!.item).toBe("grampeador");
     expect(buildRacePrivate(r, "ninguem")).toBeNull();
+  });
+
+  it("coleta de xícaras de café na pista incrementa o contador e entra em recarga", () => {
+    const r = race(2, false);
+    for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
+    const p = r.racers.get("p0")!;
+    expect(r.cups.length).toBeGreaterThan(0);
+    // Coloca a cadeira exatamente sobre a primeira xícara
+    p.kart.pos = { ...r.cups[0].pos };
+    stepRace(r, DT);
+    expect(p.kart.cups).toBe(1);
+    expect(r.cups[0].readyAt).toBeGreaterThan(r.now);
+    expect(r.events.some((e) => e.type === "cup" && e.id === "p0")).toBe(true);
+  });
+
+  it("vácuo dinâmico (slipstream) atrás de outro kart por tempo suficiente aciona turbo de vácuo", () => {
+    const r = race(2, false);
+    for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
+    const lead = r.racers.get("p1")!;
+    const follow = r.racers.get("p0")!;
+    const at = pointAt(TRACK, 10);
+    lead.kart.pos = { ...at.pos };
+    lead.kart.heading = at.heading;
+    lead.kart.speed = 10;
+
+    // Follower fica 4 metros logo atrás do líder na mesma direção
+    follow.kart.pos = {
+      x: at.pos.x - Math.sin(at.heading) * 4,
+      z: at.pos.z - Math.cos(at.heading) * 4,
+    };
+    follow.kart.heading = at.heading;
+    follow.kart.speed = 10;
+
+    // Simula tempo de vácuo até carregar
+    setKartInput(r, "p0", { steer: 0, throttle: 1, drift: false });
+    setKartInput(r, "p1", { steer: 0, throttle: 1, drift: false });
+    for (let t = 0; t < RACE.slipstreamChargeMs + 200; t += DT) {
+      follow.kart.pos = {
+        x: lead.kart.pos.x - Math.sin(lead.kart.heading) * 4,
+        z: lead.kart.pos.z - Math.cos(lead.kart.heading) * 4,
+      };
+      follow.kart.heading = lead.kart.heading;
+      lead.kart.speed = 10;
+      follow.kart.speed = 10;
+      stepRace(r, DT);
+    }
+    expect(r.events.some((e) => e.type === "draft" && e.id === "p0")).toBe(true);
+    expect(r.events.some((e) => e.type === "boost" && e.id === "p0" && e.level === "draft")).toBe(true);
+    expect(follow.kart.boostUntil).toBeGreaterThan(r.now);
   });
 });

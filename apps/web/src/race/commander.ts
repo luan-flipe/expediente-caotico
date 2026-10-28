@@ -142,6 +142,7 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
   ].map(({ ry, attach, side }) => {
     const geo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 28, 4);
     const face = new THREE.Mesh(geo, bannerMat);
+    face.frustumCulled = false;
     face.rotation.y = ry;
     face.castShadow = true;
     banner.add(face);

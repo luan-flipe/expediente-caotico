@@ -59,6 +59,8 @@ const CARPET_CTRL: [number, number][] = [
 ];
 /** Fileiras de caixas de item (índice de controle, pode ser fracionário). */
 const BOX_CTRL = [1.5, 8, 12.5, 21];
+/** Fileiras de xícaras de café (moedas) colecionáveis ao longo do traçado. */
+const CUP_CTRL = [2.5, 7.5, 14.5, 20.5];
 
 const STEP = 5;
 const DENSE = 24;
@@ -79,6 +81,7 @@ export interface Track {
   ctrlS: number[];
   carpet: CarpetZone[];
   boxRows: number[];
+  cupRows: number[];
 }
 
 export interface TrackProgress {
@@ -146,7 +149,17 @@ function buildTrack(ctrl: Ctrl[]): Track {
     if (b < a) b += length;
     return (a + (b - a) * f) % length;
   };
-  const track: Track = { points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: BOX_CTRL.map(sAtCtrl) };
+  const track: Track = {
+    points,
+    widths,
+    cum,
+    spacing,
+    length,
+    ctrlS,
+    carpet: [],
+    boxRows: BOX_CTRL.map(sAtCtrl),
+    cupRows: CUP_CTRL.map(sAtCtrl),
+  };
   track.carpet = CARPET_CTRL.map(([from, to]) => {
     const s0 = sAtCtrl(from);
     const s1 = sAtCtrl(to);
@@ -278,6 +291,20 @@ export function boxSpots(track: Track): Vec2[] {
     const at = pointAt(track, s);
     const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
     for (const f of [-0.6, -0.2, 0.2, 0.6]) {
+      const off = f * at.halfWidth;
+      out.push({ x: at.pos.x + nrm.x * off, z: at.pos.z + nrm.z * off });
+    }
+  }
+  return out;
+}
+
+/** Posições das xícaras de café colecionáveis. */
+export function cupSpots(track: Track): Vec2[] {
+  const out: Vec2[] = [];
+  for (const s of track.cupRows ?? []) {
+    const at = pointAt(track, s);
+    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    for (const f of [-0.28, 0.28]) {
       const off = f * at.halfWidth;
       out.push({ x: at.pos.x + nrm.x * off, z: at.pos.z + nrm.z * off });
     }

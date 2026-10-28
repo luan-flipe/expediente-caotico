@@ -10,6 +10,7 @@ import {
   type AvatarDNA,
   type ChairDNA,
   type HazardKind,
+  type ItemId,
   type KartInput,
   type KartState,
   type RaceKartPublic,
@@ -29,6 +30,25 @@ interface Sample {
   heading: number;
 }
 
+interface SmokePuff {
+  mesh: THREE.Mesh;
+  life: number;
+  maxLife: number;
+  vx: number;
+  vy: number;
+  vz: number;
+}
+
+interface ItemFxParticle {
+  mesh: THREE.Mesh;
+  life: number;
+  maxLife: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  rotSpeed: { x: number; y: number; z: number };
+}
+
 interface KartView {
   r3d: Racer3D;
   key: string;
@@ -40,20 +60,36 @@ interface KartView {
   flame: THREE.Mesh;
   bubble: THREE.Mesh;
   spin: number;
+  slideYaw: number;
+  roll: number;
+  pitch: number;
+  hopY: number;
+  hopVel: number;
+  wasDrifting: boolean;
+  smokePuffs: SmokePuff[];
+  smokeTimer: number;
+  lastSteer: number;
+  bubbleScale: number;
+  wasAirborne?: boolean;
+  heldItem: THREE.Group;
+  heldItemKind?: ItemId | null;
 }
 
 interface HazardView {
   obj: THREE.Object3D;
+  kind: HazardKind;
   x: number;
   z: number;
   vx: number;
   vz: number;
   at: number;
+  bornAt: number;
+  impacted?: boolean;
 }
 
 const DT = 1000 / 30;
 const INTERP_MS = 110;
-const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f"];
+const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f", "#bd34fe"];
 const MUSIC_URL = "/assets/audio/turbo_pixel_drift.mp3";
 /** Baixo o bastante para o helicóptero e os itens continuarem audíveis. */
 const MUSIC_VOLUME = 0.35;
@@ -118,6 +154,10 @@ export class RaceEngine {
   /** Trilha de fundo: toca em loop durante toda a corrida, sem posição na cena. */
   private music = new THREE.Audio(this.listener);
   private muted = false;
+  private rollGain: GainNode | null = null;
+  private rollOsc: OscillatorNode | null = null;
+  private skidGain: GainNode | null = null;
+  private skidOsc: OscillatorNode | null = null;
   private me: RacePrivate | null = null;
   private keys = new Set<string>();
   /** Previsão da própria cadeira: passo fixo de 30 Hz, igual ao servidor. */
@@ -133,9 +173,28 @@ export class RaceEngine {
   private camPos = new THREE.Vector3();
   private camLook = new THREE.Vector3();
   private camReady = false;
+  private camDriftOffset = 0;
+  private camLookOffset = 0;
+  private shake = 0;
+  private skidMesh: THREE.InstancedMesh;
+  private skidIdx = 0;
+  private lastSkidAt = 0;
+  private dummyObj = new THREE.Object3D();
+  private smokeGeo = new THREE.IcosahedronGeometry(0.12, 0);
   private boxGeo = new THREE.BoxGeometry(0.8, 0.6, 0.8);
   private boxMat = new THREE.MeshStandardMaterial({ map: boxTexture(), roughness: 0.9 });
   private hazardMats = new Map<string, THREE.Material>();
+  private itemParticles: ItemFxParticle[] = [];
+  private itemGeoPaper = new THREE.PlaneGeometry(0.18, 0.24);
+  private itemGeoPostit = new THREE.PlaneGeometry(0.14, 0.14);
+  private itemGeoDrop = new THREE.IcosahedronGeometry(0.07, 0);
+  private itemGeoFlash = new THREE.ConeGeometry(0.14, 0.5, 6);
+  private itemMatPaper = new THREE.MeshStandardMaterial({ color: "#f8f6f0", roughness: 0.85, side: THREE.DoubleSide, transparent: true });
+  private itemMatPostit = new THREE.MeshStandardMaterial({ color: "#ffd600", roughness: 0.9, side: THREE.DoubleSide, transparent: true });
+  private itemMatCoffee = new THREE.MeshStandardMaterial({ color: "#3d2415", roughness: 0.2, transparent: true });
+  private itemMatFlash = new THREE.MeshBasicMaterial({ color: "#eef6ff", transparent: true, opacity: 0.9 });
+  private cups = new Map<number, THREE.Object3D>();
+  private holdingRear = false;
   private raf = 0;
   private lastFrame = performance.now();
   private cleanup: (() => void)[] = [];
@@ -145,9 +204,9 @@ export class RaceEngine {
     private readonly myId: string,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.scene.background = new THREE.Color("#b9c4cf");
     this.scene.fog = new THREE.Fog("#b9c4cf", 55, 120);
@@ -155,11 +214,47 @@ export class RaceEngine {
     const sun = new THREE.DirectionalLight("#fff3dd", 2.1);
     sun.position.set(25, 45, 18);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(1024, 1024);
     Object.assign(sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
     sun.shadow.bias = -0.0006;
     this.scene.add(sun);
     buildTrack(this.scene);
+
+    const skidGeo = new THREE.PlaneGeometry(0.18, 0.4);
+    skidGeo.rotateX(-Math.PI / 2);
+    const skidMat = new THREE.MeshBasicMaterial({ color: "#1d1b17", transparent: true, opacity: 0.28, depthWrite: false });
+    this.skidMesh = new THREE.InstancedMesh(skidGeo, skidMat, 200);
+    this.skidMesh.frustumCulled = false;
+    this.skidMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < 200; i++) {
+      this.dummyObj.position.set(0, -100, 0);
+      this.dummyObj.updateMatrix();
+      this.skidMesh.setMatrixAt(i, this.dummyObj.matrix);
+    }
+    this.skidMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this.skidMesh);
+
+    // Pool de partículas de efeitos para os power-ups
+    const addP = (geo: THREE.BufferGeometry, mat: THREE.Material, count: number) => {
+      for (let i = 0; i < count; i++) {
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.visible = false;
+        this.scene.add(mesh);
+        this.itemParticles.push({
+          mesh,
+          life: 0,
+          maxLife: 0.5,
+          vx: 0,
+          vy: 0,
+          vz: 0,
+          rotSpeed: { x: 0, y: 0, z: 0 },
+        });
+      }
+    };
+    addP(this.itemGeoPaper, this.itemMatPaper, 10);
+    addP(this.itemGeoPostit, this.itemMatPostit, 8);
+    addP(this.itemGeoDrop, this.itemMatCoffee, 8);
+    addP(this.itemGeoFlash, this.itemMatFlash, 4);
     this.camera.add(this.listener);
     this.commander = createCommander(this.listener);
     if (this.commander) this.scene.add(this.commander.root);
@@ -186,6 +281,63 @@ export class RaceEngine {
       .catch((err) => console.warn("música da corrida não carregou", err));
   }
 
+  private initProceduralAudio(): void {
+    try {
+      const ctx = this.listener.context;
+      if (!ctx || this.rollGain) return;
+
+      // 1. Zumbido mecânico leve de rolamento das rodinhas de plástico no chão
+      const rOsc = ctx.createOscillator();
+      const rGain = ctx.createGain();
+      rOsc.type = "triangle";
+      rOsc.frequency.value = 55;
+      rGain.gain.value = 0;
+      rOsc.connect(rGain);
+      rGain.connect(ctx.destination);
+      rOsc.start();
+      this.rollOsc = rOsc;
+      this.rollGain = rGain;
+
+      // 2. Chiado / guincho sutil de derrapagem no drift
+      const sOsc = ctx.createOscillator();
+      const sFilter = ctx.createBiquadFilter();
+      const sGain = ctx.createGain();
+      sOsc.type = "sawtooth";
+      sOsc.frequency.value = 480;
+      sFilter.type = "bandpass";
+      sFilter.frequency.value = 1600;
+      sFilter.Q.value = 2.4;
+      sGain.gain.value = 0;
+      sOsc.connect(sFilter);
+      sFilter.connect(sGain);
+      sGain.connect(ctx.destination);
+      sOsc.start();
+      this.skidOsc = sOsc;
+      this.skidGain = sGain;
+    } catch {
+      // áudio opcional caso bloqueado pelo navegador
+    }
+  }
+
+  private updateProceduralAudio(speed: number, drifting: boolean): void {
+    if (this.muted) {
+      if (this.rollGain) this.rollGain.gain.value = 0;
+      if (this.skidGain) this.skidGain.gain.value = 0;
+      return;
+    }
+    const absSpeed = Math.abs(speed);
+    if (this.rollGain && this.rollOsc) {
+      const vol = absSpeed > 0.4 ? Math.min(0.06, (absSpeed / 18) * 0.06) : 0;
+      this.rollGain.gain.value += (vol - this.rollGain.gain.value) * 0.18;
+      this.rollOsc.frequency.value = 50 + (absSpeed / 18) * 110;
+    }
+    if (this.skidGain && this.skidOsc) {
+      const skidVol = drifting && absSpeed > 3 ? 0.07 : 0;
+      this.skidGain.gain.value += (skidVol - this.skidGain.gain.value) * 0.22;
+      this.skidOsc.frequency.value = 480 + (absSpeed / 18) * 130;
+    }
+  }
+
   // ---------- entrada ----------
   private bindInput(): void {
     const on = <E extends Event>(t: string, fn: (e: E) => void) => {
@@ -194,11 +346,17 @@ export class RaceEngine {
     };
     on("blur", () => this.keys.clear());
     // o navegador só libera som depois de um gesto do jogador
-    const unlock = () => void this.listener.context.resume();
+    const unlock = () => {
+      void this.listener.context.resume();
+      this.initProceduralAudio();
+    };
     on("keydown", unlock);
     on("mousedown", unlock);
     on<MouseEvent>("mousedown", (e) => {
-      if (e.button === 0 && e.target === this.canvas) this.useItem();
+      if (e.button === 0 && e.target === this.canvas) this.startItemUse();
+    });
+    on<MouseEvent>("mouseup", (e) => {
+      if (e.button === 0) this.releaseItemUse();
     });
     on<KeyboardEvent>("keydown", (e) => {
       const k = e.code;
@@ -206,7 +364,7 @@ export class RaceEngine {
       if (k === "Tab") setState({ scoreboard: true });
       this.keys.add(k);
       if (e.repeat) return;
-      if (k === "KeyE" || k === "KeyF") this.useItem();
+      if (k === "KeyE" || k === "KeyF") this.startItemUse();
       if (k === "KeyR" && this.snap?.phase === "active") net.send({ t: "krespawn" });
       if (k === "KeyM") {
         this.muted = !this.muted;
@@ -217,11 +375,176 @@ export class RaceEngine {
     on<KeyboardEvent>("keyup", (e) => {
       this.keys.delete(e.code);
       if (e.code === "Tab") setState({ scoreboard: false });
+      if (e.code === "KeyE" || e.code === "KeyF") this.releaseItemUse();
     });
   }
 
-  private useItem(): void {
-    if (this.snap?.phase === "active" && this.me?.item) net.send({ t: "kitem" });
+  private startItemUse(): void {
+    if (this.snap?.phase === "active" && this.me?.item) {
+      // Itens defensivos que podem ser segurados na traseira como escudo protetor (Mario Kart)
+      const shieldable = this.me.item === "resma" || this.me.item === "poca" || this.me.item === "grampeador";
+      if (shieldable) {
+        this.holdingRear = true;
+      } else {
+        this.releaseItemUse();
+      }
+    }
+  }
+
+  private releaseItemUse(): void {
+    if (this.snap?.phase === "active" && this.me?.item) {
+      const item = this.me.item;
+      this.holdingRear = false;
+      net.send({ t: "kitem" });
+      const v = this.views.get(this.myId);
+      if (v) {
+        v.r3d.char.playItemGesture?.(item);
+        this.triggerItemFx(v, item);
+      }
+    } else {
+      this.holdingRear = false;
+    }
+  }
+
+  private triggerItemFx(v: KartView, item: ItemId): void {
+    const p = v.r3d.root.position;
+    const h = v.r3d.root.rotation.y;
+    const fx = Math.sin(h);
+    const fz = Math.cos(h);
+    const rx = Math.cos(h);
+    const rz = -Math.sin(h);
+
+    const spawn = (geo: THREE.BufferGeometry, count: number, makeP: (idx: number) => { x: number; y: number; z: number; vx: number; vy: number; vz: number; maxLife: number; rx: number; ry: number; rz: number }) => {
+      let found = 0;
+      for (const pt of this.itemParticles) {
+        if (pt.mesh.geometry === geo && !pt.mesh.visible) {
+          const cfg = makeP(found);
+          pt.mesh.position.set(cfg.x, cfg.y, cfg.z);
+          pt.mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+          pt.mesh.visible = true;
+          pt.life = 0;
+          pt.maxLife = cfg.maxLife;
+          pt.vx = cfg.vx;
+          pt.vy = cfg.vy;
+          pt.vz = cfg.vz;
+          pt.rotSpeed = { x: cfg.rx, y: cfg.ry, z: cfg.rz };
+          found++;
+          if (found >= count) break;
+        }
+      }
+    };
+
+    switch (item) {
+      case "resma":
+        // Sem pulinho na cadeira: o kart fica firme na pista ao soltar a resma
+        spawn(this.itemGeoPaper, 4, () => ({
+          x: p.x - fx * 0.7 + rx * ((Math.random() - 0.5) * 0.3),
+          y: 0.65,
+          z: p.z - fz * 0.7 + rz * ((Math.random() - 0.5) * 0.3),
+          vx: (Math.random() - 0.5) * 1.2 - fx * 1.2,
+          vy: 1.2 + Math.random() * 0.8,
+          vz: (Math.random() - 0.5) * 1.2 - fz * 1.2,
+          maxLife: 0.55,
+          rx: (Math.random() - 0.5) * 10,
+          ry: (Math.random() - 0.5) * 10,
+          rz: (Math.random() - 0.5) * 10,
+        }));
+        break;
+
+      case "pasta":
+        v.bubbleScale = 0.2;
+        v.bubble.visible = true;
+        break;
+
+      case "aviao":
+        spawn(this.itemGeoPaper, 4, () => ({
+          x: p.x + fx * 0.4 + rx * ((Math.random() - 0.5) * 0.25),
+          y: 0.85,
+          z: p.z + fz * 0.4 + rz * ((Math.random() - 0.5) * 0.25),
+          vx: fx * 5.5 + (Math.random() - 0.5) * 1.2,
+          vy: 0.8 + Math.random() * 0.6,
+          vz: fz * 5.5 + (Math.random() - 0.5) * 1.2,
+          maxLife: 0.45,
+          rx: (Math.random() - 0.5) * 8,
+          ry: (Math.random() - 0.5) * 8,
+          rz: (Math.random() - 0.5) * 8,
+        }));
+        break;
+
+      case "grampeador":
+        v.pitch = 0.09;
+        spawn(this.itemGeoFlash, 1, () => ({
+          x: p.x + fx * 0.65,
+          y: 0.65,
+          z: p.z + fz * 0.65,
+          vx: fx * 0.8,
+          vy: 0,
+          vz: fz * 0.8,
+          maxLife: 0.12,
+          rx: 0,
+          ry: h,
+          rz: 0,
+        }));
+        break;
+
+      case "poca":
+        spawn(this.itemGeoDrop, 6, () => ({
+          x: p.x - fx * 0.6 + rx * ((Math.random() - 0.5) * 0.35),
+          y: 0.3,
+          z: p.z - fz * 0.6 + rz * ((Math.random() - 0.5) * 0.35),
+          vx: (Math.random() - 0.5) * 2.2,
+          vy: 1.2 + Math.random() * 0.8,
+          vz: (Math.random() - 0.5) * 2.2,
+          maxLife: 0.4,
+          rx: (Math.random() - 0.5) * 10,
+          ry: (Math.random() - 0.5) * 10,
+          rz: (Math.random() - 0.5) * 10,
+        }));
+        break;
+
+      case "postit":
+        spawn(this.itemGeoPostit, 6, () => ({
+          x: p.x + fx * 0.5 + rx * ((Math.random() - 0.5) * 0.35),
+          y: 0.75,
+          z: p.z + fz * 0.5 + rz * ((Math.random() - 0.5) * 0.35),
+          vx: fx * 6.0 + (Math.random() - 0.5) * 1.5,
+          vy: 1.4 + Math.random() * 0.8,
+          vz: fz * 6.0 + (Math.random() - 0.5) * 1.5,
+          maxLife: 0.55,
+          rx: (Math.random() - 0.5) * 10,
+          ry: (Math.random() - 0.5) * 10,
+          rz: (Math.random() - 0.5) * 10,
+        }));
+        break;
+
+      case "expresso":
+      case "triplo":
+        if (v.last.id === this.myId) {
+          this.shake = Math.min(0.5, this.shake + 0.22);
+        }
+        break;
+    }
+  }
+
+  private spawnPaperImpact(x: number, z: number): void {
+    let count = 0;
+    for (const pt of this.itemParticles) {
+      if (pt.mesh.geometry === this.itemGeoPaper && !pt.mesh.visible) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 0.9 + Math.random() * 1.3;
+        pt.mesh.position.set(x + Math.cos(ang) * 0.15, 0.06, z + Math.sin(ang) * 0.15);
+        pt.mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+        pt.mesh.visible = true;
+        pt.life = 0;
+        pt.maxLife = 0.5;
+        pt.vx = Math.cos(ang) * spd;
+        pt.vy = 1.3 + Math.random() * 0.9;
+        pt.vz = Math.sin(ang) * spd;
+        pt.rotSpeed = { x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 8, z: (Math.random() - 0.5) * 8 };
+        count++;
+        if (count >= 4) break;
+      }
+    }
   }
 
   private input(): KartInput {
@@ -231,6 +554,7 @@ export class RaceEngine {
       steer: (has("KeyD", "ArrowRight") ? 1 : 0) - (has("KeyA", "ArrowLeft") ? 1 : 0),
       throttle: has("KeyW", "ArrowUp") ? 1 : has("KeyS", "ArrowDown") ? -1 : 0,
       drift: has("Space", "ShiftLeft", "ShiftRight"),
+      itemHold: this.holdingRear,
     };
   }
 
@@ -250,6 +574,8 @@ export class RaceEngine {
     }
     for (const [id, v] of this.views) {
       if (seen.has(id)) continue;
+      for (const p of v.smokePuffs) this.scene.remove(p.mesh);
+      (v.smokePuffs[0]?.mesh.material as THREE.Material)?.dispose();
       this.scene.remove(v.r3d.root);
       v.r3d.dispose();
       this.views.delete(id);
@@ -267,22 +593,89 @@ export class RaceEngine {
       m.visible = b.ready;
     }
 
+    if (s.cups) {
+      const liveCups = new Set<number>();
+      for (const c of s.cups) {
+        liveCups.add(c.id);
+        let m = this.cups.get(c.id);
+        if (!m) {
+          m = this.buildCupMesh();
+          m.position.set(c.x, 0.38, c.z);
+          this.scene.add(m);
+          this.cups.set(c.id, m);
+        }
+        m.visible = c.ready;
+      }
+      for (const [id, m] of this.cups) {
+        if (!liveCups.has(id)) {
+          this.scene.remove(m);
+          m.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+          this.cups.delete(id);
+        }
+      }
+    }
+
     const live = new Set<number>();
     for (const h of s.hazards) {
       live.add(h.id);
       let hv = this.hazards.get(h.id);
       if (!hv) {
-        hv = { obj: this.hazardMesh(h.kind), x: h.x, z: h.z, vx: h.vx, vz: h.vz, at: now };
+        const obj = this.hazardMesh(h.kind);
+        if (h.kind === "resma") {
+          obj.rotation.y = (h.id * 1.37) % (Math.PI * 2);
+        }
+        hv = {
+          obj,
+          kind: h.kind,
+          x: h.x,
+          z: h.z,
+          vx: h.vx,
+          vz: h.vz,
+          at: now,
+          bornAt: now,
+        };
         this.scene.add(hv.obj);
         this.hazards.set(h.id, hv);
       }
-      Object.assign(hv, { x: h.x, z: h.z, vx: h.vx, vz: h.vz, at: now });
+      hv.x = h.x;
+      hv.z = h.z;
+      hv.vx = h.vx;
+      hv.vz = h.vz;
+      hv.at = now;
     }
     for (const [id, hv] of this.hazards) {
       if (live.has(id)) continue;
       this.scene.remove(hv.obj);
       hv.obj.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       this.hazards.delete(id);
+    }
+
+    for (const e of s.events) {
+      if (e.type === "wall" && e.id === this.myId) this.shake = Math.min(1, this.shake + 0.4);
+      if (e.type === "hit" && e.id === this.myId) {
+        if (e.kind === "blocked") {
+          this.shake = Math.min(0.5, this.shake + 0.25);
+          this.holdingRear = false;
+        } else {
+          this.shake = Math.min(1, this.shake + 0.5);
+        }
+      }
+      if (e.type === "boost" && e.id === this.myId) this.shake = Math.min(0.4, this.shake + 0.15);
+      if (e.type === "cup" && e.id === this.myId) this.shake = Math.min(0.25, this.shake + 0.08);
+      if (e.type === "stunt" && e.id === this.myId) this.shake = Math.min(0.5, this.shake + 0.25);
+      if (e.type === "draft" && e.id === this.myId) {
+        this.shake = Math.min(0.5, this.shake + 0.3);
+        this.camera.fov = 76;
+      }
+      if (e.type === "item") {
+        if (e.id !== this.myId) {
+          const v = this.views.get(e.id);
+          if (v) {
+            v.r3d.char.playItemGesture?.(e.item);
+            this.triggerItemFx(v, e.item);
+          }
+        }
+      }
     }
 
     if (me) this.reconcile(me);
@@ -365,17 +758,86 @@ export class RaceEngine {
     bubble.position.y = 0.9;
     bubble.visible = false;
     r3d.root.add(bubble);
+    // Sombra de contato suave sob as 5 rodinhas para pregar a cadeira no chão
+    const shadowMat = new THREE.MeshBasicMaterial({ color: "#050608", transparent: true, opacity: 0.38, depthWrite: false });
+    const shadowDisc = new THREE.Mesh(new THREE.CircleGeometry(0.52, 16), shadowMat);
+    shadowDisc.rotation.x = -Math.PI / 2;
+    shadowDisc.position.y = 0.015;
+    r3d.root.add(shadowDisc);
     const tag = k.id === this.myId ? null : nameTag(k.name);
     if (tag) r3d.root.add(tag);
-    r3d.root.traverse((o) => (o.castShadow = o instanceof THREE.Mesh && o !== bubble));
+    r3d.root.traverse((o) => (o.castShadow = o instanceof THREE.Mesh && o !== bubble && o !== shadowDisc));
+    const heldItem = new THREE.Group();
+    heldItem.position.set(0, 0.45, -0.65);
+    heldItem.visible = false;
+    body.add(heldItem);
+    const smokeMat = new THREE.MeshBasicMaterial({ color: "#e8e5de", transparent: true, opacity: 0.45, depthWrite: false });
+    const smokePuffs: SmokePuff[] = [];
+    for (let i = 0; i < 8; i++) {
+      const m = new THREE.Mesh(this.smokeGeo, smokeMat);
+      m.visible = false;
+      this.scene.add(m);
+      smokePuffs.push({ mesh: m, life: 0, maxLife: 0.32, vx: 0, vy: 0, vz: 0 });
+    }
     if (old) {
+      for (const p of old.smokePuffs) this.scene.remove(p.mesh);
+      (old.smokePuffs[0]?.mesh.material as THREE.Material)?.dispose();
       this.scene.remove(old.r3d.root);
       old.r3d.dispose();
     }
     this.scene.add(r3d.root);
-    const v: KartView = { r3d, key, body, tag, buf: old?.buf ?? [], last: k, sparks, flame, bubble, spin: 0 };
+    const v: KartView = {
+      r3d,
+      key,
+      body,
+      tag,
+      buf: old?.buf ?? [],
+      last: k,
+      sparks,
+      flame,
+      bubble,
+      spin: 0,
+      slideYaw: 0,
+      roll: 0,
+      pitch: 0,
+      hopY: 0,
+      hopVel: 0,
+      wasDrifting: false,
+      smokePuffs,
+      smokeTimer: 0,
+      lastSteer: 0,
+      bubbleScale: 0.2,
+      heldItem,
+    };
     this.views.set(k.id, v);
     return v;
+  }
+
+  private buildCupMesh(): THREE.Object3D {
+    const g = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: "#fffdfa", roughness: 0.35 });
+    const coffeeMat = new THREE.MeshStandardMaterial({ color: "#2b1408", roughness: 0.15 });
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.14, 0.28, 12), bodyMat);
+    cup.castShadow = true;
+    g.add(cup);
+
+    const coffee = new THREE.Mesh(new THREE.CircleGeometry(0.16, 12), coffeeMat);
+    coffee.rotation.x = -Math.PI / 2;
+    coffee.position.y = 0.141;
+    g.add(coffee);
+
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.025, 6, 10, Math.PI), bodyMat);
+    handle.rotation.z = -Math.PI / 2;
+    handle.position.set(0.18, 0, 0);
+    g.add(handle);
+
+    const haloMat = new THREE.MeshBasicMaterial({ color: "#ffd23f", transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+    const halo = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.29, 14), haloMat);
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.y = 0.145;
+    g.add(halo);
+
+    return g;
   }
 
   private hazardMesh(kind: HazardKind): THREE.Object3D {
@@ -392,8 +854,13 @@ export class RaceEngine {
     }
     if (kind === "resma") {
       const g = new THREE.Group();
-      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.65), mat("papel", () => new THREE.MeshStandardMaterial({ color: "#fbfaf5" }))));
-      const band = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.2, 0.67), mat("faixa", () => new THREE.MeshStandardMaterial({ color: "#2e86de" })));
+      const paper = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.65), mat("papel", () => new THREE.MeshStandardMaterial({ color: "#fbfaf5", roughness: 0.8 })));
+      paper.castShadow = true;
+      paper.receiveShadow = true;
+      g.add(paper);
+      const band = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.2, 0.67), mat("faixa", () => new THREE.MeshStandardMaterial({ color: "#2e86de", roughness: 0.5 })));
+      band.castShadow = true;
+      band.receiveShadow = true;
       g.add(band);
       g.children.forEach((c) => (c.position.y = 0.28));
       return g;
@@ -472,18 +939,123 @@ export class RaceEngine {
         z = a.z + (b.z - a.z) * k;
         heading = angleLerp(a.heading, b.heading, k);
       }
-      this.updateView(v, x, z, heading, dt, mine ? this.pred! : null);
+      let steer = 0;
+      if (mine) {
+        steer = this.input().steer;
+      } else if (v.buf.length >= 2) {
+        const lastHeading = v.buf[v.buf.length - 2].heading;
+        let dHeading = (heading - lastHeading) % (Math.PI * 2);
+        if (dHeading > Math.PI) dHeading -= Math.PI * 2;
+        if (dHeading < -Math.PI) dHeading += Math.PI * 2;
+        steer = dt > 0.001 ? Math.max(-1, Math.min(1, dHeading / (dt * 2.5))) : 0;
+      }
+      this.updateView(v, x, z, heading, dt, mine ? this.pred! : null, steer);
     }
 
     for (const b of this.boxes.values()) {
       b.rotation.y += dt * 1.6;
       b.position.y = 0.9 + Math.sin(ms / 400 + b.position.x) * 0.12;
     }
+
+    // Atualização das partículas de efeitos dos power-ups
+    for (const p of this.itemParticles) {
+      if (!p.mesh.visible) continue;
+      p.life += dt;
+      if (p.life >= p.maxLife) {
+        p.mesh.visible = false;
+      } else {
+        const pr = p.life / p.maxLife;
+        p.mesh.position.x += p.vx * dt;
+        p.mesh.position.y += p.vy * dt;
+        p.mesh.position.z += p.vz * dt;
+        p.vy -= 4.2 * dt;
+        p.vx *= 0.96;
+        p.vz *= 0.96;
+        if (p.mesh.position.y < 0.04) {
+          p.mesh.position.y = 0.04;
+          p.vy = 0;
+        }
+        p.mesh.rotation.x += p.rotSpeed.x * dt;
+        p.mesh.rotation.y += p.rotSpeed.y * dt;
+        p.mesh.rotation.z += p.rotSpeed.z * dt;
+        p.mesh.scale.setScalar(1 - pr * 0.3);
+      }
+    }
+
     for (const h of this.hazards.values()) {
-      const age = (now - h.at) / 1000;
-      h.obj.position.x = h.x + h.vx * age;
-      h.obj.position.z = h.z + h.vz * age;
+      const ageSinceSnap = (now - h.at) / 1000;
+      h.obj.position.x = h.x + h.vx * ageSinceSnap;
+      h.obj.position.z = h.z + h.vz * ageSinceSnap;
       if (h.vx || h.vz) h.obj.rotation.y = Math.atan2(h.vx, h.vz);
+
+      const age = (now - h.bornAt) / 1000;
+
+      switch (h.kind) {
+        case "aviao":
+          // Aviãozinho de papel: ondulação de voo e rolamento nas curvas
+          h.obj.rotation.z = Math.sin(age * 12) * 0.16;
+          h.obj.position.y = 1.2 + Math.sin(age * 8) * 0.1;
+          break;
+
+        case "resma": {
+          // Resma de papel: queda realista da altura da mão/cadeira (~0.85m), quique com amortecimento físico e acomodação no asfalto
+          let y = 0;
+          let rx = 0;
+          let rz = 0;
+
+          if (age < 0.26) {
+            // 1. Queda livre acelerada da altura da cadeira até o chão
+            const u = age / 0.26;
+            y = 0.85 * (1 - u * u);
+            rx = -0.32 * (1 - u);
+            rz = 0.12 * (1 - u);
+          } else if (age < 0.44) {
+            // 2. Primeiro quique (bloco denso de 500 folhas de papel bate e sobe ~10cm)
+            const u = (age - 0.26) / 0.18;
+            const sine = Math.sin(u * Math.PI);
+            y = 0.10 * sine;
+            rx = 0.12 * sine;
+            rz = -0.05 * sine;
+
+            // No exato momento do impacto no piso, solta um estilhaço de folhas
+            if (!h.impacted) {
+              h.impacted = true;
+              this.spawnPaperImpact(h.obj.position.x, h.obj.position.z);
+            }
+          } else if (age < 0.56) {
+            // 3. Segundo quique (pequeno ressalto de acomodação de ~2.2cm)
+            const u = (age - 0.44) / 0.12;
+            const sine = Math.sin(u * Math.PI);
+            y = 0.022 * sine;
+            rx = -0.025 * sine;
+            rz = 0.012 * sine;
+          }
+
+          h.obj.position.y = y;
+          h.obj.rotation.x = rx;
+          h.obj.rotation.z = rz;
+          break;
+        }
+
+        case "poca": {
+          // Poça de café: expande do centro ao se formar no piso
+          const expand = Math.min(1, age / 0.18);
+          h.obj.scale.set(expand, 1, expand);
+          h.obj.position.y = 0.035;
+          break;
+        }
+
+        case "grampo":
+          h.obj.position.y = 0.6;
+          break;
+      }
+    }
+
+    for (const [id, cup] of this.cups) {
+      if (cup.visible) {
+        cup.rotation.y += dt * 3.2;
+        cup.position.y = 0.36 + Math.sin(now * 0.005 + id * 1.5) * 0.05;
+      }
     }
 
     // Comandante e cena de abertura seguem o relógio do servidor, então todos veem o mesmo voo
@@ -497,32 +1069,211 @@ export class RaceEngine {
     this.raf = requestAnimationFrame(this.loop);
   };
 
-  private updateView(v: KartView, x: number, z: number, heading: number, dt: number, own: KartState | null): void {
+  private updateView(v: KartView, x: number, z: number, heading: number, dt: number, own: KartState | null, steerInput: number): void {
     const k = v.last;
     const flags = new Set(k.flags);
     const t = this.clock;
-    const drift = own ? (own.drifting ? (own.driftMs >= RACE.driftLevel2Ms ? 2 : own.driftMs >= RACE.driftLevel1Ms ? 1 : 0) : -1) : k.drift;
+    const drift = own ? (own.drifting ? (own.driftMs >= RACE.driftLevel3Ms ? 3 : own.driftMs >= RACE.driftLevel2Ms ? 2 : own.driftMs >= RACE.driftLevel1Ms ? 1 : 0) : -1) : k.drift;
     const driftDir = own ? own.driftDir : k.driftDir;
     const boosting = own ? t < own.boostUntil : flags.has("boost");
     const spinning = own ? t < own.spinUntil : flags.has("spin");
-    v.r3d.update(dt, own ? own.speed : k.speed);
+    const speed = own ? own.speed : k.speed;
+    v.lastSteer = steerInput;
+
+    // 1. Salto de entrada no drift (hop característico do Mario Kart)
+    if (drift >= 0 && !v.wasDrifting) {
+      v.hopY = 0.03;
+      v.hopVel = 2.4;
+      v.wasDrifting = true;
+    } else if (drift < 0) {
+      v.wasDrifting = false;
+    }
+
+    if (v.hopY > 0 || v.hopVel > 0) {
+      v.hopY += v.hopVel * dt;
+      v.hopVel -= 18 * dt;
+      if (v.hopY <= 0) {
+        v.hopY = 0;
+        v.hopVel = 0;
+      }
+    }
+
+    // Micro-trepidação física do piso e das juntas nas rodinhas
+    const roadChatter = Math.abs(speed) > 1.2 ? Math.sin(this.clock * 0.08 + x * 5) * 0.007 * Math.min(1, Math.abs(speed) / 10) : 0;
+    v.body.position.y = v.hopY + roadChatter;
+
+    // 2. Ângulo dinâmico de derrapagem (slide yaw) com transição progressiva e contra-esterço
+    let targetSlideYaw = 0;
+    if (drift >= 0 && driftDir !== 0) {
+      const steerFactor = steerInput * driftDir;
+      const driftProgress = own ? Math.min(1, own.driftMs / 220) : 1;
+      const baseSlide = -0.24 + (steerFactor > 0 ? 0.07 * steerFactor : -0.10 * Math.abs(steerFactor));
+      targetSlideYaw = driftDir * baseSlide * (0.35 + 0.65 * driftProgress);
+    }
+    v.slideYaw += (targetSlideYaw - v.slideYaw) * Math.min(1, dt * 9);
+    if (!Number.isFinite(v.slideYaw)) v.slideYaw = 0;
+
+    // 3. Inclinação lateral da cadeira no amortecedor (roll)
+    let targetRoll = 0;
+    if (drift >= 0 && driftDir !== 0) {
+      targetRoll = driftDir * 0.16 + (v.hopY > 0 ? driftDir * 0.06 : 0);
+    } else if (Math.abs(speed) > 2) {
+      targetRoll = -steerInput * 0.08 * Math.min(1, Math.abs(speed) / 10);
+    }
+    v.roll += (targetRoll - v.roll) * Math.min(1, dt * 12);
+    if (!Number.isFinite(v.roll)) v.roll = 0;
+
+    // 4. Mergulho e empinada (pitch) no pistão a gás
+    let targetPitch = 0;
+    if (boosting) {
+      targetPitch = 0.08; // aceleração extrema agacha a traseira da cadeira
+    } else if (speed > 5) {
+      targetPitch = 0.03 * Math.min(1, speed / 16);
+    } else if (speed < -0.5 || (own && this.keys.has("KeyS"))) {
+      targetPitch = -0.07; // frenagem afunda o nariz
+    }
+    v.pitch += (targetPitch - v.pitch) * Math.min(1, dt * 10);
+    if (!Number.isFinite(v.pitch)) v.pitch = 0;
+
+    // 5. Rotações finais no corpo da cadeira
+    v.spin = spinning ? v.spin + dt * 12 : 0;
+    v.body.rotation.y = v.spin + v.slideYaw;
+    v.body.rotation.z = v.roll;
+    v.body.rotation.x = v.pitch;
+
+    // 6. Atualização do boneco e rodas
+    v.r3d.update(dt, speed, steerInput, driftDir, boosting);
     v.r3d.root.position.set(x, 0, z);
     v.r3d.root.rotation.y = heading;
-    v.spin = spinning ? v.spin + dt * 12 : 0;
-    v.body.rotation.y = v.spin + (drift >= 0 ? driftDir * -0.35 : 0);
-    v.body.rotation.z = drift >= 0 ? driftDir * 0.12 : 0;
+
+    // Áudio procedural para o jogador local (rolamento e drift screech)
+    if (v.last.id === this.myId) {
+      this.updateProceduralAudio(speed, drift >= 0);
+    }
+
+    // 7. Faíscas dinâmicas nos pneus
     const flick = 0.7 + Math.random() * 0.6;
-    for (const s of v.sparks) {
+    for (let i = 0; i < v.sparks.length; i++) {
+      const s = v.sparks[i];
       s.visible = drift >= 0;
       if (s.visible) {
-        (s.material as THREE.MeshBasicMaterial).color.set(SPARK_COLORS[drift]);
-        s.scale.setScalar(drift === 0 ? 0.6 * flick : flick * (1 + drift * 0.3));
+        (s.material as THREE.MeshBasicMaterial).color.set(SPARK_COLORS[drift] ?? SPARK_COLORS[0]);
+        const baseScale = drift === 0 ? 0.6 : drift === 1 ? 1.05 : drift === 2 ? 1.45 : 1.95;
+        s.scale.setScalar(baseScale * flick);
+        s.rotation.y = driftDir * -0.3 + (Math.random() - 0.5) * 0.25;
+        s.rotation.z = (Math.random() - 0.5) * 0.2;
+        s.position.y = 0.08 + Math.random() * 0.04;
       }
     }
     v.flame.visible = boosting;
-    if (boosting) v.flame.scale.set(1, flick, 1);
-    v.bubble.visible = flags.has("pasta");
+    if (boosting) {
+      const isLevel3 = drift === 3;
+      const boostFlick = 1.3 + Math.random() * 0.7;
+      (v.flame.material as THREE.MeshBasicMaterial).color.set(isLevel3 ? "#bd34fe" : chairModelReady() ? "#eef6ff" : "#ff8a2b");
+      v.flame.scale.set(1.4, boostFlick, 1.4);
+    }
+
+    // Escudo traseiro: exibe item segurado na traseira da cadeira
+    const isHolding = (v.last.id === this.myId && this.holdingRear && this.me?.item) || v.last.holdingItem;
+    const holdKind = v.last.id === this.myId ? this.me?.item : "resma";
+    if (isHolding && holdKind) {
+      if (v.heldItemKind !== holdKind) {
+        v.heldItemKind = holdKind;
+        while (v.heldItem.children.length) v.heldItem.remove(v.heldItem.children[0]);
+        const mini = this.hazardMesh(holdKind === "poca" ? "poca" : holdKind === "grampeador" ? "grampo" : "resma").clone();
+        mini.scale.setScalar(0.7);
+        v.heldItem.add(mini);
+      }
+      v.heldItem.visible = true;
+    } else {
+      v.heldItem.visible = false;
+      v.heldItemKind = null;
+    }
+    const hasPasta = flags.has("pasta");
+    v.bubble.visible = hasPasta;
+    if (hasPasta) {
+      v.bubbleScale = Math.min(1.0, v.bubbleScale + dt * 4.5);
+      const pulse = 1.0 + Math.sin(performance.now() * 0.006) * 0.05;
+      v.bubble.scale.setScalar(v.bubbleScale * pulse);
+      v.bubble.rotation.y += dt * 0.6;
+    } else {
+      v.bubbleScale = 0.2;
+    }
     v.r3d.root.visible = !flags.has("frozen") || Math.floor(performance.now() / 120) % 2 === 0;
+
+    // 8. Fumaça de derrapagem / frenagem / vapor do café expresso no boost
+    v.smokeTimer += dt;
+    const shouldSmoke =
+      (drift >= 0 && Math.abs(speed) > 3) ||
+      (Math.abs(speed) > 7 && (own && this.keys.has("KeyS"))) ||
+      boosting;
+    if (shouldSmoke && v.smokeTimer >= (boosting ? 0.03 : 0.045)) {
+      v.smokeTimer = 0;
+      const puff = v.smokePuffs.find((p) => !p.mesh.visible);
+      if (puff) {
+        puff.mesh.visible = true;
+        puff.life = 0;
+        puff.maxLife = boosting ? 0.26 : 0.32;
+        const fwdX = Math.sin(heading);
+        const fwdZ = Math.cos(heading);
+        const rightX = Math.cos(heading);
+        const rightZ = -Math.sin(heading);
+        if (boosting) {
+          puff.mesh.position.set(
+            x - fwdX * 0.6 + rightX * ((Math.random() - 0.5) * 0.16),
+            v.r3d.exhaust.y,
+            z - fwdZ * 0.6 + rightZ * ((Math.random() - 0.5) * 0.16),
+          );
+          puff.vx = -fwdX * (speed * 0.38) + (Math.random() - 0.5) * 1.0;
+          puff.vy = 0.4 + Math.random() * 0.5;
+          puff.vz = -fwdZ * (speed * 0.38) + (Math.random() - 0.5) * 1.0;
+          puff.mesh.scale.setScalar(0.95);
+        } else {
+          const sideOffset = driftDir !== 0 ? driftDir * -0.28 : (Math.random() > 0.5 ? 0.28 : -0.28);
+          puff.mesh.position.set(
+            x - fwdX * 0.42 + rightX * (sideOffset + (Math.random() - 0.5) * 0.12),
+            0.09,
+            z - fwdZ * 0.42 + rightZ * (sideOffset + (Math.random() - 0.5) * 0.12),
+          );
+          puff.vx = (Math.random() - 0.5) * 0.6 - fwdX * (speed * 0.18);
+          puff.vy = 0.6 + Math.random() * 0.5;
+          puff.vz = (Math.random() - 0.5) * 0.6 - fwdZ * (speed * 0.18);
+          puff.mesh.scale.setScalar(0.7);
+        }
+      }
+    }
+
+    for (const p of v.smokePuffs) {
+      if (!p.mesh.visible) continue;
+      p.life += dt;
+      if (p.life >= p.maxLife) {
+        p.mesh.visible = false;
+      } else {
+        const pr = p.life / p.maxLife;
+        p.mesh.position.x += p.vx * dt;
+        p.mesh.position.y += p.vy * dt;
+        p.mesh.position.z += p.vz * dt;
+        p.mesh.scale.setScalar(0.7 + pr * 1.5);
+      }
+    }
+
+    // 9. Marcas de pneu na pista
+    const now = performance.now();
+    if (drift >= 0 && Math.abs(speed) > 3.5 && now - this.lastSkidAt > 35) {
+      this.lastSkidAt = now;
+      const fwdX = Math.sin(heading);
+      const fwdZ = Math.cos(heading);
+      const rightX = Math.cos(heading);
+      const rightZ = -Math.sin(heading);
+      for (const side of [-0.34, 0.34]) {
+        this.dummyObj.position.set(x - fwdX * 0.42 + rightX * side, 0.022, z - fwdZ * 0.42 + rightZ * side);
+        this.dummyObj.rotation.set(0, heading + v.slideYaw * 0.5, 0);
+        this.dummyObj.updateMatrix();
+        this.skidMesh.setMatrixAt(this.skidIdx, this.dummyObj.matrix);
+        this.skidIdx = (this.skidIdx + 1) % 200;
+      }
+      this.skidMesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   /** Abertura: primeiro segue o Comandante pela reta final, depois mostra o grid com ele chegando. */
@@ -563,22 +1314,59 @@ export class RaceEngine {
     const h = v.r3d.root.rotation.y;
     const fx = Math.sin(h);
     const fz = Math.cos(h);
-    const want = new THREE.Vector3(p.x - fx * 5.6, 3.3, p.z - fz * 5.6);
-    const look = new THREE.Vector3(p.x + fx * 10, 0.6, p.z + fz * 10);
+    const rx = Math.cos(h);
+    const rz = -Math.sin(h);
+
+    const driftDir = this.pred ? (this.pred.drifting ? this.pred.driftDir : 0) : (v.last.drift >= 0 ? v.last.driftDir : 0);
+    const boosting = this.pred ? this.clock < this.pred.boostUntil : false;
+    const speed = this.pred ? this.pred.speed : v.last.speed;
+    const speedRatio = Math.min(1, Math.max(0, (speed - 4) / 12));
+    // Em alta velocidade e durante o boost, a câmera desce e recua ligeiramente para aumentar a sensação de escala e vácuo
+    const camHeight = 3.3 - speedRatio * 0.32 - (boosting ? 0.22 : 0);
+    const camDist = 5.6 + speedRatio * 0.35 + (boosting ? 0.3 : 0);
+
+    // Suave movimento dinâmico da câmera para o exterior da curva em drift com interpolação de mola
+    const targetCamSwing = driftDir * -0.42;
+    const targetLookSwing = driftDir * 0.55;
+    this.camDriftOffset += (targetCamSwing - this.camDriftOffset) * Math.min(1, dt * 5);
+    this.camLookOffset += (targetLookSwing - this.camLookOffset) * Math.min(1, dt * 5);
+
+    const want = new THREE.Vector3(p.x - fx * camDist + rx * this.camDriftOffset, camHeight, p.z - fz * camDist + rz * this.camDriftOffset);
+    const look = new THREE.Vector3(p.x + fx * 10 + rx * this.camLookOffset, 0.6, p.z + fz * 10 + rz * this.camLookOffset);
     if (!this.camReady) {
       this.camPos.copy(want);
       this.camLook.copy(look);
       this.camReady = true;
     }
-    const k = 1 - Math.exp(-dt * 7);
+    const k = 1 - Math.exp(-dt * 7.5);
     this.camPos.lerp(want, k);
     this.camLook.lerp(look, k);
-    this.camera.position.copy(this.camPos);
+
+    this.shake = Math.max(0, this.shake - dt * 4);
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    if (this.shake > 0.005) {
+      const sh = this.shake * 0.16;
+      sx += (Math.random() - 0.5) * sh;
+      sy += (Math.random() - 0.5) * sh;
+      sz += (Math.random() - 0.5) * sh;
+    }
+    if (boosting) {
+      sx += (Math.random() - 0.5) * 0.055;
+      sy += (Math.random() - 0.5) * 0.045;
+      sz += (Math.random() - 0.5) * 0.035;
+    } else if (speedRatio > 0.3) {
+      // Micro-vibração suave de alta velocidade
+      sy += (Math.random() - 0.5) * 0.016 * speedRatio;
+    }
+    this.camera.position.set(this.camPos.x + sx, this.camPos.y + sy, this.camPos.z + sz);
     this.camera.lookAt(this.camLook);
-    const boosting = this.pred ? this.clock < this.pred.boostUntil : false;
-    const fov = boosting ? 80 : 68;
-    if (Math.abs(this.camera.fov - fov) > 0.1) {
-      this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 5);
+
+    // FOV dinâmico elástico que abre suavemente de 66° a 82° com a velocidade e o turbo
+    const fov = 66 + speedRatio * 7 + (boosting ? 9 : 0);
+    if (Math.abs(this.camera.fov - fov) > 0.05) {
+      this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 6);
       this.camera.updateProjectionMatrix();
     }
   }
@@ -597,6 +1385,16 @@ export class RaceEngine {
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     if (this.music.isPlaying) this.music.stop();
+    try {
+      this.rollOsc?.stop();
+      this.rollOsc?.disconnect();
+      this.rollGain?.disconnect();
+      this.skidOsc?.stop();
+      this.skidOsc?.disconnect();
+      this.skidGain?.disconnect();
+    } catch {
+      // noop
+    }
     for (const c of this.cleanup) c();
     // bonecos e Comandante compartilham geometria do GLB: saem da cena antes da limpeza geral
     if (this.commander) {
@@ -605,9 +1403,23 @@ export class RaceEngine {
     }
     this.camera.remove(this.listener);
     for (const v of this.views.values()) {
+      for (const p of v.smokePuffs) this.scene.remove(p.mesh);
+      (v.smokePuffs[0]?.mesh.material as THREE.Material)?.dispose();
       this.scene.remove(v.r3d.root);
       v.r3d.dispose();
     }
+    this.smokeGeo.dispose();
+    for (const p of this.itemParticles) {
+      this.scene.remove(p.mesh);
+    }
+    this.itemGeoPaper.dispose();
+    this.itemGeoPostit.dispose();
+    this.itemGeoDrop.dispose();
+    this.itemGeoFlash.dispose();
+    this.itemMatPaper.dispose();
+    this.itemMatPostit.dispose();
+    this.itemMatCoffee.dispose();
+    this.itemMatFlash.dispose();
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();

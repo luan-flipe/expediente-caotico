@@ -317,7 +317,7 @@ export class Room {
         if (m) chooseEvolution(m, member.id, msg.optionId, msg.seq);
         return;
       case "kinput":
-        if (this.race) setKartInput(this.race, member.id, { steer: msg.steer, throttle: msg.throttle, drift: msg.drift }, msg.seq);
+        if (this.race) setKartInput(this.race, member.id, { steer: msg.steer, throttle: msg.throttle, drift: msg.drift, itemHold: msg.itemHold }, msg.seq);
         return;
       case "kitem":
         if (this.race) queueItemUse(this.race, member.id);

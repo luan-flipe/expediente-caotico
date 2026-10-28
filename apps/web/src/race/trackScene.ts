@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { pointAt, progressOf, sideNormal, TRACK, TRACK_ROOMS, trackEdges, RACE, type Vec2 } from "@ec/shared";
 
 /** Piso de cada ambiente, na ordem de TRACK_ROOMS. */
@@ -25,15 +26,6 @@ function roomAt(s: number): string {
   let name = TRACK_ROOMS[0].name;
   for (const r of TRACK_ROOMS) if (ss >= TRACK.ctrlS[r.ctrl]) name = r.name;
   return name;
-}
-
-function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, ry = 0): THREE.Mesh {
-  const m = new THREE.Mesh(geo, mat);
-  m.position.set(x, y, z);
-  m.rotation.y = ry;
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
 }
 
 function textSprite(text: string): THREE.Sprite {
@@ -91,7 +83,6 @@ function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, c
   if (colors) g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx);
   g.computeVertexNormals();
-  // a ordem dos vértices depende do lado; o piso precisa sempre apontar para cima
   if (g.attributes.normal.getY(0) < 0) {
     for (let i = 0; i < idx.length; i += 3) [idx[i + 1], idx[i + 2]] = [idx[i + 2], idx[i + 1]];
     g.setIndex(idx);
@@ -100,13 +91,45 @@ function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, c
   return g;
 }
 
-/** Monta o Circuito Corporativo a partir de TRACK (o mesmo traçado da simulação do servidor). */
+function commitMerged(
+  scene: THREE.Scene,
+  geos: THREE.BufferGeometry[],
+  mat: THREE.Material,
+  shadow = true,
+): void {
+  if (geos.length === 0) return;
+  const merged = BufferGeometryUtils.mergeGeometries(geos, false);
+  for (const g of geos) g.dispose();
+  if (!merged) return;
+  const m = new THREE.Mesh(merged, mat);
+  m.castShadow = shadow;
+  m.receiveShadow = true;
+  scene.add(m);
+}
+
+function addTransformed(
+  list: THREE.BufferGeometry[],
+  geo: THREE.BufferGeometry,
+  pos: { x: number; y: number; z: number },
+  ry = 0,
+): void {
+  if (ry !== 0) geo.rotateY(ry);
+  geo.translate(pos.x, pos.y, pos.z);
+  list.push(geo);
+}
+
+/** Monta o Circuito Corporativo com geometrias unificadas (alta performance em navegador). */
 export function buildTrack(scene: THREE.Scene): void {
   const n = TRACK.points.length;
-  const ground = mesh(new THREE.PlaneGeometry(150, 120), new THREE.MeshStandardMaterial({ color: "#d9d3c6", roughness: 1 }), 0, -0.02, 0);
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(150, 120),
+    new THREE.MeshStandardMaterial({ color: "#d9d3c6", roughness: 1 }),
+  );
+  ground.position.set(0, -0.02, 0);
   ground.rotation.x = -Math.PI / 2;
-  ground.castShadow = false;
+  ground.receiveShadow = true;
   scene.add(ground);
+
   const grid = new THREE.GridHelper(150, 75, "#000000", "#000000");
   (grid.material as THREE.Material).opacity = 0.06;
   (grid.material as THREE.Material).transparent = true;
@@ -114,19 +137,23 @@ export function buildTrack(scene: THREE.Scene): void {
 
   const edges = trackEdges(TRACK);
   const colors = TRACK.cum.map((s) => new THREE.Color(ROOM_FLOOR[roomAt(s)]));
-  const floor = new THREE.Mesh(ribbon(edges.plus, edges.minus, 0.01, colors, true), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
+  const floor = new THREE.Mesh(
+    ribbon(edges.plus, edges.minus, 0.01, colors, true),
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }),
+  );
   floor.receiveShadow = true;
   scene.add(floor);
 
-  // fita amarela tracejada no meio
-  const tape = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.6 });
-  const tapeGeo = new THREE.BoxGeometry(0.18, 0.02, 1.6);
+  // Fita amarela tracejada no meio unificada em 1 malha
+  const tapeGeos: THREE.BufferGeometry[] = [];
   for (let s = 4; s < TRACK.length - 2; s += 4) {
     const at = pointAt(TRACK, s);
-    scene.add(mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading));
+    addTransformed(tapeGeos, new THREE.BoxGeometry(0.18, 0.02, 1.6), { x: at.pos.x, y: 0.02, z: at.pos.z }, at.heading);
   }
+  const tapeMat = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.6 });
+  commitMerged(scene, tapeGeos, tapeMat, false);
 
-  // carpete na borda interna das curvas fechadas
+  // Carpete na borda interna das curvas fechadas
   const rug = new THREE.MeshStandardMaterial({ color: "#6f8f5a", roughness: 1 });
   for (const c of TRACK.carpet) {
     const inner: Vec2[] = [];
@@ -144,21 +171,10 @@ export function buildTrack(scene: THREE.Scene): void {
     scene.add(m);
   }
 
-  // paredes nas bordas: divisórias, vidro na sala de reunião, racks na TI
-  const wallMats = new Map<string, THREE.Material>();
-  const wallMat = (room: string) => {
-    let m = wallMats.get(room);
-    if (!m) {
-      const c = ROOM_WALL[room];
-      m =
-        c === "glass"
-          ? new THREE.MeshStandardMaterial({ color: "#a9d4f0", transparent: true, opacity: 0.38, roughness: 0.1 })
-          : new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, flatShading: true });
-      wallMats.set(room, m);
-    }
-    return m;
-  };
-  const cap = new THREE.MeshStandardMaterial({ color: "#5a554c" });
+  // Paredes agrupadas por ambiente e rodapé unificado
+  const wallGeosByRoom = new Map<string, THREE.BufferGeometry[]>();
+  const capGeos: THREE.BufferGeometry[] = [];
+
   for (const side of [edges.plus, edges.minus]) {
     for (let i = 0; i < n; i++) {
       const a = side[i];
@@ -167,25 +183,51 @@ export function buildTrack(scene: THREE.Scene): void {
       const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
       const ry = Math.atan2(b.x - a.x, b.z - a.z);
       const room = roomAt(TRACK.cum[i]);
-      scene.add(mesh(new THREE.BoxGeometry(0.25, 1.0, len + 0.25), wallMat(room), mid.x, 0.5, mid.z, ry));
-      scene.add(mesh(new THREE.BoxGeometry(0.3, 0.06, len + 0.25), cap, mid.x, 1.03, mid.z, ry));
+
+      let roomList = wallGeosByRoom.get(room);
+      if (!roomList) {
+        roomList = [];
+        wallGeosByRoom.set(room, roomList);
+      }
+      addTransformed(roomList, new THREE.BoxGeometry(0.25, 1.0, len + 0.25), { x: mid.x, y: 0.5, z: mid.z }, ry);
+      addTransformed(capGeos, new THREE.BoxGeometry(0.3, 0.06, len + 0.25), { x: mid.x, y: 1.03, z: mid.z }, ry);
     }
   }
 
-  // largada
+  for (const [room, geos] of wallGeosByRoom) {
+    const c = ROOM_WALL[room];
+    const mat =
+      c === "glass"
+        ? new THREE.MeshStandardMaterial({ color: "#a9d4f0", transparent: true, opacity: 0.38, roughness: 0.1 })
+        : new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, flatShading: true });
+    commitMerged(scene, geos, mat, c !== "glass");
+  }
+  const capMat = new THREE.MeshStandardMaterial({ color: "#5a554c" });
+  commitMerged(scene, capGeos, capMat, false);
+
+  // Linha de largada
   const start = pointAt(TRACK, 0);
-  const line = mesh(new THREE.PlaneGeometry(start.halfWidth * 2, 1.2), new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.8 }), start.pos.x, 0.03, start.pos.z);
+  const line = new THREE.Mesh(
+    new THREE.PlaneGeometry(start.halfWidth * 2, 1.2),
+    new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.8 }),
+  );
+  line.position.set(start.pos.x, 0.03, start.pos.z);
   line.rotation.set(-Math.PI / 2, 0, 0);
   line.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), start.heading);
-  line.castShadow = false;
+  line.receiveShadow = true;
   scene.add(line);
-  const arch = new THREE.MeshStandardMaterial({ color: "#ff5a3d", roughness: 0.6 });
+
+  // Pórtico de largada
+  const archMat = new THREE.MeshStandardMaterial({ color: "#ff5a3d", roughness: 0.6 });
   const nrm = sideNormal(Math.sin(start.heading), Math.cos(start.heading));
+  const archGeos: THREE.BufferGeometry[] = [];
   for (const s of [-1, 1]) {
     const x = start.pos.x + nrm.x * (start.halfWidth + 0.4) * s;
     const z = start.pos.z + nrm.z * (start.halfWidth + 0.4) * s;
-    scene.add(mesh(new THREE.BoxGeometry(0.3, 4, 0.3), arch, x, 2, z));
+    addTransformed(archGeos, new THREE.BoxGeometry(0.3, 4, 0.3), { x, y: 2, z });
   }
+  commitMerged(scene, archGeos, archMat, true);
+
   const banner = textSprite("Rally da Firma");
   banner.position.set(start.pos.x, 4.1, start.pos.z);
   banner.scale.set(start.halfWidth * 2, start.halfWidth * 0.5, 1);
@@ -201,52 +243,68 @@ export function buildTrack(scene: THREE.Scene): void {
   decorate(scene);
 }
 
-/** Móveis fora da pista, por ambiente. Só entram onde não encostam em nenhum trecho. */
+/** Móveis fora da pista com geometrias agrupadas e unificadas por material. */
 function decorate(scene: THREE.Scene): void {
-  const wood = new THREE.MeshStandardMaterial({ color: "#c9a27a", roughness: 0.8, flatShading: true });
-  const white = new THREE.MeshStandardMaterial({ color: "#f3efe6", roughness: 0.7 });
-  const dark = new THREE.MeshStandardMaterial({ color: "#2b2f36", roughness: 0.6 });
-  const screen = new THREE.MeshStandardMaterial({ color: "#1b2433", emissive: "#2a4f8a", emissiveIntensity: 0.6 });
-  const leaf = new THREE.MeshStandardMaterial({ color: "#3e9b52", roughness: 0.9, flatShading: true });
-  const pot = new THREE.MeshStandardMaterial({ color: "#7a5236" });
-  const led = new THREE.MeshBasicMaterial({ color: "#5cff8a" });
-  const sofa = new THREE.MeshStandardMaterial({ color: "#3f6b8a", roughness: 0.9 });
+  const woodGeos: THREE.BufferGeometry[] = [];
+  const whiteGeos: THREE.BufferGeometry[] = [];
+  const darkGeos: THREE.BufferGeometry[] = [];
+  const screenGeos: THREE.BufferGeometry[] = [];
+  const leafGeos: THREE.BufferGeometry[] = [];
+  const potGeos: THREE.BufferGeometry[] = [];
+  const ledGeos: THREE.BufferGeometry[] = [];
+  const sofaGeos: THREE.BufferGeometry[] = [];
 
   const free = (p: Vec2, r: number) => {
     const pr = progressOf(TRACK, p);
     return pr.dist > pr.halfWidth + r + 0.6;
   };
+
   const put = (room: string, p: Vec2, ry: number) => {
-    const g = new THREE.Group();
-    g.position.set(p.x, 0, p.z);
-    g.rotation.y = ry;
+    const cos = Math.cos(ry);
+    const sin = Math.sin(ry);
+    const rot = (lx: number, lz: number) => ({ x: p.x + lx * cos + lz * sin, z: p.z - lx * sin + lz * cos });
+
     switch (room) {
       case "Ilhas de mesas":
-        g.add(mesh(new THREE.BoxGeometry(2.4, 0.08, 1.2), wood, 0, 0.74, 0));
-        for (const x of [-1.1, 1.1]) g.add(mesh(new THREE.BoxGeometry(0.06, 0.74, 1.1), dark, x, 0.37, 0));
-        for (const x of [-0.6, 0.6]) g.add(mesh(new THREE.BoxGeometry(0.55, 0.36, 0.04), screen, x, 1.0, -0.3));
+        addTransformed(woodGeos, new THREE.BoxGeometry(2.4, 0.08, 1.2), { x: p.x, y: 0.74, z: p.z }, ry);
+        for (const x of [-1.1, 1.1]) {
+          const pt = rot(x, 0);
+          addTransformed(darkGeos, new THREE.BoxGeometry(0.06, 0.74, 1.1), { x: pt.x, y: 0.37, z: pt.z }, ry);
+        }
+        for (const x of [-0.6, 0.6]) {
+          const pt = rot(x, -0.3);
+          addTransformed(screenGeos, new THREE.BoxGeometry(0.55, 0.36, 0.04), { x: pt.x, y: 1.0, z: pt.z }, ry);
+        }
         break;
       case "TI":
-        g.add(mesh(new THREE.BoxGeometry(0.9, 2.1, 1.0), dark, 0, 1.05, 0));
-        for (let y = 0; y < 6; y++) g.add(mesh(new THREE.BoxGeometry(0.06, 0.04, 0.02), led, 0.3 - (y % 2) * 0.2, 0.4 + y * 0.28, 0.51));
+        addTransformed(darkGeos, new THREE.BoxGeometry(0.9, 2.1, 1.0), { x: p.x, y: 1.05, z: p.z }, ry);
+        for (let y = 0; y < 6; y++) {
+          const pt = rot(0.3 - (y % 2) * 0.2, 0.51);
+          addTransformed(ledGeos, new THREE.BoxGeometry(0.06, 0.04, 0.02), { x: pt.x, y: 0.4 + y * 0.28, z: pt.z }, ry);
+        }
         break;
       case "Copa":
-        g.add(mesh(new THREE.BoxGeometry(2.6, 0.95, 0.8), white, 0, 0.47, 0));
-        g.add(mesh(new THREE.BoxGeometry(0.4, 0.5, 0.4), dark, 0.7, 1.2, 0));
+        addTransformed(whiteGeos, new THREE.BoxGeometry(2.6, 0.95, 0.8), { x: p.x, y: 0.47, z: p.z }, ry);
+        {
+          const pt = rot(0.7, 0);
+          addTransformed(darkGeos, new THREE.BoxGeometry(0.4, 0.5, 0.4), { x: pt.x, y: 1.2, z: pt.z }, ry);
+        }
         break;
       case "Sala de reunião":
-        g.add(mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.08, 24), wood, 0, 0.74, 0));
-        g.add(mesh(new THREE.CylinderGeometry(0.15, 0.3, 0.74, 10), dark, 0, 0.37, 0));
+        addTransformed(woodGeos, new THREE.CylinderGeometry(1.6, 1.6, 0.08, 24), { x: p.x, y: 0.74, z: p.z }, ry);
+        addTransformed(darkGeos, new THREE.CylinderGeometry(0.15, 0.3, 0.74, 10), { x: p.x, y: 0.37, z: p.z }, ry);
         break;
       case "Recepção":
-        g.add(mesh(new THREE.BoxGeometry(2.2, 0.7, 0.9), sofa, 0, 0.35, 0));
-        g.add(mesh(new THREE.BoxGeometry(2.2, 0.6, 0.25), sofa, 0, 0.8, -0.35));
+        addTransformed(sofaGeos, new THREE.BoxGeometry(2.2, 0.7, 0.9), { x: p.x, y: 0.35, z: p.z }, ry);
+        {
+          const pt = rot(0, -0.35);
+          addTransformed(sofaGeos, new THREE.BoxGeometry(2.2, 0.6, 0.25), { x: pt.x, y: 0.8, z: pt.z }, ry);
+        }
         break;
       default:
-        g.add(mesh(new THREE.CylinderGeometry(0.3, 0.24, 0.5, 10), pot, 0, 0.25, 0));
-        g.add(mesh(new THREE.IcosahedronGeometry(0.55, 0), leaf, 0, 0.95, 0));
+        addTransformed(potGeos, new THREE.CylinderGeometry(0.3, 0.24, 0.5, 10), { x: p.x, y: 0.25, z: p.z }, ry);
+        addTransformed(leafGeos, new THREE.IcosahedronGeometry(0.55, 0), { x: p.x, y: 0.95, z: p.z }, ry);
     }
-    scene.add(g);
   };
 
   for (let s = 6; s < TRACK.length; s += 11) {
@@ -259,10 +317,32 @@ function decorate(scene: THREE.Scene): void {
       if (free(p, 1.6)) put(room, p, at.heading);
     }
   }
-  // mesa de reunião grande no miolo da curva larga
+
   const meet = pointAt(TRACK, TRACK.ctrlS[14]);
   const nrm = sideNormal(Math.sin(meet.heading), Math.cos(meet.heading));
   const c = TRACK.carpet[2];
   const p = { x: meet.pos.x + nrm.x * (meet.halfWidth + 5) * c.side, z: meet.pos.z + nrm.z * (meet.halfWidth + 5) * c.side };
   if (free(p, 2)) put("Sala de reunião", p, 0);
+
+  const wood = new THREE.MeshStandardMaterial({ color: "#c9a27a", roughness: 0.8, flatShading: true });
+  const white = new THREE.MeshStandardMaterial({ color: "#f3efe6", roughness: 0.7 });
+  const dark = new THREE.MeshStandardMaterial({ color: "#2b2f36", roughness: 0.6 });
+  const screen = new THREE.MeshStandardMaterial({ color: "#1b2433", emissive: "#2a4f8a", emissiveIntensity: 0.6 });
+  const leaf = new THREE.MeshStandardMaterial({ color: "#3e9b52", roughness: 0.9, flatShading: true });
+  const pot = new THREE.MeshStandardMaterial({ color: "#7a5236" });
+  const led = new THREE.MeshBasicMaterial({ color: "#5cff8a" });
+  const sofa = new THREE.MeshStandardMaterial({ color: "#3f6b8a", roughness: 0.9 });
+
+  commitMerged(scene, woodGeos, wood, true);
+  commitMerged(scene, whiteGeos, white, true);
+  commitMerged(scene, darkGeos, dark, true);
+  commitMerged(scene, screenGeos, screenMatMerged(screen), false);
+  commitMerged(scene, leafGeos, leaf, true);
+  commitMerged(scene, potGeos, pot, true);
+  commitMerged(scene, ledGeos, led, false);
+  commitMerged(scene, sofaGeos, sofa, true);
+}
+
+function screenMatMerged(base: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+  return base;
 }

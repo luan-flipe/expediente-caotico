@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { OFFICE_MAP, type Box } from "@ec/shared";
 
 const COLORS: Record<Box["kind"], string> = {
@@ -12,27 +13,54 @@ const COLORS: Record<Box["kind"], string> = {
   sofa: "#3f6b8a",
 };
 
-function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, shadow = true): THREE.Mesh {
-  const m = new THREE.Mesh(geo, mat);
-  m.position.set(x, y, z);
-  m.castShadow = shadow;
-  m.receiveShadow = true;
-  return m;
+function addBox(list: THREE.BufferGeometry[], w: number, h: number, d: number, x: number, y: number, z: number): void {
+  const g = new THREE.BoxGeometry(w, h, d);
+  g.translate(x, y, z);
+  list.push(g);
 }
 
-/** Monta o escritório a partir da mesma lista de caixas usada pela colisão do servidor. */
+function commitMerged(
+  scene: THREE.Scene,
+  geos: THREE.BufferGeometry[],
+  mat: THREE.Material,
+  shadow = true,
+): void {
+  if (geos.length === 0) return;
+  const merged = BufferGeometryUtils.mergeGeometries(geos, false);
+  for (const g of geos) g.dispose();
+  if (!merged) return;
+  const m = new THREE.Mesh(merged, mat);
+  m.castShadow = shadow;
+  m.receiveShadow = true;
+  scene.add(m);
+}
+
+/** Monta o escritório otimizado com geometrias unificadas (slashes centenas de draw calls). */
 export function buildOffice(scene: THREE.Scene): void {
   const W = OFFICE_MAP.width;
   const D = OFFICE_MAP.depth;
 
-  const ground = mesh(new THREE.PlaneGeometry(W + 40, D + 40), new THREE.MeshStandardMaterial({ color: "#7d8a6a", roughness: 1 }), 0, -0.02, 0, false);
+  // Chão externo
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(W + 40, D + 40),
+    new THREE.MeshStandardMaterial({ color: "#7d8a6a", roughness: 1 }),
+  );
+  ground.position.set(0, -0.02, 0);
   ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
   scene.add(ground);
 
+  // Pisos de cada ambiente
   for (const r of OFFICE_MAP.rooms) {
-    const floor = mesh(new THREE.PlaneGeometry(r.w, r.d), new THREE.MeshStandardMaterial({ color: r.floor, roughness: 0.95 }), r.x, 0, r.z, false);
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(r.w, r.d),
+      new THREE.MeshStandardMaterial({ color: r.floor, roughness: 0.95 }),
+    );
+    floor.position.set(r.x, 0, r.z);
     floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
     scene.add(floor);
+
     const lines = new THREE.GridHelper(Math.max(r.w, r.d), Math.max(r.w, r.d) / 2, "#000000", "#000000");
     (lines.material as THREE.Material).opacity = 0.05;
     (lines.material as THREE.Material).transparent = true;
@@ -41,54 +69,99 @@ export function buildOffice(scene: THREE.Scene): void {
     scene.add(lines);
   }
 
-  const mats = new Map<string, THREE.Material>();
-  const matOf = (kind: Box["kind"]) => {
-    let m = mats.get(kind);
-    if (!m) {
-      m =
-        kind === "glass"
-          ? new THREE.MeshStandardMaterial({ color: COLORS.glass, transparent: true, opacity: 0.32, roughness: 0.1, metalness: 0.1 })
-          : new THREE.MeshStandardMaterial({ color: COLORS[kind], roughness: 0.85, flatShading: true });
-      mats.set(kind, m);
-    }
-    return m;
-  };
-
-  const top = new THREE.MeshStandardMaterial({ color: "#f3efe6", roughness: 0.7 });
-  const screen = new THREE.MeshStandardMaterial({ color: "#1b2433", emissive: "#2a4f8a", emissiveIntensity: 0.6 });
-  const leaf = new THREE.MeshStandardMaterial({ color: "#3e9b52", roughness: 0.9, flatShading: true });
-  const wallTop = new THREE.MeshStandardMaterial({ color: "#5a554c" });
-  const chair = new THREE.MeshStandardMaterial({ color: "#2b2f36", roughness: 0.8 });
+  // Coletores de geometrias por material
+  const wallGeos: THREE.BufferGeometry[] = [];
+  const wallTopGeos: THREE.BufferGeometry[] = [];
+  const glassGeos: THREE.BufferGeometry[] = [];
+  const deskTopGeos: THREE.BufferGeometry[] = [];
+  const deskBaseGeos: THREE.BufferGeometry[] = [];
+  const screenGeos: THREE.BufferGeometry[] = [];
+  const chairGeos: THREE.BufferGeometry[] = [];
+  const cabinetGeos: THREE.BufferGeometry[] = [];
+  const counterGeos: THREE.BufferGeometry[] = [];
+  const partitionGeos: THREE.BufferGeometry[] = [];
+  const sofaGeos: THREE.BufferGeometry[] = [];
+  const plantPotGeos: THREE.BufferGeometry[] = [];
+  const plantLeafGeos: THREE.BufferGeometry[] = [];
+  const glassFrameLines: THREE.LineSegments[] = [];
 
   for (const b of OFFICE_MAP.boxes) {
     if (b.kind === "plant") {
-      scene.add(mesh(new THREE.CylinderGeometry(0.32, 0.26, 0.55, 8), matOf("plant"), b.x, 0.275, b.z));
-      scene.add(mesh(new THREE.IcosahedronGeometry(0.6, 0), leaf, b.x, 1.1, b.z));
+      const pot = new THREE.CylinderGeometry(0.32, 0.26, 0.55, 8);
+      pot.translate(b.x, 0.275, b.z);
+      plantPotGeos.push(pot);
+
+      const leaf = new THREE.IcosahedronGeometry(0.6, 0);
+      leaf.translate(b.x, 1.1, b.z);
+      plantLeafGeos.push(leaf);
       continue;
     }
     if (b.kind === "desk") {
-      scene.add(mesh(new THREE.BoxGeometry(b.w, 0.08, b.d), top, b.x, b.h - 0.04, b.z));
-      scene.add(mesh(new THREE.BoxGeometry(b.w * 0.96, b.h - 0.08, b.d * 0.9), matOf("desk"), b.x, (b.h - 0.08) / 2, b.z));
+      addBox(deskTopGeos, b.w, 0.08, b.d, b.x, b.h - 0.04, b.z);
+      addBox(deskBaseGeos, b.w * 0.96, b.h - 0.08, b.d * 0.9, b.x, (b.h - 0.08) / 2, b.z);
       if (b.w >= 3.5 && b.d < 2) {
         for (const off of [-b.w / 4, b.w / 4]) {
           const facing = b.z > 0 ? 1 : -1;
-          scene.add(mesh(new THREE.BoxGeometry(0.7, 0.45, 0.05), screen, b.x + off, b.h + 0.3, b.z));
-          const c = mesh(new THREE.BoxGeometry(0.55, 0.9, 0.55), chair, b.x + off, 0.45, b.z + facing * 1.05, true);
-          scene.add(c);
+          addBox(screenGeos, 0.7, 0.45, 0.05, b.x + off, b.h + 0.3, b.z);
+          addBox(chairGeos, 0.55, 0.9, 0.55, b.x + off, 0.45, b.z + facing * 1.05);
         }
       }
       continue;
     }
-    const m = mesh(new THREE.BoxGeometry(b.w, b.h, b.d), matOf(b.kind), b.x, b.h / 2, b.z, b.kind !== "glass");
-    scene.add(m);
-    if (b.kind === "wall") scene.add(mesh(new THREE.BoxGeometry(b.w + 0.02, 0.08, b.d + 0.02), wallTop, b.x, b.h + 0.04, b.z, false));
-    if (b.kind === "glass") {
-      const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w, b.h, b.d)), new THREE.LineBasicMaterial({ color: "#5a6f80" }));
-      frame.position.copy(m.position);
-      scene.add(frame);
+    if (b.kind === "wall") {
+      addBox(wallGeos, b.w, b.h, b.d, b.x, b.h / 2, b.z);
+      addBox(wallTopGeos, b.w + 0.02, 0.08, b.d + 0.02, b.x, b.h + 0.04, b.z);
+      continue;
     }
+    if (b.kind === "glass") {
+      addBox(glassGeos, b.w, b.h, b.d, b.x, b.h / 2, b.z);
+      const frame = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w, b.h, b.d)),
+        new THREE.LineBasicMaterial({ color: "#5a6f80" }),
+      );
+      frame.position.set(b.x, b.h / 2, b.z);
+      glassFrameLines.push(frame);
+      continue;
+    }
+    if (b.kind === "cabinet") addBox(cabinetGeos, b.w, b.h, b.d, b.x, b.h / 2, b.z);
+    else if (b.kind === "counter") addBox(counterGeos, b.w, b.h, b.d, b.x, b.h / 2, b.z);
+    else if (b.kind === "partition") addBox(partitionGeos, b.w, b.h, b.d, b.x, b.h / 2, b.z);
+    else if (b.kind === "sofa") addBox(sofaGeos, b.w, b.h, b.d, b.x, b.h / 2, b.z);
   }
 
+  // Materiais compartilhados
+  const top = new THREE.MeshStandardMaterial({ color: "#f3efe6", roughness: 0.7 });
+  const deskMat = new THREE.MeshStandardMaterial({ color: COLORS.desk, roughness: 0.85, flatShading: true });
+  const screenMat = new THREE.MeshStandardMaterial({ color: "#1b2433", emissive: "#2a4f8a", emissiveIntensity: 0.6 });
+  const leafMat = new THREE.MeshStandardMaterial({ color: "#3e9b52", roughness: 0.9, flatShading: true });
+  const potMat = new THREE.MeshStandardMaterial({ color: COLORS.plant, roughness: 0.85, flatShading: true });
+  const wallMat = new THREE.MeshStandardMaterial({ color: COLORS.wall, roughness: 0.85, flatShading: true });
+  const wallTopMat = new THREE.MeshStandardMaterial({ color: "#5a554c" });
+  const chairMat = new THREE.MeshStandardMaterial({ color: "#2b2f36", roughness: 0.8 });
+  const cabinetMat = new THREE.MeshStandardMaterial({ color: COLORS.cabinet, roughness: 0.85, flatShading: true });
+  const counterMat = new THREE.MeshStandardMaterial({ color: COLORS.counter, roughness: 0.85, flatShading: true });
+  const partitionMat = new THREE.MeshStandardMaterial({ color: COLORS.partition, roughness: 0.85, flatShading: true });
+  const sofaMat = new THREE.MeshStandardMaterial({ color: COLORS.sofa, roughness: 0.85, flatShading: true });
+  const glassMat = new THREE.MeshStandardMaterial({ color: COLORS.glass, transparent: true, opacity: 0.32, roughness: 0.1, metalness: 0.1 });
+
+  // Unifica e adiciona malhas agregadas à cena
+  commitMerged(scene, wallGeos, wallMat, true);
+  commitMerged(scene, wallTopGeos, wallTopMat, false);
+  commitMerged(scene, glassGeos, glassMat, false);
+  commitMerged(scene, deskTopGeos, top, true);
+  commitMerged(scene, deskBaseGeos, deskMat, true);
+  commitMerged(scene, screenGeos, screenMat, false);
+  commitMerged(scene, chairGeos, chairMat, true);
+  commitMerged(scene, cabinetGeos, cabinetMat, true);
+  commitMerged(scene, counterGeos, counterMat, true);
+  commitMerged(scene, partitionGeos, partitionMat, true);
+  commitMerged(scene, sofaGeos, sofaMat, true);
+  commitMerged(scene, plantPotGeos, potMat, true);
+  commitMerged(scene, plantLeafGeos, leafMat, true);
+
+  for (const f of glassFrameLines) scene.add(f);
+
+  // Nomes das salas no chão
   for (const r of OFFICE_MAP.rooms) {
     const c = document.createElement("canvas");
     c.width = 512;
@@ -99,7 +172,10 @@ export function buildOffice(scene: THREE.Scene): void {
     g.textAlign = "center";
     g.textBaseline = "middle";
     g.fillText(r.name.toUpperCase(), 256, 50);
-    const label = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    const label = new THREE.Mesh(
+      new THREE.PlaneGeometry(8, 1.5),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }),
+    );
     label.rotation.x = -Math.PI / 2;
     label.position.set(r.x, 0.02, r.z + r.d / 2 - 1.4);
     scene.add(label);

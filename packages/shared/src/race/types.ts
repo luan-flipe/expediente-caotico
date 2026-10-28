@@ -23,6 +23,12 @@ export interface ItemBox {
   readyAt: number;
 }
 
+export interface CoffeeCup {
+  id: number;
+  pos: Vec2;
+  readyAt: number;
+}
+
 export interface RaceBotBrain {
   lane: number;
   nextLaneAt: number;
@@ -45,6 +51,7 @@ export interface Racer {
   item: ItemId | null;
   charges: number;
   useQueued: boolean;
+  holdingItem?: boolean;
   respawnQueued: boolean;
   shieldUntil: number;
   blindUntil: number;
@@ -62,10 +69,13 @@ export type RaceEvent =
   | { type: "item"; id: string; item: ItemId }
   | { type: "box"; id: string; box: number }
   | { type: "hit"; id: string; by: string | null; kind: "spin" | "slip" | "resma" | "blocked" | "postit" }
-  | { type: "boost"; id: string; level: 1 | 2 }
+  | { type: "boost"; id: string; level: 1 | 2 | 3 | "stunt" | "draft" }
   | { type: "wall"; id: string }
   | { type: "lap"; id: string; lap: number; ms: number }
-  | { type: "finish"; id: string; place: number; ms: number };
+  | { type: "finish"; id: string; place: number; ms: number }
+  | { type: "cup"; id: string; cupId: number }
+  | { type: "stunt"; id: string }
+  | { type: "draft"; id: string };
 
 export interface RaceMatch {
   now: number;
@@ -78,6 +88,7 @@ export interface RaceMatch {
   racers: Map<string, Racer>;
   hazards: Hazard[];
   boxes: ItemBox[];
+  cups: CoffeeCup[];
   events: RaceEvent[];
   cps: number[];
   rng: () => number;
@@ -91,8 +102,8 @@ export interface RaceKartPublic {
   z: number;
   heading: number;
   speed: number;
-  /** Nível da derrapagem em curso: -1 sem derrapar, 0 derrapando, 1 e 2 turbo garantido. */
-  drift: -1 | 0 | 1 | 2;
+  /** Nível da derrapagem em curso: -1 sem derrapar, 0 derrapando, 1, 2 e 3 turbo garantido. */
+  drift: -1 | 0 | 1 | 2 | 3;
   driftDir: -1 | 0 | 1;
   flags: string[];
   place: number;
@@ -100,6 +111,8 @@ export interface RaceKartPublic {
   finished: boolean;
   isBot: boolean;
   connected: boolean;
+  cups?: number;
+  holdingItem?: boolean;
 }
 
 export interface RaceSnapshot {
@@ -113,6 +126,7 @@ export interface RaceSnapshot {
   boxes: { id: number; x: number; z: number; ready: boolean }[];
   hazards: { id: number; kind: HazardKind; x: number; z: number; vx: number; vz: number }[];
   events: RaceEvent[];
+  cups?: { id: number; x: number; z: number; ready: boolean }[];
 }
 
 /** Estado só do próprio jogador: item, tempos e a cadeira completa para a previsão local. */
@@ -130,6 +144,8 @@ export interface RacePrivate {
   shieldMs: number;
   wrongWay: boolean;
   finished: boolean;
+  cups?: number;
+  holdingItem?: boolean;
   /** Último comando numerado já aplicado pelo servidor. */
   ackSeq: number;
   kart: {
