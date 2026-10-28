@@ -47,6 +47,8 @@ export interface RunningServer {
 export interface ServerOptions {
   /** Conexão sem nenhuma mensagem por esse tempo é derrubada (o cliente faz ping a cada 2 s). */
   idleMs?: number;
+  /** Voltas e tolerância da corrida (só para testes). */
+  race?: { laps?: number; graceMs?: number };
 }
 
 const MAX_CONNS_PER_IP = 30;
@@ -65,7 +67,7 @@ function clientIp(req: IncomingMessage): string {
 }
 
 export function startServer(port: number, opts: ServerOptions = {}): Promise<RunningServer> {
-  const manager = new RoomManager(opts.idleMs ?? 10000);
+  const manager = new RoomManager(opts.idleMs ?? 10000, opts.race);
   const http: Server = createServer((req, res) => {
     try {
       if (req.url === "/health") {

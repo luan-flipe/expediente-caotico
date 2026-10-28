@@ -1,5 +1,21 @@
 import { useSyncExternalStore } from "react";
-import { PRESETS, sanitizeAvatar, type AvatarDNA, type LobbyState, type PrivateState, type ResultRow, type ServerMsg, type Snapshot } from "@ec/shared";
+import {
+  ITEM_NAMES,
+  PRESETS,
+  randomChair,
+  sanitizeAvatar,
+  sanitizeChair,
+  type AvatarDNA,
+  type ChairDNA,
+  type LobbyState,
+  type PrivateState,
+  type RacePrivate,
+  type RaceResultRow,
+  type RaceSnapshot,
+  type ResultRow,
+  type ServerMsg,
+  type Snapshot,
+} from "@ec/shared";
 import { Connection } from "./net/connection";
 
 export interface FeedItem {
@@ -12,14 +28,18 @@ export interface FeedItem {
 export interface State {
   editing: boolean;
   avatar: AvatarDNA;
+  chair: ChairDNA;
   myId: string | null;
   code: string | null;
   lobby: LobbyState | null;
   results: ResultRow[] | null;
+  raceResults: RaceResultRow[] | null;
   error: string | null;
   online: boolean;
   snap: Snapshot | null;
   me: PrivateState | null;
+  rsnap: RaceSnapshot | null;
+  rme: RacePrivate | null;
   feed: FeedItem[];
   scoreboard: boolean;
   /** boneco.glb carregado; telas refazem miniaturas e prévias. */
@@ -27,6 +47,7 @@ export interface State {
 }
 
 const AVATAR_KEY = "ec.avatar";
+const CHAIR_KEY = "ec.chair";
 const SESSION_KEY = "ec.session";
 
 function loadAvatar(): AvatarDNA {
@@ -39,17 +60,31 @@ function loadAvatar(): AvatarDNA {
   return PRESETS[Math.floor(Math.random() * PRESETS.length)].dna;
 }
 
+function loadChair(): ChairDNA {
+  try {
+    const raw = localStorage.getItem(CHAIR_KEY);
+    if (raw) return sanitizeChair(JSON.parse(raw));
+  } catch {
+    /* sem storage */
+  }
+  return randomChair(Math.random);
+}
+
 let state: State = {
   editing: false,
   avatar: loadAvatar(),
+  chair: loadChair(),
   myId: null,
   code: null,
   lobby: null,
   results: null,
+  raceResults: null,
   error: null,
   online: false,
   snap: null,
   me: null,
+  rsnap: null,
+  rme: null,
   feed: [],
   scoreboard: false,
   modelReady: false,
@@ -83,7 +118,18 @@ export function saveAvatar(avatar: AvatarDNA): void {
   } catch {
     /* sem storage */
   }
-  if (state.lobby) net.send({ t: "avatar", avatar: clean });
+  if (state.lobby) net.send({ t: "avatar", avatar: clean, chair: state.chair });
+}
+
+export function saveChair(chair: ChairDNA): void {
+  const clean = sanitizeChair(chair);
+  setState({ chair: clean });
+  try {
+    localStorage.setItem(CHAIR_KEY, JSON.stringify(clean));
+  } catch {
+    /* sem storage */
+  }
+  if (state.lobby) net.send({ t: "avatar", avatar: state.avatar, chair: clean });
 }
 
 export function savedSession(): { code: string; token: string } | null {
@@ -112,7 +158,7 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, code: null, myId: null, snap: null, me: null, feed: [] });
+  setState({ lobby: null, results: null, raceResults: null, code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [] });
 }
 
 let feedId = 0;
@@ -125,7 +171,26 @@ function pushFeed(items: Omit<FeedItem, "id" | "at">[]): void {
 
 function nameOf(id: string | null): string {
   if (!id) return "o escritório";
-  return state.snap?.players.find((p) => p.id === id)?.name ?? "alguém";
+  return state.snap?.players.find((p) => p.id === id)?.name ?? state.lobby?.players.find((p) => p.id === id)?.name ?? "alguém";
+}
+
+const HIT_TEXT = { spin: "grampeou", slip: "molhou de café", resma: "barrou com papel", postit: "colou um post-it em" } as const;
+
+function raceFeed(s: RaceSnapshot): void {
+  const me = state.myId;
+  const items: Omit<FeedItem, "id" | "at">[] = [];
+  for (const e of s.events) {
+    const mine = e.id === me || ("by" in e && e.by === me);
+    if (e.type === "hit") {
+      if (e.kind === "blocked") items.push({ kind: mine ? "me" : "info", text: `A Pasta do Jurídico de ${nameOf(e.id)} barrou o ataque` });
+      else if (e.by && e.by !== e.id) items.push({ kind: mine ? "me" : "kill", text: `${nameOf(e.by)} ${HIT_TEXT[e.kind]} ${nameOf(e.id)}` });
+    } else if (e.type === "finish") {
+      items.push({ kind: mine ? "me" : "info", text: `${nameOf(e.id)} chegou em ${e.place}º` });
+    } else if (e.type === "item" && e.id === me) {
+      items.push({ kind: "me", text: `Você usou ${ITEM_NAMES[e.item]}` });
+    }
+  }
+  pushFeed(items);
 }
 
 function onMessage(msg: ServerMsg): void {
@@ -136,10 +201,17 @@ function onMessage(msg: ServerMsg): void {
       setState({ myId: msg.id, code: msg.code, error: null });
       return;
     case "lobby":
-      setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null } : {}) });
+      setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null } : {}) });
       return;
     case "results":
-      setState({ results: msg.rows, snap: null, me: null, feed: [] });
+      setState({ results: msg.rows, raceResults: null, snap: null, me: null, feed: [] });
+      return;
+    case "rresults":
+      setState({ raceResults: msg.rows, results: null, rsnap: null, rme: null, feed: [] });
+      return;
+    case "rsnap":
+      setState({ rsnap: msg.s, rme: msg.me });
+      raceFeed(msg.s);
       return;
     case "snap": {
       const items: Omit<FeedItem, "id" | "at">[] = [];

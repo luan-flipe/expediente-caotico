@@ -3,20 +3,36 @@ import type { WebSocket } from "ws";
 import {
   BALANCE,
   ClientMsg,
+  DEFAULT_CHAIR,
   buildPrivate,
+  buildRacePrivate,
+  buildRaceSnapshot,
   buildSnapshot,
   chooseEvolution,
   createMatch,
+  createRace,
+  getRaceResults,
   getResults,
+  giveItem,
   queueAction,
+  queueItemUse,
   randomAvatar,
+  randomChair,
+  respawnRequest,
   sanitizeAvatar,
+  sanitizeChair,
   sanitizeName,
   setInput,
+  setKartInput,
   stepMatch,
+  stepRace,
   type AvatarDNA,
+  type ChairDNA,
+  type GameMode,
   type LobbyState,
   type Match,
+  type RaceMatch,
+  type RaceResultRow,
   type ResultRow,
   type ServerMsg,
 } from "@ec/shared";
@@ -25,6 +41,12 @@ import { TokenBucket } from "./ratelimit";
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const BOT_NAMES = ["Estagiário Kevin", "Estagiária Bia", "Estagiário Davi", "Estagiária Lu", "Estagiário Téo", "Estagiária Mel", "Estagiário Juca"];
 const TICK_MS = 1000 / BALANCE.tickHz;
+/**
+ * Ferramenta de teste de itens (kdebug): só quando o servidor roda direto do .ts
+ * (pnpm dev, testes). O build de produção é um .js empacotado, então nunca libera,
+ * mesmo sem NODE_ENV definido.
+ */
+const DEV_TOOLS = import.meta.url.endsWith(".ts") && process.env.NODE_ENV !== "production";
 /** Código de fechamento quando a mesma sessão é aberta em outra aba: o cliente não deve reconectar. */
 export const CLOSE_DUPLICATE = 4001;
 
@@ -43,6 +65,7 @@ interface Member {
   token: string;
   name: string;
   avatar: AvatarDNA;
+  chair: ChairDNA;
   ready: boolean;
   isBot: boolean;
   conn: Conn | null;
@@ -61,16 +84,25 @@ function log(...args: unknown[]): void {
 export class Room {
   hostId = "";
   phase: LobbyState["phase"] = "lobby";
+  mode: GameMode = "shooter";
   durationMs = 300000;
   members = new Map<string, Member>();
   match: Match | null = null;
+  race: RaceMatch | null = null;
   results: ResultRow[] | null = null;
+  raceResults: RaceResultRow[] | null = null;
   private timer: NodeJS.Timeout | null = null;
   private tickCount = 0;
+  private lastTickAt = 0;
+  private pendingMs = 0;
   private nextBot = 0;
   emptySince: number | null = null;
 
-  constructor(readonly code: string) {}
+  /** raceOpts encurta a corrida nos testes. */
+  constructor(
+    readonly code: string,
+    private readonly raceOpts: { laps?: number; graceMs?: number } = {},
+  ) {}
 
   humans(): Member[] {
     return [...this.members.values()].filter((m) => !m.isBot);
@@ -81,11 +113,13 @@ export class Room {
       code: this.code,
       hostId: this.hostId,
       phase: this.phase,
+      mode: this.mode,
       durationMs: this.durationMs,
       players: [...this.members.values()].map((m) => ({
         id: m.id,
         name: m.name,
         avatar: m.avatar,
+        chair: m.chair,
         ready: m.isBot || m.ready || m.id === this.hostId,
         isBot: m.isBot,
         connected: m.isBot || m.conn !== null,
@@ -102,9 +136,9 @@ export class Room {
     this.broadcast({ t: "lobby", state: this.lobbyState() });
   }
 
-  addMember(name: string, avatar: AvatarDNA, conn: Conn | null, isBot = false): Member {
+  addMember(name: string, avatar: AvatarDNA, conn: Conn | null, isBot = false, chair: ChairDNA = DEFAULT_CHAIR): Member {
     const id = isBot ? `bot-${++this.nextBot}` : randomBytes(6).toString("hex");
-    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, ready: false, isBot, conn, leftAt: null };
+    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, conn, leftAt: null };
     this.members.set(id, m);
     if (!this.hostId && !isBot) this.hostId = id;
     return m;
@@ -123,23 +157,33 @@ export class Room {
     if (this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
     const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
     if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
-    this.match = createMatch({
-      durationMs: this.durationMs,
-      seed: randomInt(1, 2 ** 31),
-      players: [...this.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, isBot: m.isBot })),
-    });
+    const seed = randomInt(1, 2 ** 31);
+    const players = [...this.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
+    if (this.mode === "race") this.race = createRace({ seed, players, ...this.raceOpts });
+    else this.match = createMatch({ durationMs: this.durationMs, seed, players });
     this.phase = "match";
     this.results = null;
+    this.raceResults = null;
     this.tickCount = 0;
     this.broadcastLobby();
-    this.timer = setInterval(() => this.tick(), TICK_MS);
-    log(`[${this.code}] partida iniciada com ${this.members.size} participantes`);
+    this.lastTickAt = performance.now();
+    this.pendingMs = 0;
+    // intervalo menor que o passo: no Windows o timer arredonda para ~16 ms e a partida andaria mais devagar
+    this.timer = setInterval(() => this.tick(), TICK_MS / 2);
+    log(`[${this.code}] ${this.mode === "race" ? "corrida" : "partida"} iniciada com ${this.members.size} participantes`);
     return null;
   }
 
+  /** Passo fixo: roda quantos passos de simulação o tempo real pedir (no máximo 4 por chamada). */
   private tick(): void {
+    const now = performance.now();
+    this.pendingMs = Math.min(this.pendingMs + now - this.lastTickAt, TICK_MS * 4);
+    this.lastTickAt = now;
     try {
-      this.step();
+      while (this.pendingMs >= TICK_MS && this.timer) {
+        this.pendingMs -= TICK_MS;
+        this.step();
+      }
     } catch (err) {
       console.error(`[${this.code}] erro na simulação, partida encerrada`, err);
       this.crash();
@@ -150,6 +194,7 @@ export class Room {
   private crash(): void {
     this.dispose();
     this.match = null;
+    this.race = null;
     this.phase = "lobby";
     for (const mem of this.members.values()) mem.ready = false;
     this.broadcast({ t: "error", msg: "A partida travou e foi encerrada. Tentem de novo." });
@@ -157,6 +202,7 @@ export class Room {
   }
 
   private step(): void {
+    if (this.race) return this.stepRace(this.race);
     const m = this.match;
     if (!m) return;
     stepMatch(m, TICK_MS);
@@ -172,18 +218,40 @@ export class Room {
     if (m.phase === "finished") this.finish();
   }
 
+  private stepRace(r: RaceMatch): void {
+    stepRace(r, TICK_MS);
+    this.tickCount++;
+    if (this.tickCount % BALANCE.snapshotEvery === 0 || r.phase === "finished") {
+      const s = JSON.stringify(buildRaceSnapshot(r));
+      r.events = [];
+      for (const mem of this.members.values()) {
+        if (!mem.conn) continue;
+        send(mem.conn, `{"t":"rsnap","s":${s},"me":${JSON.stringify(buildRacePrivate(r, mem.id))}}`);
+      }
+    }
+    if (r.phase === "finished") this.finish();
+  }
+
   private finish(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    this.results = this.match ? getResults(this.match) : [];
+    if (this.race) {
+      this.raceResults = getRaceResults(this.race);
+      this.results = null;
+    } else {
+      this.results = this.match ? getResults(this.match) : [];
+      this.raceResults = null;
+    }
     this.match = null;
+    this.race = null;
     this.phase = "results";
     for (const mem of this.members.values()) mem.ready = false;
     for (const id of [...this.members.keys()]) {
       const mem = this.members.get(id)!;
       if (!mem.isBot && !mem.conn) this.removeMember(id);
     }
-    this.broadcast({ t: "results", rows: this.results });
+    if (this.raceResults) this.broadcast({ t: "rresults", rows: this.raceResults });
+    else if (this.results) this.broadcast({ t: "results", rows: this.results });
     this.broadcastLobby();
     log(`[${this.code}] partida encerrada`);
   }
@@ -204,12 +272,13 @@ export class Room {
         if (this.phase === "match") return;
         member.avatar = sanitizeAvatar(msg.avatar);
         member.name = member.avatar.name;
+        if (msg.chair !== undefined) member.chair = sanitizeChair(msg.chair);
         return this.broadcastLobby();
       case "addBot": {
         if (!isHost || this.phase !== "lobby") return;
         if (this.members.size >= BALANCE.maxPlayers) return send(conn, { t: "error", msg: "Sala cheia" });
         const name = BOT_NAMES[this.nextBot % BOT_NAMES.length];
-        this.addMember(name, randomAvatar(Math.random, name), null, true);
+        this.addMember(name, randomAvatar(Math.random, name), null, true, randomChair(Math.random));
         return this.broadcastLobby();
       }
       case "removeBot": {
@@ -218,6 +287,10 @@ export class Room {
         if (bot) this.members.delete(bot.id);
         return this.broadcastLobby();
       }
+      case "mode":
+        if (!isHost || this.phase !== "lobby") return;
+        this.mode = msg.mode;
+        return this.broadcastLobby();
       case "duration":
         if (!isHost || this.phase !== "lobby") return;
         this.durationMs = msg.ms;
@@ -243,6 +316,20 @@ export class Room {
       case "evolve":
         if (m) chooseEvolution(m, member.id, msg.optionId, msg.seq);
         return;
+      case "kinput":
+        if (this.race) setKartInput(this.race, member.id, { steer: msg.steer, throttle: msg.throttle, drift: msg.drift }, msg.seq);
+        return;
+      case "kitem":
+        if (this.race) queueItemUse(this.race, member.id);
+        return;
+      case "krespawn":
+        if (this.race) respawnRequest(this.race, member.id);
+        return;
+      case "kdebug": {
+        const racer = DEV_TOOLS ? this.race?.racers.get(member.id) : undefined;
+        if (racer) giveItem(racer, msg.item);
+        return;
+      }
       default:
         return;
     }
@@ -250,6 +337,8 @@ export class Room {
 
   /** Reflete conexão/desconexão no jogador da partida. */
   syncConnected(member: Member): void {
+    const racer = this.race?.racers.get(member.id);
+    if (racer) racer.connected = member.conn !== null;
     const p = this.match?.players.get(member.id);
     if (!p) return;
     p.connected = member.conn !== null;
@@ -263,7 +352,10 @@ export class RoomManager {
   private conns = new Set<Conn>();
   private sweeper: NodeJS.Timeout;
 
-  constructor(private readonly idleMs: number) {
+  constructor(
+    private readonly idleMs: number,
+    private readonly raceOpts: { laps?: number; graceMs?: number } = {},
+  ) {
     this.sweeper = setInterval(() => this.sweep(), 500);
   }
 
@@ -307,6 +399,7 @@ export class RoomManager {
     room.syncConnected(member);
     send(conn, { t: "welcome", id: member.id, token: member.token, code: room.code });
     if (room.results && room.phase === "results") send(conn, { t: "results", rows: room.results });
+    if (room.raceResults && room.phase === "results") send(conn, { t: "rresults", rows: room.raceResults });
     room.broadcastLobby();
   }
 
@@ -350,11 +443,11 @@ export class RoomManager {
 
     if (msg.t === "create") {
       if (!this.joinAllowed(conn.ip)) return send(conn, { t: "error", msg: "Muitas tentativas. Aguarde um pouco." });
-      const room = new Room(this.newCode());
+      const room = new Room(this.newCode(), this.raceOpts);
       this.rooms.set(room.code, room);
       const avatar = sanitizeAvatar(msg.avatar);
       avatar.name = sanitizeName(msg.name, avatar.name);
-      const member = room.addMember(avatar.name, avatar, conn);
+      const member = room.addMember(avatar.name, avatar, conn, false, sanitizeChair(msg.chair));
       log(`[${room.code}] sala criada`);
       return this.attach(conn, room, member);
     }
@@ -366,7 +459,7 @@ export class RoomManager {
       if (room.members.size >= BALANCE.maxPlayers) return send(conn, { t: "error", msg: "Sala cheia" });
       const avatar = sanitizeAvatar(msg.avatar);
       avatar.name = sanitizeName(msg.name, avatar.name);
-      return this.attach(conn, room, room.addMember(avatar.name, avatar, conn));
+      return this.attach(conn, room, room.addMember(avatar.name, avatar, conn, false, sanitizeChair(msg.chair)));
     }
     if (msg.t === "resume") {
       if (!this.joinAllowed(conn.ip)) return send(conn, { t: "error", msg: "Muitas tentativas. Aguarde um pouco." });

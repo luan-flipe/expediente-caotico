@@ -3,6 +3,11 @@ import {
   ACCESSORIES,
   BEARDS,
   BOTTOMS,
+  CHAIR_BACKS,
+  CHAIR_BASES,
+  CHAIR_SEATS,
+  CHAIR_TRINKETS,
+  CHAIR_WHEELS,
   DEFAULT_AVATAR,
   DRESS,
   EYE_COLORS,
@@ -19,11 +24,13 @@ import {
   SKINS,
   TOPS,
   randomAvatar,
+  randomChair,
   type AvatarDNA,
+  type ChairDNA,
 } from "@ec/shared";
 import { AvatarPreview } from "../game/AvatarPreview";
 import { avatarThumbnail } from "../game/character";
-import { saveAvatar, setState, useStore } from "../store";
+import { saveAvatar, saveChair, setState, useStore } from "../store";
 
 type NumKey = "model" | "skin" | "hair" | "hairColor" | "eyes" | "beard" | "beardColor" | "glasses" | "top" | "bottom" | "shirt" | "pants" | "shoes" | "accessory" | "height";
 
@@ -101,7 +108,11 @@ export function Creator() {
       // sem storage a escolha vale só nesta sessão
     }
   };
+  const savedChair = useStore((s) => s.chair);
+  const [chair, setChair] = useState<ChairDNA>(savedChair);
+  const [tab, setTab] = useState(useStore((s) => s.lobby?.mode) === "race" ? 1 : 0);
   const set = (k: NumKey) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
+  const setC = (k: keyof ChairDNA) => (i: number) => setChair((c) => ({ ...c, [k]: i }));
   const ready = useStore((s) => s.modelReady);
   const thumbs = useMemo(() => PRESETS.map((p) => avatarThumbnail(p.dna, 120)), [ready]);
   // skin pronta ignora o crachá, então a miniatura não depende do boneco atual
@@ -119,6 +130,7 @@ export function Creator() {
   };
 
   const done = () => {
+    saveChair(chair);
     saveAvatar(dna);
     setState({ editing: false });
   };
@@ -254,6 +266,13 @@ export function Creator() {
             Seu <span>crachá</span>
           </h1>
         </div>
+        <div className="seg" style={{ marginBottom: 16 }}>
+          {["Boneco", "Cadeira"].map((t, i) => (
+            <button key={t} className={tab === i ? "on" : ""} onClick={() => setTab(i)}>
+              {t}
+            </button>
+          ))}
+        </div>
         <div className="grid-2">
           <div className="stack creator-side">
             <div className="badge">
@@ -263,18 +282,19 @@ export function Creator() {
                   {spin ? "■ PAUSAR GIRO" : "▶ GIRO AUTOMÁTICO"}
                 </button>
               </div>
-              <AvatarPreview dna={dna} className="badge-preview" autoRotate={spin} />
+              <AvatarPreview dna={dna} chair={tab === 1 ? chair : undefined} className="badge-preview" autoRotate={spin} />
               <div className="badge-name">{dna.name}</div>
             </div>
             <div className="row">
               <button className="btn primary" onClick={done}>
-                Salvar boneco
+                Salvar
               </button>
               <button
                 className="btn"
                 onClick={() => {
                   setStart("custom");
                   setDna((d) => ({ ...randomAvatar(Math.random, d.name), model: 0 }));
+                  setChair(randomChair(Math.random));
                 }}
               >
                 Aleatório
@@ -285,6 +305,37 @@ export function Creator() {
             </div>
           </div>
 
+          {tab === 1 ? (
+            <div className="stack">
+              <div className="card editor-grid">
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <p className="label">Estofado</p>
+                  <Swatches colors={CHAIR_SEATS} value={chair.seat} onPick={setC("seat")} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <p className="label">Base</p>
+                  <Swatches colors={CHAIR_BASES} value={chair.base} onPick={setC("base")} />
+                </div>
+                <div>
+                  <p className="label">Rodas</p>
+                  <Seg items={CHAIR_WHEELS} value={chair.wheels} onPick={setC("wheels")} />
+                </div>
+                <div>
+                  <p className="label">Encosto</p>
+                  <Seg items={CHAIR_BACKS} value={chair.back} onPick={setC("back")} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <p className="label">Enfeite</p>
+                  <Seg items={CHAIR_TRINKETS} value={chair.trinket} onPick={setC("trinket")} />
+                </div>
+              </div>
+              <div className="card">
+                <p className="muted" style={{ margin: 0 }}>
+                  Todas as cadeiras andam igual. Aqui é só estilo: quem ganha é quem pilota melhor.
+                </p>
+              </div>
+            </div>
+          ) : (
           <div className="stack">
             <div className="tabs" role="tablist">
               {steps.map((s, i) => (
@@ -313,6 +364,7 @@ export function Creator() {
               </div>
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>
