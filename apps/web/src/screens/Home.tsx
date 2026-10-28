@@ -142,6 +142,11 @@ export function Home() {
                   Ver ranking
                 </button>
                 {account && (
+                  <button className="btn" onClick={() => setState({ perfil: "eu" })}>
+                    Meu perfil
+                  </button>
+                )}
+                {account && (
                   <button className="btn" onClick={() => setAccount(null)}>
                     Sair da conta
                   </button>

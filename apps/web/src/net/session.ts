@@ -1,4 +1,4 @@
-import type { RankingView, ReplayData } from "@ec/shared";
+import type { PlayerProfile, RankingView, ReplayData } from "@ec/shared";
 
 /** Conta logada: sessão do jogo (assinada pelo servidor) e o nome guardado na conta. */
 export interface Account {
@@ -90,6 +90,16 @@ export async function fetchReplay(pista: string, linha: number): Promise<ReplayD
   if (r.status === 404) throw new Error("Essa volta não está mais no ranking");
   if (!r.ok) throw new Error("Replay indisponível");
   return (await r.json()) as ReplayData;
+}
+
+/** Perfil de um jogador (`id` = apelido do ranking, ou "eu" para o próprio). Manda a sessão para o "eu" valer. */
+export async function fetchPerfil(id: string): Promise<PlayerProfile> {
+  const session = loginSession();
+  const r = await fetch(`/api/perfil?id=${encodeURIComponent(id)}`, { headers: session ? { authorization: `Bearer ${session}` } : {} });
+  if (r.status === 404) throw new Error("Esse jogador não está no ranking");
+  if (r.status === 401) throw new Error("Entre com a conta para ver o seu perfil");
+  if (!r.ok) throw new Error("Perfil indisponível");
+  return (await r.json()) as PlayerProfile;
 }
 
 export async function fetchRanking(): Promise<RankingView> {

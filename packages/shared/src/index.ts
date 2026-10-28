@@ -21,7 +21,7 @@ export { TRACK, TRACKS, TRACK_IDS, DEFAULT_TRACK_ID, getTrack, isTrackId, TRACK_
 export type { Track, TrackId, TrackRoom, CarpetZone } from "./race/track";
 export { stepKart, newKart, NO_INPUT } from "./race/kart";
 export type { KartInput, KartState } from "./race/kart";
-export { ITEM_IDS, ITEM_NAMES, giveItem } from "./race/items";
+export { ITEM_IDS, ITEM_NAMES, HOLDABLE_ITEMS, giveItem } from "./race/items";
 export { createRace, stepRace, setKartInput, queueItemUse, endTraining, respawnRequest, buildRaceSnapshot, buildRacePrivate, getRaceResults, getRaceAwards } from "./race/match";
 export type { RacePlayerInfo } from "./race/match";
 export * from "./ranking/types";

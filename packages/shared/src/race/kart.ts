@@ -12,10 +12,14 @@ export interface KartState {
   driftDir: -1 | 0 | 1;
   driftMs: number;
   boostUntil: number;
+  boostSpeed?: number;
   spinUntil: number;
   slipUntil: number;
   /** Parada da reposição (R). */
   frozenUntil: number;
+  cups?: number;
+  stuntUntil?: number;
+  draftMs?: number;
 }
 
 /** steer +1 vira para a direita da câmera; throttle -1 freia e dá ré. */
@@ -23,20 +27,21 @@ export interface KartInput {
   steer: number;
   throttle: number;
   drift: boolean;
+  itemHold?: boolean;
 }
 
 export interface KartStep {
   state: KartState;
   wall: boolean;
-  /** Turbo de derrapagem liberado neste passo (0 = nenhum). */
-  boost: 0 | 1 | 2;
+  /** Turbo de derrapagem liberado neste passo (0 = nenhum, 1 = azul, 2 = laranja, 3 = roxo). */
+  boost: 0 | 1 | 2 | 3;
   progress: TrackProgress | null;
 }
 
 export const NO_INPUT: KartInput = { steer: 0, throttle: 0, drift: false };
 
 export function newKart(pos: Vec2, heading: number): KartState {
-  return { pos: { ...pos }, heading, speed: 0, drifting: false, driftDir: 0, driftMs: 0, boostUntil: 0, spinUntil: 0, slipUntil: 0, frozenUntil: 0 };
+  return { pos: { ...pos }, heading, speed: 0, drifting: false, driftDir: 0, driftMs: 0, boostUntil: 0, spinUntil: 0, slipUntil: 0, frozenUntil: 0, cups: 0 };
 }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, Number.isFinite(v) ? v : 0));
@@ -53,13 +58,20 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   const inp = now < s.frozenUntil || spinning ? NO_INPUT : input;
   const steer = slipping ? 0 : clamp(inp.steer, -1, 1);
   const throttle = clamp(inp.throttle, -1, 1);
-  let boost: 0 | 1 | 2 = 0;
+  let boost: 0 | 1 | 2 | 3 = 0;
 
   if (s.drifting) {
     const lost = spinning || slipping;
     if (!inp.drift || lost || s.speed < RACE.driftMinSpeed * 0.6) {
-      if (!lost) boost = s.driftMs >= RACE.driftLevel2Ms ? 2 : s.driftMs >= RACE.driftLevel1Ms ? 1 : 0;
-      if (boost) s.boostUntil = Math.max(s.boostUntil, now + (boost === 2 ? RACE.boost2Ms : RACE.boost1Ms));
+      if (!lost) {
+        boost = s.driftMs >= RACE.driftLevel3Ms ? 3 : s.driftMs >= RACE.driftLevel2Ms ? 2 : s.driftMs >= RACE.driftLevel1Ms ? 1 : 0;
+      }
+      if (boost) {
+        const boostDur = boost === 3 ? RACE.boost3Ms : boost === 2 ? RACE.boost2Ms : RACE.boost1Ms;
+        const bSpeed = boost === 3 ? RACE.boost3Speed : RACE.boostSpeed;
+        s.boostUntil = Math.max(s.boostUntil, now + boostDur);
+        s.boostSpeed = Math.max(s.boostSpeed ?? 0, bSpeed);
+      }
       s.drifting = false;
       s.driftDir = 0;
       s.driftMs = 0;
@@ -73,8 +85,13 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   }
 
   const boosting = now < s.boostUntil;
+  if (!boosting) {
+    s.boostSpeed = undefined;
+  }
   const pr0 = track ? progressOf(track, s.pos) : null;
-  let cap = boosting ? RACE.boostSpeed : RACE.maxSpeed;
+  const cupBonus = 1 + (s.cups ?? 0) * RACE.cupSpeedPerUnit;
+  const baseCap = boosting ? (s.boostSpeed ?? RACE.boostSpeed) : RACE.maxSpeed;
+  let cap = baseCap * cupBonus;
   if (track && pr0 && !boosting && inCarpet(track, pr0)) cap = RACE.maxSpeed * RACE.carpetMax;
 
   if (now < s.frozenUntil) {
@@ -97,7 +114,16 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   if (spinning) {
     s.heading += 12 * dt;
   } else if (s.drifting) {
-    s.heading -= (s.driftDir * 0.6 + steer * 0.4) * RACE.turnRate * (1 + RACE.driftTurnBonus) * dt;
+    // Curva dinâmica estilo Mario Kart com contra-esterço total:
+    // steerFactor = steer * s.driftDir:
+    //  +1 = virando para dentro da curva (curva fecha com agilidade)
+    //   0 = volante neutro (arco de derrapagem suave e natural)
+    //  -1 = contra-esterço (abre a curva, permitindo deslizar quase reto sem colidir na parede interna)
+    const steerFactor = steer * s.driftDir;
+    const turnWeight = steerFactor > 0
+      ? 0.28 + 0.72 * steerFactor
+      : Math.max(0.04, 0.28 + 0.24 * steerFactor);
+    s.heading -= s.driftDir * turnWeight * RACE.turnRate * (1 + RACE.driftTurnBonus) * dt;
   } else {
     // cadeira gira no lugar mesmo parada; acima disso, o raio mínimo cresce com a velocidade
     const omega = Math.min(RACE.turnRate, Math.max(RACE.spinInPlace, Math.abs(s.speed) / RACE.minTurnRadius));
@@ -105,7 +131,10 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   }
   s.heading = Math.atan2(Math.sin(s.heading), Math.cos(s.heading));
 
-  const dir = s.heading + (s.drifting ? s.driftDir * RACE.driftSlipRad : 0);
+  // O ângulo de deslizamento lateral se estabelece suavemente nos primeiros 180 ms
+  const slipRatio = Math.min(1, s.driftMs / 180);
+  const slipAngle = s.driftDir * RACE.driftSlipRad * (0.35 + 0.65 * slipRatio);
+  const dir = s.heading + (s.drifting ? slipAngle : 0);
   const vx = Math.sin(dir) * s.speed;
   const vz = Math.cos(dir) * s.speed;
   const next = { x: s.pos.x + vx * dt, z: s.pos.z + vz * dt };

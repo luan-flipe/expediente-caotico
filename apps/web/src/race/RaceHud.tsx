@@ -69,6 +69,7 @@ export function RaceHud({ myId }: { myId: string }) {
           <span>Reunião às 15h!!</span>
         </div>
       )}
+      <div className={`turbo-fx ${(me?.kart?.boostMs ?? 0) > 0 ? "on" : ""}`} />
 
       <div className="hud-top">
         <div className="panel timer">{fmtRace(me?.raceMs ?? snap.elapsedMs)}</div>
@@ -102,6 +103,9 @@ export function RaceHud({ myId }: { myId: string }) {
           <span className="of">/{me.total}</span>
           <div className="lap">
             Volta {me.lap}/{snap.laps}
+          </div>
+          <div className="cups" title="Xícaras de café na pista: cada uma aumenta a velocidade máxima em +1,2%">
+            ☕ {me.cups ?? 0}/{RACE.maxCups}
           </div>
           <div className="times">
             <span>Esta volta {fmtRace(me.finished ? null : me.lapMs)}</span>

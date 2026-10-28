@@ -1102,6 +1102,14 @@ input {
   font-weight: 800;
 }
 
+.race-place .cups {
+  font-size: 20px;
+  font-weight: 800;
+  color: #ffd23f;
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+
 .race-place .times {
   display: flex;
   flex-direction: column;
@@ -1193,6 +1201,32 @@ input {
   font-weight: 800;
   color: var(--ink);
   transform: rotate(-6deg);
+}
+
+.turbo-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 110px rgba(255, 140, 0, 0.5);
+  background:
+    radial-gradient(circle at center, transparent 52%, rgba(255, 170, 30, 0.24) 100%),
+    repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg 9deg, rgba(255, 210, 60, 0.08) 10deg 13deg, transparent 14deg 22deg);
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+
+.turbo-fx.on {
+  opacity: 1;
+  animation: turbo-pulse 0.08s infinite alternate ease-in-out;
+}
+
+@keyframes turbo-pulse {
+  from {
+    filter: brightness(1) saturate(1.1);
+  }
+  to {
+    filter: brightness(1.22) saturate(1.3);
+  }
 }
 
 .podium {
@@ -1985,4 +2019,49 @@ input {
 .touch .tabs .tab,
 .touch .badge-spin {
   min-height: 44px;
+}
+
+/* perfil do jogador */
+.name-link {
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.name-link:hover {
+  text-decoration-style: solid;
+}
+
+.perfil-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.perfil-num {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.perfil-stat .label {
+  font-size: 10px;
+}
+
+.perfil-awards {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.perfil-hist {
+  overflow-x: auto;
 }

@@ -4,6 +4,7 @@ import { Creator } from "./screens/Creator";
 import { Home } from "./screens/Home";
 import { Loading } from "./screens/Loading";
 import { Lobby } from "./screens/Lobby";
+import { Perfil } from "./screens/Perfil";
 import { QuickChat } from "./screens/QuickChat";
 import { Ranking } from "./screens/Ranking";
 import { Results } from "./screens/Results";
@@ -21,6 +22,7 @@ export function App() {
   const editing = useStore((s) => s.editing);
   const ranking = useStore((s) => s.ranking);
   const replay = useStore((s) => s.replay);
+  const perfil = useStore((s) => s.perfil);
   const lobby = useStore((s) => s.lobby);
   const results = useStore((s) => s.results);
   const raceResults = useStore((s) => s.raceResults);
@@ -43,7 +45,8 @@ export function App() {
   const screen = () => {
     if (lobby?.phase === "match" && myId) return lobby.mode === "shooter" ? <GameView myId={myId} /> : <RaceView myId={myId} />;
     if (editing) return <Creator />;
-    if (ranking && replay) return <ReplayView />;
+    if ((ranking || perfil) && replay) return <ReplayView />;
+    if (perfil) return <Perfil id={perfil} />;
     if (ranking) return <Ranking />;
     if (!lobby) return <Home />;
     if (lobby.phase === "results" && raceResults) return <RaceResults />;

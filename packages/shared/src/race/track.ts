@@ -66,6 +66,8 @@ const CORPORATIVO_CARPET: [number, number][] = [
 ];
 /** Fileiras de caixas de item (índice de controle, pode ser fracionário). */
 const CORPORATIVO_BOXES = [1.5, 8, 12.5, 21];
+/** Fileiras de xícaras de café colecionáveis (índice de controle), longe das caixas e do carpete. */
+const CORPORATIVO_CUPS = [2.5, 7.5, 14.5, 20.5];
 
 /** Estacionamento: pista larga e rápida, curvas abertas entre vagas e pilares. */
 const ESTACIONAMENTO: Ctrl[] = [
@@ -96,6 +98,7 @@ const ESTACIONAMENTO_ROOMS: TrackRoom[] = [
 ];
 const ESTACIONAMENTO_CARPET: [number, number][] = [[12, 14]];
 const ESTACIONAMENTO_BOXES = [1.5, 5, 8.5, 11.2];
+const ESTACIONAMENTO_CUPS = [3, 6.5, 10, 14.3];
 
 /** Copa: curta e travada, entre mesas, geladeira e máquina de café. */
 const COPA: Ctrl[] = [
@@ -122,7 +125,7 @@ const COPA_ROOMS: TrackRoom[] = [
 ];
 const COPA_CARPET: [number, number][] = [[6, 8]];
 const COPA_BOXES = [1.5, 5, 9];
-
+const COPA_CUPS = [3, 8.5, 10.5];
 
 const STEP = 5;
 const DENSE = 24;
@@ -146,6 +149,7 @@ export interface Track {
   ctrlS: number[];
   carpet: CarpetZone[];
   boxRows: number[];
+  cupRows: number[];
 }
 
 export interface TrackProgress {
@@ -176,6 +180,7 @@ interface TrackDef {
   rooms: TrackRoom[];
   carpet: [number, number][];
   boxes: number[];
+  cups: number[];
 }
 
 function buildTrack(def: TrackDef): Track {
@@ -223,7 +228,7 @@ function buildTrack(def: TrackDef): Track {
     if (b < a) b += length;
     return (a + (b - a) * f) % length;
   };
-  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl) };
+  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl), cupRows: def.cups.map(sAtCtrl) };
   track.carpet = def.carpet.map(([from, to]) => {
     const s0 = sAtCtrl(from);
     const s1 = sAtCtrl(to);
@@ -362,6 +367,20 @@ export function boxSpots(track: Track): Vec2[] {
   return out;
 }
 
+/** Posições das xícaras de café colecionáveis. */
+export function cupSpots(track: Track): Vec2[] {
+  const out: Vec2[] = [];
+  for (const s of track.cupRows) {
+    const at = pointAt(track, s);
+    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    for (const f of [-0.28, 0.28]) {
+      const off = f * at.halfWidth;
+      out.push({ x: at.pos.x + nrm.x * off, z: at.pos.z + nrm.z * off });
+    }
+  }
+  return out;
+}
+
 /** Quanto a pista vira (rad, com sinal) entre s e s + ahead. */
 export function turnAhead(track: Track, s: number, ahead: number): number {
   const h0 = pointAt(track, s).heading;
@@ -375,9 +394,9 @@ export type TrackId = (typeof TRACK_IDS)[number];
 export const DEFAULT_TRACK_ID: TrackId = "corporativo";
 
 export const TRACKS: Record<TrackId, Track> = {
-  corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES }),
-  estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES }),
-  copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES }),
+  corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES, cups: CORPORATIVO_CUPS }),
+  estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS }),
+  copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS }),
 };
 
 export const isTrackId = (v: unknown): v is TrackId => typeof v === "string" && (TRACK_IDS as readonly string[]).includes(v);

@@ -146,4 +146,23 @@ describe("física da cadeira", () => {
     const inp = { steer: 0.7, throttle: 1, drift: true };
     expect(stepKart(k, inp, DT, 500, TRACK)).toEqual(stepKart(k, inp, DT, 500, TRACK));
   });
+
+  it("derrapagem nível 3 (ultra mini-turbo) libera boost 3 com duração e velocidade maiores", () => {
+    const k: KartState = { ...moving(12), drifting: true, driftDir: 1, driftMs: 2600 };
+    const step = stepKart(k, { steer: 0, throttle: 1, drift: false }, DT, 3000, null);
+    expect(step.boost).toBe(3);
+    expect(step.state.boostUntil).toBe(3000 + RACE.boost3Ms);
+    expect(step.state.boostSpeed).toBe(RACE.boost3Speed);
+  });
+
+  it("xícaras de café aumentam a velocidade máxima proporcionalmente", () => {
+    let k0: KartState = { ...newKart({ x: 0, z: 0 }, 0), cups: 0 };
+    let k10: KartState = { ...newKart({ x: 0, z: 0 }, 0), cups: 10 };
+    for (let t = DT; t < 4000; t += DT) {
+      k0 = stepKart(k0, GAS, DT, t, null).state;
+      k10 = stepKart(k10, GAS, DT, t, null).state;
+    }
+    expect(k10.speed).toBeCloseTo(RACE.maxSpeed * (1 + 10 * RACE.cupSpeedPerUnit), 1);
+    expect(k10.speed).toBeGreaterThan(k0.speed);
+  });
 });

@@ -6,6 +6,7 @@ import {
   ClientMsg,
   CHALLENGE_POINTS,
   applyLap,
+  applyAwards,
   applyRaceResult,
   applyShooterResult,
   applyWeeklyLap,
@@ -415,7 +416,7 @@ export class Room {
       if (this.raceResults) {
         // treino não pontua; as voltas já foram gravadas a cada tick
         if (this.race?.timeTrial) return;
-        const rows = this.raceResults.map((r) => ({ accountId: accountOf(r.id), place: r.place, finished: r.totalMs !== null }));
+        const rows = this.raceResults.map((r) => ({ accountId: accountOf(r.id), place: r.place, finished: r.totalMs !== null, bestLapMs: r.bestLapMs }));
         if (!matchCounts(rows)) return;
         completed = applyRaceResult(store.data, rows, now, this.race?.track.id);
       } else if (this.results) {
@@ -425,6 +426,8 @@ export class Room {
         if (!matchCounts(rows)) return;
         completed = applyShooterResult(store.data, rows, now);
       }
+      // só chega aqui partida que contou (treino, zumbi e partida com um logado só saem antes)
+      applyAwards(store.data, this.awards.map((a) => ({ accountId: accountOf(a.winnerId), title: a.title })));
       store.save();
       this.notifyChallenge(completed);
     } catch (err) {
@@ -527,7 +530,7 @@ export class Room {
         if (m) chooseEvolution(m, member.id, msg.optionId, msg.seq);
         return;
       case "kinput":
-        if (this.race) setKartInput(this.race, member.id, { steer: msg.steer, throttle: msg.throttle, drift: msg.drift }, msg.seq);
+        if (this.race) setKartInput(this.race, member.id, { steer: msg.steer, throttle: msg.throttle, drift: msg.drift, itemHold: msg.itemHold }, msg.seq);
         return;
       case "kitem":
         if (this.race) queueItemUse(this.race, member.id);
