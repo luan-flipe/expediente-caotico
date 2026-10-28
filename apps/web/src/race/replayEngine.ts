@@ -175,7 +175,7 @@ export class ReplayEngine {
     }
     const pose = sampleGhost(this.data.ghost, this.t);
     if (pose) {
-      this.racer.root.position.set(pose.x, 0, pose.z);
+      this.racer.root.position.set(pose.x, pose.y, pose.z);
       this.racer.root.rotation.y = pose.heading;
       // velocidade pelo trecho em volta do instante atual (as rodas só giram com a gravação andando)
       let speed = 0;
@@ -185,14 +185,14 @@ export class ReplayEngine {
         speed = Math.hypot(b.x - a.x, b.z - a.z) / 0.1;
       }
       this.racer.update(dt * this.speedValue, speed);
-      this.updateCamera(dt, pose.x, pose.z, pose.heading);
+      this.updateCamera(dt, pose.x, pose.z, pose.heading, pose.y);
     }
     this.notify();
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   };
 
-  private updateCamera(dt: number, x: number, z: number, h: number): void {
+  private updateCamera(dt: number, x: number, z: number, h: number, y = 0): void {
     const want = new THREE.Vector3();
     const look = new THREE.Vector3();
     let smooth: number;
@@ -218,6 +218,9 @@ export class ReplayEngine {
       this.camLook.copy(look);
       this.camReady = true;
     }
+    // no salto a câmera sobe junto (a suavização abaixo evita tranco)
+    want.y += y;
+    look.y += y;
     const k = 1 - Math.exp(-dt * smooth);
     this.camPos.lerp(want, k);
     this.camLook.lerp(look, k);

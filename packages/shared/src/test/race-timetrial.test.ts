@@ -3,7 +3,8 @@ import { DEFAULT_AVATAR } from "../data/avatar";
 import { RACE } from "../race/balance";
 import { DEFAULT_CHAIR } from "../race/chair";
 import { giveItem } from "../race/items";
-import { buildRacePrivate, buildRaceSnapshot, createRace, endTraining, getRaceResults, queueItemUse, respawnRequest, stepRace } from "../race/match";
+import { buildRacePrivate, buildRaceSnapshot, createRace, endTraining, getRaceResults, queueItemUse, respawnRequest, setKartInput, stepRace } from "../race/match";
+import { pilot } from "./race-pilot";
 import { pointAt, TRACK } from "../race/track";
 
 const DT = 1000 / 30;
@@ -95,7 +96,8 @@ describe("contra o relógio (shared)", () => {
     for (let i = 1; i < lap.ghost.length; i++) expect(lap.ghost[i][0]).toBeGreaterThan(lap.ghost[i - 1][0]);
     expect(lap.ghost.at(-1)![0]).toBe(lap.ms);
     for (const smp of lap.ghost) {
-      expect(smp).toHaveLength(4);
+      // 4 números no chão; o 5º (altura) só aparece em cima da rampa
+      expect(smp.length === 4 || (smp.length === 5 && smp[4]! > 0)).toBe(true);
       expect(Number.isInteger(smp[0])).toBe(true);
       expect(Math.round(smp[1] * 100) / 100).toBe(smp[1]);
     }
@@ -183,5 +185,35 @@ describe("contra o relógio (shared)", () => {
     expect(json).not.toContain("completedLaps");
     expect(json).not.toContain("ghost");
     expect(json).not.toContain("samples");
+  });
+});
+
+describe("altura no fantasma e no snapshot", () => {
+  it("volta com salto grava amostras com altura; snapshot e privado mostram o voo", () => {
+    const r = trial();
+    startActive(r);
+    const p = r.racers.get("p0")!;
+    let sawAir = false;
+    let sawChute = false;
+    let privAir = false;
+    for (let i = 0; i < 3000 && r.completedLaps.length === 0; i++) {
+      setKartInput(r, "p0", pilot(r.track, p.kart, -1));
+      stepRace(r, DT);
+      const k = buildRaceSnapshot(r).karts[0];
+      if (k.flags.includes("air")) {
+        sawAir = true;
+        expect(k.y).toBeGreaterThan(0);
+      }
+      if (k.flags.includes("chute")) sawChute = true;
+      const pk = buildRacePrivate(r, "p0")!.kart;
+      if (pk.air) privAir = privAir || (pk.y ?? 0) > 0;
+    }
+    expect(sawAir).toBe(true);
+    expect(sawChute).toBe(true);
+    expect(privAir).toBe(true);
+    const ghost = r.completedLaps[0].ghost;
+    expect(ghost.some((g) => (g[4] ?? 0) > 0)).toBe(true);
+    // no chão a amostra continua com 4 números
+    expect(ghost[0]).toHaveLength(4);
   });
 });

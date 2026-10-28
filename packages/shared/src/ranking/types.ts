@@ -3,8 +3,11 @@ import type { ChairDNA } from "../race/chair";
 
 import type { WeekProgress } from "./challenges";
 
-/** Amostra do fantasma: [tempo na volta (ms), x, z, direção]. t inteiro, demais com 2 casas. */
-export type GhostSample = [number, number, number, number];
+/**
+ * Amostra do fantasma: [tempo na volta (ms), x, z, direção, altura?]. t inteiro, demais com 2 casas.
+ * A altura só vai no voo da rampa; sem ela (e nos fantasmas antigos) a cadeira está no chão.
+ */
+export type GhostSample = [number, number, number, number, number?];
 
 export interface PlayerStats {
   shooterWins: number;

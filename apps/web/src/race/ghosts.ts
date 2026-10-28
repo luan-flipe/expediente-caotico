@@ -124,7 +124,8 @@ export class Ghost {
     const b = s[i + 1];
     const span = b[0] - a[0];
     const k = span > 0 ? Math.max(0, Math.min(1, (t - a[0]) / span)) : 1;
-    this.root.position.set(a[1] + (b[1] - a[1]) * k, 0, a[2] + (b[2] - a[2]) * k);
+    // fantasma antigo (4 números) fica no chão; o 5º número é a altura do voo
+    this.root.position.set(a[1] + (b[1] - a[1]) * k, (a[4] ?? 0) + ((b[4] ?? 0) - (a[4] ?? 0)) * k, a[2] + (b[2] - a[2]) * k);
     this.root.rotation.y = angleLerp(a[3], b[3], k);
     const speed = span > 0 && t < b[0] ? Math.hypot(b[1] - a[1], b[2] - a[2]) / (span / 1000) : 0;
     this.r3d.update(dt, speed);

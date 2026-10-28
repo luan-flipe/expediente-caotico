@@ -157,6 +157,8 @@ export interface RaceKartPublic {
   connected: boolean;
   cups?: number;
   holdingItem?: boolean;
+  /** Altura (só no ar ou caindo no vão). */
+  y?: number;
 }
 
 export interface RaceSnapshot {
@@ -213,6 +215,12 @@ export interface RacePrivate {
     cups?: number;
     /** Caminho atual (-1 = principal, 0.. = atalho), para a previsão local escolher o mesmo corredor. */
     path?: number;
+    /** Altura e voo, para a previsão local pousar no mesmo tick que o servidor. */
+    y?: number;
+    vy?: number;
+    air?: boolean;
+    trick?: boolean;
+    fell?: boolean;
   };
 }
 

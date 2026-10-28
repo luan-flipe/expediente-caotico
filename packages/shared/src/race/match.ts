@@ -152,7 +152,13 @@ function respawnAfterFall(race: RaceMatch, r: Racer): void {
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
-const sampleOf = (r: Racer, t: number): GhostSample => [Math.round(t), r2(r.kart.pos.x), r2(r.kart.pos.z), r2(r.kart.heading)];
+const sampleOf = (r: Racer, t: number): GhostSample => {
+  const s: GhostSample = [Math.round(t), r2(r.kart.pos.x), r2(r.kart.pos.z), r2(r.kart.heading)];
+  // altura só no voo: no chão a amostra fica com 4 números, como antes das rampas
+  const y = r2(r.kart.y ?? 0);
+  if (y !== 0) s.push(y);
+  return s;
+};
 
 /**
  * Cronometra e grava o fantasma da volta, a partir da linha de chegada. Volta válida (sem reposição)
@@ -364,6 +370,9 @@ function flagsOf(r: Racer, now: number): string[] {
   if (now < r.kart.frozenUntil) f.push("frozen");
   if (now < r.shieldUntil) f.push("pasta");
   if (now < r.blindUntil) f.push("blind");
+  if (r.kart.air) f.push("air");
+  // paraquedas aberto depois do pico do salto
+  if (r.kart.air && (r.kart.vy ?? 0) < 0) f.push("chute");
   return f;
 }
 
@@ -419,6 +428,7 @@ export function buildRaceSnapshot(race: RaceMatch): RaceSnapshot {
         connected: r.connected,
         cups: k.cups ?? 0,
         holdingItem: !!r.holdingItem,
+        ...(k.y ? { y: r2(k.y) } : {}),
       };
     }),
     boxes: race.boxes.map((b) => ({ id: b.id, x: r2(b.pos.x), z: r2(b.pos.z), ready: b.readyAt <= now })),
@@ -469,6 +479,11 @@ export function buildRacePrivate(race: RaceMatch, id: string): RacePrivate | nul
       boostSpeed: k.boostSpeed,
       cups: k.cups ?? 0,
       path: k.path ?? -1,
+      y: k.y,
+      vy: k.vy,
+      air: k.air,
+      trick: k.trick,
+      fell: k.fell,
     },
   };
 }
