@@ -210,19 +210,9 @@ export class Room {
 
   start(): string | null {
     if (this.phase !== "lobby") return "A partida já começou";
-<<<<<<< HEAD
-    if (this.mode !== "shooter" || this.shooterSubmode !== "zombies") {
-      if (this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
-    }
-    const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
-    if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
-    const seed = randomInt(1, 2 ** 31);
-    const players = [...this.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
-    if (this.mode === "race") this.race = createRace({ seed, players, ...this.raceOpts });
-    else this.match = createMatch({ durationMs: this.durationMs, seed, players, submode: this.shooterSubmode });
-=======
     const trial = this.mode === "timetrial";
-    if (!trial && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
+    const zombies = this.mode === "shooter" && this.shooterSubmode === "zombies";
+    if (!trial && !zombies && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
     const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
     if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
     const seed = randomInt(1, 2 ** 31);
@@ -231,8 +221,7 @@ export class Room {
       .map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
     const { laps, items, botLevel } = this.options;
     if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial });
-    else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel });
->>>>>>> origin/main
+    else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel, submode: this.shooterSubmode });
     this.phase = "match";
     this.results = null;
     this.raceResults = null;
@@ -362,20 +351,11 @@ log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombie
         send(mem.conn, `{"t":"rsnap","s":${s},"me":${JSON.stringify(buildRacePrivate(r, mem.id))}}`);
       }
     }
-    if (r.phase === "finished") this.finishRace(r);
-  }
-
-  private finishRace(r: RaceMatch): void {
-    this.dispose();
-    this.raceResults = getRaceResults(r);
-    this.phase = "results";
-    this.broadcast({ t: "rresults", rows: this.raceResults });
-    this.broadcastLobby();
-    log(`[${this.code}] corrida finalizada, vencedor: ${this.raceResults[0]?.name ?? "ninguém"}`);
+    if (r.phase === "finished") this.finish();
   }
 
   private finish(): void {
-if (this.timer) clearInterval(this.timer);
+    if (this.timer) clearInterval(this.timer);
     this.timer = null;
     if (this.race) {
       this.raceResults = getRaceResults(this.race);

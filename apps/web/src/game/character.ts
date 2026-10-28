@@ -578,13 +578,19 @@ export function createZombieCharacter(): Character {
   if (!loadedZombie) {
     const zombieDna: AvatarDNA = {
       name: "Zumbi",
+      model: 0,
       skin: 5,
       hair: 0,
       hairColor: 0,
-      beard: false,
+      eyes: 0,
+      beard: 0,
+      beardColor: 0,
       glasses: 0,
+      top: 0,
+      bottom: 0,
       shirt: 0,
       pants: 0,
+      shoes: 0,
       accessory: 0,
       height: 1,
     };

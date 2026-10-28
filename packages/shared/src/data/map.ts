@@ -56,28 +56,6 @@ export interface GameMap {
   stairs: StairArea[];
 }
 
-const T = 0.4;
-const H = 3;
-
-/** Parede ao longo de x (z fixo), com vãos [centro, largura]. */
-function wallX(z: number, x0: number, x1: number, gaps: [number, number][], kind: BoxKind = "wall"): Box[] {
-  const cuts = gaps.map(([c, w]) => [c - w / 2, c + w / 2]).sort((a, b) => a[0] - b[0]);
-  const out: Box[] = [];
-  let start = x0;
-  for (const [a, b] of [...cuts, [x1, x1]]) {
-    if (a > start) out.push({ x: (start + a) / 2, z, w: a - start, d: T, h: H, kind });
-    start = b;
-  }
-  return out;
-}
-
-/** Parede ao longo de z (x fixo), com vãos [centro, largura]. */
-function wallZ(x: number, z0: number, z1: number, gaps: [number, number][], kind: BoxKind = "wall"): Box[] {
-  return wallX(0, z0, z1, gaps, kind).map((b) => ({ ...b, x, z: b.x, w: T, d: b.w }));
-}
-
-const box = (x: number, z: number, w: number, d: number, h: number, kind: BoxKind): Box => ({ x, z, w, d, h, kind });
-
 const W = 70;
 const D = 44;
 
