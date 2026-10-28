@@ -109,5 +109,7 @@ export type ServerMsg =
   | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null }
   /** Chat rápido de alguém da sala (inclusive de quem mandou). */
   | { t: "chat"; from: string; kind: "phrase" | "emote"; index: number }
+  /** Cumpriu o desafio da semana: o cliente mostra um aviso na hora. */
+  | { t: "challenge"; text: string; points: number }
   | { t: "error"; msg: string }
   | { t: "pong"; c: number };

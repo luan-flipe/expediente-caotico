@@ -40,7 +40,12 @@ export class Store {
     }
     try {
       const parsed: unknown = JSON.parse(raw);
-      if (isRankingData(parsed)) return parsed;
+      if (isRankingData(parsed)) {
+        // arquivo anterior ao desafio da semana: sem o campo, vale vazio
+        const challenges = (parsed as Partial<RankingData>).challenges;
+        if (!challenges || typeof challenges !== "object" || Array.isArray(challenges)) parsed.challenges = {};
+        return parsed;
+      }
     } catch {
       // cai no tratamento de arquivo inválido
     }

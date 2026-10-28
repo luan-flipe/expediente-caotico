@@ -3,6 +3,7 @@ import { MAIN_TRACK_ID, type RankingRowBase, type RankingTab, type RankingView }
 import { fetchRanking } from "../net/session";
 import { fmtRace } from "../race/RaceHud";
 import { setState, useStore } from "../store";
+import { ChallengeCard } from "./ChallengeCard";
 
 type TabId = "mes" | "tiroteio" | "rally" | "voltas";
 
@@ -124,6 +125,8 @@ export function Ranking() {
 
         {fail && <div className="error">{fail}</div>}
         {!view && !fail && <p className="muted">Carregando o ranking...</p>}
+
+        {view && <ChallengeCard challenge={view.desafio} />}
 
         {view && tab === "mes" && (
           <div className="grid-2" style={{ gridTemplateColumns: "1fr 1fr" }}>

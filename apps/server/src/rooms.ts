@@ -5,9 +5,13 @@ import {
   CHAT_COOLDOWN_MS,
   ClientMsg,
   MAIN_TRACK_ID,
+  CHALLENGE_POINTS,
   applyLap,
   applyRaceResult,
   applyShooterResult,
+  applyWeeklyLap,
+  challengeOfWeek,
+  weekKey,
   DEFAULT_CHAIR,
   DEFAULT_ROOM_OPTIONS,
   buildPrivate,
@@ -311,6 +315,16 @@ export class Room {
     for (const lap of laps) {
       const m = this.members.get(lap.id);
       if (!m || m.isBot) continue;
+      // o desafio da semana conta toda volta da conta, mesmo que não melhore a melhor de sempre
+      if (m.accountId && this.store) {
+        try {
+          const done = applyWeeklyLap(this.store.data, m.accountId, lap.ms, Date.now());
+          saved = true;
+          this.notifyChallenge(done);
+        } catch (err) {
+          console.error(`[${this.code}] falha ao registrar o desafio da semana`, err);
+        }
+      }
       const mine = this.ghostOf(m);
       if (mine && lap.ms >= mine.ms) continue;
       try {
@@ -384,20 +398,31 @@ export class Room {
     try {
       const accountOf = (id: string) => this.members.get(id)?.accountId ?? null;
       const now = Date.now();
+      let completed: string[] = [];
       if (this.raceResults) {
         // treino não pontua; as voltas já foram gravadas a cada tick
         if (this.race?.timeTrial) return;
-        const rows = this.raceResults.map((r) => ({ accountId: accountOf(r.id), place: r.place }));
+        const rows = this.raceResults.map((r) => ({ accountId: accountOf(r.id), place: r.place, finished: r.totalMs !== null }));
         if (!matchCounts(rows)) return;
-        applyRaceResult(store.data, rows, now);
+        completed = applyRaceResult(store.data, rows, now);
       } else if (this.results) {
         const rows = this.results.map((r) => ({ accountId: accountOf(r.id), rank: r.rank, kills: r.kills }));
         if (!matchCounts(rows)) return;
-        applyShooterResult(store.data, rows, now);
+        completed = applyShooterResult(store.data, rows, now);
       }
       store.save();
+      this.notifyChallenge(completed);
     } catch (err) {
       console.error(`[${this.code}] falha ao registrar o ranking`, err);
+    }
+  }
+
+  /** Avisa quem acabou de cumprir o desafio da semana (todas as conexões da conta nesta sala). */
+  private notifyChallenge(accountIds: string[]): void {
+    if (!accountIds.length) return;
+    const msg: ServerMsg = { t: "challenge", text: challengeOfWeek(weekKey(new Date())).text, points: CHALLENGE_POINTS };
+    for (const mem of this.members.values()) {
+      if (mem.accountId && accountIds.includes(mem.accountId) && mem.conn) send(mem.conn, msg);
     }
   }
 
