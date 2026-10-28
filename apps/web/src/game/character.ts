@@ -641,7 +641,10 @@ export function createZombieCharacter(): Character {
       mixer.update(dt * rate);
     },
     play() {},
-    sit() {},
+    // zumbi nunca senta numa cadeira
+    sit() {
+      return 0;
+    },
     dispose() {
       mixer.stopAllAction();
       for (const m of mats) m.dispose();
