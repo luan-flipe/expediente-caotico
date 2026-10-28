@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { CHAIR_BASES, CHAIR_SEATS, type AvatarDNA, type ChairDNA } from "@ec/shared";
-import { createCharacter, HIP_HEIGHT, modelReady, type Character } from "../game/character";
+import { createCharacter, modelReady, type Character } from "../game/character";
 import { createGltfLoader } from "../game/gltfLoader";
 
 const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
@@ -319,8 +319,8 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
   const root = new THREE.Group();
   const seat = buildChair(chair);
   const char = createCharacter(avatar);
-  char.sit();
-  char.root.position.set(0, seat.anchors.seatTop - HIP_HEIGHT, seat.anchors.seatZ - 0.06);
+  const thighBottom = char.sit();
+  char.root.position.set(0, seat.anchors.seatTop - thighBottom, seat.anchors.seatZ - 0.06);
   root.add(seat.group, char.root);
   return {
     root,
