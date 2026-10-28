@@ -18,6 +18,7 @@ import {
 import { ChatBubbles, chatText } from "../chatBubbles";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
+import { playShootSound, playZombieSound } from "../sound";
 import { getState, net, setState } from "../store";
 import { IS_TOUCH, resetTouchInput, takeLook, touchInput } from "../touch";
 import { createCharacter, createZombieCharacter, modelReady, preloadZombie, zombieReady, type Character } from "./character";
@@ -112,6 +113,7 @@ export class Engine {
   private pitch = -0.08;
   private keys = new Set<string>();
   private firing = false;
+  private nextZombieAmbientSoundTime = 0;
   private locked = false;
   private pred: Vec2 | null = null;
   private history: { t: number; x: number; z: number }[] = [];
@@ -340,6 +342,7 @@ export class Engine {
     }
 
     const ids = new Set<number>();
+    const myPos = this.myView()?.char.root.position ?? this.camera.position;
     for (const pr of s.projectiles) {
       ids.add(pr.id);
       if (!this.projectiles.has(pr.id)) {
@@ -348,6 +351,13 @@ export class Engine {
         this.scene.add(m);
         this.projectiles.set(pr.id, m);
         if (pr.kind === "ball") this.views.get(pr.owner)?.char.play("throw");
+        playShootSound({
+          x: pr.x,
+          z: pr.z,
+          listenerX: myPos.x,
+          listenerZ: myPos.z,
+          isLocal: pr.owner === this.myId,
+        });
       }
       this.projectiles.get(pr.id)!.userData = pr;
     }
@@ -388,8 +398,49 @@ export class Engine {
     for (const e of s.events) {
       this.fx.handle(e, this.myId);
       if (e.type === "fx" && e.kind === "B1" && e.owner) this.views.get(e.owner)?.char.play("cafe");
-      if (e.type === "hit" && e.from === this.myId) this.onUi("hit");
-      if (e.type === "hit" && e.target === this.myId) this.onUi("hurt");
+      if (e.type === "hit") {
+        const fromZombie = !!(e.from && (e.from.startsWith("zombie") || s.players.find((p) => p.id === e.from)?.isZombie));
+        if (fromZombie) {
+          playZombieSound({
+            x: e.x,
+            z: e.z,
+            listenerX: myPos.x,
+            listenerZ: myPos.z,
+            volume: 1.0,
+          });
+        }
+        if (e.from === this.myId) this.onUi("hit");
+        if (e.target === this.myId) this.onUi("hurt");
+      }
+    }
+
+    // Grunhidos periódicos espaçados dos zumbis vivos na partida
+    const aliveZombies = s.players.filter((p) => (p.isZombie || p.id.startsWith("zombie")) && p.alive);
+    if (aliveZombies.length > 0 && s.phase === "active") {
+      const now = performance.now();
+      if (this.nextZombieAmbientSoundTime === 0) {
+        this.nextZombieAmbientSoundTime = now + 2500 + Math.random() * 2000;
+      } else if (now >= this.nextZombieAmbientSoundTime) {
+        let closestDist = Infinity;
+        let closest = aliveZombies[0];
+        for (const z of aliveZombies) {
+          const d = Math.hypot(z.x - myPos.x, z.z - myPos.z);
+          if (d < closestDist) {
+            closestDist = d;
+            closest = z;
+          }
+        }
+        playZombieSound({
+          x: closest.x,
+          z: closest.z,
+          listenerX: myPos.x,
+          listenerZ: myPos.z,
+          volume: 0.6,
+        });
+        this.nextZombieAmbientSoundTime = now + 4500 + Math.random() * 4000;
+      }
+    } else {
+      this.nextZombieAmbientSoundTime = 0;
     }
   }
 

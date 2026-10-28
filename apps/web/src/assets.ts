@@ -64,6 +64,7 @@ export function loadAssets(onProgress: (done: number, total: number) => void): P
     background = true;
     void preloadCommander();
     void loadMusic();
+    void import("./sound").then((m) => m.preloadSounds());
   };
 
   report();

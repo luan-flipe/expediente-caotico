@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN, RACE, TRACK_IDS, TRACKS } from "@ec/shared";
 import { avatarThumbnail } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
 import { canNativeShare, inviteText } from "../invite";
+import { saveSettings, useSettings } from "../settings";
+import { getLobbyMusicEnabled, setLobbyMusicEnabled, startLobbyMusic, stopLobbyMusic, subscribeLobbyMusic } from "../sound";
 import { leaveRoom, net, setState, useStore } from "../store";
 
 const LAP_CHOICES = Array.from({ length: LAPS_MAX - LAPS_MIN + 1 }, (_, i) => LAPS_MIN + i);
@@ -14,6 +16,19 @@ export function Lobby() {
   const online = useStore((s) => s.online);
   useStore((s) => s.modelReady);
   const [copied, setCopied] = useState(false);
+  const s = useSettings();
+  const [lobbyMusicOn, setLobbyMusicOn] = useState(() => getLobbyMusicEnabled());
+
+  useEffect(() => {
+    startLobbyMusic();
+    return () => {
+      stopLobbyMusic();
+    };
+  }, []);
+
+  useEffect(() => {
+    return subscribeLobbyMusic(() => setLobbyMusicOn(getLobbyMusicEnabled()));
+  }, []);
   const isHost = lobby.hostId === myId;
   const me = lobby.players.find((p) => p.id === myId);
   const bots = lobby.players.filter((p) => p.isBot).length;
@@ -142,6 +157,46 @@ export function Lobby() {
               <button className="btn" onClick={leaveRoom}>
                 Sair da sala
               </button>
+            </div>
+            <div className="row" style={{ alignItems: "center", justifyContent: "space-between", gap: "8px", paddingTop: "8px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+              <span className="muted" style={{ fontSize: "13px" }}>
+                🎵 Música da sala:
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <button
+                  className={`btn small ${lobbyMusicOn && s.volume.music > 0 ? "on" : ""}`}
+                  onClick={() => {
+                    if (lobbyMusicOn && s.volume.music > 0) {
+                      setLobbyMusicEnabled(false);
+                    } else {
+                      setLobbyMusicEnabled(true);
+                      if (s.volume.music === 0) {
+                        saveSettings({ ...s, volume: { ...s.volume, music: 0.8 } });
+                      }
+                    }
+                  }}
+                  title={lobbyMusicOn && s.volume.music > 0 ? "Desabilitar música da sala" : "Habilitar música da sala"}
+                >
+                  {lobbyMusicOn && s.volume.music > 0 ? "🔊 Ligada" : "🔇 Desligada"}
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={lobbyMusicOn ? s.volume.music : 0}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    if (!lobbyMusicOn && v > 0) setLobbyMusicEnabled(true);
+                    saveSettings({ ...s, volume: { ...s.volume, music: v } });
+                  }}
+                  style={{ width: "80px", cursor: "pointer" }}
+                  title={`Volume da música: ${Math.round((lobbyMusicOn ? s.volume.music : 0) * 100)}%`}
+                />
+                <span className="muted" style={{ fontSize: "12px", minWidth: "32px", textAlign: "right" }}>
+                  {Math.round((lobbyMusicOn ? s.volume.music : 0) * 100)}%
+                </span>
+              </div>
             </div>
           </div>
 
