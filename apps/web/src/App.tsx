@@ -12,12 +12,14 @@ import { getState, setState, useStore } from "./store";
 // o código de cada modo só baixa quando a partida começa
 const GameView = lazy(() => import("./game/GameView").then((m) => ({ default: m.GameView })));
 const RaceView = lazy(() => import("./race/RaceView").then((m) => ({ default: m.RaceView })));
+const ReplayView = lazy(() => import("./race/ReplayView").then((m) => ({ default: m.ReplayView })));
 const RaceResults = lazy(() => import("./race/RaceResults").then((m) => ({ default: m.RaceResults })));
 
 export function App() {
   const assetsReady = useStore((s) => s.assetsReady);
   const editing = useStore((s) => s.editing);
   const ranking = useStore((s) => s.ranking);
+  const replay = useStore((s) => s.replay);
   const lobby = useStore((s) => s.lobby);
   const results = useStore((s) => s.results);
   const raceResults = useStore((s) => s.raceResults);
@@ -40,6 +42,7 @@ export function App() {
   const screen = () => {
     if (lobby?.phase === "match" && myId) return lobby.mode === "shooter" ? <GameView myId={myId} /> : <RaceView myId={myId} />;
     if (editing) return <Creator />;
+    if (ranking && replay) return <ReplayView />;
     if (ranking) return <Ranking />;
     if (!lobby) return <Home />;
     if (lobby.phase === "results" && raceResults) return <RaceResults />;

@@ -65,6 +65,8 @@ export interface State {
   account: Account | null;
   /** Tela do ranking da firma aberta por cima da tela inicial ou do lobby. */
   ranking: boolean;
+  /** Replay de um recorde de volta aberto por cima do ranking (pista e linha da aba). */
+  replay: { pista: string; linha: number } | null;
   /** Configurações abertas por cima da tela atual (inclusive da partida, que segue rodando). */
   settingsOpen: boolean;
   /** Fantasmas da pista no contra o relógio (o último enviado pelo servidor). */
@@ -127,6 +129,7 @@ let state: State = {
   loadProgress: 0,
   account: loadAccount(),
   ranking: false,
+  replay: null,
   settingsOpen: false,
   ghosts: null,
   chat: [],

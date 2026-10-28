@@ -1,4 +1,4 @@
-import type { GhostSample, LapRow, MonthRow, PlayerStats, RallyRow, RankingData, RankingRowBase, RankingTab, RankingView, ShooterRow } from "./types";
+import type { GhostSample, LapRow, MonthRow, PlayerStats, RallyRow, RankingData, RankingRowBase, RankingTab, RankingView, ShooterRow, StoredLap } from "./types";
 
 /** Pontos do mês por colocação (1º, 2º, 3º); os demais ganham PARTICIPATION_POINTS. */
 export const PLACE_POINTS = [10, 6, 4];
@@ -107,6 +107,13 @@ function previousMonth(key: string): string {
 
 const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+/** Melhores voltas da pista, da mais rápida para a mais lenta (empate pelo id): a ordem da aba Recordes de volta. */
+export function lapStandings(data: RankingData, trackId: string): { id: string; lap: StoredLap }[] {
+  return Object.entries(data.laps[trackId] ?? {})
+    .map(([id, lap]) => ({ id, lap }))
+    .sort((a, b) => a.lap.ms - b.lap.ms || byId(a, b));
+}
+
 /** Numera as linhas já ordenadas e monta a aba (top + linha do jogador). */
 function buildTab<R extends RankingRowBase>(sorted: Omit<R, "rank">[], viewerId: string | undefined): RankingTab<R> {
   const all = sorted.map((r, i) => ({ ...r, rank: i + 1 }) as R);
@@ -131,9 +138,7 @@ export function rankingView(data: RankingData, now: number, viewerId?: string): 
     .filter(([, s]) => s.raceMatches > 0)
     .map(([id, s]) => ({ id, name: nameOf(id), wins: s.raceWins, podiums: s.racePodiums, matches: s.raceMatches }))
     .sort((a, b) => b.wins - a.wins || b.podiums - a.podiums || byId(a, b));
-  const voltas: Omit<LapRow, "rank">[] = Object.entries(data.laps[MAIN_TRACK_ID] ?? {})
-    .map(([id, l]) => ({ id, name: nameOf(id), ms: l.ms }))
-    .sort((a, b) => a.ms - b.ms || byId(a, b));
+  const voltas: Omit<LapRow, "rank">[] = lapStandings(data, MAIN_TRACK_ID).map(({ id, lap }) => ({ id, name: nameOf(id), ms: lap.ms }));
 
   const prev = previousMonth(current);
   const top = monthRows(prev)[0];

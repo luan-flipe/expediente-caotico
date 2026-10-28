@@ -1,3 +1,6 @@
+import type { AvatarDNA } from "../types";
+import type { ChairDNA } from "../race/chair";
+
 /** Amostra do fantasma: [tempo na volta (ms), x, z, direção]. t inteiro, demais com 2 casas. */
 export type GhostSample = [number, number, number, number];
 
@@ -15,6 +18,18 @@ export interface RankingAccount {
   email: string;
   name: string;
   since: number;
+  /** Último boneco e cadeira com que a pessoa jogou logada (usados no replay do recorde). */
+  avatar?: AvatarDNA;
+  chair?: ChairDNA;
+}
+
+/** Resposta de GET /api/replay: a volta de uma linha do ranking, sem nenhum id de conta. */
+export interface ReplayData {
+  name: string;
+  ms: number;
+  avatar: AvatarDNA;
+  chair: ChairDNA;
+  ghost: GhostSample[];
 }
 
 export interface StoredLap {
