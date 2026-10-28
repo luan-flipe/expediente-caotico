@@ -10,13 +10,22 @@ export interface Character {
   root: THREE.Group;
   update(dt: number, speed01: number): void;
   play(action: CharacterAction): void;
-  /** Pose sentada (modo corrida): pernas para a frente e braços no apoio. Para as animações. */
-  sit(): void;
+  /**
+   * Pose sentada (modo corrida): pernas para a frente e braços no apoio. Para as animações.
+   * Devolve a altura da parte de baixo das coxas, para apoiá-las no assento.
+   */
+  sit(): number;
   dispose(): void;
 }
 
-/** Altura do quadril do boneco em pé, para encaixar no assento. */
-export const HIP_HEIGHT = 0.82;
+/** Altura (no espaço do boneco) da parte mais baixa das peças, já na pose sentada. */
+function bottomOf(root: THREE.Object3D, parts: (THREE.Object3D | undefined)[]): number {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const box = new THREE.Box3();
+  for (const p of parts) if (p) box.union(new THREE.Box3().setFromObject(p).applyMatrix4(inv));
+  return box.isEmpty() ? 0 : box.min.y;
+}
 
 const MODEL_URL = "/assets/characters/boneco.glb";
 const TARGET_HEIGHT = 1.75;
@@ -318,6 +327,10 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         const o = inner.getObjectByName(n);
         if (o) o.rotation.x = x;
       }
+      return bottomOf(
+        root,
+        ["Quadril_Calca", "Perna_D", "Perna_E"].map((n) => inner.getObjectByName(n)),
+      );
     },
     dispose() {
       // geometrias do GLB são compartilhadas entre clones; só as peças extras são deste boneco
@@ -351,6 +364,7 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       seated = true;
       rig.legL.rotation.x = rig.legR.rotation.x = -Math.PI / 2;
       rig.armL.rotation.x = rig.armR.rotation.x = -0.75;
+      return bottomOf(rig.root, [rig.legL, rig.legR]);
     },
     dispose() {
       disposeAvatar(rig);

@@ -82,7 +82,7 @@ export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair
     const scene = sceneRef.current;
     if (!scene) return;
     const old = rigRef.current;
-    const rig: Character = chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit() {} } : createCharacter(dna);
+    const rig: Character = chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit: () => 0 } : createCharacter(dna);
     if (old) {
       rig.root.rotation.y = old.root.rotation.y;
       scene.remove(old.root);
