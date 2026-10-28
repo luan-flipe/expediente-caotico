@@ -29,6 +29,8 @@ export const RACE = {
   minLaunchSpeed: 8,
   /** Quem cai no vão some ao chegar nesta altura e volta na rampa. */
   fallDepth: -3,
+  /** Acima desta altura, poça e resma (no chão) passam por baixo da cadeira. */
+  airHitHeight: 1.2,
   slipstreamDist: 8.5,
   slipstreamAngleRad: 0.35,
   slipstreamChargeMs: 1400,

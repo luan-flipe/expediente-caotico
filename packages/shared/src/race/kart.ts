@@ -242,6 +242,8 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
 
 /** Empurra duas cadeiras sobrepostas para fora uma da outra. */
 export function collideKarts(a: KartState, b: KartState): boolean {
+  // uma passa por cima da outra
+  if (Math.abs((a.y ?? 0) - (b.y ?? 0)) > 1) return false;
   const dx = b.pos.x - a.pos.x;
   const dz = b.pos.z - a.pos.z;
   const d = Math.hypot(dx, dz);

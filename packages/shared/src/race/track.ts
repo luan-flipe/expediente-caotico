@@ -517,6 +517,21 @@ export function routeAhead(track: Track, pr: TrackProgress, route: number, ahead
   return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), halfWidth: (b.widths[i] + (b.widths[i + 1] - b.widths[i]) * t) / 2 };
 }
 
+/** Onde volta quem cai no vão: 2 m antes do pé da rampa, no caminho dela. */
+export function rampStart(track: Track, ramp: Ramp): { pos: Vec2; heading: number; path: number } {
+  const b = track.branches[ramp.path];
+  if (!b) {
+    const at = pointAt(track, ramp.sFrom - 2);
+    return { pos: at.pos, heading: at.heading, path: -1 };
+  }
+  const bs = Math.max(0, ramp.sFrom - 2);
+  const i = Math.min(b.points.length - 2, Math.floor(bs / b.spacing));
+  const t = Math.min(1, (bs - b.cum[i]) / b.spacing);
+  const p = b.points[i];
+  const q = b.points[i + 1];
+  return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), path: ramp.path };
+}
+
 /** Mantém um círculo de raio r dentro da pista. Devolve a posição corrigida e se bateu na parede. */
 export function clampToTrack(track: Track, pos: Vec2, r: number, prefer?: number): { pos: Vec2; hit: boolean; normal: Vec2; progress: TrackProgress } {
   const pr = pickProgress(track, pos, r, prefer);

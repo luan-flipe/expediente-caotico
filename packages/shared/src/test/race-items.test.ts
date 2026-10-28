@@ -253,3 +253,17 @@ describe("itens", () => {
     expect(rs[1].kart.cups).toBe(2);
   });
 });
+
+describe("itens e altura", () => {
+  it("poça e resma não pegam quem está no ar; grampeador e avião pegam", () => {
+    for (const kind of ["poca", "resma", "grampo", "aviao"] as const) {
+      const { race, rs } = setup(2);
+      const t = rs[1];
+      t.kart = { ...t.kart, y: RACE.airHitHeight + 0.5, air: true, speed: 10 };
+      race.hazards = [{ id: 99, kind, pos: { ...t.kart.pos }, vel: { x: 0, z: 0 }, owner: rs[0].id, until: race.now + 5000, bornAt: 0, targetId: kind === "aviao" ? t.id : undefined }];
+      tick(race, DT);
+      const hit = race.events.some((e) => e.type === "hit" && e.id === t.id);
+      expect(hit, kind).toBe(kind === "grampo" || kind === "aviao");
+    }
+  });
+});

@@ -106,6 +106,7 @@ export type RaceEvent =
   | { type: "finish"; id: string; place: number; ms: number }
   | { type: "cup"; id: string; cupId: number }
   | { type: "stunt"; id: string }
+  | { type: "fall"; id: string }
   | { type: "draft"; id: string };
 
 export interface RaceMatch {
