@@ -15,6 +15,7 @@ import {
   type Settings as SettingsData,
 } from "../settings";
 import { setState } from "../store";
+import { IS_TOUCH, defaultQuality } from "../touch";
 
 type Mode = "shooter" | "race";
 interface Capture {
@@ -123,7 +124,7 @@ export function Settings() {
               onClick={() => {
                 setCapture(null);
                 setWarn(null);
-                saveSettings(DEFAULT_SETTINGS);
+                saveSettings({ ...DEFAULT_SETTINGS, quality: defaultQuality(IS_TOUCH) });
               }}
             >
               Voltar ao padrão
@@ -134,19 +135,25 @@ export function Settings() {
           </div>
         </div>
         <p className="muted" style={{ margin: 0 }}>
-          Tudo vale na hora e fica salvo neste navegador. Esc fecha esta tela.
+          Tudo vale na hora e fica salvo neste navegador.{IS_TOUCH ? "" : " Esc fecha esta tela."}
         </p>
 
-        <div className="grid-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div className="card stack">
-            <p className="label" style={{ margin: 0 }}>
-              Mouse (tiroteio)
-            </p>
-            <Slider label="Sensibilidade" value={s.mouseSens} min={SENS_MIN} max={SENS_MAX} step={0.05} show={(v) => `${v.toFixed(2)}x`} onChange={(v) => patch({ mouseSens: v })} />
-            <label className="set-check">
+            <div className="grid-2 even">
+              <div className="card stack">
+                <p className="label" style={{ margin: 0 }}>
+                  {IS_TOUCH ? "Mira (tiroteio)" : "Mouse (tiroteio)"}
+                </p>
+                <Slider label="Sensibilidade" value={s.mouseSens} min={SENS_MIN} max={SENS_MAX} step={0.05} show={(v) => `${v.toFixed(2)}x`} onChange={(v) => patch({ mouseSens: v })} />
+                <label className="set-check">
               <input type="checkbox" checked={s.invertY} onChange={(e) => patch({ invertY: e.target.checked })} />
               <span>Inverter o eixo vertical</span>
             </label>
+            {IS_TOUCH && (
+              <label className="set-check">
+                <input type="checkbox" checked={s.touchAutoFire} onChange={(e) => patch({ touchAutoFire: e.target.checked })} />
+                <span>Tiro automático ao segurar o botão</span>
+              </label>
+            )}
           </div>
 
           <div className="card stack">
@@ -170,16 +177,21 @@ export function Settings() {
               </button>
             ))}
           </div>
-          <span className="muted">Leve tira as sombras e usa resolução menor, para computador fraco. Vale na hora, até no meio da partida.</span>
+          <span className="muted">Leve tira as sombras e usa resolução menor, para computador fraco e celular. Vale na hora, até no meio da partida.</span>
         </div>
 
-        <div className="grid-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          {column("shooter", "Teclas do tiroteio", SHOOTER_ACTIONS, SHOOTER_LABELS)}
-          {column("race", "Teclas do Rally", RACE_ACTIONS, RACE_LABELS)}
-        </div>
-        <p className="muted" style={{ margin: 0 }}>
-          No Rally as setas também valem para pilotar. A mesma tecla não pode ficar em duas ações do mesmo modo.
-        </p>
+        {/* no toque não há teclado: os controles são os botões da tela */}
+        {!IS_TOUCH && (
+          <>
+            <div className="grid-2 even">
+              {column("shooter", "Teclas do tiroteio", SHOOTER_ACTIONS, SHOOTER_LABELS)}
+              {column("race", "Teclas do Rally", RACE_ACTIONS, RACE_LABELS)}
+            </div>
+            <p className="muted" style={{ margin: 0 }}>
+              No Rally as setas também valem para pilotar. A mesma tecla não pode ficar em duas ações do mesmo modo.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

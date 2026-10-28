@@ -18,6 +18,7 @@ import { ChatBubbles, chatText } from "../chatBubbles";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { getState, net, setState } from "../store";
+import { IS_TOUCH, resetTouchInput, takeLook, touchInput } from "../touch";
 import { createCharacter, modelReady, type Character } from "./character";
 import { FxSystem } from "./fx";
 import { buildOffice } from "./officeScene";
@@ -186,7 +187,8 @@ export class Engine {
     };
     const canvas = this.canvas;
     const click = () => {
-      if (!this.locked) canvas.requestPointerLock();
+      // no toque não há mouse para prender: a mira é o arrasto do lado direito
+      if (!this.locked && !IS_TOUCH) canvas.requestPointerLock();
     };
     canvas.addEventListener("click", click);
     this.cleanup.push(() => canvas.removeEventListener("click", click));
@@ -274,8 +276,9 @@ export class Engine {
   /** Direção de movimento no mundo a partir das teclas de movimento e do yaw da câmera. */
   private moveVector(): Vec2 {
     const map = getSettings().keys.shooter;
-    const f = (this.keys.has(map.frente) ? 1 : 0) - (this.keys.has(map.tras) ? 1 : 0);
-    const r = (this.keys.has(map.direita) ? 1 : 0) - (this.keys.has(map.esquerda) ? 1 : 0);
+    // teclas e analógico da tela somam; o comprimento é limitado a 1 logo abaixo
+    const f = (this.keys.has(map.frente) ? 1 : 0) - (this.keys.has(map.tras) ? 1 : 0) + touchInput.move.y;
+    const r = (this.keys.has(map.direita) ? 1 : 0) - (this.keys.has(map.esquerda) ? 1 : 0) + touchInput.move.x;
     const sy = Math.sin(this.yaw);
     const cy = Math.cos(this.yaw);
     let x = f * sy - r * cy;
@@ -503,6 +506,13 @@ export class Engine {
     if (this.keys.has("ArrowRight")) this.yaw -= dt * 2.2;
     if (this.keys.has("ArrowUp")) this.pitch = Math.min(PITCH_MAX, this.pitch + dt * 1.2);
     if (this.keys.has("ArrowDown")) this.pitch = Math.max(PITCH_MIN, this.pitch - dt * 1.2);
+    // mira por arrasto na tela (mesma sensibilidade e inversão do mouse, um pouco mais forte por pixel)
+    const look = takeLook();
+    if (look.x || look.y) {
+      const { mouseSens, invertY } = getSettings();
+      this.yaw -= look.x * 0.006 * mouseSens;
+      this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - look.y * 0.005 * mouseSens * (invertY ? -1 : 1)));
+    }
 
     // previsão local do próprio movimento
     if (this.pred && this.canAct()) {
@@ -620,6 +630,7 @@ export class Engine {
     cancelAnimationFrame(this.raf);
     clearInterval(this.inputTimer);
     for (const c of this.cleanup) c();
+    resetTouchInput();
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.chat.dispose();
     // bonecos saem da cena antes da limpeza geral: a geometria do GLB é compartilhada e não pode ser liberada

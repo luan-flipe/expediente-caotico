@@ -118,7 +118,7 @@ export function Lobby() {
           </div>
         </div>
 
-        <div className="grid-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div className="grid-2 even">
           <div className="card stack">
             <p className="label" style={{ margin: 0 }}>
               Você

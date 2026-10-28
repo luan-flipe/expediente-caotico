@@ -22,6 +22,7 @@ import { modelReady } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { getState, net, setState } from "../store";
+import { resetTouchInput, touchInput } from "../touch";
 import { ChatBubbles, chatText } from "../chatBubbles";
 import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
 import { createCommander, type Commander } from "./commander";
@@ -211,6 +212,7 @@ export class RaceEngine {
     const unlock = () => void this.listener.context.resume();
     on("keydown", unlock);
     on("mousedown", unlock);
+    on("pointerdown", unlock);
     on<MouseEvent>("mousedown", (e) => {
       if (e.button === 0 && e.target === this.canvas) this.useItem();
     });
@@ -247,7 +249,8 @@ export class RaceEngine {
     // as setas valem sempre, ao lado das teclas escolhidas
     const has = (...c: string[]) => c.some((x) => this.keys.has(x));
     return {
-      steer: (has(map.direita, "ArrowRight") ? 1 : 0) - (has(map.esquerda, "ArrowLeft") ? 1 : 0),
+      // volante da tela é analógico e manda enquanto o dedo está nele
+      steer: touchInput.steer ?? (has(map.direita, "ArrowRight") ? 1 : 0) - (has(map.esquerda, "ArrowLeft") ? 1 : 0),
       throttle: has(map.acelerar, "ArrowUp") ? 1 : has(map.frear, "ArrowDown") ? -1 : 0,
       drift: has(map.derrapar),
     };
@@ -657,6 +660,7 @@ export class RaceEngine {
     this.raf = 0;
     if (this.music.isPlaying) this.music.stop();
     for (const c of this.cleanup) c();
+    resetTouchInput();
     this.chat.dispose();
     // bonecos e Comandante compartilham geometria do GLB: saem da cena antes da limpeza geral
     if (this.commander) {

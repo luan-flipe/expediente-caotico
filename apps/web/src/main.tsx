@@ -3,6 +3,10 @@ import { createRoot } from "react-dom/client";
 import { Loading } from "./screens/Loading";
 import { net, savedSession, setState, useStore } from "./store";
 import "./styles.css";
+import { IS_TOUCH } from "./touch";
+
+// aparelho de toque: o CSS aumenta os alvos e troca as dicas de teclado
+if (IS_TOUCH) document.documentElement.classList.add("touch");
 
 // Só React, a tela de carregamento e o estado entram no primeiro código; o resto (Three.js, telas, modos) vem depois.
 const App = lazy(() => import("./App").then((m) => ({ default: m.App })));

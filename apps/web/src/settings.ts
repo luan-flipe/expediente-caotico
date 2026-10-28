@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { IS_TOUCH, defaultQuality } from "./touch";
 
 /** Ações com tecla própria no tiroteio. O clique esquerdo do mouse também atira (fixo). */
 export const SHOOTER_ACTIONS = ["frente", "tras", "esquerda", "direita", "atirar", "habilidade1", "habilidade2", "habilidade3", "esquiva", "evolucao1", "evolucao2", "evolucao3", "placar", "chat"] as const;
@@ -15,6 +16,8 @@ export interface Settings {
   volume: { master: number; music: number; effects: number };
   keys: { shooter: Record<ShooterAction, string>; race: Record<RaceAction, string> };
   quality: Quality;
+  /** Celular: segurar o botão de disparo atira sem parar (desligado, cada toque é um tiro). */
+  touchAutoFire: boolean;
 }
 
 export const SENS_MIN = 0.25;
@@ -56,6 +59,7 @@ export const DEFAULT_SETTINGS: Settings = {
     },
   },
   quality: "alta",
+  touchAutoFire: true,
 };
 
 export const SHOOTER_LABELS: Record<ShooterAction, string> = {
@@ -132,8 +136,11 @@ function sanitizeKeys<A extends string>(raw: unknown, defaults: Record<A, string
   return out;
 }
 
-/** Aceita qualquer coisa (JSON antigo, adulterado, parcial) e devolve configurações válidas e novas. */
-export function sanitizeSettings(raw: unknown): Settings {
+/**
+ * Aceita qualquer coisa (JSON antigo, adulterado, parcial) e devolve configurações válidas e novas.
+ * Sem qualidade escolhida, o padrão segue o aparelho (toque começa no Leve).
+ */
+export function sanitizeSettings(raw: unknown, touch = IS_TOUCH): Settings {
   const d = DEFAULT_SETTINGS;
   const src = isObj(raw) ? raw : {};
   const vol = isObj(src.volume) ? src.volume : {};
@@ -150,7 +157,8 @@ export function sanitizeSettings(raw: unknown): Settings {
       shooter: sanitizeKeys(keys.shooter, d.keys.shooter),
       race: sanitizeKeys(keys.race, d.keys.race),
     },
-    quality: src.quality === "leve" || src.quality === "alta" ? src.quality : d.quality,
+    quality: src.quality === "leve" || src.quality === "alta" ? src.quality : defaultQuality(touch),
+    touchAutoFire: typeof src.touchAutoFire === "boolean" ? src.touchAutoFire : d.touchAutoFire,
   };
 }
 
