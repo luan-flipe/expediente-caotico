@@ -14,6 +14,7 @@ const App = lazy(() => import("./App").then((m) => ({ default: m.App })));
 const wanted = new URLSearchParams(location.search).get("sala")?.toUpperCase();
 const session = savedSession();
 if (session && (!wanted || wanted === session.code)) net.resume();
+
 // se o código de carregamento nem baixar, o jogo abre mesmo assim, com os bonecos procedurais
 import("./boot").catch((err) => {
   console.warn("carregamento dos modelos falhou, usando versões procedurais", err);

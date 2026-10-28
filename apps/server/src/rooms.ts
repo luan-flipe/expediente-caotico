@@ -53,6 +53,7 @@ import {
   type RaceResultRow,
   type ResultRow,
   type ServerMsg,
+  type ShooterSubmode,
 } from "@ec/shared";
 import { readSession } from "./auth";
 import { TokenBucket } from "./ratelimit";
@@ -112,6 +113,7 @@ export class Room {
   hostId = "";
   phase: LobbyState["phase"] = "lobby";
   mode: GameMode = "shooter";
+  shooterSubmode: ShooterSubmode = "pvp";
   durationMs = 300000;
   /** Opções do anfitrião. As voltas começam no que a sala recebeu (testes encurtam a corrida). */
   options: RoomOptions;
@@ -149,6 +151,7 @@ export class Room {
       hostId: this.hostId,
       phase: this.phase,
       mode: this.mode,
+      shooterSubmode: this.shooterSubmode,
       durationMs: this.durationMs,
       options: { ...this.options },
       players: [...this.members.values()].map((m) => ({
@@ -213,7 +216,8 @@ export class Room {
   start(): string | null {
     if (this.phase !== "lobby") return "A partida já começou";
     const trial = this.mode === "timetrial";
-    if (!trial && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
+    const zombies = this.mode === "shooter" && this.shooterSubmode === "zombies";
+    if (!trial && !zombies && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
     const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
     if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
     const seed = randomInt(1, 2 ** 31);
@@ -222,7 +226,7 @@ export class Room {
       .map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
     const { laps, items, botLevel, track } = this.options;
     if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial, track });
-    else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel });
+    else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel, submode: this.shooterSubmode });
     this.phase = "match";
     this.results = null;
     this.raceResults = null;
@@ -233,7 +237,7 @@ export class Room {
     this.pendingMs = 0;
     // intervalo menor que o passo: no Windows o timer arredonda para ~16 ms e a partida andaria mais devagar
     this.timer = setInterval(() => this.tick(), TICK_MS / 2);
-    log(`[${this.code}] ${this.mode === "shooter" ? "partida" : "corrida"} iniciada com ${this.members.size} participantes`);
+    log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida") : "corrida"} iniciada com ${this.members.size} participantes`);
     return null;
   }
 
@@ -397,7 +401,7 @@ export class Room {
     if (this.raceResults) this.broadcast({ t: "rresults", rows: this.raceResults, awards: this.awards });
     else if (this.results) this.broadcast({ t: "results", rows: this.results, awards: this.awards });
     this.broadcastLobby();
-    log(`[${this.code}] partida encerrada`);
+    log(`[${this.code}] partida finalizada`);
   }
 
   /** Soma o resultado da partida ao ranking. Falha aqui nunca pode travar o fim da partida. */
@@ -415,6 +419,8 @@ export class Room {
         if (!matchCounts(rows)) return;
         completed = applyRaceResult(store.data, rows, now, this.race?.track.id);
       } else if (this.results) {
+        // sobrevivência zumbi é cooperativa: ninguém vence ninguém, então não entra no ranking do tiroteio
+        if (this.match?.submode === "zombies") return;
         const rows = this.results.map((r) => ({ accountId: accountOf(r.id), rank: r.rank, kills: r.kills }));
         if (!matchCounts(rows)) return;
         completed = applyShooterResult(store.data, rows, now);
@@ -436,8 +442,10 @@ export class Room {
   }
 
   dispose(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   handle(conn: Conn, member: Member, msg: ClientMsg): void {
@@ -445,7 +453,8 @@ export class Room {
     const m = this.match;
     switch (msg.t) {
       case "ready":
-        if (this.phase === "lobby") member.ready = msg.ready;
+        if (this.phase !== "lobby") return;
+        member.ready = msg.ready;
         return this.broadcastLobby();
       case "avatar":
         if (this.phase === "match") return;
@@ -472,6 +481,10 @@ export class Room {
         this.mode = msg.mode;
         // contra o relógio é só de humanos
         if (this.mode === "timetrial") for (const x of [...this.members.values()]) if (x.isBot) this.members.delete(x.id);
+        return this.broadcastLobby();
+      case "shooterSubmode":
+        if (!isHost || this.phase !== "lobby") return;
+        this.shooterSubmode = msg.submode;
         return this.broadcastLobby();
       case "duration":
         if (!isHost || this.phase !== "lobby") return;

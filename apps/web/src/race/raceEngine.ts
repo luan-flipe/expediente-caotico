@@ -29,6 +29,7 @@ import { createCommander, type Commander } from "./commander";
 import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, nameTag } from "./ghosts";
 import type { Ghosts } from "../store";
 import { buildTrack } from "./trackScene";
+import { createDynamicSky, type DynamicSky } from "../game/sky";
 
 interface Sample {
   t: number;
@@ -99,13 +100,14 @@ function boxTexture(): THREE.CanvasTexture {
 export class RaceEngine {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(68, 1, 0.1, 220);
+  private camera = new THREE.PerspectiveCamera(68, 1, 0.1, 400);
   private views = new Map<string, KartView>();
   private boxes = new Map<number, THREE.Mesh>();
   private hazards = new Map<number, HazardView>();
   private people = new Map<string, { avatar: AvatarDNA; chair: ChairDNA }>();
   private snap: RaceSnapshot | null = null;
   private snapAt = 0;
+  private sky: DynamicSky;
   private commander: Commander | null;
   private listener = new THREE.AudioListener();
   /** Trilha de fundo: toca em loop durante toda a corrida, sem posição na cena. */
@@ -150,16 +152,16 @@ export class RaceEngine {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.scene.background = new THREE.Color("#b9c4cf");
-    this.scene.fog = new THREE.Fog("#b9c4cf", 55, 120);
-    this.scene.add(new THREE.HemisphereLight("#ffffff", "#8a8070", 1.7));
-    const sun = new THREE.DirectionalLight("#fff3dd", 2.1);
-    sun.position.set(25, 45, 18);
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
-    sun.shadow.bias = -0.0006;
-    this.scene.add(sun);
-    this.sun = sun;
+    this.sky = createDynamicSky(this.scene, {
+      sunPosition: new THREE.Vector3(25, 45, 18),
+      sunIntensity: 2.2,
+      cloudCoverage: 0.46,
+      cloudSpeed: 1.05,
+      groundSize: 320,
+      groundY: 0.03,
+    });
+    this.sun = this.sky.sunLight;
+    Object.assign(this.sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
     this.disposeTrack = buildTrack(this.scene, track);
     this.camera.add(this.listener);
     for (const bus of [this.musicBus, this.effectsBus]) bus.connect(this.listener.getInput());
@@ -555,6 +557,7 @@ export class RaceEngine {
     this.commander?.update(dt, intro, raceMs);
     if (intro < RACE.introMs) this.cutsceneCamera(intro / RACE.introMs, dt);
     else this.updateCamera(dt);
+    this.sky.update(dt, this.camera.position);
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -680,7 +683,7 @@ export class RaceEngine {
       if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
       else mat?.dispose();
     });
-    // caixas, materiais de obstáculos que não estão na cena e texturas de canvas ficam fora do traverse
+    this.sky.dispose();
     this.boxGeo.dispose();
     this.boxMat.map?.dispose();
     this.boxMat.dispose();

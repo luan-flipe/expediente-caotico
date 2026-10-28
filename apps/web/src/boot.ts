@@ -9,5 +9,5 @@ import { getState, setState } from "./store";
 void loadAssets((done, total) => {
   if (total > 0) setState({ loadProgress: Math.max(getState().loadProgress, done / total) });
 }).then(() => setState({ assetsReady: true }));
-// os dois modelos chegam antes de redesenhar miniaturas e prévias (mesmo se passarem do tempo da tela)
+// os modelos chegam antes de redesenhar miniaturas e prévias (mesmo se passarem do tempo da tela)
 Promise.all([preloadCharacter(), preloadChair()]).then((ok) => ok.some(Boolean) && setState({ modelReady: true }));

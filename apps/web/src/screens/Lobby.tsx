@@ -20,6 +20,7 @@ export function Lobby() {
   const full = lobby.players.length >= BALANCE.maxPlayers;
   const trial = lobby.mode === "timetrial";
   const race = lobby.mode === "race" || trial;
+  const isZombies = !race && lobby.shooterSubmode === "zombies";
 
   const opts = lobby.options;
   const botRow = (
@@ -162,6 +163,28 @@ export function Lobby() {
                 </button>
               </div>
             </div>
+            {!race && (
+              <div className="row">
+                <span className="muted">Tipo:</span>
+                <div className="seg">
+                  <button
+                    className={!isZombies ? "on" : ""}
+                    disabled={!isHost}
+                    onClick={() => net.send({ t: "shooterSubmode", submode: "pvp" })}
+                  >
+                    Versus (PvP)
+                  </button>
+                  <button
+                    className={isZombies ? "on" : ""}
+                    disabled={!isHost}
+                    onClick={() => net.send({ t: "shooterSubmode", submode: "zombies" })}
+                  >
+                    🧟 Modo Zumbis (Co-op)
+                  </button>
+                </div>
+              </div>
+            )}
+
             {trial ? (
               <>
                 {trackRow}
@@ -213,6 +236,7 @@ export function Lobby() {
                 {botRow}
               </>
             )}
+
             {isHost && (
               <>
                 {!trial && (
@@ -226,7 +250,7 @@ export function Lobby() {
                   </div>
                 )}
                 <button className="btn primary" onClick={() => net.send({ t: "start" })}>
-                  {trial ? "Iniciar treino" : race ? "Iniciar corrida" : "Iniciar expediente"}
+{trial ? "Iniciar treino" : race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
                 </button>
               </>
             )}
