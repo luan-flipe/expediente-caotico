@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 
-export type BoxKind = "wall" | "glass" | "desk" | "cabinet" | "counter" | "plant" | "partition" | "sofa";
+export type BoxKind = "wall" | "glass" | "desk" | "cabinet" | "counter" | "plant" | "partition" | "sofa" | "door";
 
 /** Caixa alinhada aos eixos: centro (x, z), largura em x (w), profundidade em z (d), altura (h). */
 export interface Box {
@@ -52,89 +52,144 @@ function wallZ(x: number, z0: number, z1: number, gaps: [number, number][], kind
 
 const box = (x: number, z: number, w: number, d: number, h: number, kind: BoxKind): Box => ({ x, z, w, d, h, kind });
 
-const deskCluster = (cx: number, cz: number): Box[] => [
-  box(cx, cz - 0.8, 4, 1.4, 0.8, "desk"),
-  box(cx, cz + 0.8, 4, 1.4, 0.8, "desk"),
-  box(cx, cz, 4, 0.15, 1.5, "partition"),
-];
-
-const W = 64;
+const W = 70;
 const D = 44;
 
 export const OFFICE_MAP: GameMap = {
   width: W,
   depth: D,
   rooms: [
-    { name: "Sala de reunião", x: -21, z: -15, w: 22, d: 14, floor: "#cfd8e3" },
-    { name: "Copa", x: -1, z: -15, w: 18, d: 14, floor: "#e9dcc4" },
-    { name: "Área de TI", x: 20, z: -15, w: 24, d: 14, floor: "#c9ccd6" },
-    { name: "Recepção", x: -23, z: 7, w: 18, d: 30, floor: "#e4d6c6" },
-    { name: "Área de mesas", x: 9, z: 7, w: 46, d: 30, floor: "#d9dde3" },
+    { name: "Sala executiva", x: -29, z: -15, w: 12, d: 14, floor: "#ede8df" },
+    { name: "Sala de infra", x: -16, z: -15, w: 14, d: 14, floor: "#e5e3dc" },
+    { name: "Banheiro", x: -5.5, z: -15, w: 7, d: 14, floor: "#dee2e6" },
+    { name: "Sala do comandante", x: 1.5, z: -15, w: 7, d: 14, floor: "#e8e5dc" },
+    { name: "Sala de reunião", x: 15, z: -15, w: 20, d: 14, floor: "#ded9cf" },
+    { name: "Cozinha", x: -20, z: -1, w: 18, d: 14, floor: "#e6e1d8" },
+    { name: "Corredor central", x: 0, z: 4.5, w: 50, d: 7, floor: "#eae6de" },
+    { name: "Banheiro feminino", x: -9, z: -2, w: 10, d: 7.5, floor: "#e2e5e8" },
+    { name: "Sala de reunião menor 1", x: 14, z: -3.8, w: 8, d: 3.5, floor: "#ded9cf" },
+    { name: "Sala de reunião menor 2", x: 14, z: -0.2, w: 8, d: 3.5, floor: "#ded9cf" },
+    { name: "Sala de gestão", x: -29.5, z: 15, w: 11, d: 14, floor: "#e5e2da" },
+    { name: "Sala dos devs", x: -11, z: 15, w: 26, d: 14, floor: "#e2ded4" },
+    { name: "Sala suporte", x: 13.5, z: 15, w: 23, d: 14, floor: "#e4dfd6" },
+    { name: "Elevador aberto", x: 30, z: -1, w: 10, d: 14, floor: "#9ea6ae" },
+    { name: "Elevador aberto", x: 30, z: 14, w: 10, d: 16, floor: "#9ea6ae" },
   ],
   boxes: [
-    // perímetro
-    box(0, -D / 2 - T / 2, W + 2 * T, T, H, "wall"),
-    box(0, D / 2 + T / 2, W + 2 * T, T, H, "wall"),
-    box(-W / 2 - T / 2, 0, T, D, H, "wall"),
-    box(W / 2 + T / 2, 0, T, D, H, "wall"),
-    // divisórias internas
-    ...wallX(-8, -32, -10, [[-21, 4]], "glass"),
-    ...wallX(-8, -10, 32, [[-1, 4], [20, 4]]),
-    ...wallZ(-10, -22, -8, [[-15, 3]], "glass"),
-    ...wallZ(8, -22, -8, [[-15, 3]]),
-    ...wallZ(-14, -8, 22, [[2, 5], [15, 4]]),
-    // sala de reunião
-    box(-21, -15, 8, 3, 0.8, "desk"),
-    box(-21, -21.5, 4, 0.4, 2, "cabinet"),
-    box(-31, -21, 0.9, 0.9, 1.6, "plant"),
-    box(-11, -21, 0.9, 0.9, 1.6, "plant"),
-    // copa
-    box(-1, -20.8, 10, 1.2, 1, "counter"),
-    box(6.6, -20.8, 1.2, 1.2, 2.1, "cabinet"),
-    box(-3, -13, 2.2, 2.2, 0.8, "desk"),
-    box(3, -13, 2.2, 2.2, 0.8, "desk"),
-    box(-8.6, -12, 1, 1.2, 2, "cabinet"),
-    // área de TI
-    box(14, -17, 1.2, 4, 2.2, "cabinet"),
-    box(18, -17, 1.2, 4, 2.2, "cabinet"),
-    box(26, -17, 1.2, 4, 2.2, "cabinet"),
-    box(22, -11.5, 4, 1.4, 0.8, "desk"),
-    // recepção
-    box(-23, -1, 6, 1.4, 1.1, "counter"),
-    box(-29, 10, 1.4, 4, 0.7, "sofa"),
-    box(-23, 18, 5, 1.4, 0.7, "sofa"),
-    box(-17, 20, 0.9, 0.9, 1.6, "plant"),
-    box(-31, -6, 0.9, 0.9, 1.6, "plant"),
-    // área de mesas
-    ...deskCluster(-6, -1),
-    ...deskCluster(4, -1),
-    ...deskCluster(14, -1),
-    ...deskCluster(24, -1),
-    ...deskCluster(-6, 10),
-    ...deskCluster(4, 10),
-    ...deskCluster(14, 10),
-    ...deskCluster(24, 10),
-    box(31.2, 3, 1, 3, 2, "cabinet"),
-    box(31.2, 16, 1, 3, 2, "cabinet"),
-    box(0, 20.5, 0.9, 0.9, 1.6, "plant"),
-    box(20, 20.5, 0.9, 0.9, 1.6, "plant"),
-    box(-11.5, 19, 1.2, 1, 1.2, "cabinet"),
+    // --- Perímetro externo ---
+    box(-5, -22, 60, T, H, "wall"),
+    ...wallZ(-35, -22, 22, [[-4.5, 3.0]]),
+    box(-5, 22, 60, T, H, "wall"),
+    box(25, -15, T, 14, H, "wall"),
+    box(30, -8, 10, T, H, "wall"),
+    box(35, 7, T, 30, H, "wall"),
+    box(30, 22, 10, T, H, "wall"),
+
+    // --- Parede horizontal divisória das salas superiores (z = -8) ---
+    ...wallX(-8, -35, 25, [
+      [-27, 2.4],
+      [-14, 2.4],
+      [-4.5, 2.2],
+      [1.0, 2.2],
+      [10.0, 2.6],
+    ]),
+
+    // Divisórias verticais superiores (z de -22 a -8)
+    box(-23, -15, T, 14, H, "wall"),
+    box(-9, -15, T, 14, H, "wall"),
+    box(-2, -15, T, 14, H, "wall"),
+    box(5, -15, T, 14, H, "wall"),
+    box(-5, -18.5, T, 7, H, "wall"),
+
+    // --- Corredor central e Cozinha ---
+    box(4, -1, 4, 3.6, 0.8, "desk"),
+
+    // Bloco Central Saliente (Banheiro Feminino): z de -5.5 a 1.5, x de -14 a -4
+    box(-9, -5.5, 10, T, H, "wall"),
+    ...wallX(1.5, -14, -4, [[-9, 2.0]]),
+    box(-14, -2, T, 7.5, H, "wall"),
+    box(-4, -2, T, 7.5, H, "wall"),
+    box(-5.5, -2, 1.2, 3.5, 1.0, "counter"),
+
+    // Salas de Reunião Menores (x de 10 a 18, z de -5.5 a 1.5)
+    box(14, -5.5, 8, T, H, "wall"),
+    ...wallX(1.5, 10, 18, [[14, 2.2]]),
+    box(10, -2, T, 7.5, H, "wall"),
+    box(18, -2, T, 7.5, H, "wall"),
+    box(14, -2, 8, T, H, "wall"),
+    box(14, -3.8, 3.2, 1.4, 0.8, "desk"),
+    box(14, -0.2, 3.2, 1.4, 0.8, "desk"),
+
+    // Parede horizontal divisória inferior em z = 8
+    ...wallX(8, -35, 25, [
+      [-29, 2.6],
+      [-16, 3.0],
+      [8, 3.0],
+    ]),
+
+    // Divisórias verticais inferiores (z de 8 a 22)
+    box(-24, 15, T, 14, H, "wall"),
+    box(2, 15, T, 14, H, "wall"),
+
+    // Divisória dos elevadores em x = 25 (de z = -8 a 22)
+    ...wallZ(25, -8, 22, [
+      [-1.5, 4.0],
+      [13.5, 4.0],
+    ], "glass"),
+    box(30, 6, 10, T, H, "wall"),
+
+    // =========================================================================
+    // MOBILIÁRIO CONFORME A PLANTA
+    // =========================================================================
+
+    // Sala Superior Esquerda: Mesa em T
+    box(-29, -15, 5, 1.4, 0.8, "desk"),
+    box(-31, -15, 1.4, 3, 0.8, "desk"),
+
+    // Sala de Infra: Bancada longa de computadores e rack
+    box(-16, -10, 9, 1.4, 0.85, "counter"),
+    box(-21, -19, 1.4, 3, 2.1, "cabinet"),
+
+    // Sala do Comandante: Mesa executiva
+    box(1.5, -15, 1.4, 4.5, 0.8, "desk"),
+
+    // Sala de Reunião Grande: Mesa de 10 lugares
+    box(15, -15, 12, 3.5, 0.8, "desk"),
+
+    // Cozinha: Mesa redonda central e planta
+    box(-20, -1, 3.2, 3.2, 0.8, "desk"),
+    box(-20, -1, 1.0, 1.0, 1.5, "plant"),
+
+    // Sala de Gestão: Mesa em T executiva
+    box(-29, 15, 1.4, 5, 0.8, "desk"),
+    box(-31, 15, 3, 1.4, 0.8, "desk"),
+
+    // Sala dos Devs: Duas grandes ilhas verticais
+    box(-19, 15, 2.2, 8, 0.8, "desk"),
+    box(-19, 15, 0.15, 8, 1.4, "partition"),
+    box(-11, 15, 2.2, 8, 0.8, "desk"),
+    box(-11, 15, 0.15, 8, 1.4, "partition"),
+
+    // Sala Suporte: Duas mesas verticais e uma horizontal
+    box(6, 15, 2.0, 6, 0.8, "desk"),
+    box(12, 15, 2.0, 6, 0.8, "desk"),
+    box(19, 15, 6, 2.0, 0.8, "desk"),
   ],
   spawns: [
-    { x: -28, z: -12 },
-    { x: -1, z: -10.5 },
-    { x: 28, z: -10.5 },
-    { x: -27, z: 3 },
-    { x: -20, z: 14 },
-    { x: -9, z: 5 },
-    { x: 19, z: 4.5 },
-    { x: 9, z: 19 },
+    { x: -28, z: 4.5 },   // Corredor / Cozinha
+    { x: -16, z: -15 },   // Sala de infra
+    { x: -1, z: -12 },    // Sala do comandante
+    { x: 20, z: -11 },    // Sala de reunião grande
+    { x: -29, z: 12 },    // Sala de gestão
+    { x: -15, z: 15 },    // Sala dos devs
+    { x: 10, z: 15 },     // Sala suporte
+    { x: 30, z: -1.5 },   // Elevador aberto superior
   ],
   objectivePoints: [
-    { x: 9, z: 4.5 },
-    { x: -21, z: -11 },
-    { x: 20, z: -14 },
-    { x: -23, z: 6 },
-    { x: -1, z: -17 },
+    { x: 15, z: -11 },    // Sala de reunião grande
+    { x: -25, z: 4.5 },   // Cozinha
+    { x: -15, z: 10 },    // Sala dos devs
+    { x: 1, z: -11 },     // Sala do comandante
+    { x: 30, z: -1.5 },   // Hall dos elevadores
   ],
 };

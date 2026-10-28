@@ -2,14 +2,15 @@ import * as THREE from "three";
 import { OFFICE_MAP, type Box } from "@ec/shared";
 
 const COLORS: Record<Box["kind"], string> = {
-  wall: "#ece6da",
-  glass: "#a9d4f0",
-  desk: "#c9a27a",
-  cabinet: "#8b939e",
-  counter: "#d8d2c4",
-  plant: "#7a5236",
-  partition: "#6d86a6",
-  sofa: "#3f6b8a",
+  wall: "#25282e",     // Paredes pretas/grafite escuras idênticas à planta
+  glass: "#a9d4f0",    // Vidro translúcido
+  desk: "#c9a27a",     // Madeira de carvalho claro
+  cabinet: "#454b54",  // Racks e armários metálicos escuros
+  counter: "#d6d0c4",  // Pias e bancadas
+  plant: "#7a5236",    // Vaso de planta
+  partition: "#5a6473",// Divisórias de mesa
+  sofa: "#3f6b8a",     // Sofás
+  door: "#ffd025",     // Portas amarelas vibrantes
 };
 
 function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, shadow = true): THREE.Mesh {
@@ -20,23 +21,42 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: numb
   return m;
 }
 
-/** Monta o escritório a partir da mesma lista de caixas usada pela colisão do servidor. */
+/** Portas amarelas da planta: posições das folhas de porta de correr e soleiras */
+const YELLOW_DOORS: { x: number; z: number; w: number; d: number }[] = [
+  { x: -27.0, z: -8.0, w: 2.4, d: 0.12 },  // Sala executiva sup esq
+  { x: -14.0, z: -8.0, w: 2.4, d: 0.12 },  // Sala de infra
+  { x: -4.5, z: -8.0, w: 2.2, d: 0.12 },   // Banheiro sup
+  { x: 1.0, z: -8.0, w: 2.2, d: 0.12 },    // Sala do comandante
+  { x: 10.0, z: -8.0, w: 2.6, d: 0.12 },   // Sala de reunião grande
+  { x: -35.0, z: -4.5, w: 0.12, d: 3.0 },  // Saída oeste
+  { x: -9.0, z: 1.5, w: 2.0, d: 0.12 },    // Banheiro feminino
+  { x: 14.0, z: 1.5, w: 2.2, d: 0.12 },    // Reunião menor 1
+  { x: -29.0, z: 8.0, w: 2.6, d: 0.12 },   // Sala de gestão
+  { x: -16.0, z: 8.0, w: 3.0, d: 0.12 },   // Sala dos devs
+  { x: 8.0, z: 8.0, w: 3.0, d: 0.12 },     // Sala suporte
+];
+
+/** Monta o escritório a partir da planta arquitetônica oficial. */
 export function buildOffice(scene: THREE.Scene): void {
   const W = OFFICE_MAP.width;
   const D = OFFICE_MAP.depth;
 
-  const ground = mesh(new THREE.PlaneGeometry(W + 40, D + 40), new THREE.MeshStandardMaterial({ color: "#7d8a6a", roughness: 1 }), 0, -0.02, 0, false);
+  // Gramado/entorno externo
+  const ground = mesh(new THREE.PlaneGeometry(W + 50, D + 40), new THREE.MeshStandardMaterial({ color: "#6a785c", roughness: 1 }), 0, -0.02, 0, false);
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
+  // Pisos das salas e corredores com azulejos claros suaves
   for (const r of OFFICE_MAP.rooms) {
-    const floor = mesh(new THREE.PlaneGeometry(r.w, r.d), new THREE.MeshStandardMaterial({ color: r.floor, roughness: 0.95 }), r.x, 0, r.z, false);
+    const floor = mesh(new THREE.PlaneGeometry(r.w, r.d), new THREE.MeshStandardMaterial({ color: r.floor, roughness: 0.92 }), r.x, 0, r.z, false);
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
-    const lines = new THREE.GridHelper(Math.max(r.w, r.d), Math.max(r.w, r.d) / 2, "#000000", "#000000");
-    (lines.material as THREE.Material).opacity = 0.05;
+
+    // Linhas de rejunte/azulejo quadriculado sutil
+    const lines = new THREE.GridHelper(Math.max(r.w, r.d), Math.round(Math.max(r.w, r.d) / 1.5), "#000000", "#000000");
+    (lines.material as THREE.Material).opacity = 0.045;
     (lines.material as THREE.Material).transparent = true;
-    lines.position.set(r.x, 0.01, r.z);
+    lines.position.set(r.x, 0.008, r.z);
     lines.scale.set(r.w / Math.max(r.w, r.d), 1, r.d / Math.max(r.w, r.d));
     scene.add(lines);
   }
@@ -47,61 +67,173 @@ export function buildOffice(scene: THREE.Scene): void {
     if (!m) {
       m =
         kind === "glass"
-          ? new THREE.MeshStandardMaterial({ color: COLORS.glass, transparent: true, opacity: 0.32, roughness: 0.1, metalness: 0.1 })
-          : new THREE.MeshStandardMaterial({ color: COLORS[kind], roughness: 0.85, flatShading: true });
+          ? new THREE.MeshStandardMaterial({ color: COLORS.glass, transparent: true, opacity: 0.35, roughness: 0.1, metalness: 0.15 })
+          : new THREE.MeshStandardMaterial({ color: COLORS[kind], roughness: 0.82, flatShading: true });
       mats.set(kind, m);
     }
     return m;
   };
 
-  const top = new THREE.MeshStandardMaterial({ color: "#f3efe6", roughness: 0.7 });
-  const screen = new THREE.MeshStandardMaterial({ color: "#1b2433", emissive: "#2a4f8a", emissiveIntensity: 0.6 });
-  const leaf = new THREE.MeshStandardMaterial({ color: "#3e9b52", roughness: 0.9, flatShading: true });
-  const wallTop = new THREE.MeshStandardMaterial({ color: "#5a554c" });
-  const chair = new THREE.MeshStandardMaterial({ color: "#2b2f36", roughness: 0.8 });
+  const topWood = new THREE.MeshStandardMaterial({ color: "#d8b38a", roughness: 0.65 });
+  const screen = new THREE.MeshStandardMaterial({ color: "#161b24", emissive: "#223f6e", emissiveIntensity: 0.55 });
+  const leaf = new THREE.MeshStandardMaterial({ color: "#328c46", roughness: 0.9, flatShading: true });
+  const wallTop = new THREE.MeshStandardMaterial({ color: "#17181c" });
+  const chair = new THREE.MeshStandardMaterial({ color: "#1e2126", roughness: 0.75 });
+  const ceramic = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.25 });
+  const doorMat = new THREE.MeshStandardMaterial({ color: COLORS.door, roughness: 0.5, metalness: 0.1 });
 
+  // Renderização das caixas físicas do mapa
   for (const b of OFFICE_MAP.boxes) {
     if (b.kind === "plant") {
-      scene.add(mesh(new THREE.CylinderGeometry(0.32, 0.26, 0.55, 8), matOf("plant"), b.x, 0.275, b.z));
-      scene.add(mesh(new THREE.IcosahedronGeometry(0.6, 0), leaf, b.x, 1.1, b.z));
+      scene.add(mesh(new THREE.CylinderGeometry(b.w * 0.4, b.w * 0.32, b.h * 0.4, 16), matOf("plant"), b.x, b.h * 0.2, b.z));
+      scene.add(mesh(new THREE.IcosahedronGeometry(b.w * 0.65, 1), leaf, b.x, b.h * 0.7, b.z));
       continue;
     }
+
     if (b.kind === "desk") {
-      scene.add(mesh(new THREE.BoxGeometry(b.w, 0.08, b.d), top, b.x, b.h - 0.04, b.z));
-      scene.add(mesh(new THREE.BoxGeometry(b.w * 0.96, b.h - 0.08, b.d * 0.9), matOf("desk"), b.x, (b.h - 0.08) / 2, b.z));
-      if (b.w >= 3.5 && b.d < 2) {
-        for (const off of [-b.w / 4, b.w / 4]) {
-          const facing = b.z > 0 ? 1 : -1;
-          scene.add(mesh(new THREE.BoxGeometry(0.7, 0.45, 0.05), screen, b.x + off, b.h + 0.3, b.z));
-          const c = mesh(new THREE.BoxGeometry(0.55, 0.9, 0.55), chair, b.x + off, 0.45, b.z + facing * 1.05, true);
-          scene.add(c);
-        }
-      }
+      // Tampo de madeira clara
+      scene.add(mesh(new THREE.BoxGeometry(b.w, 0.08, b.d), topWood, b.x, b.h - 0.04, b.z));
+      // Base/pernas da mesa
+      scene.add(mesh(new THREE.BoxGeometry(b.w * 0.94, b.h - 0.08, b.d * 0.88), matOf("desk"), b.x, (b.h - 0.08) / 2, b.z));
       continue;
     }
+
     const m = mesh(new THREE.BoxGeometry(b.w, b.h, b.d), matOf(b.kind), b.x, b.h / 2, b.z, b.kind !== "glass");
     scene.add(m);
-    if (b.kind === "wall") scene.add(mesh(new THREE.BoxGeometry(b.w + 0.02, 0.08, b.d + 0.02), wallTop, b.x, b.h + 0.04, b.z, false));
+
+    // Acabamento superior das paredes escuras
+    if (b.kind === "wall") {
+      scene.add(mesh(new THREE.BoxGeometry(b.w + 0.02, 0.08, b.d + 0.02), wallTop, b.x, b.h + 0.04, b.z, false));
+    }
+
+    // Moldura metálica das divisórias de vidro
     if (b.kind === "glass") {
-      const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w, b.h, b.d)), new THREE.LineBasicMaterial({ color: "#5a6f80" }));
+      const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w, b.h, b.d)), new THREE.LineBasicMaterial({ color: "#3d4b57" }));
       frame.position.copy(m.position);
       scene.add(frame);
     }
   }
 
+  // =========================================================================
+  // DETALHES DECORATIVOS DA PLANTA
+  // =========================================================================
+
+  // 1. Portas Amarelas de Correr com Batente e Soleira Amarela
+  for (const d of YELLOW_DOORS) {
+    const isX = d.w > d.d;
+    // Soleira amarela no piso
+    const threshold = mesh(new THREE.PlaneGeometry(Math.max(d.w, 0.4), Math.max(d.d, 0.4)), doorMat, d.x, 0.012, d.z, false);
+    threshold.rotation.x = -Math.PI / 2;
+    scene.add(threshold);
+
+    // Folha da porta de correr recolhida junto ao batente
+    const doorLeaf = mesh(
+      new THREE.BoxGeometry(isX ? d.w * 0.45 : 0.08, 2.4, isX ? 0.08 : d.d * 0.45),
+      doorMat,
+      d.x + (isX ? d.w * 0.28 : 0),
+      1.2,
+      d.z + (isX ? 0 : d.d * 0.28),
+      true
+    );
+    scene.add(doorLeaf);
+
+    // Trilho superior amarelo
+    const rail = mesh(new THREE.BoxGeometry(isX ? d.w : 0.12, 0.1, isX ? 0.12 : d.d), doorMat, d.x, 2.45, d.z, false);
+    scene.add(rail);
+  }
+
+  // 2. Cozinha: Mesa Redonda com Tampo de Madeira e Vasinho de Planta
+  const roundDesk = mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.08, 32), topWood, -20.0, 0.76, -1.0);
+  const roundBase = mesh(new THREE.CylinderGeometry(0.25, 0.4, 0.72, 16), matOf("wall"), -20.0, 0.36, -1.0);
+  scene.add(roundDesk, roundBase);
+
+  // 3. Vasos Sanitários e Pias nos Banheiros
+  const toilets: [number, number][] = [
+    [-7.5, -19.0], // Banheiro sup
+    [-3.5, -19.0], // Banheiro sup
+    [-11.5, -3.5], // Banheiro feminino
+    [-11.5, -0.5], // Banheiro feminino
+  ];
+  for (const [tx, tz] of toilets) {
+    const bowl = mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.45, 16), ceramic, tx, 0.225, tz);
+    const tank = mesh(new THREE.BoxGeometry(0.5, 0.5, 0.25), ceramic, tx, 0.55, tz - 0.25);
+    scene.add(bowl, tank);
+  }
+
+  // 4. Cadeiras de Escritório Conforme o Desenho
+  const addChair = (cx: number, cz: number, facingAngle: number) => {
+    const c = mesh(new THREE.BoxGeometry(0.55, 0.88, 0.55), chair, cx, 0.44, cz, true);
+    c.rotation.y = facingAngle;
+    scene.add(c);
+  };
+
+  // Cadeiras da Sala de Reunião Grande (10 lugares: 4 em cima, 4 em baixo, 2 nas pontas)
+  for (let i = 0; i < 4; i++) {
+    const offX = 11.0 + i * 2.6;
+    addChair(offX, -17.2, 0);             // Cadeiras superiores viradas para baixo
+    addChair(offX, -12.8, Math.PI);        // Cadeiras inferiores viradas para cima
+  }
+  addChair(8.5, -15.0, Math.PI / 2);      // Cabeceira esquerda
+  addChair(21.5, -15.0, -Math.PI / 2);    // Cabeceira direita
+
+  // Cadeiras da Sala do Comandante
+  addChair(0.5, -15.0, -Math.PI / 2);
+
+  // Cadeiras da Sala de Infra
+  addChair(-18.5, -11.8, 0);
+  addChair(-13.5, -11.8, 0);
+
+  // Cadeiras das Ilhas da Sala dos Devs (12 lugares: 6 em cada ilha)
+  for (const ilhaX of [-19.0, -11.0]) {
+    for (let k = 0; k < 3; k++) {
+      const cz = 12.0 + k * 3.0;
+      addChair(ilhaX - 1.4, cz, Math.PI / 2);   // Virada para a mesa à direita
+      addChair(ilhaX + 1.4, cz, -Math.PI / 2);  // Virada para a mesa à esquerda
+      // Monitores sobre as mesas dos devs
+      scene.add(mesh(new THREE.BoxGeometry(0.7, 0.45, 0.06), screen, ilhaX - 0.5, 1.05, cz));
+      scene.add(mesh(new THREE.BoxGeometry(0.7, 0.45, 0.06), screen, ilhaX + 0.5, 1.05, cz));
+    }
+  }
+
+  // Cadeiras da Sala Suporte
+  for (const supX of [6.0, 12.0]) {
+    for (let k = 0; k < 2; k++) {
+      const cz = 13.0 + k * 3.5;
+      addChair(supX - 1.3, cz, Math.PI / 2);
+      addChair(supX + 1.3, cz, -Math.PI / 2);
+    }
+  }
+  for (let k = 0; k < 3; k++) {
+    const cx = 17.0 + k * 2.0;
+    addChair(cx, 13.5, 0);
+    addChair(cx, 16.5, Math.PI);
+  }
+
+  // Cadeiras das Mesas em T (Sala de Gestão e Sala Sup Esq)
+  addChair(-29.0, -13.0, 0);
+  addChair(-32.5, -15.0, -Math.PI / 2);
+  addChair(-27.2, 15.0, -Math.PI / 2);
+  addChair(-30.8, 15.0, Math.PI / 2);
+
+  // 5. Placas com Nomes das Salas gravadas no piso
   for (const r of OFFICE_MAP.rooms) {
+    if (r.w < 5 || r.d < 3) continue;
     const c = document.createElement("canvas");
     c.width = 512;
     c.height = 96;
     const g = c.getContext("2d")!;
-    g.fillStyle = "rgba(29,27,23,0.08)";
-    g.font = "800 64px 'Bricolage Grotesque', sans-serif";
+    g.fillStyle = "rgba(22,24,28,0.15)";
+    g.font = "800 48px 'Bricolage Grotesque', sans-serif";
     g.textAlign = "center";
     g.textBaseline = "middle";
-    g.fillText(r.name.toUpperCase(), 256, 50);
-    const label = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    g.fillText(r.name.toUpperCase(), 256, 48);
+
+    const label = new THREE.Mesh(
+      new THREE.PlaneGeometry(Math.min(r.w * 0.8, 12), 1.6),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false })
+    );
     label.rotation.x = -Math.PI / 2;
-    label.position.set(r.x, 0.02, r.z + r.d / 2 - 1.4);
+    label.position.set(r.x, 0.016, r.z);
     scene.add(label);
   }
 }
