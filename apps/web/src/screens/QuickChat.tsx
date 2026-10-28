@@ -3,6 +3,7 @@ import { CHAT_EMOTES, CHAT_PHRASES } from "@ec/shared";
 import { chatText } from "../chatBubbles";
 import { keyLabel, useSettings } from "../settings";
 import { getState, net, setState, useStore } from "../store";
+import { IS_TOUCH } from "../touch";
 
 /** Teclas dos emotes enquanto o painel está aberto (as frases usam 1 a 8). */
 const EMOTE_KEYS = ["KeyZ", "KeyX", "KeyC", "KeyV", "KeyB", "KeyN"] as const;
@@ -110,14 +111,14 @@ export function QuickChat() {
       )}
       {!inMatch && !open && (
         <button className="btn small qc-open" onClick={() => setOpen(true)}>
-          Chat rápido ({keyLabel(chatKey)})
+          {IS_TOUCH ? "Chat rápido" : `Chat rápido (${keyLabel(chatKey)})`}
         </button>
       )}
       {open && (
         <div className="qc-backdrop" onClick={() => setOpen(false)}>
           <div className="qc-panel" role="dialog" aria-label="Chat rápido" onClick={(e) => e.stopPropagation()}>
             <p className="label" style={{ margin: 0 }}>
-              Chat rápido ({keyLabel(chatKey)} ou Esc fecha)
+              {IS_TOUCH ? "Chat rápido (toque fora para fechar)" : `Chat rápido (${keyLabel(chatKey)} ou Esc fecha)`}
             </p>
             <div className="qc-grid">
               {CHAT_PHRASES.map((p, i) => (

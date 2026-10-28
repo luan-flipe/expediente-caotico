@@ -136,7 +136,7 @@ export function Ranking() {
         {view && <ChallengeCard challenge={view.desafio} />}
 
         {view && tab === "mes" && (
-          <div className="grid-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <div className="grid-2 even">
             <div className="postit rank-leader">
               <p className="label" style={{ color: "#1d1b17" }}>
                 Funcionário do mês

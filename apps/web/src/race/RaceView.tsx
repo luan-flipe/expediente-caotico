@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { getTrack } from "@ec/shared";
+import { TouchControls } from "../hud/TouchControls";
 import { getState, net, useStore } from "../store";
+import { IS_TOUCH } from "../touch";
 import { RaceEngine } from "./raceEngine";
 import { RaceHud } from "./RaceHud";
 
@@ -42,6 +44,7 @@ export function RaceView({ myId }: { myId: string }) {
   return (
     <div className="game">
       <canvas ref={canvasRef} className="view" />
+      {IS_TOUCH && <TouchControls mode="race" />}
       <RaceHud myId={myId} />
     </div>
   );
