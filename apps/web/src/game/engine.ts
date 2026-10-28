@@ -20,7 +20,7 @@ import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { getState, net, setState } from "../store";
 import { IS_TOUCH, resetTouchInput, takeLook, touchInput } from "../touch";
-import { createCharacter, createZombieCharacter, modelReady, zombieReady, type Character } from "./character";
+import { createCharacter, createZombieCharacter, modelReady, preloadZombie, zombieReady, type Character } from "./character";
 import { FxSystem } from "./fx";
 import { buildOffice } from "./officeScene";
 import { createDynamicSky, type DynamicSky } from "./sky";
@@ -419,6 +419,8 @@ export class Engine {
 
   private viewFor(p: PublicPlayer): View {
     const isZombie = !!(p.isZombie || p.id.startsWith("zombie"));
+    // o modelo do zumbi só baixa agora; até chegar, o zumbi aparece na versão procedural e troca sozinho
+    if (isZombie && !zombieReady()) void preloadZombie();
     const dna = this.avatars.get(p.id);
     const key = isZombie
       ? "zombie|" + (zombieReady() ? "fbx" : "procedural")

@@ -76,19 +76,6 @@ let loadedZombie: LoadedZombie | null = null;
 let loadingZombie: Promise<boolean> | null = null;
 let zombieTexture: THREE.Texture | null = null;
 
-// Pré-carrega a textura PNG do zumbi
-new THREE.TextureLoader().load(
-  ZOMBIE_TEXTURE_URL,
-  (tex) => {
-    tex.colorSpace = THREE.SRGBColorSpace;
-    zombieTexture = tex;
-  },
-  undefined,
-  (err) => {
-    console.warn("Falha ao carregar zombie_texture.png, usando fallback procedural ou de cor", err);
-  },
-);
-
 /**
  * Remove trilhas que brigam com o jogo: deslocamento do corpo (a posição vem do servidor)
  * e a bolinha que voa sozinha (o projétil de verdade já é desenhado).
@@ -547,10 +534,19 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
 }
 
 /** Carrega o Zombie.fbx com sua animação embutida de zumbi em movimento. */
+/** Só baixa quando aparece o primeiro zumbi: são cerca de 5 MB que quem não joga o modo não precisa. */
 export function preloadZombie(): Promise<boolean> {
-  loadingZombie ??= new FBXLoader()
-    .loadAsync(ZOMBIE_URL)
-    .then((fbx) => {
+  if (loadingZombie) return loadingZombie;
+  // a textura chega junto com o modelo, porque é aplicada quando o zumbi é criado
+  const texture = new THREE.TextureLoader().loadAsync(ZOMBIE_TEXTURE_URL).then(
+    (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      zombieTexture = tex;
+    },
+    (err) => console.warn("Falha ao carregar zombie_texture.png, usando fallback procedural ou de cor", err),
+  );
+  loadingZombie = Promise.all([new FBXLoader().loadAsync(ZOMBIE_URL), texture])
+    .then(([fbx]) => {
       const bbox = new THREE.Box3().setFromObject(fbx);
       const size = new THREE.Vector3();
       bbox.getSize(size);
@@ -570,9 +566,6 @@ export function preloadZombie(): Promise<boolean> {
     });
   return loadingZombie;
 }
-
-// Inicia o pré-carregamento do zumbi imediatamente ao carregar o módulo
-void preloadZombie();
 
 export function createZombieCharacter(): Character {
   if (!loadedZombie) {

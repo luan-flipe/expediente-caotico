@@ -237,7 +237,7 @@ export class Room {
     this.pendingMs = 0;
     // intervalo menor que o passo: no Windows o timer arredonda para ~16 ms e a partida andaria mais devagar
     this.timer = setInterval(() => this.tick(), TICK_MS / 2);
-log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida") : "corrida"} iniciada com ${this.members.size} participantes`);
+    log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida") : "corrida"} iniciada com ${this.members.size} participantes`);
     return null;
   }
 
@@ -419,6 +419,8 @@ log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombie
         if (!matchCounts(rows)) return;
         completed = applyRaceResult(store.data, rows, now, this.race?.track.id);
       } else if (this.results) {
+        // sobrevivência zumbi é cooperativa: ninguém vence ninguém, então não entra no ranking do tiroteio
+        if (this.match?.submode === "zombies") return;
         const rows = this.results.map((r) => ({ accountId: accountOf(r.id), rank: r.rank, kills: r.kills }));
         if (!matchCounts(rows)) return;
         completed = applyShooterResult(store.data, rows, now);
@@ -454,22 +456,15 @@ log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombie
         if (this.phase !== "lobby") return;
         member.ready = msg.ready;
         return this.broadcastLobby();
-      case "avatar": {
+      case "avatar":
+        if (this.phase === "match") return;
         member.avatar = sanitizeAvatar(msg.avatar);
-member.name = member.avatar.name;
+        member.name = member.avatar.name;
         if (msg.chair !== undefined) member.chair = sanitizeChair(msg.chair);
         this.syncAccountName(member);
-        const inMatch = m?.players.get(member.id);
-        if (inMatch) inMatch.avatar = member.avatar;
-        const racer = this.race?.racers.get(member.id);
-        if (racer) {
-          racer.avatar = member.avatar;
-          racer.chair = member.chair;
-        }
         return this.broadcastLobby();
-      }
       case "addBot": {
-if (!isHost || this.phase !== "lobby" || this.mode === "timetrial") return;
+        if (!isHost || this.phase !== "lobby" || this.mode === "timetrial") return;
         if (this.members.size >= BALANCE.maxPlayers) return send(conn, { t: "error", msg: "Sala cheia" });
         const name = BOT_NAMES[this.nextBot % BOT_NAMES.length];
         this.addMember(name, randomAvatar(Math.random, name), null, true, randomChair(Math.random));

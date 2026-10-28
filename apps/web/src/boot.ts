@@ -1,5 +1,5 @@
 import { loadAssets } from "./assets";
-import { preloadCharacter, preloadZombie } from "./game/character";
+import { preloadCharacter } from "./game/character";
 import { preloadChair } from "./race/chairMesh";
 import { getState, setState } from "./store";
 
@@ -10,4 +10,4 @@ void loadAssets((done, total) => {
   if (total > 0) setState({ loadProgress: Math.max(getState().loadProgress, done / total) });
 }).then(() => setState({ assetsReady: true }));
 // os modelos chegam antes de redesenhar miniaturas e prévias (mesmo se passarem do tempo da tela)
-Promise.all([preloadCharacter(), preloadChair(), preloadZombie()]).then((ok) => ok.some(Boolean) && setState({ modelReady: true }));
+Promise.all([preloadCharacter(), preloadChair()]).then((ok) => ok.some(Boolean) && setState({ modelReady: true }));
