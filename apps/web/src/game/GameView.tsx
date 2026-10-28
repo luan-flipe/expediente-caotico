@@ -18,9 +18,10 @@ export function GameView({ myId }: { myId: string }) {
       if (s === "lock") setLocked(true);
       if (s === "unlock") {
         setLocked(false);
-        // Esc solta o mouse e abre as configurações; perder o foco (Alt+Tab) também solta, mas aí não abre
-        // (o chat rápido também solta o mouse de propósito, e aí as configurações não abrem)
-        if (document.hasFocus() && !getState().chatOpen) setState({ settingsOpen: true });
+        // Esc solta o mouse e abre o menu de pausa; perder o foco (Alt+Tab) também solta, mas aí não abre
+        // (o chat rápido também solta o mouse de propósito, e aí o menu não abre)
+        const st = getState();
+        if (document.hasFocus() && !st.chatOpen && !st.settingsOpen) setState({ pauseOpen: true });
       }
       if (s === "hit") setHitAt(performance.now());
       if (s === "hurt") setHurtAt(performance.now());

@@ -4,6 +4,8 @@ import { Creator } from "./screens/Creator";
 import { Home } from "./screens/Home";
 import { Loading } from "./screens/Loading";
 import { Lobby } from "./screens/Lobby";
+import { escAction } from "./pause";
+import { PauseMenu } from "./screens/PauseMenu";
 import { Perfil } from "./screens/Perfil";
 import { QuickChat } from "./screens/QuickChat";
 import { Ranking } from "./screens/Ranking";
@@ -29,18 +31,27 @@ export function App() {
   const myId = useStore((s) => s.myId);
   const settingsOpen = useStore((s) => s.settingsOpen);
 
-  // Esc abre as configurações durante a partida e fecha de qualquer tela (a captura de tecla trata o próprio Esc antes, em outra fase)
+  const inMatch = lobby?.phase === "match";
+  const pauseOpen = useStore((s) => s.pauseOpen) && inMatch;
+
+  // Esc abre o menu de pausa durante a partida e fecha as telas por cima (a captura de tecla e o chat tratam o próprio Esc antes, em outra fase)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== "Escape" || e.repeat) return;
       const st = getState();
-      if (st.settingsOpen) setState({ settingsOpen: false });
-      // com o mouse preso o navegador consome o Esc para soltá-lo; quem abre as configurações aí é o sinal de soltar (GameView)
-      else if (st.lobby?.phase === "match" && !document.pointerLockElement) setState({ settingsOpen: true });
+      const act = escAction({ settingsOpen: st.settingsOpen, pauseOpen: st.pauseOpen, inMatch: st.lobby?.phase === "match", pointerLocked: !!document.pointerLockElement });
+      if (act === "closeSettings") setState({ settingsOpen: false });
+      else if (act === "closePause") setState({ pauseOpen: false });
+      else if (act === "openPause") setState({ pauseOpen: true });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // a partida acabou com o menu aberto: ele não volta sozinho na próxima
+  useEffect(() => {
+    if (!inMatch && getState().pauseOpen) setState({ pauseOpen: false });
+  }, [inMatch]);
 
   const screen = () => {
     if (lobby?.phase === "match" && myId) return lobby.mode === "shooter" ? <GameView myId={myId} /> : <RaceView myId={myId} />;
@@ -60,6 +71,7 @@ export function App() {
       <Suspense fallback={<Loading />}>{screen()}</Suspense>
       <QuickChat />
       <ChallengeToast />
+      {pauseOpen && <PauseMenu />}
       {settingsOpen && <Settings />}
     </>
   );

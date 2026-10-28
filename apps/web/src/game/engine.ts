@@ -20,6 +20,7 @@ import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { playShootSound, playZombieSound } from "../sound";
 import { getState, net, setState } from "../store";
+import { inputBlocked } from "../pause";
 import { IS_TOUCH, resetTouchInput, takeLook, touchInput } from "../touch";
 import { createCharacter, createZombieCharacter, modelReady, preloadZombie, zombieReady, type Character } from "./character";
 import { FxSystem } from "./fx";
@@ -231,7 +232,7 @@ export class Engine {
     });
     on<KeyboardEvent>("keydown", (e) => {
       // com as configurações ou o chat rápido abertos o teclado é deles, não do jogo
-      if (getState().settingsOpen || getState().chatOpen) return;
+      if (inputBlocked(getState())) return;
       const k = e.code;
       const map = getSettings().keys.shooter;
       if (!e.ctrlKey && !e.metaKey && !e.altKey && Object.values(map).includes(k)) e.preventDefault();
@@ -304,8 +305,10 @@ export class Engine {
 
   private sendInput(): void {
     if (!this.snap || this.snap.phase === "finished") return;
-    const mv = this.canAct() ? this.moveVector() : { x: 0, z: 0 };
-    const fire = (this.firing || this.keys.has(getSettings().keys.shooter.atirar)) && this.canAct();
+    // menu, configurações ou chat por cima: comando parado (nada de tecla presa andando ou atirando sozinha)
+    const act = this.canAct() && !inputBlocked(getState());
+    const mv = act ? this.moveVector() : { x: 0, z: 0 };
+    const fire = (this.firing || this.keys.has(getSettings().keys.shooter.atirar)) && act;
     net.send({ t: "input", mx: mv.x, mz: mv.z, yaw: this.aimYaw, fire });
   }
 

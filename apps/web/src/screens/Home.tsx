@@ -166,7 +166,7 @@ export function Home() {
             <p className="label">Controles</p>
             <p className="muted" style={{ margin: 0, lineHeight: 1.6 }}>
               {[keys.frente, keys.esquerda, keys.tras, keys.direita].map(keyLabel).join(" ")} anda · mouse mira · clique atira · {[keys.habilidade1, keys.habilidade2, keys.habilidade3].map(keyLabel).join(" ")} habilidades · {keyLabel(keys.esquiva)} esquiva ·{" "}
-              {[keys.evolucao1, keys.evolucao2, keys.evolucao3].map(keyLabel).join(" ")} escolhem evolução · {keyLabel(keys.placar)} placar · Esc solta o mouse e abre as configurações
+              {[keys.evolucao1, keys.evolucao2, keys.evolucao3].map(keyLabel).join(" ")} escolhem evolução · {keyLabel(keys.placar)} placar · Esc pausa (solta o mouse e abre o menu)
             </p>
           </div>
           <div className="row">
