@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { pointAt, RACE, TRACK } from "@ec/shared";
+import { pointAt, RACE, type Track } from "@ec/shared";
 import { createGltfLoader } from "../game/gltfLoader";
 
 /** Comandante: o narrador da corrida, sobrevoando a pista de helicóptero. */
@@ -93,7 +93,7 @@ export interface Commander {
  * null se o GLB não carregou: a corrida funciona sem o Comandante. Com listener, o helicóptero faz barulho;
  * `effectsBus` (se vier) é o canal de volume dos efeitos, por onde o som passa antes do volume geral.
  */
-export function createCommander(listener?: THREE.AudioListener, effectsBus?: AudioNode): Commander | null {
+export function createCommander(track: Track, listener?: THREE.AudioListener, effectsBus?: AudioNode): Commander | null {
   if (!loaded) return null;
   const root = new THREE.Group();
   let disposed = false;
@@ -203,7 +203,7 @@ export function createCommander(listener?: THREE.AudioListener, effectsBus?: Aud
         y = HOVER_HEIGHT + 4 * (1 - ease);
         faceGrid = u > 0.45;
       }
-      const at = pointAt(TRACK, s);
+      const at = pointAt(track, s);
       root.position.set(at.pos.x, y + Math.sin(t * 1.8) * 0.2, at.pos.z);
       const facing = faceGrid ? at.heading + Math.PI : at.heading;
       root.rotation.y = placed ? angleTo(root.rotation.y, facing, dt * 2) : facing;

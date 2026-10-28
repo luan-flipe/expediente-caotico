@@ -17,8 +17,8 @@ export { roomNameAt } from "./sim/objective";
 export * from "./race/balance";
 export * from "./race/chair";
 export * from "./race/types";
-export { TRACK, TRACK_LENGTH, TRACK_ROOMS, pointAt, progressOf, trackEdges, sideNormal, inCarpet, checkpoints, deltaS } from "./race/track";
-export type { Track, CarpetZone } from "./race/track";
+export { TRACK, TRACKS, TRACK_IDS, DEFAULT_TRACK_ID, getTrack, isTrackId, TRACK_LENGTH, TRACK_ROOMS, pointAt, progressOf, trackEdges, sideNormal, inCarpet, checkpoints, deltaS } from "./race/track";
+export type { Track, TrackId, TrackRoom, CarpetZone } from "./race/track";
 export { stepKart, newKart, NO_INPUT } from "./race/kart";
 export type { KartInput, KartState } from "./race/kart";
 export { ITEM_IDS, ITEM_NAMES, giveItem } from "./race/items";
@@ -26,4 +26,5 @@ export { createRace, stepRace, setKartInput, queueItemUse, endTraining, respawnR
 export type { RacePlayerInfo } from "./race/match";
 export * from "./ranking/types";
 export * from "./ranking/rules";
+export * from "./ranking/challenges";
 export * from "./ranking/ghost";

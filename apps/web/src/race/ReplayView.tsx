@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ReplayData } from "@ec/shared";
+import { getTrack, type ReplayData, type Track } from "@ec/shared";
 import { fetchReplay } from "../net/session";
 import { setState, useStore } from "../store";
 import { fmtRace } from "./RaceHud";
@@ -41,7 +41,7 @@ export function ReplayView() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (data) return <Player data={data} />;
+  if (data && target) return <Player data={data} track={getTrack(target.pista)} />;
   return (
     <div className="screen">
       <div className="wrap stack">
@@ -54,7 +54,7 @@ export function ReplayView() {
   );
 }
 
-function Player({ data }: { data: ReplayData }) {
+function Player({ data, track }: { data: ReplayData; track: Track }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<ReplayEngine | null>(null);
   const [time, setTime] = useState(0);
@@ -64,7 +64,7 @@ function Player({ data }: { data: ReplayData }) {
   const [cam, setCam] = useState<ReplayCam>("atras");
 
   useEffect(() => {
-    const engine = new ReplayEngine(canvasRef.current!, data);
+    const engine = new ReplayEngine(canvasRef.current!, data, track);
     engineRef.current = engine;
     if (import.meta.env.DEV) Object.assign(window, { __replay: engine });
     engine.onTick = (ms, done) => {
@@ -77,7 +77,7 @@ function Player({ data }: { data: ReplayData }) {
       engine.dispose();
       engineRef.current = null;
     };
-  }, [data]);
+  }, [data, track]);
 
   // espaço pausa e continua
   useEffect(() => {

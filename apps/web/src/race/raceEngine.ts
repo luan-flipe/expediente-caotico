@@ -5,7 +5,6 @@ import {
   NO_INPUT,
   pointAt,
   RACE,
-  TRACK,
   newKart,
   stepKart,
   type AvatarDNA,
@@ -16,12 +15,14 @@ import {
   type RaceKartPublic,
   type RacePrivate,
   type RaceSnapshot,
+  type Track,
 } from "@ec/shared";
 import { loadMusic } from "../assets";
 import { modelReady } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { getState, net, setState } from "../store";
+import { resetTouchInput, touchInput } from "../touch";
 import { ChatBubbles, chatText } from "../chatBubbles";
 import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
 import { createCommander, type Commander } from "./commander";
@@ -146,6 +147,7 @@ export class RaceEngine {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly myId: string,
+    private readonly track: Track,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -160,10 +162,10 @@ export class RaceEngine {
     });
     this.sun = this.sky.sunLight;
     Object.assign(this.sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
-    this.disposeTrack = buildTrack(this.scene);
+    this.disposeTrack = buildTrack(this.scene, track);
     this.camera.add(this.listener);
     for (const bus of [this.musicBus, this.effectsBus]) bus.connect(this.listener.getInput());
-    this.commander = createCommander(this.listener, this.effectsBus);
+    this.commander = createCommander(track, this.listener, this.effectsBus);
     if (this.commander) this.scene.add(this.commander.root);
     this.applySettings();
     this.cleanup.push(subscribeSettings(() => this.applySettings()));
@@ -212,6 +214,7 @@ export class RaceEngine {
     const unlock = () => void this.listener.context.resume();
     on("keydown", unlock);
     on("mousedown", unlock);
+    on("pointerdown", unlock);
     on<MouseEvent>("mousedown", (e) => {
       if (e.button === 0 && e.target === this.canvas) this.useItem();
     });
@@ -248,7 +251,8 @@ export class RaceEngine {
     // as setas valem sempre, ao lado das teclas escolhidas
     const has = (...c: string[]) => c.some((x) => this.keys.has(x));
     return {
-      steer: (has(map.direita, "ArrowRight") ? 1 : 0) - (has(map.esquerda, "ArrowLeft") ? 1 : 0),
+      // volante da tela é analógico e manda enquanto o dedo está nele
+      steer: touchInput.steer ?? (has(map.direita, "ArrowRight") ? 1 : 0) - (has(map.esquerda, "ArrowLeft") ? 1 : 0),
       throttle: has(map.acelerar, "ArrowUp") ? 1 : has(map.frear, "ArrowDown") ? -1 : 0,
       drift: has(map.derrapar),
     };
@@ -336,7 +340,7 @@ export class RaceEngine {
       return;
     }
     let next = server;
-    for (const p of this.pending) next = stepKart(next, p.input, DT, p.t, TRACK).state;
+    for (const p of this.pending) next = stepKart(next, p.input, DT, p.t, this.track).state;
     const dx = old.pos.x - next.pos.x;
     const dz = old.pos.z - next.pos.z;
     if (Math.hypot(dx, dz) > 4) {
@@ -486,7 +490,7 @@ export class RaceEngine {
         this.pending.push({ seq, input, t: this.clock });
         if (this.pending.length > 90) this.pending.shift();
         this.prevPred = this.pred;
-        this.pred = stepKart(this.pred, input, DT, this.clock, TRACK).state;
+        this.pred = stepKart(this.pred, input, DT, this.clock, this.track).state;
       }
     } else {
       this.acc = 0;
@@ -588,17 +592,17 @@ export class RaceEngine {
 
   /** Abertura: primeiro segue o Comandante pela reta final, depois mostra o grid com ele chegando. */
   private cutsceneCamera(u: number, dt: number): void {
-    const start = pointAt(TRACK, 0).pos;
+    const start = pointAt(this.track, 0).pos;
     const c = this.commander?.root.position ?? new THREE.Vector3(start.x, 5.5, start.z);
     let want: THREE.Vector3;
     let look: THREE.Vector3;
     if (u < 0.55) {
-      const h = pointAt(TRACK, -40).heading;
+      const h = pointAt(this.track, -40).heading;
       want = new THREE.Vector3(c.x - Math.sin(h) * 11 + Math.cos(h) * 4, c.y + 3, c.z - Math.cos(h) * 11 - Math.sin(h) * 4);
       look = new THREE.Vector3(c.x, c.y + 1.6, c.z);
     } else {
       // atrás do grid: as cadeiras de costas e o Comandante sobre o pórtico, de frente para elas
-      const back = pointAt(TRACK, TRACK.length - 17);
+      const back = pointAt(this.track, this.track.length - 17);
       want = new THREE.Vector3(back.pos.x, 2.4, back.pos.z);
       look = new THREE.Vector3(c.x, c.y - 1.2, c.z);
     }
@@ -659,6 +663,7 @@ export class RaceEngine {
     this.raf = 0;
     if (this.music.isPlaying) this.music.stop();
     for (const c of this.cleanup) c();
+    resetTouchInput();
     this.chat.dispose();
     // bonecos e Comandante compartilham geometria do GLB: saem da cena antes da limpeza geral
     if (this.commander) {

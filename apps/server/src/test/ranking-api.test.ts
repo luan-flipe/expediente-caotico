@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
-import { DEFAULT_AVATAR, MAIN_TRACK_ID, PLACE_POINTS, RECORD_POINTS, type GhostSample, type RankingView, type ServerMsg } from "@ec/shared";
+import { DEFAULT_AVATAR, MAIN_TRACK_ID, PLACE_POINTS, RECORD_POINTS, emptyProgress, weekKey, type GhostSample, type RankingView, type ServerMsg } from "@ec/shared";
 import { publicId, startServer, type RunningServer } from "../app";
 import { readSession } from "../auth";
 import { Store } from "../store";
@@ -32,6 +32,8 @@ beforeAll(async () => {
   verifyMock.mockImplementation(async (token: string, clientId: string) => (clientId === CLIENT_ID ? (googleUsers[token] ?? null) : null));
   dir = mkdtempSync(join(tmpdir(), "ec-ranking-api-"));
   store = new Store(dir);
+  // o desafio da semana muda com a data e pagaria +8 no meio das contas de pontos: as contas de teste já cumpriram
+  store.data.challenges[weekKey(new Date())] = Object.fromEntries(["g-ana", "g-beto", "g-caio"].map((id) => [id, { ...emptyProgress(), doneAt: 1 }]));
   srv = await startServer(0, { idleMs: 120000, race: { laps: 1, graceMs: 1000 }, store, auth: { clientId: CLIENT_ID, secret: SECRET } });
 });
 afterAll(async () => {

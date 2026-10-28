@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN, RACE } from "@ec/shared";
+import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN, RACE, TRACK_IDS, TRACKS } from "@ec/shared";
 import { avatarThumbnail } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
 import { canNativeShare, inviteText } from "../invite";
@@ -30,6 +30,19 @@ export function Lobby() {
         {BOT_LEVELS.map((level) => (
           <button key={level} className={opts.botLevel === level ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", botLevel: level })}>
             {BOT_LEVEL_NAMES[level]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const trackRow = (
+    <div className="row">
+      <span className="muted">Pista:</span>
+      <div className="seg">
+        {TRACK_IDS.map((id) => (
+          <button key={id} className={opts.track === id ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", track: id })}>
+            {TRACKS[id].name}
           </button>
         ))}
       </div>
@@ -106,7 +119,7 @@ export function Lobby() {
           </div>
         </div>
 
-        <div className="grid-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div className="grid-2 even">
           <div className="card stack">
             <p className="label" style={{ margin: 0 }}>
               Você
@@ -173,11 +186,15 @@ export function Lobby() {
             )}
 
             {trial ? (
-              <div className="row">
-                <span className="muted">Voltas livres sozinho ou com a sala, sem itens e sem colisão. Fantasma da sua melhor volta e do recorde.</span>
-              </div>
-) : race ? (
               <>
+                {trackRow}
+                <div className="row">
+                  <span className="muted">Voltas livres sozinho ou com a sala, sem itens e sem colisão. Fantasma da sua melhor volta e do recorde nesta pista.</span>
+                </div>
+              </>
+            ) : race ? (
+              <>
+                {trackRow}
                 <div className="row">
                   <span className="muted">Voltas:</span>
                   <div className="seg">
@@ -201,7 +218,7 @@ export function Lobby() {
                 </div>
                 {botRow}
                 <div className="row">
-                  <span className="muted">Corrida de cadeiras no Circuito Corporativo, até {RACE.maxPlayers} pilotos.</span>
+                  <span className="muted">Corrida de cadeiras no {TRACKS[opts.track].name}, até {RACE.maxPlayers} pilotos.</span>
                 </div>
               </>
             ) : (

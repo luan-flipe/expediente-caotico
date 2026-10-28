@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { ITEM_NAMES, RACE, type ItemId } from "@ec/shared";
+import { getTrack, ITEM_NAMES, RACE, type ItemId } from "@ec/shared";
 import { keyLabel, useSettings } from "../settings";
 import { net, useStore } from "../store";
+import { IS_TOUCH } from "../touch";
 import { Minimap } from "./Minimap";
 
 export const ITEM_ICON: Record<ItemId, string> = {
@@ -30,6 +31,7 @@ export function RaceHud({ myId }: { myId: string }) {
   const scoreboard = useStore((s) => s.scoreboard);
   const online = useStore((s) => s.online);
   const ghosts = useStore((s) => s.ghosts);
+  const track = getTrack(useStore((s) => s.lobby?.options.track));
   const isHost = useStore((s) => s.lobby?.hostId === myId);
   const keys = useSettings().keys.race;
   const [, force] = useState(0);
@@ -112,7 +114,7 @@ export function RaceHud({ myId }: { myId: string }) {
         <div className={`race-item ${me.item ? "full" : ""}`}>
           <div className="ico">{me.item ? ITEM_ICON[me.item] : ""}</div>
           <div className="name">{me.item ? `${ITEM_NAMES[me.item]}${me.charges > 1 ? ` x${me.charges}` : ""}` : "Sem item"}</div>
-          <div className="key">{me.item ? `${keyLabel(keys.item)} ou clique` : "Passe numa caixa"}</div>
+          <div className="key">{me.item ? (IS_TOUCH ? "Toque em Item" : `${keyLabel(keys.item)} ou clique`) : "Passe numa caixa"}</div>
         </div>
       )}
 
@@ -128,13 +130,17 @@ export function RaceHud({ myId }: { myId: string }) {
       </div>
 
       <div className="panel minimap-wrap">
-        <Minimap karts={snap.karts} myId={myId} />
+        <Minimap karts={snap.karts} myId={myId} track={track} />
       </div>
 
       {snap.phase === "countdown" && (
         <div className="center-msg">
           <div className="big-count">{Math.max(1, Math.ceil(snap.countdownMs / 1000))}</div>
-          <div className="panel race-help">{keyLabel(keys.acelerar)} acelera · {keyLabel(keys.esquerda)}/{keyLabel(keys.direita)} vira · {keyLabel(keys.derrapar)} derrapa (solte para o turbo){trial || snap.itemsOff ? "" : ` · ${keyLabel(keys.item)} usa item`} · {keyLabel(keys.voltar)} volta para a pista · {keyLabel(keys.mudo)} som</div>
+          {IS_TOUCH ? (
+            <div className="panel race-help">Segure Acelerar · arraste à esquerda para virar · Derrapar e solte para o turbo · R volta para a pista</div>
+          ) : (
+            <div className="panel race-help">{keyLabel(keys.acelerar)} acelera · {keyLabel(keys.esquerda)}/{keyLabel(keys.direita)} vira · {keyLabel(keys.derrapar)} derrapa (solte para o turbo){trial || snap.itemsOff ? "" : ` · ${keyLabel(keys.item)} usa item`} · {keyLabel(keys.voltar)} volta para a pista · {keyLabel(keys.mudo)} som</div>
+          )}
         </div>
       )}
       {snap.phase === "active" && snap.elapsedMs < 900 && (

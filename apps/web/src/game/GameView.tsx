@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Hud } from "../hud/Hud";
+import { TouchControls } from "../hud/TouchControls";
 import { getState, net, setState, useStore } from "../store";
+import { IS_TOUCH } from "../touch";
 import { Engine, type UiSignal } from "./engine";
 
 export function GameView({ myId }: { myId: string }) {
@@ -47,6 +49,8 @@ export function GameView({ myId }: { myId: string }) {
   return (
     <div className="game">
       <canvas ref={canvasRef} className="view" />
+      {/* por baixo do HUD: as cartas de evolução ficam por cima e recebem o toque */}
+      {IS_TOUCH && <TouchControls mode="shooter" />}
       <Hud myId={myId} locked={locked} hitAt={hitAt} hurtAt={hurtAt} />
     </div>
   );

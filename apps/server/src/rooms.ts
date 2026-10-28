@@ -4,10 +4,13 @@ import {
   BALANCE,
   CHAT_COOLDOWN_MS,
   ClientMsg,
-  MAIN_TRACK_ID,
+  CHALLENGE_POINTS,
   applyLap,
   applyRaceResult,
   applyShooterResult,
+  applyWeeklyLap,
+  challengeOfWeek,
+  weekKey,
   DEFAULT_CHAIR,
   DEFAULT_ROOM_OPTIONS,
   buildPrivate,
@@ -45,6 +48,7 @@ import {
   type Match,
   type RaceMatch,
   type RoomOptions,
+  type TrackId,
   type Award,
   type RaceResultRow,
   type ResultRow,
@@ -88,7 +92,8 @@ interface Member {
   /** Id da conta (Google) quando entrou com sessão válida; null para visitante e bot. */
   accountId: string | null;
   /** Melhor volta da sessão de quem não tem conta (visitante): só em memória. */
-  sessionLap: GhostLap | null;
+  /** Melhor volta da sessão por pista (visitante não grava no arquivo). */
+  sessionLaps: Partial<Record<TrackId, GhostLap>>;
   conn: Conn | null;
   leftAt: number | null;
   /** Hora do último chat rápido (limite de 1 a cada CHAT_COOLDOWN_MS). */
@@ -118,8 +123,8 @@ export class Room {
   results: ResultRow[] | null = null;
   awards: Award[] = [];
   raceResults: RaceResultRow[] | null = null;
-  /** Recorde visto nesta sala quando não há arquivo de dados. */
-  private roomRecord: (GhostLap & { name: string }) | null = null;
+  /** Recorde por pista visto nesta sala quando não há arquivo de dados. */
+  private roomRecords: Partial<Record<TrackId, GhostLap & { name: string }>> = {};
   private timer: NodeJS.Timeout | null = null;
   private tickCount = 0;
   private lastTickAt = 0;
@@ -173,7 +178,7 @@ export class Room {
 
   addMember(name: string, avatar: AvatarDNA, conn: Conn | null, isBot = false, chair: ChairDNA = DEFAULT_CHAIR, accountId: string | null = null): Member {
     const id = isBot ? `bot-${++this.nextBot}` : randomBytes(6).toString("hex");
-    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, sessionLap: null, conn, leftAt: null, lastChatAt: 0 };
+    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, sessionLaps: {}, conn, leftAt: null, lastChatAt: 0 };
     this.members.set(id, m);
     if (!this.hostId && !isBot) this.hostId = id;
     return m;
@@ -219,8 +224,8 @@ export class Room {
     const players = [...this.members.values()]
       .filter((m) => !trial || !m.isBot)
       .map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
-    const { laps, items, botLevel } = this.options;
-    if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial });
+    const { laps, items, botLevel, track } = this.options;
+    if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial, track });
     else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel, submode: this.shooterSubmode });
     this.phase = "match";
     this.results = null;
@@ -280,11 +285,16 @@ log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombie
     if (m.phase === "finished") this.finish();
   }
 
+  /** Pista da corrida em andamento ou, fora dela, a escolhida pelo anfitrião. */
+  private trackId(): TrackId {
+    return this.race?.track.id ?? this.options.track;
+  }
+
   /** Menor tempo de volta da pista: do arquivo de dados ou, sem ele, da memória da sala. */
-  private trackRecord(): (GhostLap & { name: string }) | null {
-    if (!this.store) return this.roomRecord;
+  private trackRecord(track: TrackId): (GhostLap & { name: string }) | null {
+    if (!this.store) return this.roomRecords[track] ?? null;
     let best: (GhostLap & { name: string }) | null = null;
-    for (const [id, lap] of Object.entries(this.store.data.laps[MAIN_TRACK_ID] ?? {})) {
+    for (const [id, lap] of Object.entries(this.store.data.laps[track] ?? {})) {
       if (best && lap.ms >= best.ms) continue;
       best = { ms: lap.ms, name: this.store.data.accounts[id]?.name ?? "Jogador", samples: lap.ghost };
     }
@@ -292,14 +302,15 @@ log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombie
   }
 
   /** Fantasma do próprio jogador: o salvo na conta ou, sem conta, o da sessão. */
-  private ghostOf(m: Member): GhostLap | null {
-    const saved = m.accountId ? this.store?.data.laps[MAIN_TRACK_ID]?.[m.accountId] : undefined;
+  private ghostOf(m: Member, track: TrackId): GhostLap | null {
+    const saved = m.accountId ? this.store?.data.laps[track]?.[m.accountId] : undefined;
     if (saved) return { ms: saved.ms, samples: saved.ghost };
-    return m.sessionLap;
+    return m.sessionLaps[track] ?? null;
   }
 
   sendGhosts(m: Member): void {
-    send(m.conn, { t: "ghosts", mine: this.ghostOf(m), record: this.trackRecord() });
+    const track = this.trackId();
+    send(m.conn, { t: "ghosts", mine: this.ghostOf(m, track), record: this.trackRecord(track) });
   }
 
   /**
@@ -309,23 +320,35 @@ log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombie
   private consumeLaps(r: RaceMatch): void {
     if (!r.completedLaps.length) return;
     const laps = r.completedLaps.splice(0);
+    const track = r.track.id;
     const notify = new Set<Member>();
     let recordChanged = false;
     let saved = false;
     for (const lap of laps) {
       const m = this.members.get(lap.id);
       if (!m || m.isBot) continue;
-      const mine = this.ghostOf(m);
+      // o desafio da semana conta toda volta da conta, mesmo que não melhore a melhor de sempre
+      if (m.accountId && this.store) {
+        try {
+          const done = applyWeeklyLap(this.store.data, m.accountId, lap.ms, Date.now(), track);
+          saved = true;
+          this.notifyChallenge(done);
+        } catch (err) {
+          console.error(`[${this.code}] falha ao registrar o desafio da semana`, err);
+        }
+      }
+      const mine = this.ghostOf(m, track);
       if (mine && lap.ms >= mine.ms) continue;
       try {
         if (m.accountId && this.store) {
-          const res = applyLap(this.store.data, MAIN_TRACK_ID, m.accountId, lap.ms, lap.ghost, Date.now());
+          const res = applyLap(this.store.data, track, m.accountId, lap.ms, lap.ghost, Date.now());
           saved = true;
           recordChanged ||= res.record;
         } else {
-          m.sessionLap = { ms: lap.ms, samples: lap.ghost };
-          if (!this.store && (!this.roomRecord || lap.ms < this.roomRecord.ms)) {
-            this.roomRecord = { ms: lap.ms, name: m.name, samples: lap.ghost };
+          m.sessionLaps[track] = { ms: lap.ms, samples: lap.ghost };
+          const best = this.roomRecords[track];
+          if (!this.store && (!best || lap.ms < best.ms)) {
+            this.roomRecords[track] = { ms: lap.ms, name: m.name, samples: lap.ghost };
             recordChanged = true;
           }
         }
@@ -388,20 +411,31 @@ log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombie
     try {
       const accountOf = (id: string) => this.members.get(id)?.accountId ?? null;
       const now = Date.now();
+      let completed: string[] = [];
       if (this.raceResults) {
         // treino não pontua; as voltas já foram gravadas a cada tick
         if (this.race?.timeTrial) return;
-        const rows = this.raceResults.map((r) => ({ accountId: accountOf(r.id), place: r.place }));
+        const rows = this.raceResults.map((r) => ({ accountId: accountOf(r.id), place: r.place, finished: r.totalMs !== null }));
         if (!matchCounts(rows)) return;
-        applyRaceResult(store.data, rows, now);
+        completed = applyRaceResult(store.data, rows, now, this.race?.track.id);
       } else if (this.results) {
         const rows = this.results.map((r) => ({ accountId: accountOf(r.id), rank: r.rank, kills: r.kills }));
         if (!matchCounts(rows)) return;
-        applyShooterResult(store.data, rows, now);
+        completed = applyShooterResult(store.data, rows, now);
       }
       store.save();
+      this.notifyChallenge(completed);
     } catch (err) {
       console.error(`[${this.code}] falha ao registrar o ranking`, err);
+    }
+  }
+
+  /** Avisa quem acabou de cumprir o desafio da semana (todas as conexões da conta nesta sala). */
+  private notifyChallenge(accountIds: string[]): void {
+    if (!accountIds.length) return;
+    const msg: ServerMsg = { t: "challenge", text: challengeOfWeek(weekKey(new Date())).text, points: CHALLENGE_POINTS };
+    for (const mem of this.members.values()) {
+      if (mem.accountId && accountIds.includes(mem.accountId) && mem.conn) send(mem.conn, msg);
     }
   }
 
@@ -466,6 +500,7 @@ if (!isHost || this.phase !== "lobby" || this.mode === "timetrial") return;
         if (msg.laps !== undefined) this.options.laps = msg.laps;
         if (msg.items !== undefined) this.options.items = msg.items;
         if (msg.botLevel !== undefined) this.options.botLevel = msg.botLevel;
+        if (msg.track !== undefined) this.options.track = msg.track;
         return this.broadcastLobby();
       case "start": {
         if (!isHost) return;

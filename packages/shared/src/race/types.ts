@@ -4,6 +4,7 @@ import type { ChairDNA } from "./chair";
 import type { KartInput, KartState } from "./kart";
 import type { BotLevel } from "../botLevels";
 import type { LapState } from "./laps";
+import type { Track } from "./track";
 
 export type ItemId = "expresso" | "triplo" | "grampeador" | "poca" | "resma" | "aviao" | "pasta" | "postit";
 export type HazardKind = "poca" | "resma" | "grampo" | "aviao";
@@ -118,6 +119,8 @@ export interface RaceMatch {
   cps: number[];
   rng: () => number;
   nextId: number;
+  /** Pista da corrida, escolhida pelo anfitrião. */
+  track: Track;
   /** Semente da corrida: também decide o sorteio dos prêmios. */
   seed: number;
 }
