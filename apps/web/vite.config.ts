@@ -1,8 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { pwaSw } from "./src/pwa/plugin";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), pwaSw()],
   optimizeDeps: {
     exclude: ["@ec/shared"],
   },

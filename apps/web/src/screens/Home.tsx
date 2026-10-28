@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AvatarPreview } from "../game/AvatarPreview";
 import { loadConfig, loadGoogle, login, loginSession } from "../net/session";
 import { ChallengeCard, useChallenge } from "./ChallengeCard";
+import { instalar, useInstalavel } from "../pwa/registrar";
 import { keyLabel, useSettings } from "../settings";
 import { net, saveAvatar, setAccount, setState, useStore } from "../store";
 
@@ -39,6 +40,7 @@ export function Home() {
   const account = useStore((s) => s.account);
   const keys = useSettings().keys.shooter;
   const challenge = useChallenge();
+  const instalavel = useInstalavel();
   const [code, setCode] = useState(() => new URLSearchParams(location.search).get("sala")?.toUpperCase() ?? "");
   const [name, setName] = useState(avatar.name);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -166,6 +168,11 @@ export function Home() {
             <button className="btn" onClick={() => setState({ settingsOpen: true })}>
               Configurações
             </button>
+            {instalavel && (
+              <button className="btn" onClick={() => void instalar()}>
+                Instalar o jogo
+              </button>
+            )}
           </div>
         </div>
         <div className="card">

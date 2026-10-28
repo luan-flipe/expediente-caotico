@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "Expediente Caótico",
+  "short_name": "Expediente",
+  "description": "Bolinha de papel e corrida de cadeiras com os colegas do escritório.",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1d1b17",
+  "theme_color": "#ffd84d",
+  "categories": ["games"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
