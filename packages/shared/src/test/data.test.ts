@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ABILITIES, ABILITY_IDS } from "../data/abilities";
-import { PRESETS, randomAvatar, sanitizeAvatar } from "../data/avatar";
+import { HAIR_ORDER, HAIR_STYLES, PRESETS, randomAvatar, sanitizeAvatar } from "../data/avatar";
 import { OFFICE_MAP } from "../data/map";
 import { SYNERGIES } from "../data/synergies";
 import { BALANCE } from "../data/balance";
@@ -20,6 +20,29 @@ describe("avatar", () => {
     expect(a.hair).toBeGreaterThanOrEqual(0);
     expect(a.name.length).toBeLessThanOrEqual(16);
     expect(a.name).not.toMatch(/[<>]/);
+  });
+
+  it("barba booleana antiga vira índice e modelo inválido volta ao crachá", () => {
+    expect(sanitizeAvatar({ beard: true }).beard).toBe(1);
+    expect(sanitizeAvatar({ beard: false }).beard).toBe(0);
+    expect(sanitizeAvatar({ beard: 2 }).beard).toBe(2);
+    expect(sanitizeAvatar({ model: 99 }).model).toBe(0);
+    expect(sanitizeAvatar({ model: 1 }).model).toBe(1);
+    expect(sanitizeAvatar({ eyes: 3 }).eyes).toBe(3);
+    expect(sanitizeAvatar({ eyes: -1 }).eyes).toBe(0);
+    expect(sanitizeAvatar({}).shoes).toBe(2);
+    expect(sanitizeAvatar({ shoes: 6 }).shoes).toBe(6);
+    expect(sanitizeAvatar({ shoes: 7 }).shoes).toBe(2);
+  });
+
+  it("cor da barba é própria, e crachá antigo sem ela herda a do cabelo", () => {
+    expect(sanitizeAvatar({ hairColor: 4 }).beardColor).toBe(4);
+    expect(sanitizeAvatar({ hairColor: 4, beardColor: 6 }).beardColor).toBe(6);
+    expect(sanitizeAvatar({ hairColor: 4, beardColor: 99 }).beardColor).toBe(4);
+  });
+
+  it("ordem dos penteados na tela mostra cada um uma vez", () => {
+    expect([...HAIR_ORDER].sort((x, y) => x - y)).toEqual(HAIR_STYLES.map((_, i) => i));
   });
 
   it("aceita lixo total", () => {

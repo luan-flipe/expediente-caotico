@@ -78,6 +78,7 @@ export function applyDamage(m: Match, target: PlayerSim, amount: number, sourceI
   m.events.push({ type: "hit", target: target.id, from: sourceId, amount: Math.round(effective), x: target.pos.x, z: target.pos.z });
   if (src) {
     target.damageLog.push({ from: src.id, amount: effective, at: m.now });
+    src.damageDealt += effective;
     grantXp(m, src, effective);
   }
   if (target.hp <= 0) handleDeath(m, target, sourceId);

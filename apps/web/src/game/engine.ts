@@ -15,7 +15,10 @@ import {
   type Snapshot,
   type Vec2,
 } from "@ec/shared";
-import { net, setState } from "../store";
+import { ChatBubbles, chatText } from "../chatBubbles";
+import { applyQuality } from "../quality";
+import { getSettings, subscribeSettings, type Quality } from "../settings";
+import { getState, net, setState } from "../store";
 import { createCharacter, createZombieCharacter, modelReady, zombieReady, type Character } from "./character";
 import { FxSystem } from "./fx";
 import { buildOffice } from "./officeScene";
@@ -89,6 +92,8 @@ export class Engine {
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(70, 1, 0.1, 400);
   private fx: FxSystem;
+  private sun: THREE.DirectionalLight;
+  private quality: Quality | null = null;
   private views = new Map<string, View>();
   private projectiles = new Map<number, THREE.Object3D>();
   private zones = new Map<number, THREE.Mesh>();
@@ -100,6 +105,7 @@ export class Engine {
   private snapAt = 0;
   private me: PrivateState | null = null;
   private avatars = new Map<string, AvatarDNA>();
+  private chat = new ChatBubbles(3.15);
 
   private yaw = 0;
   private pitch = -0.08;
@@ -124,8 +130,6 @@ export class Engine {
     private readonly onUi: (s: UiSignal) => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
@@ -137,8 +141,8 @@ export class Engine {
       groundSize: 220,
       groundY: 0.02,
     });
-
-    Object.assign(this.sky.sunLight.shadow.camera, { left: -38, right: 38, top: 28, bottom: -28, near: 1, far: 80 });
+    this.sun = this.sky.sunLight;
+    Object.assign(this.sun.shadow.camera, { left: -38, right: 38, top: 28, bottom: -28, near: 1, far: 80 });
 
     buildOffice(this.scene);
     this.fx = new FxSystem(this.scene);
@@ -158,6 +162,8 @@ export class Engine {
     this.objective.add(this.objRing, this.objWall);
     this.scene.add(this.objective);
 
+    this.applySettings();
+    this.cleanup.push(subscribeSettings(() => this.applySettings()));
     this.bindInput();
     this.inputTimer = setInterval(() => this.sendInput(), 1000 / 30);
     this.raf = requestAnimationFrame(this.loop);
@@ -165,6 +171,14 @@ export class Engine {
 
   setAvatars(list: { id: string; avatar: AvatarDNA }[]): void {
     for (const p of list) this.avatars.set(p.id, p.avatar);
+  }
+
+  /** Qualidade gráfica ao vivo (só mexe nos shaders quando a opção muda); teclas e mouse são lidos a cada evento. */
+  private applySettings(): void {
+    const q = getSettings().quality;
+    if (q === this.quality) return;
+    this.quality = q;
+    applyQuality(this.renderer, this.scene, this.sun, q);
   }
 
   // ---------- entrada ----------
@@ -191,8 +205,9 @@ export class Engine {
     );
     on<MouseEvent>("mousemove", (e) => {
       if (!this.locked) return;
-      this.yaw -= e.movementX * 0.0025;
-      this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - e.movementY * 0.0022));
+      const { mouseSens, invertY } = getSettings();
+      this.yaw -= e.movementX * 0.0025 * mouseSens;
+      this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - e.movementY * 0.0022 * mouseSens * (invertY ? -1 : 1)));
     });
     on<MouseEvent>("mousedown", (e) => {
       if (this.locked && e.button === 0) this.firing = true;
@@ -205,32 +220,30 @@ export class Engine {
       this.firing = false;
     });
     on<KeyboardEvent>("keydown", (e) => {
+      // com as configurações ou o chat rápido abertos o teclado é deles, não do jogo
+      if (getState().settingsOpen || getState().chatOpen) return;
       const k = e.code;
-      if (k === "Tab") {
-        e.preventDefault();
+      const map = getSettings().keys.shooter;
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && Object.values(map).includes(k)) e.preventDefault();
+      if (k === map.placar) {
         setState({ scoreboard: true });
         return;
       }
-      if (e.repeat) {
-        this.keys.add(k);
-        return;
-      }
       this.keys.add(k);
-      if (k === "KeyQ") this.useAbility(0);
-      if (k === "KeyE") this.useAbility(1);
-      if (k === "KeyR") this.useAbility(2);
-      if (k === "Space") {
-        e.preventDefault();
-        this.dodge();
-      }
-      if (k === "Digit1" || k === "Digit2" || k === "Digit3") {
-        const opt = this.me?.options?.[Number(k.slice(-1)) - 1];
+      if (e.repeat) return;
+      if (k === map.habilidade1) this.useAbility(0);
+      if (k === map.habilidade2) this.useAbility(1);
+      if (k === map.habilidade3) this.useAbility(2);
+      if (k === map.esquiva) this.dodge();
+      const pick = [map.evolucao1, map.evolucao2, map.evolucao3].indexOf(k);
+      if (pick >= 0) {
+        const opt = this.me?.options?.[pick];
         if (opt) net.send({ t: "evolve", optionId: opt.id, seq: this.me!.optionsSeq });
       }
     });
     on<KeyboardEvent>("keyup", (e) => {
       this.keys.delete(e.code);
-      if (e.code === "Tab") setState({ scoreboard: false });
+      if (e.code === getSettings().keys.shooter.placar) setState({ scoreboard: false });
     });
   }
 
@@ -261,10 +274,11 @@ export class Engine {
     this.localDodge = { until: now + BALANCE.dodgeMs, readyAt: now + BALANCE.dodgeCooldownMs, dir: len > 0.1 ? { x: mv.x / len, z: mv.z / len } : dirOf(this.aimYaw) };
   }
 
-  /** Direção de movimento no mundo a partir de WASD e do yaw da câmera. */
+  /** Direção de movimento no mundo a partir das teclas de movimento e do yaw da câmera. */
   private moveVector(): Vec2 {
-    const f = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
-    const r = (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
+    const map = getSettings().keys.shooter;
+    const f = (this.keys.has(map.frente) ? 1 : 0) - (this.keys.has(map.tras) ? 1 : 0);
+    const r = (this.keys.has(map.direita) ? 1 : 0) - (this.keys.has(map.esquerda) ? 1 : 0);
     const sy = Math.sin(this.yaw);
     const cy = Math.cos(this.yaw);
     let x = f * sy - r * cy;
@@ -280,7 +294,7 @@ export class Engine {
   private sendInput(): void {
     if (!this.snap || this.snap.phase === "finished") return;
     const mv = this.canAct() ? this.moveVector() : { x: 0, z: 0 };
-    const fire = (this.firing || this.keys.has("KeyF")) && this.canAct();
+    const fire = (this.firing || this.keys.has(getSettings().keys.shooter.atirar)) && this.canAct();
     net.send({ t: "input", mx: mv.x, mz: mv.z, yaw: this.aimYaw, fire });
   }
 
@@ -312,8 +326,7 @@ export class Engine {
     }
     for (const [id, v] of this.views) {
       if (seen.has(id)) continue;
-      this.scene.remove(v.char.root);
-      v.char.dispose();
+      this.dropView(v);
       this.views.delete(id);
     }
 
@@ -410,15 +423,10 @@ export class Engine {
 
     let v = this.views.get(p.id);
     if (v && v.avatarKey === key) return v;
-    if (v) {
-      this.scene.remove(v.char.root);
-      v.char.dispose();
-    }
-
+    if (v) this.dropView(v);
     const char = isZombie
       ? createZombieCharacter()
-      : createCharacter(dna ?? { name: p.name, skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, accessory: 0, height: 1 });
-
+      : createCharacter(dna ?? { name: p.name, model: 0, skin: 1, hair: 1, hairColor: 0, eyes: 0, beard: 0, beardColor: 0, glasses: 0, top: 0, bottom: 0, shirt: 0, pants: 0, shoes: 2, accessory: 0, height: 1 });
     const bubble = new THREE.Mesh(new THREE.SphereGeometry(1.05, 20, 14), new THREE.MeshBasicMaterial({ color: "#8f9cff", transparent: true, opacity: 0.22, depthWrite: false }));
     bubble.position.y = 1;
     const stars = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.05, 6, 12), new THREE.MeshBasicMaterial({ color: "#ffe14d" }));
@@ -437,6 +445,18 @@ export class Engine {
     v = { char, avatarKey: key, tag, tagKey: "", buf: v?.buf ?? [], last: p, bubble, stars, slowRing, wasDashing: false };
     this.views.set(p.id, v);
     return v;
+  }
+
+  /** Tira o jogador da cena e libera o que é só dele; geometria e materiais do GLB são compartilhados entre clones e ficam. */
+  private dropView(v: View): void {
+    this.scene.remove(v.char.root);
+    for (const m of [v.bubble, v.stars, v.slowRing]) {
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    (v.tag.material as THREE.SpriteMaterial).map?.dispose();
+    v.tag.material.dispose();
+    v.char.dispose();
   }
 
   /** Geometria e material compartilhados por tipo de projétil (evita alocar a cada tiro). */
@@ -483,7 +503,14 @@ export class Engine {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Balão de chat rápido sobre o boneco de quem falou. */
+  showChat(id: string, kind: "phrase" | "emote", index: number): void {
+    const text = chatText(kind, index);
+    if (text) this.chat.show(id, text, kind === "emote", performance.now());
+  }
+
   private step(dt: number, now: number): void {
+    this.chat.update(now, (id) => this.views.get(id)?.char.root);
     if (this.keys.has("ArrowLeft")) this.yaw += dt * 2.2;
     if (this.keys.has("ArrowRight")) this.yaw -= dt * 2.2;
     if (this.keys.has("ArrowUp")) this.pitch = Math.min(PITCH_MAX, this.pitch + dt * 1.2);
@@ -611,8 +638,25 @@ export class Engine {
     cancelAnimationFrame(this.raf);
     clearInterval(this.inputTimer);
     for (const c of this.cleanup) c();
-    for (const v of this.views.values()) v.char.dispose();
+    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
+    this.chat.dispose();
+    for (const v of this.views.values()) this.dropView(v);
     this.views.clear();
+    this.fx.dispose();
+    this.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      m.geometry?.dispose();
+      const mat = m.material as (THREE.Material & { map?: THREE.Texture | null }) | (THREE.Material & { map?: THREE.Texture | null })[] | undefined;
+      for (const x of Array.isArray(mat) ? mat : mat ? [mat] : []) {
+        x.map?.dispose();
+        x.dispose();
+      }
+    });
+    for (const [geo, mat] of this.projectileParts.values()) {
+      geo.dispose();
+      mat.dispose();
+    }
+    this.projectileParts.clear();
     this.renderer.dispose();
   }
 

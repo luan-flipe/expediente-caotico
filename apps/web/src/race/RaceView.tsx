@@ -7,6 +7,7 @@ export function RaceView({ myId }: { myId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<RaceEngine | null>(null);
   const players = useStore((s) => s.lobby?.players);
+  const ghosts = useStore((s) => s.ghosts);
   useStore((s) => s.modelReady);
 
   useEffect(() => {
@@ -18,6 +19,7 @@ export function RaceView({ myId }: { myId: string }) {
     if (rsnap) engine.applySnapshot(rsnap, rme);
     const off = net.listen((m) => {
       if (m.t === "rsnap") engine.applySnapshot(m.s, m.me);
+      else if (m.t === "chat") engine.showChat(m.from, m.kind, m.index);
     });
     return () => {
       off();
@@ -29,6 +31,11 @@ export function RaceView({ myId }: { myId: string }) {
   useEffect(() => {
     if (players) engineRef.current?.setPeople(players);
   }, [players]);
+
+  // fantasmas chegam logo na largada (talvez antes desta tela montar): o store guarda o último
+  useEffect(() => {
+    engineRef.current?.setGhosts(ghosts);
+  }, [ghosts]);
 
   return (
     <div className="game">

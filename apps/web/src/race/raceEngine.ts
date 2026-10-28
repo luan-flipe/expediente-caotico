@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import {
+  DEFAULT_AVATAR,
   ITEM_IDS,
   NO_INPUT,
   pointAt,
@@ -16,10 +17,16 @@ import {
   type RacePrivate,
   type RaceSnapshot,
 } from "@ec/shared";
+import { loadMusic } from "../assets";
 import { modelReady } from "../game/character";
-import { net, setState } from "../store";
+import { applyQuality } from "../quality";
+import { getSettings, subscribeSettings, type Quality } from "../settings";
+import { getState, net, setState } from "../store";
+import { ChatBubbles, chatText } from "../chatBubbles";
 import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
 import { createCommander, type Commander } from "./commander";
+import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, nameTag } from "./ghosts";
+import type { Ghosts } from "../store";
 import { buildTrack } from "./trackScene";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
 
@@ -41,6 +48,8 @@ interface KartView {
   flame: THREE.Mesh;
   bubble: THREE.Mesh;
   spin: number;
+  /** Treino: devolve os materiais originais da cadeira semitransparente. */
+  restore: (() => void) | null;
 }
 
 interface HazardView {
@@ -55,9 +64,11 @@ interface HazardView {
 const DT = 1000 / 30;
 const INTERP_MS = 110;
 const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f"];
-const MUSIC_URL = "/assets/audio/turbo_pixel_drift.mp3";
-/** Baixo o bastante para o helicóptero e os itens continuarem audíveis. */
+/** Baixo o bastante para o helicóptero e os itens continuarem audíveis (mistura fixa; o jogador ajusta por cima, nas configurações). */
 const MUSIC_VOLUME = 0.35;
+/** Treino: os outros pilotos aparecem assim (sem colisão entre cadeiras). */
+const TRIAL_OTHERS_OPACITY = 0.4;
+const DEFAULT_CHAIR: ChairDNA = { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 };
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -65,25 +76,6 @@ const angleLerp = (a: number, b: number, t: number) => {
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * t;
 };
-
-function nameTag(name: string): THREE.Sprite {
-  const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 48;
-  const g = c.getContext("2d")!;
-  g.font = "800 30px 'Bricolage Grotesque', sans-serif";
-  g.textAlign = "center";
-  g.lineWidth = 6;
-  g.strokeStyle = "rgba(20,18,15,0.9)";
-  g.strokeText(name, 128, 34);
-  g.fillStyle = "#fffdf7";
-  g.fillText(name, 128, 34);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
-  s.scale.set(1.9, 0.36, 1);
-  s.position.y = 2.05;
-  s.renderOrder = 5;
-  return s;
-}
 
 function boxTexture(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
@@ -119,7 +111,12 @@ export class RaceEngine {
   private listener = new THREE.AudioListener();
   /** Trilha de fundo: toca em loop durante toda a corrida, sem posição na cena. */
   private music = new THREE.Audio(this.listener);
+  /** Canais de volume: música e efeitos passam cada um por um ganho antes do volume geral (o AudioListener). */
+  private musicBus = this.listener.context.createGain();
+  private effectsBus = this.listener.context.createGain();
   private muted = false;
+  private sun: THREE.DirectionalLight;
+  private quality: Quality | null = null;
   private me: RacePrivate | null = null;
   private keys = new Set<string>();
   /** Previsão da própria cadeira: passo fixo de 30 Hz, igual ao servidor. */
@@ -135,9 +132,13 @@ export class RaceEngine {
   private camPos = new THREE.Vector3();
   private camLook = new THREE.Vector3();
   private camReady = false;
+  private disposeTrack: (() => void) | null = null;
   private boxGeo = new THREE.BoxGeometry(0.8, 0.6, 0.8);
   private boxMat = new THREE.MeshStandardMaterial({ map: boxTexture(), roughness: 0.9 });
   private hazardMats = new Map<string, THREE.Material>();
+  private ghostMine: Ghost | null = null;
+  private ghostRecord: Ghost | null = null;
+  private chat = new ChatBubbles(2.75);
   private raf = 0;
   private lastFrame = performance.now();
   private cleanup: (() => void)[] = [];
@@ -147,8 +148,6 @@ export class RaceEngine {
     private readonly myId: string,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.sky = createDynamicSky(this.scene, {
@@ -159,19 +158,15 @@ export class RaceEngine {
       groundSize: 320,
       groundY: 0.03,
     });
-
-
-    Object.assign(this.sky.sunLight.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
-
-
-
-
-
-
-    buildTrack(this.scene);
+    this.sun = this.sky.sunLight;
+    Object.assign(this.sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
+    this.disposeTrack = buildTrack(this.scene);
     this.camera.add(this.listener);
-    this.commander = createCommander(this.listener);
+    for (const bus of [this.musicBus, this.effectsBus]) bus.connect(this.listener.getInput());
+    this.commander = createCommander(this.listener, this.effectsBus);
     if (this.commander) this.scene.add(this.commander.root);
+    this.applySettings();
+    this.cleanup.push(subscribeSettings(() => this.applySettings()));
     this.startMusic();
     this.bindInput();
     this.raf = requestAnimationFrame(this.loop);
@@ -181,18 +176,29 @@ export class RaceEngine {
     for (const p of list) this.people.set(p.id, { avatar: p.avatar, chair: p.chair });
   }
 
+  /** Volumes e qualidade ao vivo; as teclas são lidas a cada evento. M silencia tudo por cima do volume geral. */
+  private applySettings(): void {
+    const s = getSettings();
+    this.listener.setMasterVolume(this.muted ? 0 : s.volume.master);
+    this.musicBus.gain.value = s.volume.music;
+    this.effectsBus.gain.value = s.volume.effects;
+    if (s.quality !== this.quality) {
+      this.quality = s.quality;
+      applyQuality(this.renderer, this.scene, this.sun, s.quality);
+    }
+  }
+
   private startMusic(): void {
-    new THREE.AudioLoader()
-      .loadAsync(MUSIC_URL)
-      .then((buffer) => {
-        // a corrida pode ter acabado enquanto o arquivo baixava
-        if (!this.raf) return;
-        this.music.setBuffer(buffer);
-        this.music.setLoop(true);
-        this.music.setVolume(MUSIC_VOLUME);
-        this.music.play();
-      })
-      .catch((err) => console.warn("música da corrida não carregou", err));
+    // baixada e decodificada uma vez por visita (assets.ts); a corrida seguinte reaproveita
+    void loadMusic().then((buffer) => {
+      // a corrida pode ter acabado enquanto o arquivo baixava
+      if (!buffer || !this.raf) return;
+      this.music.setFilter(this.musicBus);
+      this.music.setBuffer(buffer);
+      this.music.setLoop(true);
+      this.music.setVolume(MUSIC_VOLUME);
+      this.music.play();
+    });
   }
 
   // ---------- entrada ----------
@@ -210,22 +216,25 @@ export class RaceEngine {
       if (e.button === 0 && e.target === this.canvas) this.useItem();
     });
     on<KeyboardEvent>("keydown", (e) => {
+      // com as configurações ou o chat rápido abertos o teclado é deles, não do jogo
+      if (getState().settingsOpen || getState().chatOpen) return;
       const k = e.code;
-      if (k === "Tab" || k === "Space" || k.startsWith("Arrow")) e.preventDefault();
-      if (k === "Tab") setState({ scoreboard: true });
+      const map = getSettings().keys.race;
+      if (k.startsWith("Arrow") || (!e.ctrlKey && !e.metaKey && !e.altKey && Object.values(map).includes(k))) e.preventDefault();
+      if (k === map.placar) setState({ scoreboard: true });
       this.keys.add(k);
       if (e.repeat) return;
-      if (k === "KeyE" || k === "KeyF") this.useItem();
-      if (k === "KeyR" && this.snap?.phase === "active") net.send({ t: "krespawn" });
-      if (k === "KeyM") {
+      if (k === map.item) this.useItem();
+      if (k === map.voltar && this.snap?.phase === "active") net.send({ t: "krespawn" });
+      if (k === map.mudo) {
         this.muted = !this.muted;
-        this.listener.setMasterVolume(this.muted ? 0 : 1);
+        this.applySettings();
       }
       if (import.meta.env.DEV && /^Digit[1-8]$/.test(k)) net.send({ t: "kdebug", item: ITEM_IDS[Number(k.slice(-1)) - 1] });
     });
     on<KeyboardEvent>("keyup", (e) => {
       this.keys.delete(e.code);
-      if (e.code === "Tab") setState({ scoreboard: false });
+      if (e.code === getSettings().keys.race.placar) setState({ scoreboard: false });
     });
   }
 
@@ -235,11 +244,13 @@ export class RaceEngine {
 
   private input(): KartInput {
     if (this.snap?.phase !== "active" || this.me?.finished) return NO_INPUT;
+    const map = getSettings().keys.race;
+    // as setas valem sempre, ao lado das teclas escolhidas
     const has = (...c: string[]) => c.some((x) => this.keys.has(x));
     return {
-      steer: (has("KeyD", "ArrowRight") ? 1 : 0) - (has("KeyA", "ArrowLeft") ? 1 : 0),
-      throttle: has("KeyW", "ArrowUp") ? 1 : has("KeyS", "ArrowDown") ? -1 : 0,
-      drift: has("Space", "ShiftLeft", "ShiftRight"),
+      steer: (has(map.direita, "ArrowRight") ? 1 : 0) - (has(map.esquerda, "ArrowLeft") ? 1 : 0),
+      throttle: has(map.acelerar, "ArrowUp") ? 1 : has(map.frear, "ArrowDown") ? -1 : 0,
+      drift: has(map.derrapar),
     };
   }
 
@@ -259,8 +270,7 @@ export class RaceEngine {
     }
     for (const [id, v] of this.views) {
       if (seen.has(id)) continue;
-      this.scene.remove(v.r3d.root);
-      v.r3d.dispose();
+      this.dropView(v);
       this.views.delete(id);
     }
 
@@ -347,10 +357,9 @@ export class RaceEngine {
     const key = JSON.stringify(person ?? k.name) + (modelReady() ? "|glb" : "") + (chairModelReady() ? "|cadeira" : "");
     const old = this.views.get(k.id);
     if (old && old.key === key) return old;
-    const r3d = seatedRacer(
-      person?.avatar ?? { name: k.name, skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, accessory: 0, height: 1 },
-      person?.chair ?? { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 },
-    );
+    const r3d = seatedRacer(person?.avatar ?? { ...DEFAULT_AVATAR, name: k.name }, person?.chair ?? DEFAULT_CHAIR);
+    const faded = !!this.snap?.timeTrial && k.id !== this.myId;
+    const restore = faded ? fadeMaterials(r3d.root, { opacity: TRIAL_OTHERS_OPACITY }) : null;
     // r3d.root fica no chão; body inclina e gira por cima dele
     const body = new THREE.Group();
     while (r3d.root.children.length) body.add(r3d.root.children[0]);
@@ -376,15 +385,45 @@ export class RaceEngine {
     r3d.root.add(bubble);
     const tag = k.id === this.myId ? null : nameTag(k.name);
     if (tag) r3d.root.add(tag);
-    r3d.root.traverse((o) => (o.castShadow = o instanceof THREE.Mesh && o !== bubble));
-    if (old) {
-      this.scene.remove(old.r3d.root);
-      old.r3d.dispose();
-    }
+    r3d.root.traverse((o) => (o.castShadow = !faded && o instanceof THREE.Mesh && o !== bubble));
+    if (old) this.dropView(old);
     this.scene.add(r3d.root);
-    const v: KartView = { r3d, key, body, tag, buf: old?.buf ?? [], last: k, sparks, flame, bubble, spin: 0 };
+    const v: KartView = { r3d, key, body, tag, buf: old?.buf ?? [], last: k, sparks, flame, bubble, spin: 0, restore };
     this.views.set(k.id, v);
     return v;
+  }
+
+  private dropView(v: KartView): void {
+    this.scene.remove(v.r3d.root);
+    v.restore?.();
+    // geometria da faísca, da chama e da bolha é própria; a do sprite do nome é compartilhada pelo three
+    for (const m of [...v.sparks, v.flame, v.bubble]) {
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    if (v.tag) {
+      v.tag.material.map?.dispose();
+      v.tag.material.dispose();
+    }
+    v.r3d.dispose();
+  }
+
+  /** Fantasmas do treino (sua melhor volta e a do recordista); null ou sem amostras os esconde. */
+  setGhosts(g: Ghosts | null): void {
+    const mine = g?.mine ?? null;
+    const record = g?.record ?? null;
+    // quem tem o recorde veria dois fantasmas iguais um dentro do outro: fica só o dourado
+    const same = !!mine && !!record && mine.ms === record.ms && mine.samples.length === record.samples.length;
+    const me = this.people.get(this.myId);
+    this.ghostMine ??= this.addGhost(new Ghost(me?.avatar ?? DEFAULT_AVATAR, me?.chair ?? DEFAULT_CHAIR, GHOST_MINE, "Sua melhor"));
+    this.ghostRecord ??= this.addGhost(new Ghost(DEFAULT_AVATAR, DEFAULT_CHAIR, GHOST_RECORD, record?.name ?? "Recorde"));
+    this.ghostMine.setLap(same ? null : (mine?.samples ?? null), "Sua melhor");
+    this.ghostRecord.setLap(record?.samples ?? null, record?.name ?? "Recorde");
+  }
+
+  private addGhost(g: Ghost): Ghost {
+    this.scene.add(g.root);
+    return g;
   }
 
   private hazardMesh(kind: HazardKind): THREE.Object3D {
@@ -421,12 +460,19 @@ export class RaceEngine {
     return g;
   }
 
+  /** Balão de chat rápido sobre a cadeira de quem falou. */
+  showChat(id: string, kind: "phrase" | "emote", index: number): void {
+    const text = chatText(kind, index);
+    if (text) this.chat.show(id, text, kind === "emote", performance.now());
+  }
+
   // ---------- quadro ----------
   private loop = (ms: number): void => {
     const dt = Math.min(0.05, (ms - this.lastFrame) / 1000);
     this.lastFrame = ms;
     this.resize();
     const now = performance.now();
+    this.chat.update(now, (id) => this.views.get(id)?.r3d.root);
 
     if (this.pred && this.snap?.phase === "active" && !this.me?.finished) {
       this.acc += dt * 1000;
@@ -455,7 +501,8 @@ export class RaceEngine {
       let x: number;
       let z: number;
       let heading: number;
-      const mine = id === this.myId && this.pred;
+      // depois da chegada (ou fora da fase ativa) a própria cadeira vem do buffer, como as outras: a previsão para de rodar
+      const mine = id === this.myId && this.pred && this.snap?.phase === "active" && !this.me?.finished;
       if (mine) {
         // desenha entre os dois últimos passos de 30 Hz para não andar aos degraus em telas de 60 Hz ou mais
         const a = this.prevPred ?? this.pred!;
@@ -497,6 +544,10 @@ export class RaceEngine {
 
     // Comandante e cena de abertura seguem o relógio do servidor, então todos veem o mesmo voo
     const since = now - this.snapAt;
+    // fantasmas largam junto com cada volta: relógio da volta do servidor mais o tempo desde o snapshot
+    const lapT = this.snap?.timeTrial && this.snap.phase === "active" && this.me && this.me.lapMs > 0 ? this.me.lapMs + since : null;
+    this.ghostMine?.update(lapT, dt);
+    this.ghostRecord?.update(lapT, dt);
     const intro = this.snap?.phase === "countdown" ? RACE.countdownMs - this.snap.countdownMs + since : RACE.introMs;
     const raceMs = this.snap && this.snap.phase !== "countdown" ? this.snap.elapsedMs + since : null;
     this.commander?.update(dt, intro, raceMs);
@@ -608,16 +659,18 @@ export class RaceEngine {
     this.raf = 0;
     if (this.music.isPlaying) this.music.stop();
     for (const c of this.cleanup) c();
+    this.chat.dispose();
     // bonecos e Comandante compartilham geometria do GLB: saem da cena antes da limpeza geral
     if (this.commander) {
       this.scene.remove(this.commander.root);
       this.commander.dispose();
     }
     this.camera.remove(this.listener);
-    for (const v of this.views.values()) {
-      this.scene.remove(v.r3d.root);
-      v.r3d.dispose();
-    }
+    for (const bus of [this.musicBus, this.effectsBus]) bus.disconnect();
+    for (const v of this.views.values()) this.dropView(v);
+    this.ghostMine?.dispose();
+    this.ghostRecord?.dispose();
+    this.ghostMine = this.ghostRecord = null;
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
@@ -626,6 +679,12 @@ export class RaceEngine {
       else mat?.dispose();
     });
     this.sky.dispose();
+    this.boxGeo.dispose();
+    this.boxMat.map?.dispose();
+    this.boxMat.dispose();
+    for (const m of this.hazardMats.values()) m.dispose();
+    this.disposeTrack?.();
+    this.disposeTrack = null;
     this.renderer.dispose();
   }
 }

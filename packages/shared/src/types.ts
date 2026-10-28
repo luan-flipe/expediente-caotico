@@ -1,3 +1,4 @@
+import type { BotLevel } from "./botLevels";
 export type Vec2 = { x: number; z: number };
 
 export type AbilityId = "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3";
@@ -5,13 +6,23 @@ export type Spec = "A" | "B";
 
 export interface AvatarDNA {
   name: string;
+  /** Índice de MODELS: 0 monta o boneco pelo crachá, os demais são skins prontas. */
+  model: number;
   skin: number;
   hair: number;
   hairColor: number;
-  beard: boolean;
+  eyes: number;
+  beard: number;
+  /** Índice de HAIR_COLORS para a barba; crachá antigo sem o campo herda a cor do cabelo. */
+  beardColor: number;
   glasses: number;
+  /** Índice de TOPS: modelo da parte de cima, na cor de shirt. */
+  top: number;
+  /** Índice de BOTTOMS: modelo da parte de baixo, na cor de pants. O Vestido de TOPS dispensa. */
+  bottom: number;
   shirt: number;
   pants: number;
+  shoes: number;
   accessory: number;
   height: number;
 }
@@ -109,6 +120,11 @@ export interface PlayerSim {
   damageLog: { from: string; amount: number; at: number }[];
   zoneMs: number;
   zoneCycleMs: number;
+  /** Contadores só para os prêmios do fim: disparos da bola, acertos dela, dano causado e esquivas. */
+  shots: number;
+  shotHits: number;
+  damageDealt: number;
+  dodges: number;
   bot?: BotBrain;
 }
 
@@ -215,8 +231,12 @@ export interface Match {
   zones: AbilityZone[];
   objective: Objective;
   events: GameEvent[];
+  /** Opção do anfitrião: dificuldade dos bots. */
+  botLevel: BotLevel;
   rng: () => number;
   nextId: number;
+  /** Semente da partida: também decide o sorteio dos prêmios. */
+  seed: number;
 }
 
 export interface PublicAbility {

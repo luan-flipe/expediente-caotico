@@ -1,3 +1,5 @@
+import { pickAwards, shooterCandidates, type Award } from "../awards";
+import type { BotLevel } from "../botLevels";
 import { BALANCE } from "../data/balance";
 import { OFFICE_MAP, getGroundHeight } from "../data/map";
 import { mulberry32 } from "../rng";
@@ -89,6 +91,10 @@ function makePlayer(info: MatchPlayerInfo, pos: { x: number; z: number }): Playe
     damageLog: [],
     zoneMs: 0,
     zoneCycleMs: 0,
+    shots: 0,
+    shotHits: 0,
+    damageDealt: 0,
+    dodges: 0,
   };
 }
 
@@ -97,6 +103,7 @@ export function createMatch(opts: {
   seed: number;
   players: MatchPlayerInfo[];
   submode?: "pvp" | "zombies";
+  botLevel?: BotLevel;
 }): Match {
   const rng = mulberry32(opts.seed);
   const spawns = [...OFFICE_MAP.spawns].sort(() => rng() - 0.5);
@@ -143,8 +150,10 @@ export function createMatch(opts: {
       contested: false,
     },
     events: [],
+    botLevel: opts.botLevel ?? "normal",
     rng,
     nextId: 1,
+    seed: opts.seed,
   };
 
   opts.players.forEach((info, i) => {
@@ -328,6 +337,7 @@ function stepPlayer(m: Match, p: PlayerSim, dtMs: number): void {
       p.dodgeDir = len > 0.1 ? { x: p.input.mx / len, z: p.input.mz / len } : dirOf(a.yaw);
       p.dodgeUntil = now + BALANCE.dodgeMs;
       p.dodgeReadyAt = now + BALANCE.dodgeCooldownMs;
+      p.dodges++;
       m.events.push({ type: "fx", kind: "dodge", x: p.pos.x, z: p.pos.z, owner: p.id });
     } else {
       castAbility(m, p, a.slot, a.yaw, a.dist);
@@ -451,7 +461,10 @@ export function stepMatch(m: Match, dtMs: number): void {
   if (m.phase === "finished") return;
   m.now += dtMs;
   if (m.phase === "countdown") {
-    if (m.now < m.countdownEndsAt) return;
+    if (m.now < m.countdownEndsAt) {
+      for (const p of m.players.values()) p.actions = [];
+      return;
+    }
     m.phase = "active";
     m.events.push({
       type: "info",
@@ -622,4 +635,18 @@ export function getResults(m: Match): ResultRow[] {
     }
   }
   return rows;
+}
+
+/** Prêmios bobos do tiroteio. */
+export function getAwards(m: Match): Award[] {
+  const stats = [...m.players.values()].map((p) => ({
+    id: p.id,
+    name: p.name,
+    shots: p.shots,
+    hits: p.shotHits,
+    damage: p.damageDealt,
+    deaths: p.deaths,
+    dodges: p.dodges,
+  }));
+  return pickAwards(shooterCandidates(stats), m.seed);
 }

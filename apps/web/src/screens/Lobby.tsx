@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { BALANCE, DURATIONS_MS, RACE } from "@ec/shared";
+import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN, RACE } from "@ec/shared";
 import { avatarThumbnail } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
+import { canNativeShare, inviteText } from "../invite";
 import { leaveRoom, net, setState, useStore } from "../store";
+
+const LAP_CHOICES = Array.from({ length: LAPS_MAX - LAPS_MIN + 1 }, (_, i) => LAPS_MIN + i);
 
 export function Lobby() {
   const lobby = useStore((s) => s.lobby)!;
@@ -13,19 +16,43 @@ export function Lobby() {
   const [copied, setCopied] = useState(false);
   const isHost = lobby.hostId === myId;
   const me = lobby.players.find((p) => p.id === myId);
-  const link = `${location.origin}${location.pathname}?sala=${lobby.code}`;
   const bots = lobby.players.filter((p) => p.isBot).length;
   const full = lobby.players.length >= BALANCE.maxPlayers;
-  const race = lobby.mode === "race";
+  const trial = lobby.mode === "timetrial";
+  const race = lobby.mode === "race" || trial;
   const isZombies = !race && lobby.shooterSubmode === "zombies";
 
+  const opts = lobby.options;
+  const botRow = (
+    <div className="row">
+      <span className="muted">Bots:</span>
+      <div className="seg">
+        {BOT_LEVELS.map((level) => (
+          <button key={level} className={opts.botLevel === level ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", botLevel: level })}>
+            {BOT_LEVEL_NAMES[level]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   const copy = async () => {
+    const text = inviteText(location.origin, lobby.code);
+    // Celular com toque: abre o menu nativo de compartilhar (WhatsApp, Teams...).
+    if (canNativeShare(navigator)) {
+      try {
+        await navigator.share({ title: "Expediente Caótico", text });
+        return;
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return; // a pessoa fechou o menu
+      }
+    }
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      prompt("Copie o link:", link);
+      prompt("Copie o convite:", text);
     }
   };
 
@@ -44,7 +71,7 @@ export function Lobby() {
             </p>
             <div className="code">{lobby.code}</div>
             <button className="btn small" onClick={copy}>
-              {copied ? "Link copiado" : "Copiar link de convite"}
+              {copied ? "Copiado!" : "Copiar convite"}
             </button>
           </div>
         </div>
@@ -60,7 +87,8 @@ export function Lobby() {
             {lobby.players.map((p) => (
               <div className="slot" key={p.id}>
                 {p.id === lobby.hostId && <span className="tag host">ANFITRIÃO</span>}
-                <img src={race ? chairThumbnail(p.avatar, p.chair) : avatarThumbnail(p.avatar)} alt={p.name} />
+                {!p.isBot && <span className={`tag seal ${p.ranked ? "ranked" : ""}`}>{p.ranked ? "NO RANKING" : "VISITANTE"}</span>}
+                <img src={race ?chairThumbnail(p.avatar, p.chair) : avatarThumbnail(p.avatar)} alt={p.name} />
                 <div className="who">
                   <span>
                     {p.name}
@@ -92,6 +120,12 @@ export function Lobby() {
               <button className="btn" onClick={() => setState({ editing: true })}>
                 {race ? "Editar boneco e cadeira" : "Editar boneco"}
               </button>
+              <button className="btn" onClick={() => setState({ ranking: true })}>
+                Ranking
+              </button>
+              <button className="btn" onClick={() => setState({ settingsOpen: true })}>
+                Configurações
+              </button>
               <button className="btn" onClick={leaveRoom}>
                 Sair da sala
               </button>
@@ -105,15 +139,17 @@ export function Lobby() {
             <div className="row">
               <span className="muted">Modo:</span>
               <div className="seg">
-                <button className={!race ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "shooter" })}>
+                <button className={lobby.mode === "shooter" ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "shooter" })}>
                   Tiroteio
                 </button>
-                <button className={race ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "race" })}>
+                <button className={lobby.mode === "race" ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "race" })}>
                   Rally da Firma
+                </button>
+                <button className={trial ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "timetrial" })}>
+                  Contra o relógio
                 </button>
               </div>
             </div>
-
             {!race && (
               <div className="row">
                 <span className="muted">Tipo:</span>
@@ -136,41 +172,68 @@ export function Lobby() {
               </div>
             )}
 
-            {race ? (
+            {trial ? (
               <div className="row">
-                <span className="muted">Corrida de cadeiras: {RACE.laps} voltas no Circuito Corporativo, até {RACE.maxPlayers} pilotos.</span>
+                <span className="muted">Voltas livres sozinho ou com a sala, sem itens e sem colisão. Fantasma da sua melhor volta e do recorde.</span>
               </div>
-            ) : isZombies ? (
-              <div className="row">
-                <span className="muted" style={{ color: "#2e7d32", fontWeight: 600 }}>
-                  Cooperativo: sobrevivam em equipe contra 5 hordas de zumbis! Quantidade, dano e vida aumentam a cada round.
-                </span>
-              </div>
-            ) : (
-              <div className="row">
-                <span className="muted">Duração:</span>
-                <div className="seg">
-                  {DURATIONS_MS.map((ms) => (
-                    <button key={ms} className={lobby.durationMs === ms ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "duration", ms })}>
-                      {ms / 60000} min
-                    </button>
-                  ))}
+) : race ? (
+              <>
+                <div className="row">
+                  <span className="muted">Voltas:</span>
+                  <div className="seg">
+                    {LAP_CHOICES.map((n) => (
+                      <button key={n} className={opts.laps === n ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", laps: n })}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+                <div className="row">
+                  <span className="muted">Itens:</span>
+                  <div className="seg">
+                    <button className={opts.items ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", items: true })}>
+                      Ligados
+                    </button>
+                    <button className={opts.items ? "" : "on"} disabled={!isHost} onClick={() => net.send({ t: "options", items: false })}>
+                      Desligados
+                    </button>
+                  </div>
+                </div>
+                {botRow}
+                <div className="row">
+                  <span className="muted">Corrida de cadeiras no Circuito Corporativo, até {RACE.maxPlayers} pilotos.</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="row">
+                  <span className="muted">Duração:</span>
+                  <div className="seg">
+                    {DURATIONS_MS.map((ms) => (
+                      <button key={ms} className={lobby.durationMs === ms ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "duration", ms })}>
+                        {ms / 60000} min
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {botRow}
+              </>
             )}
 
             {isHost && (
               <>
-                <div className="row">
-                  <button className="btn small" disabled={full} onClick={() => net.send({ t: "addBot" })}>
-                    + Bot estagiário
-                  </button>
-                  <button className="btn small" disabled={bots === 0} onClick={() => net.send({ t: "removeBot" })}>
-                    - Bot
-                  </button>
-                </div>
+                {!trial && (
+                  <div className="row">
+                    <button className="btn small" disabled={full} onClick={() => net.send({ t: "addBot" })}>
+                      + Bot estagiário
+                    </button>
+                    <button className="btn small" disabled={bots === 0} onClick={() => net.send({ t: "removeBot" })}>
+                      - Bot
+                    </button>
+                  </div>
+                )}
                 <button className="btn primary" onClick={() => net.send({ t: "start" })}>
-                  {race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
+{trial ? "Iniciar treino" : race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
                 </button>
               </>
             )}

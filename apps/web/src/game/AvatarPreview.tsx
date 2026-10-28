@@ -6,8 +6,10 @@ import { useStore } from "../store";
 import { createCharacter, type Character } from "./character";
 
 /** Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira. */
-export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair?: ChairDNA; className?: string }) {
+export function AvatarPreview({ dna, chair, className, autoRotate = true }: { dna: AvatarDNA; chair?: ChairDNA; className?: string; autoRotate?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const autoRef = useRef(autoRotate);
+  autoRef.current = autoRotate;
   const rigRef = useRef<Character | null>(null);
   const ready = useStore((s) => s.modelReady);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -56,7 +58,7 @@ export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair
         cam.aspect = w / h;
         cam.updateProjectionMatrix();
       }
-      if (!dragging) yaw += 0.004;
+      if (!dragging && autoRef.current) yaw += 0.004;
       const rig = rigRef.current;
       if (rig) {
         rig.root.rotation.y = yaw;

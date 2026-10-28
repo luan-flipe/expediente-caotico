@@ -7,9 +7,11 @@ import {
   sanitizeChair,
   type AvatarDNA,
   type ChairDNA,
+  type GhostLap,
   type LobbyState,
   type PrivateState,
   type RacePrivate,
+  type Award,
   type RaceResultRow,
   type RaceSnapshot,
   type ResultRow,
@@ -17,12 +19,22 @@ import {
   type Snapshot,
 } from "@ec/shared";
 import { Connection } from "./net/connection";
+import { loadAccount, loginSession, storeAccount, type Account } from "./net/session";
 
 export interface FeedItem {
   id: number;
   at: number;
   text: string;
   kind: "kill" | "info" | "me";
+}
+
+/** Uma mensagem do chat rápido, como aparece no canto do lobby. */
+export interface ChatItem {
+  id: number;
+  at: number;
+  from: string;
+  kind: "phrase" | "emote";
+  index: number;
 }
 
 export interface State {
@@ -33,6 +45,7 @@ export interface State {
   code: string | null;
   lobby: LobbyState | null;
   results: ResultRow[] | null;
+  awards: Award[];
   raceResults: RaceResultRow[] | null;
   error: string | null;
   online: boolean;
@@ -44,6 +57,29 @@ export interface State {
   scoreboard: boolean;
   /** boneco.glb carregado; telas refazem miniaturas e prévias. */
   modelReady: boolean;
+  /** Boneco e cadeira terminaram de carregar (ou falharam, ou estourou o tempo): a tela de carregamento some. */
+  assetsReady: boolean;
+  /** Progresso da tela de carregamento, de 0 a 1. */
+  loadProgress: number;
+  /** Conta logada (Google); null joga como visitante. */
+  account: Account | null;
+  /** Tela do ranking da firma aberta por cima da tela inicial ou do lobby. */
+  ranking: boolean;
+  /** Replay de um recorde de volta aberto por cima do ranking (pista e linha da aba). */
+  replay: { pista: string; linha: number } | null;
+  /** Configurações abertas por cima da tela atual (inclusive da partida, que segue rodando). */
+  settingsOpen: boolean;
+  /** Fantasmas da pista no contra o relógio (o último enviado pelo servidor). */
+  ghosts: Ghosts | null;
+  /** Últimas mensagens do chat rápido (o canto do lobby mostra as recentes). */
+  chat: ChatItem[];
+  /** Painel do chat rápido aberto: o jogo ignora o teclado e solta o mouse enquanto isso. */
+  chatOpen: boolean;
+}
+
+export interface Ghosts {
+  mine: GhostLap | null;
+  record: (GhostLap & { name: string }) | null;
 }
 
 const AVATAR_KEY = "ec.avatar";
@@ -78,6 +114,7 @@ let state: State = {
   code: null,
   lobby: null,
   results: null,
+  awards: [],
   raceResults: null,
   error: null,
   online: false,
@@ -88,6 +125,15 @@ let state: State = {
   feed: [],
   scoreboard: false,
   modelReady: false,
+  assetsReady: false,
+  loadProgress: 0,
+  account: loadAccount(),
+  ranking: false,
+  replay: null,
+  settingsOpen: false,
+  ghosts: null,
+  chat: [],
+  chatOpen: false,
 };
 const listeners = new Set<() => void>();
 
@@ -132,6 +178,11 @@ export function saveChair(chair: ChairDNA): void {
   if (state.lobby) net.send({ t: "avatar", avatar: state.avatar, chair: clean });
 }
 
+export function setAccount(account: Account | null): void {
+  storeAccount(account);
+  setState({ account });
+}
+
 export function savedSession(): { code: string; token: string } | null {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
@@ -158,10 +209,11 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, raceResults: null, code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [] });
+  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null, chat: [], chatOpen: false });
 }
 
 let feedId = 0;
+let chatId = 0;
 function pushFeed(items: Omit<FeedItem, "id" | "at">[]): void {
   if (!items.length) return;
   const now = performance.now();
@@ -204,14 +256,20 @@ function onMessage(msg: ServerMsg): void {
       setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null } : {}) });
       return;
     case "results":
-      setState({ results: msg.rows, raceResults: null, snap: null, me: null, feed: [] });
+      setState({ results: msg.rows, awards: msg.awards, raceResults: null, snap: null, me: null, feed: [] });
       return;
     case "rresults":
-      setState({ raceResults: msg.rows, results: null, rsnap: null, rme: null, feed: [] });
+      setState({ raceResults: msg.rows, awards: msg.awards, results: null, rsnap: null, rme: null, feed: [] });
       return;
     case "rsnap":
       setState({ rsnap: msg.s, rme: msg.me });
       raceFeed(msg.s);
+      return;
+    case "chat":
+      setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });
+      return;
+    case "ghosts":
+      setState({ ghosts: { mine: msg.mine, record: msg.record } });
       return;
     case "snap": {
       const items: Omit<FeedItem, "id" | "at">[] = [];
@@ -237,4 +295,4 @@ function onMessage(msg: ServerMsg): void {
   }
 }
 
-export const net = new Connection(onMessage, (online) => setState({ online }), savedSession);
+export const net = new Connection(onMessage, (online) => setState({ online }), savedSession, loginSession);

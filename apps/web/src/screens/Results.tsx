@@ -2,6 +2,7 @@ import { ABILITIES } from "@ec/shared";
 import { AvatarPreview } from "../game/AvatarPreview";
 import { avatarThumbnail } from "../game/character";
 import { net, useStore } from "../store";
+import { Awards } from "./Awards";
 
 export function Results() {
   const rows = useStore((s) => s.results)!;
@@ -97,6 +98,7 @@ export function Results() {
                 ))}
               </tbody>
             </table>
+            <Awards />
             <div className="row" style={{ marginTop: 16 }}>
               {isHost ? (
                 <button className="btn primary" onClick={() => net.send({ t: "lobby" })}>
