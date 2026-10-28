@@ -85,7 +85,7 @@ export const RACE_LABELS: Record<RaceAction, string> = {
   esquerda: "Virar à esquerda",
   direita: "Virar à direita",
   derrapar: "Derrapar (solte para o turbo)",
-  item: "Usar item (o clique também usa)",
+  item: "Usar item (segure para escudo; o clique também usa)",
   voltar: "Voltar para a pista",
   placar: "Placar da corrida",
   mudo: "Silenciar tudo",

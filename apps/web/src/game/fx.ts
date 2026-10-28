@@ -8,22 +8,44 @@ interface Effect {
   update: (k: number, obj: THREE.Object3D) => void;
 }
 
+const sharedRingGeo = new THREE.RingGeometry(0.85, 1, 32);
+sharedRingGeo.rotateX(-Math.PI / 2);
+const sharedPuffGeo = new THREE.IcosahedronGeometry(0.12, 0);
+const sharedPaperGeo = new THREE.PlaneGeometry(0.12, 0.08);
+
+/** Cache de texturas de números de dano para evitar criar canvas no loop de jogo. */
+const numberTextureCache = new Map<string, THREE.CanvasTexture>();
+
+function getNumberTexture(text: string, color: string): THREE.CanvasTexture {
+  const key = `${text}:${color}`;
+  let tex = numberTextureCache.get(key);
+  if (!tex) {
+    const c = document.createElement("canvas");
+    c.width = 128;
+    c.height = 64;
+    const g = c.getContext("2d")!;
+    g.font = "800 44px 'JetBrains Mono', monospace";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.lineWidth = 8;
+    g.strokeStyle = "#1d1b17";
+    g.strokeText(text, 64, 34);
+    g.fillStyle = color;
+    g.fillText(text, 64, 34);
+    tex = new THREE.CanvasTexture(c);
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    numberTextureCache.set(key, tex);
+  }
+  return tex;
+}
+
 function textSprite(text: string, color: string, size = 0.6): THREE.Sprite {
-  const c = document.createElement("canvas");
-  c.width = 128;
-  c.height = 64;
-  const g = c.getContext("2d")!;
-  g.font = "800 44px 'JetBrains Mono', monospace";
-  g.textAlign = "center";
-  g.textBaseline = "middle";
-  g.lineWidth = 8;
-  g.strokeStyle = "#1d1b17";
-  g.strokeText(text, 64, 34);
-  g.fillStyle = color;
-  g.fillText(text, 64, 34);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  const map = getNumberTexture(text, color);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false, transparent: true }));
   s.scale.set(size * 2, size, 1);
   s.renderOrder = 10;
+  s.userData.sharedMap = true;
   return s;
 }
 
@@ -49,8 +71,11 @@ export class FxSystem {
   }
 
   ring(x: number, z: number, radius: number, color: string, life = 0.45): void {
-    const m = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), new THREE.MeshBasicMaterial({ color, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
-    m.rotation.x = -Math.PI / 2;
+    const m = new THREE.Mesh(
+      sharedRingGeo,
+      new THREE.MeshBasicMaterial({ color, transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    m.userData.sharedGeo = true;
     m.position.set(x, 0.08, z);
     this.add(m, life, (k, o) => {
       o.scale.setScalar(0.2 + radius * (1 - k));
@@ -60,7 +85,8 @@ export class FxSystem {
 
   puff(x: number, z: number, color: string, count = 6, y = 1): void {
     for (let i = 0; i < count; i++) {
-      const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), new THREE.MeshBasicMaterial({ color, transparent: true }));
+      const m = new THREE.Mesh(sharedPuffGeo, new THREE.MeshBasicMaterial({ color, transparent: true }));
+      m.userData.sharedGeo = true;
       const a = Math.random() * Math.PI * 2;
       const v = new THREE.Vector3(Math.cos(a), 0.6 + Math.random(), Math.sin(a)).multiplyScalar(2.4);
       m.position.set(x, y, z);
@@ -68,6 +94,33 @@ export class FxSystem {
         o.position.addScaledVector(v, 1 / 60);
         v.y -= 0.12;
         fade(o, k);
+      });
+    }
+  }
+
+  paperDebris(x: number, z: number, y = 1.2): void {
+    const colors = ["#ffffff", "#f5f3ec", "#e3dfd3"];
+    for (let i = 0; i < 7; i++) {
+      const col = colors[i % colors.length];
+      const m = new THREE.Mesh(
+        sharedPaperGeo,
+        new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide, transparent: true }),
+      );
+      m.userData.sharedGeo = true;
+      const a = Math.random() * Math.PI * 2;
+      const speed = 1.2 + Math.random() * 2.2;
+      const v = new THREE.Vector3(Math.cos(a) * speed, 1.2 + Math.random() * 1.6, Math.sin(a) * speed);
+      const rot = new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16, (Math.random() - 0.5) * 16);
+      m.position.set(x, y, z);
+      this.add(m, 0.55, (k, o) => {
+        o.position.addScaledVector(v, 1 / 60);
+        o.rotation.x += rot.x / 60;
+        o.rotation.y += rot.y / 60;
+        o.rotation.z += rot.z / 60;
+        v.y -= 0.18; // gravidade
+        v.x *= 0.96; // arrasto do ar
+        v.z *= 0.96;
+        fade(o, Math.min(1, k * 1.5));
       });
     }
   }
@@ -89,10 +142,19 @@ export class FxSystem {
       for (let s = 0; s <= 6; s++) {
         const t = s / 6;
         const j = s === 0 || s === 6 ? 0 : 0.35;
-        verts.push(new THREE.Vector3(a.x + (b.x - a.x) * t + (Math.random() - 0.5) * j, 1.2 + (Math.random() - 0.5) * j, a.z + (b.z - a.z) * t + (Math.random() - 0.5) * j));
+        verts.push(
+          new THREE.Vector3(
+            a.x + (b.x - a.x) * t + (Math.random() - 0.5) * j,
+            1.2 + (Math.random() - 0.5) * j,
+            a.z + (b.z - a.z) * t + (Math.random() - 0.5) * j,
+          ),
+        );
       }
     }
-    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(verts), new THREE.LineBasicMaterial({ color: "#7fe3ff", transparent: true }));
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(verts),
+      new THREE.LineBasicMaterial({ color: "#7fe3ff", transparent: true }),
+    );
     this.add(line, 0.3, (k, o) => fade(o, k));
     for (const p of pts.slice(1)) this.puff(p.x, p.z, "#7fe3ff", 4, 1.2);
   }
@@ -102,7 +164,8 @@ export class FxSystem {
       const a = yaw + (Math.random() - 0.5) * 1.1;
       const speed = range * (0.8 + Math.random() * 0.6);
       const v = new THREE.Vector3(Math.sin(a) * speed, (Math.random() - 0.3) * 1.5, Math.cos(a) * speed);
-      const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1 + Math.random() * 0.08, 0), new THREE.MeshBasicMaterial({ color, transparent: true }));
+      const m = new THREE.Mesh(sharedPuffGeo, new THREE.MeshBasicMaterial({ color, transparent: true }));
+      m.userData.sharedGeo = true;
       m.position.set(x, 1.3, z);
       this.add(m, 0.45, (k, o) => {
         o.position.addScaledVector(v, 1 / 60 / 0.45);
@@ -122,7 +185,7 @@ export class FxSystem {
     const color = def?.color ?? "#ffffff";
     switch (e.kind) {
       case "impact":
-        this.puff(e.x, e.z, "#f4f1ea", 4, 1.2);
+        this.paperDebris(e.x, e.z, 1.2);
         return;
       case "dodge":
         this.puff(e.x, e.z, "#ffffff", 6, 0.3);
@@ -160,9 +223,10 @@ export class FxSystem {
     this.scene.remove(obj);
     obj.traverse((o) => {
       const m = o as THREE.Mesh;
-      m.geometry?.dispose();
+      // geometria e textura de número são compartilhadas (cache): não descartar
+      if (!m.userData.sharedGeo) m.geometry?.dispose();
       const mat = m.material as THREE.Material & { map?: THREE.Texture };
-      mat?.map?.dispose();
+      if (!m.userData.sharedMap) mat?.map?.dispose();
       mat?.dispose();
     });
   }

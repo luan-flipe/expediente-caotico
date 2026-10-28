@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { pointAt, progressOf, sideNormal, trackEdges, RACE, type Track, type Vec2 } from "@ec/shared";
 
 /** Piso de cada ambiente (nomes de track.rooms, de todas as pistas). */
@@ -92,6 +93,45 @@ function checkerTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
   return t;
 }
 
+/**
+ * Junta as malhas estáticas do grupo em uma malha por material (e sombra), em coordenadas de mundo.
+ * Centenas de paredes, fitas e móveis viram poucas chamadas de desenho, em qualquer pista.
+ */
+function mergeStatic(group: THREE.Group): THREE.Mesh[] {
+  group.updateMatrixWorld(true);
+  const buckets = new Map<string, { mat: THREE.Material; cast: boolean; geos: THREE.BufferGeometry[] }>();
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const mat = m.material as THREE.Material;
+    const key = `${mat.uuid}:${m.castShadow}`;
+    let b = buckets.get(key);
+    if (!b) buckets.set(key, (b = { mat, cast: m.castShadow, geos: [] }));
+    b.geos.push(m.geometry.clone().applyMatrix4(m.matrixWorld));
+  });
+  const used = new Set<THREE.BufferGeometry>();
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) used.add(m.geometry);
+  });
+  used.forEach((g) => g.dispose());
+  const out: THREE.Mesh[] = [];
+  for (const b of buckets.values()) {
+    // caixas e cilindros são indexados, o icosaedro não: mistura vira tudo não indexado
+    const mixed = b.geos.some((g) => !g.index) && b.geos.some((g) => g.index);
+    const geos = mixed ? b.geos.map((g) => (g.index ? g.toNonIndexed() : g)) : b.geos;
+    const merged = mergeGeometries(geos, false);
+    b.geos.forEach((g) => g.dispose());
+    if (mixed) geos.forEach((g) => g.dispose());
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, b.mat);
+    mesh.castShadow = b.cast;
+    mesh.receiveShadow = true;
+    out.push(mesh);
+  }
+  return out;
+}
+
 /** Faixa no chão entre duas listas de pontos (mesmo tamanho). */
 function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, closed: boolean): THREE.BufferGeometry {
   const n = a.length;
@@ -128,6 +168,8 @@ function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, c
 export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const textures: THREE.Texture[] = [];
   const n = track.points.length;
+  // tudo que não se mexe e não tem textura própria entra aqui e é unido no fim
+  const stat = new THREE.Group();
   // chão em volta do traçado, com folga para a decoração
   const xs = track.points.map((p) => p.x);
   const zs = track.points.map((p) => p.z);
@@ -157,7 +199,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const tapeGeo = new THREE.BoxGeometry(0.18, 0.02, 1.6);
   for (let s = 4; s < track.length - 2; s += 4) {
     const at = pointAt(track, s);
-    scene.add(mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading));
+    stat.add(mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading));
   }
 
   // carpete na borda interna das curvas fechadas
@@ -201,8 +243,8 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
       const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
       const ry = Math.atan2(b.x - a.x, b.z - a.z);
       const room = roomAt(track, track.cum[i]);
-      scene.add(mesh(new THREE.BoxGeometry(0.25, 1.0, len + 0.25), wallMat(room), mid.x, 0.5, mid.z, ry));
-      scene.add(mesh(new THREE.BoxGeometry(0.3, 0.06, len + 0.25), cap, mid.x, 1.03, mid.z, ry));
+      stat.add(mesh(new THREE.BoxGeometry(0.25, 1.0, len + 0.25), wallMat(room), mid.x, 0.5, mid.z, ry));
+      stat.add(mesh(new THREE.BoxGeometry(0.3, 0.06, len + 0.25), cap, mid.x, 1.03, mid.z, ry));
     }
   }
 
@@ -218,7 +260,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   for (const s of [-1, 1]) {
     const x = start.pos.x + nrm.x * (start.halfWidth + 0.4) * s;
     const z = start.pos.z + nrm.z * (start.halfWidth + 0.4) * s;
-    scene.add(mesh(new THREE.BoxGeometry(0.3, 4, 0.3), arch, x, 2, z));
+    stat.add(mesh(new THREE.BoxGeometry(0.3, 4, 0.3), arch, x, 2, z));
   }
   const banner = textSprite("Rally da Firma", textures);
   banner.position.set(start.pos.x, 4.1, start.pos.z);
@@ -232,12 +274,13 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     scene.add(sign);
   }
 
-  decorate(scene, track);
+  decorate(stat, track);
+  for (const m of mergeStatic(stat)) scene.add(m);
   return () => textures.forEach((t) => t.dispose());
 }
 
 /** Móveis fora da pista, por ambiente. Só entram onde não encostam em nenhum trecho. */
-function decorate(scene: THREE.Scene, track: Track): void {
+function decorate(scene: THREE.Group, track: Track): void {
   const wood = new THREE.MeshStandardMaterial({ color: "#c9a27a", roughness: 0.8, flatShading: true });
   const white = new THREE.MeshStandardMaterial({ color: "#f3efe6", roughness: 0.7 });
   const dark = new THREE.MeshStandardMaterial({ color: "#2b2f36", roughness: 0.6 });

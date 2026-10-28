@@ -242,9 +242,10 @@ function RaceControls() {
             R
           </TapButton>
           {items && (
-            <TapButton code={keys.item} className={`mid ${me?.item ? "ready" : ""}`} label="Usar item">
+            // segurar o botão segura resma, poça e grampeador atrás como escudo; soltar usa
+            <HoldButton code={keys.item} className={`mid ${me?.item ? "ready" : ""}`} label="Usar item (segure para escudo)">
               Item
-            </TapButton>
+            </HoldButton>
           )}
           <HoldButton code={keys.derrapar} className="mid" label="Derrapar">
             Derrapar

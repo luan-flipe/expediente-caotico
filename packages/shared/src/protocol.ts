@@ -58,8 +58,8 @@ export const ClientMsg = z.discriminatedUnion("t", [
     dist: num.min(0).max(100).optional(),
   }),
   z.object({ t: z.literal("evolve"), optionId: z.string().max(32), seq: z.number().int().min(0) }),
-  z.object({ t: z.literal("kinput"), steer: unit, throttle: unit, drift: z.boolean(), seq: z.number().int().min(1).max(2 ** 31) }),
-  z.object({ t: z.literal("kitem") }),
+  z.object({ t: z.literal("kinput"), steer: unit, throttle: unit, drift: z.boolean(), seq: z.number().int().min(1).max(2 ** 31), itemHold: z.boolean().optional() }),
+  z.object({ t: z.literal("kitem"), release: z.boolean().optional() }),
   z.object({ t: z.literal("krespawn") }),
   /** Só o anfitrião, só no contra o relógio: encerra o treino. */
   z.object({ t: z.literal("endTraining") }),

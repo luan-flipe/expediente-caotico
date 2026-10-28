@@ -124,6 +124,10 @@ export class Engine {
   private inputTimer: ReturnType<typeof setInterval>;
   private cleanup: (() => void)[] = [];
   private initialized = false;
+  private camPos = new THREE.Vector3();
+  private camLook = new THREE.Vector3();
+  private camReady = false;
+  private shake = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -389,7 +393,10 @@ export class Engine {
       this.fx.handle(e, this.myId);
       if (e.type === "fx" && e.kind === "B1" && e.owner) this.views.get(e.owner)?.char.play("cafe");
       if (e.type === "hit" && e.from === this.myId) this.onUi("hit");
-      if (e.type === "hit" && e.target === this.myId) this.onUi("hurt");
+      if (e.type === "hit" && e.target === this.myId) {
+        this.shake = Math.min(1, this.shake + 0.35);
+        this.onUi("hurt");
+      }
     }
   }
 
@@ -608,11 +615,11 @@ export class Engine {
 
     this.fx.update(dt);
 
-    this.updateCamera();
+    this.updateCamera(dt);
     this.sky.update(dt, this.camera.position);
   }
 
-  private updateCamera(): void {
+  private updateCamera(dt: number): void {
     const me = this.myView();
     const base = me ? me.char.root.position : new THREE.Vector3(0, 0, 0);
     const cp = Math.cos(this.pitch);
@@ -624,8 +631,31 @@ export class Engine {
     const t = segmentBoxT({ x: head.x, z: head.z }, { x: want.x, z: want.z }, OFFICE_MAP.boxes, 0.25, 2);
     if (t !== null) want.copy(head).addScaledVector(offset, Math.max(0.15, t * 0.9));
     want.y = Math.max(base.y + 0.5, want.y);
-    this.camera.position.copy(want);
-    this.camera.lookAt(want.clone().add(fwd));
+
+    const targetLook = want.clone().add(fwd);
+    if (!this.camReady) {
+      this.camPos.copy(want);
+      this.camLook.copy(targetLook);
+      this.camReady = true;
+    } else {
+      const kPos = 1 - Math.exp(-dt * 14);
+      const kLook = 1 - Math.exp(-dt * 20);
+      this.camPos.lerp(want, kPos);
+      this.camLook.lerp(targetLook, kLook);
+    }
+
+    this.shake = Math.max(0, this.shake - dt * 4);
+    if (this.shake > 0.005) {
+      const sh = this.shake * 0.14;
+      this.camera.position.set(
+        this.camPos.x + (Math.random() - 0.5) * sh,
+        this.camPos.y + (Math.random() - 0.5) * sh,
+        this.camPos.z + (Math.random() - 0.5) * sh,
+      );
+    } else {
+      this.camera.position.copy(this.camPos);
+    }
+    this.camera.lookAt(this.camLook);
 
     // mira: raio da retícula até a altura do tiro ou até um adversário/zumbi
     let dist = 60;

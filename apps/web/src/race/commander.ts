@@ -145,7 +145,9 @@ export function createCommander(track: Track, listener?: THREE.AudioListener, ef
     { ry: -Math.PI / 2, attach: 1, side: -1 },
   ].map(({ ry, attach, side }) => {
     const geo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 28, 4);
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 5);
     const face = new THREE.Mesh(geo, bannerMat);
+    face.frustumCulled = false;
     face.rotation.y = ry;
     face.castShadow = true;
     banner.add(face);
