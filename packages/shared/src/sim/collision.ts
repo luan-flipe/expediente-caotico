@@ -2,59 +2,25 @@ import { BALANCE } from "../data/balance";
 import type { Box } from "../data/map";
 import type { Vec2 } from "../types";
 
-/**
- * Resolve a colisão/penetração de um círculo em um retângulo AABB (Box).
- * Empurra o círculo pela direção normal mais curta para fora do retângulo.
- */
-function resolveCircleBox(pos: Vec2, r: number, b: Box): void {
-  const hx = b.w / 2;
-  const hz = b.d / 2;
-
-  // Ponto mais próximo da caixa ao centro do círculo
-  const cx = Math.max(b.x - hx, Math.min(b.x + hx, pos.x));
-  const cz = Math.max(b.z - hz, Math.min(b.z + hz, pos.z));
-
-  const vx = pos.x - cx;
-  const vz = pos.z - cz;
-  const distSq = vx * vx + vz * vz;
-
-  if (distSq < r * r) {
-    if (distSq > 1e-9) {
-      const dist = Math.sqrt(distSq);
-      const overlap = r - dist;
-      pos.x += (vx / dist) * overlap;
-      pos.z += (vz / dist) * overlap;
-    } else {
-      // Caso raro: o centro do círculo está exatamente dentro do retângulo.
-      // Ejeta pela face mais próxima para a saída mais curta.
-      const left = pos.x - (b.x - hx);
-      const right = (b.x + hx) - pos.x;
-      const top = pos.z - (b.z - hz);
-      const bottom = (b.z + hz) - pos.z;
-      const min = Math.min(left, right, top, bottom);
-      if (min === left) pos.x = b.x - hx - r;
-      else if (min === right) pos.x = b.x + hx + r;
-      else if (min === top) pos.z = b.z - hz - r;
-      else pos.z = b.z + hz + r;
-    }
+function pushAxis(pos: Vec2, axis: "x" | "z", delta: number, r: number, boxes: Box[]): void {
+  if (delta === 0) return;
+  let next = pos[axis] + delta;
+  for (const b of boxes) {
+    const half = axis === "x" ? b.w / 2 : b.d / 2;
+    const otherHalf = axis === "x" ? b.d / 2 : b.w / 2;
+    const center = axis === "x" ? b.x : b.z;
+    const other = axis === "x" ? pos.z - b.z : pos.x - b.x;
+    if (Math.abs(other) >= otherHalf + r) continue;
+    if (Math.abs(next - center) >= half + r) continue;
+    next = delta > 0 ? Math.min(next, center - half - r) : Math.max(next, center + half + r);
   }
-}
-
-function clampBounds(pos: Vec2, r: number, bounds: { w: number; d: number }): void {
-  const mx = bounds.w / 2 - r;
-  const mz = bounds.d / 2 - r;
-  pos.x = Math.max(-mx, Math.min(mx, pos.x));
-  pos.z = Math.max(-mz, Math.min(mz, pos.z));
+  pos[axis] = next;
 }
 
 /**
- * Move um círculo pelo plano XZ deslizando suavemente nas caixas e
- * mantendo o jogador dentro dos limites do mapa.
- *
- * Utiliza separação contínua de Circle vs AABB em sub-passos para:
- * 1. Evitar teletransportes e atravessamento de paredes finas.
- * 2. Permitir deslizamento fluido em qualquer parede.
- * 3. Contornar quinas de mesas e quinas de paredes de forma natural.
+ * Move um círculo pelo plano XZ deslizando nas caixas (eixos separados) e
+ * preso aos limites do mapa. Divide o movimento em passos menores que o raio
+ * para não atravessar paredes finas.
  */
 export function moveCircle(
   from: Vec2,
@@ -66,47 +32,15 @@ export function moveCircle(
 ): Vec2 {
   const pos = { x: from.x, z: from.z };
   const len = Math.hypot(dx, dz);
-
-  if (len < 1e-9) {
-    for (let it = 0; it < 2; it++) {
-      for (const b of boxes) {
-        if (Math.abs(pos.x - b.x) >= b.w / 2 + r || Math.abs(pos.z - b.z) >= b.d / 2 + r) continue;
-        resolveCircleBox(pos, r, b);
-      }
-      clampBounds(pos, r, bounds);
-    }
-    return pos;
+  const steps = Math.max(1, Math.ceil(len / (r * 0.8)));
+  for (let i = 0; i < steps; i++) {
+    pushAxis(pos, "x", dx / steps, r, boxes);
+    pushAxis(pos, "z", dz / steps, r, boxes);
   }
-
-  // Passos curtos (no máximo ~0.35 * r) para impedir tunelamento mesmo em altas velocidades (dash/dodge)
-  const steps = Math.max(1, Math.ceil(len / (r * 0.35)));
-  const subDx = dx / steps;
-  const subDz = dz / steps;
-
-  for (let s = 0; s < steps; s++) {
-    // 1. Move componente X e resolve colisão
-    pos.x += subDx;
-    for (const b of boxes) {
-      if (Math.abs(pos.x - b.x) >= b.w / 2 + r || Math.abs(pos.z - b.z) >= b.d / 2 + r) continue;
-      resolveCircleBox(pos, r, b);
-    }
-
-    // 2. Move componente Z e resolve colisão
-    pos.z += subDz;
-    for (const b of boxes) {
-      if (Math.abs(pos.x - b.x) >= b.w / 2 + r || Math.abs(pos.z - b.z) >= b.d / 2 + r) continue;
-      resolveCircleBox(pos, r, b);
-    }
-
-    // 3. Relaxamento para cantos/quinas onde múltiplas caixas se encontram
-    for (const b of boxes) {
-      if (Math.abs(pos.x - b.x) >= b.w / 2 + r || Math.abs(pos.z - b.z) >= b.d / 2 + r) continue;
-      resolveCircleBox(pos, r, b);
-    }
-
-    clampBounds(pos, r, bounds);
-  }
-
+  const mx = bounds.w / 2 - r;
+  const mz = bounds.d / 2 - r;
+  pos.x = Math.max(-mx, Math.min(mx, pos.x));
+  pos.z = Math.max(-mz, Math.min(mz, pos.z));
   return pos;
 }
 

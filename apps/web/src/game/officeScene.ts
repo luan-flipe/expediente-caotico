@@ -11,7 +11,6 @@ const COLORS: Record<Box["kind"], string> = {
   plant: "#7a5236",    // Vaso de planta
   partition: "#5a6473",// Divisórias de mesa
   sofa: "#3f6b8a",     // Sofás
-  door: "#ffd025",     // Portas amarelas vibrantes
 };
 
 function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, shadow = true): THREE.Mesh {
@@ -21,21 +20,6 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: numb
   m.receiveShadow = true;
   return m;
 }
-
-/** Portas amarelas da planta: posições das folhas de porta de correr e soleiras */
-const YELLOW_DOORS: { x: number; z: number; w: number; d: number }[] = [
-  { x: -27.0, z: -8.0, w: 2.4, d: 0.12 },  // Sala executiva sup esq
-  { x: -14.0, z: -8.0, w: 2.4, d: 0.12 },  // Sala de infra
-  { x: -4.5, z: -8.0, w: 2.2, d: 0.12 },   // Banheiro sup
-  { x: 1.0, z: -8.0, w: 2.2, d: 0.12 },    // Sala do comandante
-  { x: 10.0, z: -8.0, w: 2.6, d: 0.12 },   // Sala de reunião grande
-  { x: -35.0, z: -4.5, w: 0.12, d: 3.0 },  // Saída oeste
-  { x: -9.0, z: 1.5, w: 2.0, d: 0.12 },    // Banheiro feminino
-  { x: 14.0, z: 1.5, w: 2.2, d: 0.12 },    // Reunião menor 1
-  { x: -29.0, z: 8.0, w: 2.6, d: 0.12 },   // Sala de gestão
-  { x: -16.0, z: 8.0, w: 3.0, d: 0.12 },   // Sala dos devs
-  { x: 8.0, z: 8.0, w: 3.0, d: 0.12 },     // Sala suporte
-];
 
 /** Monta o escritório a partir da planta arquitetônica oficial. */
 export function buildOffice(scene: THREE.Scene): void {
@@ -75,7 +59,6 @@ export function buildOffice(scene: THREE.Scene): void {
   const wallTop = new THREE.MeshStandardMaterial({ color: "#17181c" });
   const chair = new THREE.MeshStandardMaterial({ color: "#1e2126", roughness: 0.75 });
   const ceramic = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.25 });
-  const doorMat = new THREE.MeshStandardMaterial({ color: COLORS.door, roughness: 0.5, metalness: 0.1 });
 
   // Renderização das caixas físicas do mapa
   for (const b of OFFICE_MAP.boxes) {
@@ -113,36 +96,12 @@ export function buildOffice(scene: THREE.Scene): void {
   // DETALHES DECORATIVOS DA PLANTA
   // =========================================================================
 
-  // 1. Portas Amarelas de Correr com Batente e Soleira Amarela
-  for (const d of YELLOW_DOORS) {
-    const isX = d.w > d.d;
-    // Soleira amarela no piso
-    const threshold = mesh(new THREE.PlaneGeometry(Math.max(d.w, 0.4), Math.max(d.d, 0.4)), doorMat, d.x, 0.012, d.z, false);
-    threshold.rotation.x = -Math.PI / 2;
-    scene.add(threshold);
-
-    // Folha da porta de correr recolhida junto ao batente
-    const doorLeaf = mesh(
-      new THREE.BoxGeometry(isX ? d.w * 0.45 : 0.08, 2.4, isX ? 0.08 : d.d * 0.45),
-      doorMat,
-      d.x + (isX ? d.w * 0.28 : 0),
-      1.2,
-      d.z + (isX ? 0 : d.d * 0.28),
-      true
-    );
-    scene.add(doorLeaf);
-
-    // Trilho superior amarelo
-    const rail = mesh(new THREE.BoxGeometry(isX ? d.w : 0.12, 0.1, isX ? 0.12 : d.d), doorMat, d.x, 2.45, d.z, false);
-    scene.add(rail);
-  }
-
-  // 2. Cozinha: Mesa Redonda com Tampo de Madeira e Vasinho de Planta
+  // 1. Cozinha: Mesa Redonda com Tampo de Madeira e Vasinho de Planta
   const roundDesk = mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.08, 32), topWood, -20.0, 0.76, -1.0);
   const roundBase = mesh(new THREE.CylinderGeometry(0.25, 0.4, 0.72, 16), matOf("wall"), -20.0, 0.36, -1.0);
   scene.add(roundDesk, roundBase);
 
-  // 3. Vasos Sanitários e Pias nos Banheiros
+  // 2. Vasos Sanitários e Pias nos Banheiros
   const toilets: [number, number][] = [
     [-7.5, -19.0], // Banheiro sup
     [-3.5, -19.0], // Banheiro sup
@@ -155,7 +114,7 @@ export function buildOffice(scene: THREE.Scene): void {
     scene.add(bowl, tank);
   }
 
-  // 4. Cadeiras de Escritório Conforme o Desenho
+  // 3. Cadeiras de Escritório Conforme o Desenho
   const addChair = (cx: number, cz: number, facingAngle: number) => {
     const c = mesh(new THREE.BoxGeometry(0.55, 0.88, 0.55), chair, cx, 0.44, cz, true);
     c.rotation.y = facingAngle;
@@ -210,7 +169,7 @@ export function buildOffice(scene: THREE.Scene): void {
   addChair(-27.2, 15.0, -Math.PI / 2);
   addChair(-30.8, 15.0, Math.PI / 2);
 
-  // 5. Placas com Nomes das Salas gravadas no piso
+  // 4. Placas com Nomes das Salas gravadas no piso
   for (const r of OFFICE_MAP.rooms) {
     if (r.w < 5 || r.d < 3) continue;
     const c = document.createElement("canvas");
