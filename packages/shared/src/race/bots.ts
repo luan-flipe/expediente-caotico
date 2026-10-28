@@ -3,12 +3,12 @@ import { RACE } from "./balance";
 import { deltaS, pointAt, progressOf, routeAhead, sideNormal, turnAhead } from "./track";
 import type { RaceMatch, Racer } from "./types";
 
-/** Lado da principal (-1/+1) oposto ao do atalho em que s está (0 fora de qualquer atalho). */
+/** Perto da boca de um atalho, o lado da principal (-1/+1) oposto a ele; 0 longe das bocas. */
 function awaySide(race: RaceMatch, s: number): number {
   for (const br of race.track.branches) {
     const span = deltaS(race.track, br.sFrom, br.sTo);
     const into = deltaS(race.track, br.sFrom - 10, s);
-    if (into < 0 || into > span + 10) continue;
+    if (into < 0 || into > 20) continue;
     const mid = br.points[Math.floor(br.points.length / 2)];
     const at = pointAt(race.track, br.sFrom + span / 2);
     const n = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
@@ -39,9 +39,9 @@ export function stepRaceBot(race: RaceMatch, r: Racer, dtMs: number): void {
   const pr = progressOf(race.track, k.pos, k.path);
   const ahead = routeAhead(race.track, pr, route, P.lookBase + Math.max(0, k.speed) * P.lookSpeed);
   const n = sideNormal(Math.sin(ahead.heading), Math.cos(ahead.heading));
-  // perto da bifurcação: no atalho, pelo centro; na principal, pelo lado de fora, longe da boca do atalho
+  // perto da bifurcação: no atalho, pelo centro; na principal, um pouco para longe da boca do atalho
   const away = route === -1 ? awaySide(race, pr.s) : 0;
-  const lane = b.route === undefined ? b.lane * (ahead.halfWidth - 1.5) : away * (ahead.halfWidth - 2);
+  const lane = b.route === undefined ? b.lane * (ahead.halfWidth - 1.5) : away * Math.min(1.5, ahead.halfWidth - 2);
   const tx = ahead.pos.x + n.x * lane;
   const tz = ahead.pos.z + n.z * lane;
   const want = Math.atan2(tx - k.pos.x, tz - k.pos.z);

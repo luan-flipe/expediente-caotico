@@ -137,7 +137,7 @@ interface BranchDef {
   ctrl: Ctrl[];
 }
 
-const CORPORATIVO_BRANCH: BranchDef = { from: 2.5, to: 5, ctrl: [{ x: 36, z: -22, w: 5 }] };
+const CORPORATIVO_BRANCH: BranchDef = { from: 2.2, to: 5, ctrl: [{ x: 35, z: -24, w: 5 }] };
 const ESTACIONAMENTO_BRANCH: BranchDef = { from: 2.5, to: 5.5, ctrl: [{ x: 42, z: -10, w: 7 }] };
 const COPA_BRANCH: BranchDef = { from: 8.7, to: 11.4, ctrl: [{ x: -12, z: -2, w: 5 }] };
 
@@ -511,6 +511,30 @@ export function inCarpet(track: Track, pr: TrackProgress): boolean {
     if (inside && pr.lateral * c.side > pr.halfWidth - RACE.carpetWidth) return true;
   }
   return false;
+}
+
+/** Projeção num corredor só (path -1 = principal), sem escolher entre eles. Para desenhar. */
+export function pathProgress(track: Track, path: number, pos: Vec2): TrackProgress {
+  return allProgress(track, pos).find((p) => p.path === path) ?? allProgress(track, pos)[0];
+}
+
+/** Bordas esquerda/direita do atalho i, como trackEdges. */
+export function branchEdges(track: Track, i: number): { plus: Vec2[]; minus: Vec2[] } {
+  const b = track.branches[i];
+  const n = b.points.length;
+  const plus: Vec2[] = [];
+  const minus: Vec2[] = [];
+  for (let k = 0; k < n; k++) {
+    const a = b.points[Math.max(0, k - 1)];
+    const c = b.points[Math.min(n - 1, k + 1)];
+    const len = Math.hypot(c.x - a.x, c.z - a.z);
+    const nrm = sideNormal((c.x - a.x) / len, (c.z - a.z) / len);
+    const hw = b.widths[k] / 2;
+    const p = b.points[k];
+    plus.push({ x: p.x + nrm.x * hw, z: p.z + nrm.z * hw });
+    minus.push({ x: p.x - nrm.x * hw, z: p.z - nrm.z * hw });
+  }
+  return { plus, minus };
 }
 
 /** Bordas esquerda/direita da pista, para desenhar paredes e minimapa. */
