@@ -88,6 +88,14 @@ input {
   max-width: 560px;
 }
 
+.pair {
+  display: grid;
+  /* lado a lado só quando cada card tem espaço; senão empilha (coluna estreita ao lado do crachá, celular) */
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
 .grid-2 {
   display: grid;
   grid-template-columns: minmax(280px, 380px) 1fr;
@@ -124,6 +132,20 @@ input {
   padding: 8px 14px;
   display: flex;
   justify-content: space-between;
+}
+
+.badge-spin {
+  background: none;
+  border: 1px solid currentColor;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.badge-spin:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .badge-preview {
@@ -288,16 +310,125 @@ input {
   aspect-ratio: 1;
 }
 
+.presets button.on {
+  outline: 3px solid var(--postit);
+  outline-offset: 1px;
+}
+
 .presets img {
   width: 100%;
   height: 100%;
   display: block;
 }
 
-.editor-grid {
+/* prévia e ações ficam na tela enquanto as opções rolam */
+.creator-side {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* uma linha só; se faltar espaço, rola de lado (padding deixa a sombra da aba ativa aparecer) */
+.tabs {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 0 4px 5px 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  border: 2px solid var(--line);
+  background: #fff;
+  padding: 7px 9px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.tab.on {
+  background: var(--postit);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.tab-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  width: 18px;
+  height: 18px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 18px 22px;
+  place-items: center;
+  border: 1.5px solid var(--line);
+  border-radius: 50%;
+}
+
+.step-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.step-title {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  border: 2px solid var(--line);
+  background: #fff;
+  padding: 14px;
+}
+
+.choice strong {
+  font-size: 17px;
+}
+
+.choice span {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.choice.on {
+  background: var(--postit);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.step-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-top: 2px dashed var(--ink-2);
+  padding-top: 16px;
+}
+
+/* no celular a prévia fixa encolhe para sobrar espaço às opções */
+@media (max-width: 760px) {
+  .creator-side {
+    background: var(--paper);
+    padding-bottom: 10px;
+  }
+
+  .creator-side .badge-preview {
+    height: 180px;
+  }
+
+  .creator-side .badge-name {
+    display: none;
+  }
 }
 
 /* lobby */
@@ -1106,4 +1237,216 @@ input {
   font-size: 14px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* ---------- contra o relógio ---------- */
+.race-place.trial .now {
+  font-family: var(--mono);
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--postit);
+}
+
+.race-place.trial .times .record {
+  color: #ffd23f;
+}
+
+.hud .end-training {
+  display: block;
+  margin: 8px auto 0;
+  pointer-events: auto;
+}
+
+/* ---------- ranking da firma ---------- */
+.tag.seal {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.tag.seal.ranked {
+  background: var(--blue);
+  color: #fff;
+}
+
+.rank-tabs button {
+  font-size: 15px;
+  padding: 8px 14px;
+}
+
+.rank-table tr.lead td {
+  font-weight: 800;
+}
+
+.rank-table tr.me td {
+  background: #fff6c2;
+}
+
+.rank-table tr.gap td {
+  text-align: center;
+  color: var(--ink-2);
+  font-family: var(--mono);
+}
+
+.rank-leader {
+  transform: rotate(-1deg);
+  display: block;
+}
+
+.rank-leader .who,
+.rank-past {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- carregamento ---------- */
+.screen.loading {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* só aparece se a espera passar de um instante: carga rápida (arquivos em cache) não pisca */
+  opacity: 0;
+  animation: loading-in 0.25s ease-out 0.3s forwards;
+}
+
+.loading-box {
+  width: min(720px, 100%);
+}
+
+.loading-box .brand {
+  margin-bottom: 24px;
+}
+
+.loading-box .brand h1 {
+  font-size: clamp(36px, 9vw, 64px);
+}
+
+.loading-bar {
+  height: 22px;
+  border: 2px solid var(--line);
+  background: #fff;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.loading-fill {
+  height: 100%;
+  background: var(--postit);
+  border-right: 2px solid var(--line);
+  transition: width 0.2s ease-out;
+}
+
+.loading-label {
+  margin: 14px 0 0;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+@keyframes loading-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen.loading {
+    animation-duration: 0.01s;
+  }
+  .loading-fill {
+    transition: none;
+  }
+}
+
+/* ---------- configurações ---------- */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  overflow: auto;
+  padding: 24px;
+  background: rgba(20, 18, 15, 0.62);
+}
+
+.settings-panel {
+  max-width: 980px;
+  margin: 0 auto;
+  background: var(--paper);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.settings-panel .brand h1 {
+  font-size: clamp(32px, 5vw, 52px);
+}
+
+.set-slider {
+  display: grid;
+  grid-template-columns: 110px 1fr 64px;
+  gap: 12px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.set-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--ink);
+}
+
+.set-slider .val {
+  font-family: var(--mono);
+  font-size: 14px;
+  text-align: right;
+}
+
+.set-check {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.set-check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--ink);
+}
+
+.set-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.set-key {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px dashed var(--ink-2);
+  padding-bottom: 6px;
+}
+
+.btn.keycap {
+  min-width: 78px;
+  font-family: var(--mono);
+}
+
+.btn.keycap.waiting {
+  background: var(--postit);
+}
+
+.set-warn {
+  color: var(--red);
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .set-slider {
+    grid-template-columns: 90px 1fr 56px;
+  }
 }

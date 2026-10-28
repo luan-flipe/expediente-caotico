@@ -4,11 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Expediente Caótico</title>
+    <meta name="description" content="Expediente Caótico: jogo de navegador gratuito para colegas de escritório. Tiroteio de bolinha de papel e corrida de cadeiras, com ranking da firma." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Some quando o jogo abre (o React troca o conteúdo). Fica para quem abre sem JavaScript e para robôs de verificação. -->
+      <main style="max-width: 760px; margin: 0 auto; padding: 32px 16px; font: 16px/1.6 system-ui, sans-serif; color: #1d1b17">
+        <h1>Expediente Caótico</h1>
+        <p>Jogo de navegador gratuito para jogar com os colegas de escritório. Monte seu boneco no crachá, crie uma sala e chame a turma pelo código.</p>
+        <ul>
+          <li><strong>Tiroteio:</strong> guerra de bolinha de papel pelo escritório.</li>
+          <li><strong>Rally da Firma:</strong> corrida de cadeiras de escritório.</li>
+          <li><strong>Contra o relógio:</strong> treine voltas contra o fantasma da sua melhor volta.</li>
+          <li><strong>Ranking da firma:</strong> quem entra com a conta Google aparece no ranking; quem preferir joga como visitante, sem conta.</li>
+        </ul>
+        <p>Não precisa de cadastro para jogar. O login com Google é opcional e serve só para guardar seus resultados no ranking.</p>
+        <p><a href="/privacidade.html">Política de privacidade</a> · <a href="/termos.html">Termos de serviço</a></p>
+        <noscript><p>Ative o JavaScript para jogar.</p></noscript>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

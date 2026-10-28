@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Hud } from "../hud/Hud";
-import { getState, net, useStore } from "../store";
+import { getState, net, setState, useStore } from "../store";
 import { Engine, type UiSignal } from "./engine";
 
 export function GameView({ myId }: { myId: string }) {
@@ -14,7 +14,11 @@ export function GameView({ myId }: { myId: string }) {
   useEffect(() => {
     const onUi = (s: UiSignal) => {
       if (s === "lock") setLocked(true);
-      if (s === "unlock") setLocked(false);
+      if (s === "unlock") {
+        setLocked(false);
+        // Esc solta o mouse e abre as configurações; perder o foco (Alt+Tab) também solta, mas aí não abre
+        if (document.hasFocus()) setState({ settingsOpen: true });
+      }
       if (s === "hit") setHitAt(performance.now());
       if (s === "hurt") setHurtAt(performance.now());
     };

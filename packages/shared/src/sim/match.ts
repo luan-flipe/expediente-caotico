@@ -184,7 +184,10 @@ export function stepMatch(m: Match, dtMs: number): void {
   if (m.phase === "finished") return;
   m.now += dtMs;
   if (m.phase === "countdown") {
-    if (m.now < m.countdownEndsAt) return;
+    if (m.now < m.countdownEndsAt) {
+      for (const p of m.players.values()) p.actions = [];
+      return;
+    }
     m.phase = "active";
     m.events.push({ type: "info", text: "Valendo! Bom expediente." });
   }

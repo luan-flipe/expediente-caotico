@@ -156,22 +156,32 @@ export class FxSystem {
     }
   }
 
+  private release(obj: THREE.Object3D): void {
+    this.scene.remove(obj);
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      m.geometry?.dispose();
+      const mat = m.material as THREE.Material & { map?: THREE.Texture };
+      mat?.map?.dispose();
+      mat?.dispose();
+    });
+  }
+
   update(dt: number): void {
     this.list = this.list.filter((f) => {
       f.life -= dt;
       if (f.life <= 0) {
-        this.scene.remove(f.obj);
-        f.obj.traverse((o) => {
-          const m = o as THREE.Mesh;
-          m.geometry?.dispose();
-          const mat = m.material as THREE.Material & { map?: THREE.Texture };
-          mat?.map?.dispose();
-          mat?.dispose();
-        });
+        this.release(f.obj);
         return false;
       }
       f.update(f.life / f.max, f.obj);
       return true;
     });
+  }
+
+  /** Sai da partida: libera os efeitos que ainda estavam no ar. */
+  dispose(): void {
+    for (const f of this.list) this.release(f.obj);
+    this.list = [];
   }
 }

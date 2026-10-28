@@ -36,7 +36,7 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: numb
   return m;
 }
 
-function textSprite(text: string): THREE.Sprite {
+function textSprite(text: string, textures: THREE.Texture[]): THREE.Sprite {
   const c = document.createElement("canvas");
   c.width = 512;
   c.height = 128;
@@ -50,12 +50,14 @@ function textSprite(text: string): THREE.Sprite {
   g.textAlign = "center";
   g.textBaseline = "middle";
   g.fillText(text.toUpperCase(), 256, 68);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c) }));
+  const map = new THREE.CanvasTexture(c);
+  textures.push(map);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map }));
   s.scale.set(5, 1.25, 1);
   return s;
 }
 
-function checkerTexture(): THREE.CanvasTexture {
+function checkerTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = 256;
   c.height = 32;
@@ -68,6 +70,7 @@ function checkerTexture(): THREE.CanvasTexture {
   }
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
+  textures.push(t);
   return t;
 }
 
@@ -100,8 +103,12 @@ function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, c
   return g;
 }
 
-/** Monta o Circuito Corporativo a partir de TRACK (o mesmo traçado da simulação do servidor). */
-export function buildTrack(scene: THREE.Scene): void {
+/**
+ * Monta o Circuito Corporativo a partir de TRACK (o mesmo traçado da simulação do servidor).
+ * Devolve a função que libera as texturas de canvas (placas e faixa de largada); geometrias e materiais saem com a cena.
+ */
+export function buildTrack(scene: THREE.Scene): () => void {
+  const textures: THREE.Texture[] = [];
   const n = TRACK.points.length;
   const ground = mesh(new THREE.PlaneGeometry(150, 120), new THREE.MeshStandardMaterial({ color: "#d9d3c6", roughness: 1 }), 0, -0.02, 0);
   ground.rotation.x = -Math.PI / 2;
@@ -174,7 +181,7 @@ export function buildTrack(scene: THREE.Scene): void {
 
   // largada
   const start = pointAt(TRACK, 0);
-  const line = mesh(new THREE.PlaneGeometry(start.halfWidth * 2, 1.2), new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.8 }), start.pos.x, 0.03, start.pos.z);
+  const line = mesh(new THREE.PlaneGeometry(start.halfWidth * 2, 1.2), new THREE.MeshStandardMaterial({ map: checkerTexture(textures), roughness: 0.8 }), start.pos.x, 0.03, start.pos.z);
   line.rotation.set(-Math.PI / 2, 0, 0);
   line.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), start.heading);
   line.castShadow = false;
@@ -186,19 +193,20 @@ export function buildTrack(scene: THREE.Scene): void {
     const z = start.pos.z + nrm.z * (start.halfWidth + 0.4) * s;
     scene.add(mesh(new THREE.BoxGeometry(0.3, 4, 0.3), arch, x, 2, z));
   }
-  const banner = textSprite("Rally da Firma");
+  const banner = textSprite("Rally da Firma", textures);
   banner.position.set(start.pos.x, 4.1, start.pos.z);
   banner.scale.set(start.halfWidth * 2, start.halfWidth * 0.5, 1);
   scene.add(banner);
 
   for (const r of TRACK_ROOMS.slice(1, -1)) {
     const at = pointAt(TRACK, TRACK.ctrlS[r.ctrl] + 4);
-    const sign = textSprite(r.name);
+    const sign = textSprite(r.name, textures);
     sign.position.set(at.pos.x, 3.4, at.pos.z);
     scene.add(sign);
   }
 
   decorate(scene);
+  return () => textures.forEach((t) => t.dispose());
 }
 
 /** Móveis fora da pista, por ambiente. Só entram onde não encostam em nenhum trecho. */

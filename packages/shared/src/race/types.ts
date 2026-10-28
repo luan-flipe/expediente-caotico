@@ -1,4 +1,5 @@
 import type { AvatarDNA, Phase, Vec2 } from "../types";
+import type { GhostSample } from "../ranking/types";
 import type { ChairDNA } from "./chair";
 import type { KartInput, KartState } from "./kart";
 import type { LapState } from "./laps";
@@ -30,6 +31,26 @@ export interface RaceBotBrain {
   holdMs: number;
 }
 
+/** Cronometragem e gravação do fantasma da volta atual, medida a partir da linha de chegada (o grid não conta). */
+export interface LapRecorder {
+  /** Instante em que a volta atual começou; null até a primeira passagem pela linha. */
+  startedAt: number | null;
+  samples: GhostSample[];
+  ticks: number;
+  /** Reposição (R) ou volta longa demais: a volta não vale recorde nem fantasma. */
+  dirty: boolean;
+  lastMs: number | null;
+  /** Melhor volta válida da sessão. */
+  bestMs: number | null;
+}
+
+/** Volta válida fechada: fica só no servidor, fora do snapshot. */
+export interface CompletedLap {
+  id: string;
+  ms: number;
+  ghost: GhostSample[];
+}
+
 export interface Racer {
   id: string;
   name: string;
@@ -55,6 +76,7 @@ export interface Racer {
   idleTicks: number;
   stepCredit: number;
   itemsUsed: Partial<Record<ItemId, number>>;
+  rec: LapRecorder;
   bot?: RaceBotBrain;
 }
 
@@ -79,6 +101,10 @@ export interface RaceMatch {
   hazards: Hazard[];
   boxes: ItemBox[];
   events: RaceEvent[];
+  /** Contra o relógio: sem caixas, itens, colisão entre cadeiras, limite de voltas nem bots. */
+  timeTrial: boolean;
+  /** Voltas válidas ainda não consumidas pela sala (humanos, corrida e treino). */
+  completedLaps: CompletedLap[];
   cps: number[];
   rng: () => number;
   nextId: number;
@@ -109,6 +135,7 @@ export interface RaceSnapshot {
   elapsedMs: number;
   graceMs: number | null;
   laps: number;
+  timeTrial: boolean;
   karts: RaceKartPublic[];
   boxes: { id: number; x: number; z: number; ready: boolean }[];
   hazards: { id: number; kind: HazardKind; x: number; z: number; vx: number; vz: number }[];
@@ -125,6 +152,8 @@ export interface RacePrivate {
   lapMs: number;
   lastLapMs: number | null;
   bestLapMs: number | null;
+  /** Melhor volta válida da sessão (sem reposição, sem a volta da largada). */
+  sessionBestMs: number | null;
   raceMs: number;
   blindMs: number;
   shieldMs: number;
