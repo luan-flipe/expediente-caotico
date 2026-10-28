@@ -1365,10 +1365,22 @@ input {
   /* só aparece se a espera passar de um instante: carga rápida (arquivos em cache) não pisca */
   opacity: 0;
   animation: loading-in 0.25s ease-out 0.3s forwards;
+  /* fundo escuro do ícone do app */
+  background: #1d1b17;
 }
 
 .loading-box {
   width: min(720px, 100%);
+  text-align: center;
+}
+
+.loading-mascot {
+  display: block;
+  margin: 0 auto 8px;
+  width: clamp(120px, 28vw, 192px);
+  height: auto;
+  animation: mascot-wobble 1.6s ease-in-out infinite;
+  transform-origin: 50% 90%;
 }
 
 .loading-box .brand {
@@ -1377,6 +1389,17 @@ input {
 
 .loading-box .brand h1 {
   font-size: clamp(36px, 9vw, 64px);
+  color: var(--hud-ink);
+}
+
+.loading-box .brand h1 span {
+  color: var(--ink);
+}
+
+.loading-bar {
+  border-color: var(--hud-ink);
+  box-shadow: 4px 4px 0 #000;
+  text-align: left;
 }
 
 .loading-bar {
@@ -1399,7 +1422,7 @@ input {
   font-family: var(--mono);
   font-weight: 700;
   font-size: 14px;
-  color: var(--ink-2);
+  color: var(--paper-2);
 }
 
 @keyframes loading-in {
@@ -1408,7 +1431,20 @@ input {
   }
 }
 
+@keyframes mascot-wobble {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(3deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .loading-mascot {
+    animation: none;
+  }
   .screen.loading {
     animation-duration: 0.01s;
   }

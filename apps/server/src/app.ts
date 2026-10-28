@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { dirname, extname, join, normalize, resolve } from "node:path";
+import { dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { DEFAULT_AVATAR, lapStandings, rankingView, sanitizeAvatar, sanitizeChair, type RankingRowBase, type RankingTab, type RankingView } from "@ec/shared";
@@ -19,7 +19,20 @@ const TYPES: Record<string, string> = {
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".json": "application/json",
+  ".webmanifest": "application/manifest+json",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".glb": "model/gltf-binary",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
 };
+
+/** Arquivos que o navegador precisa revalidar sempre: sem isso o service worker e o app novo demoram a chegar. */
+function revalidar(file: string): boolean {
+  const ext = extname(file);
+  return ext === ".html" || ext === ".webmanifest" || file.endsWith(`${sep}sw.js`);
+}
 
 /** Apelido estável e opaco da conta: o id do Google (o mesmo em todo app do Google) não sai na resposta pública. */
 export function publicId(accountId: string, secret: string): string {
@@ -33,7 +46,7 @@ function maskView(view: RankingView, secret: string): RankingView {
 }
 
 /** Serve o build do cliente (produção). Em dev o Vite cuida disso. */
-function serveStatic(url: string, res: import("node:http").ServerResponse): void {
+function serveStatic(url: string, res: import("node:http").ServerResponse, root: string): void {
   let decoded: string;
   try {
     decoded = decodeURIComponent(url.split("?")[0]);
@@ -42,15 +55,19 @@ function serveStatic(url: string, res: import("node:http").ServerResponse): void
     return;
   }
   const path = normalize(decoded).replace(/^([/\\])+/, "");
-  let file = join(WEB_DIST, path);
-  if (!file.startsWith(WEB_DIST) || !existsSync(file) || statSync(file).isDirectory()) file = join(WEB_DIST, "index.html");
+  let file = join(root, path);
+  if (!file.startsWith(root) || !existsSync(file) || statSync(file).isDirectory()) file = join(root, "index.html");
   if (!existsSync(file)) {
     res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
     res.end("Servidor do Expediente Caótico no ar. Rode o cliente com pnpm dev.");
     return;
   }
   // o tamanho deixa a tela de carregamento do cliente mostrar o progresso em bytes
-  res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream", "content-length": statSync(file).size });
+  res.writeHead(200, {
+    "content-type": TYPES[extname(file)] ?? "application/octet-stream",
+    "content-length": statSync(file).size,
+    ...(revalidar(file) ? { "cache-control": "no-cache" } : {}),
+  });
   createReadStream(file).pipe(res);
 }
 
@@ -61,6 +78,8 @@ export interface RunningServer {
 }
 
 export interface ServerOptions {
+  /** Pasta do build do cliente (só para testes; o padrão é apps/web/dist). */
+  webDist?: string;
   /** Conexão sem nenhuma mensagem por esse tempo é derrubada (o cliente faz ping a cada 2 s). */
   idleMs?: number;
   /** Voltas e tolerância da corrida (só para testes). */
@@ -111,6 +130,7 @@ function readBody(req: IncomingMessage, max: number): Promise<string | null> {
 
 export function startServer(port: number, opts: ServerOptions = {}): Promise<RunningServer> {
   const { store, auth } = opts;
+  const webDist = opts.webDist ?? WEB_DIST;
   // sem login configurado ainda pode haver dados antigos: o apelido usa uma chave do processo
   const aliasKey = auth?.secret ?? randomBytes(32).toString("hex");
   const manager = new RoomManager(opts.idleMs ?? 10000, opts.race, store && auth ? { store, secret: auth.secret } : undefined);
@@ -202,7 +222,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         Promise.resolve(api(req, res, path)).catch(fail);
         return;
       }
-      serveStatic(req.url ?? "/", res);
+      serveStatic(req.url ?? "/", res, webDist);
     } catch (err) {
       fail(err);
     }
