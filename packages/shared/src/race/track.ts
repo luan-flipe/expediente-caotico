@@ -517,14 +517,18 @@ export function routeAhead(track: Track, pr: TrackProgress, route: number, ahead
   return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), halfWidth: (b.widths[i] + (b.widths[i + 1] - b.widths[i]) * t) / 2 };
 }
 
-/** Onde volta quem cai no vão: 2 m antes do pé da rampa, no caminho dela. */
+/** Recuo de quem cai no vão: o bastante para embalar de novo antes da rampa (ou desistir do atalho). */
+const RAMP_RUNUP = 25;
+
+/** Onde volta quem cai no vão: RAMP_RUNUP antes do pé da rampa; antes da boca do atalho, na principal. */
 export function rampStart(track: Track, ramp: Ramp): { pos: Vec2; heading: number; path: number } {
   const b = track.branches[ramp.path];
-  if (!b) {
-    const at = pointAt(track, ramp.sFrom - 2);
+  const back = ramp.sFrom - RAMP_RUNUP;
+  if (!b || back < 0) {
+    const at = pointAt(track, b ? b.sFrom + back : back);
     return { pos: at.pos, heading: at.heading, path: -1 };
   }
-  const bs = Math.max(0, ramp.sFrom - 2);
+  const bs = back;
   const i = Math.min(b.points.length - 2, Math.floor(bs / b.spacing));
   const t = Math.min(1, (bs - b.cum[i]) / b.spacing);
   const p = b.points[i];

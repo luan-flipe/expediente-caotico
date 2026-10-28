@@ -138,7 +138,7 @@ function respawn(race: RaceMatch, r: Racer): void {
   r.rec.dirty = true;
 }
 
-/** Caiu no vão: volta antes da rampa em que caiu, parado como na reposição (R). */
+/** Caiu no vão: volta um trecho antes da rampa em que caiu, parado como na reposição (R). */
 function respawnAfterFall(race: RaceMatch, r: Racer): void {
   const ramp = race.track.ramps.find((x) => x.gap && x.path === (r.kart.path ?? -1)) ?? race.track.ramps.find((x) => x.gap);
   if (!ramp) return respawn(race, r);

@@ -258,7 +258,7 @@ describe("rampas na partida", () => {
     return r;
   }
 
-  it("queda no vão volta no começo da rampa, parada como na reposição, e suja a volta", () => {
+  it("queda no vão volta antes da rampa, com espaço para embalar, parada como na reposição, e suja a volta", () => {
     const r = estac();
     const a = r.racers.get("a")!;
     const T = r.track;
@@ -270,7 +270,9 @@ describe("rampas na partida", () => {
     stepRace(r, DT);
     const start = rampStart(T, ramp);
     expect(a.kart.pos).toEqual(start.pos);
-    expect(a.kart.path).toBe(0);
+    expect(a.kart.path ?? -1).toBe(start.path);
+    // dá para chegar de novo na rampa acima da velocidade mínima
+    expect(deltaS(T, progressOf(T, start.pos, start.path).s, T.branches[0].sFrom)).toBeGreaterThan(10);
     expect(a.kart.fell).toBeFalsy();
     expect(a.kart.y ?? 0).toBe(0);
     expect(a.kart.frozenUntil).toBe(r.now + RACE.respawnPenaltyMs);
