@@ -22,6 +22,7 @@ import { modelReady } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { getState, net, setState } from "../store";
+import { ChatBubbles, chatText } from "../chatBubbles";
 import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
 import { createCommander, type Commander } from "./commander";
 import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, nameTag } from "./ghosts";
@@ -135,6 +136,7 @@ export class RaceEngine {
   private hazardMats = new Map<string, THREE.Material>();
   private ghostMine: Ghost | null = null;
   private ghostRecord: Ghost | null = null;
+  private chat = new ChatBubbles(2.75);
   private raf = 0;
   private lastFrame = performance.now();
   private cleanup: (() => void)[] = [];
@@ -212,8 +214,8 @@ export class RaceEngine {
       if (e.button === 0 && e.target === this.canvas) this.useItem();
     });
     on<KeyboardEvent>("keydown", (e) => {
-      // com as configurações abertas o teclado é delas (captura de tecla), não do jogo
-      if (getState().settingsOpen) return;
+      // com as configurações ou o chat rápido abertos o teclado é deles, não do jogo
+      if (getState().settingsOpen || getState().chatOpen) return;
       const k = e.code;
       const map = getSettings().keys.race;
       if (k.startsWith("Arrow") || (!e.ctrlKey && !e.metaKey && !e.altKey && Object.values(map).includes(k))) e.preventDefault();
@@ -456,12 +458,19 @@ export class RaceEngine {
     return g;
   }
 
+  /** Balão de chat rápido sobre a cadeira de quem falou. */
+  showChat(id: string, kind: "phrase" | "emote", index: number): void {
+    const text = chatText(kind, index);
+    if (text) this.chat.show(id, text, kind === "emote", performance.now());
+  }
+
   // ---------- quadro ----------
   private loop = (ms: number): void => {
     const dt = Math.min(0.05, (ms - this.lastFrame) / 1000);
     this.lastFrame = ms;
     this.resize();
     const now = performance.now();
+    this.chat.update(now, (id) => this.views.get(id)?.r3d.root);
 
     if (this.pred && this.snap?.phase === "active" && !this.me?.finished) {
       this.acc += dt * 1000;
@@ -647,6 +656,7 @@ export class RaceEngine {
     this.raf = 0;
     if (this.music.isPlaying) this.music.stop();
     for (const c of this.cleanup) c();
+    this.chat.dispose();
     // bonecos e Comandante compartilham geometria do GLB: saem da cena antes da limpeza geral
     if (this.commander) {
       this.scene.remove(this.commander.root);

@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   BALANCE,
+  CHAT_COOLDOWN_MS,
   ClientMsg,
   MAIN_TRACK_ID,
   applyLap,
@@ -87,6 +88,8 @@ interface Member {
   sessionLap: GhostLap | null;
   conn: Conn | null;
   leftAt: number | null;
+  /** Hora do último chat rápido (limite de 1 a cada CHAT_COOLDOWN_MS). */
+  lastChatAt: number;
 }
 
 function send(conn: Conn | null, msg: ServerMsg | string): void {
@@ -160,7 +163,7 @@ export class Room {
 
   addMember(name: string, avatar: AvatarDNA, conn: Conn | null, isBot = false, chair: ChairDNA = DEFAULT_CHAIR, accountId: string | null = null): Member {
     const id = isBot ? `bot-${++this.nextBot}` : randomBytes(6).toString("hex");
-    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, sessionLap: null, conn, leftAt: null };
+    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, sessionLap: null, conn, leftAt: null, lastChatAt: 0 };
     this.members.set(id, m);
     if (!this.hostId && !isBot) this.hostId = id;
     return m;
@@ -424,6 +427,14 @@ export class Room {
         const err = this.start();
         if (err) send(conn, { t: "error", msg: err });
         return;
+      }
+      case "chat":
+      case "emote": {
+        // limite por jogador: o que chega antes do intervalo é descartado em silêncio
+        const now = Date.now();
+        if (now - member.lastChatAt < CHAT_COOLDOWN_MS) return;
+        member.lastChatAt = now;
+        return this.broadcast({ t: "chat", from: member.id, kind: msg.t === "chat" ? "phrase" : "emote", index: msg.index });
       }
       case "lobby":
         if (!isHost || this.phase !== "results") return;

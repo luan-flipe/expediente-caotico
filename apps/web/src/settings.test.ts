@@ -161,6 +161,31 @@ describe("findConflict", () => {
   });
 });
 
+describe("tecla do chat rápido", () => {
+  it("existe nos dois modos, com T como padrão", () => {
+    expect(DEFAULT_SETTINGS.keys.shooter.chat).toBe("KeyT");
+    expect(DEFAULT_SETTINGS.keys.race.chat).toBe("KeyT");
+    expect(sanitizeSettings({}).keys.shooter.chat).toBe("KeyT");
+    expect(sanitizeSettings({}).keys.race.chat).toBe("KeyT");
+  });
+
+  it("aceita remapear e recusa valor inválido", () => {
+    const s = sanitizeSettings({ keys: { shooter: { chat: "KeyH" }, race: { chat: "Escape" } } });
+    expect(s.keys.shooter.chat).toBe("KeyH");
+    expect(s.keys.race.chat).toBe("KeyT");
+  });
+
+  it("conflito com outra ação do modo volta as duas ao padrão", () => {
+    const s = sanitizeSettings({ keys: { race: { chat: "KeyE" } } });
+    expect(s.keys.race.chat).toBe("KeyT");
+    expect(s.keys.race.item).toBe("KeyE");
+    const c = sanitizeSettings({ keys: { shooter: { chat: "KeyQ", habilidade1: "KeyQ" } } });
+    expect(c.keys.shooter.chat).toBe("KeyT");
+    expect(c.keys.shooter.habilidade1).toBe("KeyQ");
+    expect(findConflict(DEFAULT_SETTINGS.keys.shooter, "frente", "KeyT")).toBe("chat");
+  });
+});
+
 describe("keyLabel", () => {
   it("traduz os códigos mais comuns", () => {
     expect(keyLabel("KeyW")).toBe("W");

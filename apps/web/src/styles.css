@@ -1487,3 +1487,87 @@ input {
   font-size: 13px;
   color: var(--ink-2);
 }
+
+/* chat rápido: painel central, botão e canto de mensagens */
+.qc-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 18, 15, 0.25);
+}
+
+.qc-panel {
+  width: min(460px, calc(100vw - 32px));
+  background: var(--paper);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.qc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.qc-grid.emotes {
+  grid-template-columns: repeat(6, 1fr);
+}
+
+.qc-grid .btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.qc-grid.emotes .btn {
+  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 22px;
+}
+
+.qc-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  padding: 0 5px;
+  background: var(--postit);
+}
+
+.qc-open {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 80;
+}
+
+.qc-feed {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 80;
+  display: grid;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.qc-feed div {
+  background: var(--paper);
+  border: 2px solid var(--line);
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 4px 10px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.qc-feed b {
+  color: var(--blue);
+  margin-right: 6px;
+}

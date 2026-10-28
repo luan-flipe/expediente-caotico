@@ -14,6 +14,7 @@ import {
   type Snapshot,
   type Vec2,
 } from "@ec/shared";
+import { ChatBubbles, chatText } from "../chatBubbles";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { getState, net, setState } from "../store";
@@ -101,6 +102,7 @@ export class Engine {
   private snapAt = 0;
   private me: PrivateState | null = null;
   private avatars = new Map<string, AvatarDNA>();
+  private chat = new ChatBubbles(3.15);
 
   private yaw = 0;
   private pitch = -0.08;
@@ -215,8 +217,8 @@ export class Engine {
       this.firing = false;
     });
     on<KeyboardEvent>("keydown", (e) => {
-      // com as configurações abertas o teclado é delas (captura de tecla), não do jogo
-      if (getState().settingsOpen) return;
+      // com as configurações ou o chat rápido abertos o teclado é deles, não do jogo
+      if (getState().settingsOpen || getState().chatOpen) return;
       const k = e.code;
       const map = getSettings().keys.shooter;
       if (!e.ctrlKey && !e.metaKey && !e.altKey && Object.values(map).includes(k)) e.preventDefault();
@@ -489,7 +491,14 @@ export class Engine {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Balão de chat rápido sobre o boneco de quem falou. */
+  showChat(id: string, kind: "phrase" | "emote", index: number): void {
+    const text = chatText(kind, index);
+    if (text) this.chat.show(id, text, kind === "emote", performance.now());
+  }
+
   private step(dt: number, now: number): void {
+    this.chat.update(now, (id) => this.views.get(id)?.char.root);
     if (this.keys.has("ArrowLeft")) this.yaw += dt * 2.2;
     if (this.keys.has("ArrowRight")) this.yaw -= dt * 2.2;
     if (this.keys.has("ArrowUp")) this.pitch = Math.min(PITCH_MAX, this.pitch + dt * 1.2);
@@ -612,6 +621,7 @@ export class Engine {
     clearInterval(this.inputTimer);
     for (const c of this.cleanup) c();
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
+    this.chat.dispose();
     // bonecos saem da cena antes da limpeza geral: a geometria do GLB é compartilhada e não pode ser liberada
     for (const v of this.views.values()) this.dropView(v);
     this.views.clear();
