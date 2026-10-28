@@ -18,6 +18,7 @@ import { net, setState } from "../store";
 import { createCharacter, modelReady, type Character } from "./character";
 import { FxSystem } from "./fx";
 import { buildOffice } from "./officeScene";
+import { createDynamicSky, type DynamicSky } from "./sky";
 
 interface Sample {
   t: number;
@@ -94,6 +95,7 @@ export class Engine {
   private objRing: THREE.Mesh;
   private objWall: THREE.Mesh;
   private snap: Snapshot | null = null;
+  private sky: DynamicSky;
   private snapAt = 0;
   private me: PrivateState | null = null;
   private avatars = new Map<string, AvatarDNA>();
@@ -126,16 +128,23 @@ export class Engine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
-    this.scene.background = new THREE.Color("#b9c4cf");
-    this.scene.fog = new THREE.Fog("#b9c4cf", 45, 95);
-    this.scene.add(new THREE.HemisphereLight("#ffffff", "#8a8070", 1.6));
-    const sun = new THREE.DirectionalLight("#fff3dd", 2.2);
-    sun.position.set(18, 30, 12);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -38, right: 38, top: 28, bottom: -28, near: 1, far: 80 });
-    sun.shadow.bias = -0.0005;
-    this.scene.add(sun);
+    this.sky = createDynamicSky(this.scene, {
+      sunPosition: new THREE.Vector3(18, 32, 14),
+      sunIntensity: 2.2,
+      cloudCoverage: 0.44,
+      cloudSpeed: 0.9,
+      groundSize: 220,
+      groundY: 0.02,
+    });
+
+
+    Object.assign(this.sky.sunLight.shadow.camera, { left: -38, right: 38, top: 28, bottom: -28, near: 1, far: 80 });
+
+
+
+
+
+
 
     buildOffice(this.scene);
     this.fx = new FxSystem(this.scene);
@@ -550,6 +559,7 @@ export class Engine {
     this.objWall.rotation.y += dt * 0.3;
 
     this.fx.update(dt);
+    this.sky.update(dt, this.camera.position);
     this.updateCamera();
   }
 
@@ -593,6 +603,7 @@ export class Engine {
     for (const c of this.cleanup) c();
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     for (const v of this.views.values()) v.char.dispose();
+    this.sky.dispose();
     this.renderer.dispose();
   }
 }
