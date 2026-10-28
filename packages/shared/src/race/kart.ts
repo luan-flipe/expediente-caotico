@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 import { RACE } from "./balance";
-import { clampToTrack, inCarpet, pointAt, progressOf, type Track, type TrackProgress } from "./track";
+import { branchPointAt, clampToTrack, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
 
 export interface KartState {
   pos: Vec2;
@@ -20,6 +20,8 @@ export interface KartState {
   cups?: number;
   stuntUntil?: number;
   draftMs?: number;
+  /** Caminho em que a cadeira está: -1 (ou ausente) = principal, 0.. = atalho. */
+  path?: number;
 }
 
 /** steer +1 vira para a direita da câmera; throttle -1 freia e dá ré. */
@@ -88,7 +90,7 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   if (!boosting) {
     s.boostSpeed = undefined;
   }
-  const pr0 = track ? progressOf(track, s.pos) : null;
+  const pr0 = track ? progressOf(track, s.pos, s.path) : null;
   const cupBonus = 1 + (s.cups ?? 0) * RACE.cupSpeedPerUnit;
   const baseCap = boosting ? (s.boostSpeed ?? RACE.boostSpeed) : RACE.maxSpeed;
   let cap = baseCap * cupBonus;
@@ -141,8 +143,9 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   let wall = false;
   let progress: TrackProgress | null = null;
   if (track) {
-    const c = clampToTrack(track, next, RACE.kartRadius);
+    const c = clampToTrack(track, next, RACE.kartRadius, s.path);
     s.pos = c.pos;
+    if (c.progress.path !== (s.path ?? -1)) s.path = c.progress.path;
     progress = c.progress;
     if (c.hit && Math.abs(s.speed) > 0.01) {
       const into = (vx * c.normal.x + vz * c.normal.z) / Math.abs(s.speed);
@@ -174,7 +177,8 @@ export function collideKarts(a: KartState, b: KartState): boolean {
   return true;
 }
 
-export function respawnAt(track: Track, s: number): Pick<KartState, "pos" | "heading"> {
-  const at = pointAt(track, s);
-  return { pos: at.pos, heading: at.heading };
+/** Centro do caminho path (-1 = principal) no s da principal. */
+export function respawnAt(track: Track, s: number, path = -1): Pick<KartState, "pos" | "heading" | "path"> {
+  const at = branchPointAt(track, path, s);
+  return { pos: at.pos, heading: at.heading, path: track.branches[path] ? path : -1 };
 }

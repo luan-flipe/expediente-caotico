@@ -8,7 +8,7 @@ import type { ChairDNA } from "./chair";
 import { pickBoxes, stepHazards, useItem } from "./items";
 import { collideKarts, NO_INPUT, newKart, respawnAt, stepKart, type KartInput } from "./kart";
 import { lapsDone, newLapState, raceProgress, ranking, updateProgress } from "./laps";
-import { boxSpots, checkpoints, clampToTrack, cupSpots, getTrack, gridSlots, pointAt, progressOf, type TrackId } from "./track";
+import { boxSpots, checkpoints, clampToTrack, cupSpots, deltaS, getTrack, gridSlots, progressOf, type TrackId } from "./track";
 import type { GhostSample } from "../ranking/types";
 import type { ItemId, RaceMatch, Racer, RacePrivate, RaceResultRow, RaceSnapshot } from "./types";
 
@@ -124,12 +124,17 @@ export function respawnRequest(race: RaceMatch, id: string): void {
   if (r && race.phase === "active" && race.now >= r.kart.frozenUntil) r.respawnQueued = true;
 }
 
-/** Volta para o último checkpoint passado, parado por alguns segundos. */
+/** Volta para o último checkpoint passado, parado por alguns segundos; no atalho, volta no atalho. */
 function respawn(race: RaceMatch, r: Racer): void {
-  const s = r.lap.cpCount === 0 ? race.track.length - 5 : race.cps[(r.lap.cpCount - 1) % race.cps.length] + 0.5;
-  const at = respawnAt(race.track, s);
+  let s = r.lap.cpCount === 0 ? race.track.length - 5 : race.cps[(r.lap.cpCount - 1) % race.cps.length] + 0.5;
+  const path = r.kart.path ?? -1;
+  const b = race.track.branches[path];
+  // checkpoint antes da boca: reaparece logo no começo do atalho
+  if (b && deltaS(race.track, b.sFrom, s) < 1) s = b.sFrom + 1;
+  const at = respawnAt(race.track, s, path);
   r.kart = { ...newKart(at.pos, at.heading), frozenUntil: race.now + RACE.respawnPenaltyMs };
-  r.lap = { ...r.lap, lastS: progressOf(race.track, at.pos).s };
+  if (at.path !== -1) r.kart.path = at.path;
+  r.lap = { ...r.lap, lastS: progressOf(race.track, at.pos, at.path).s };
   r.rec.dirty = true;
 }
 
@@ -251,8 +256,8 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
   for (let i = 0; !race.timeTrial && i < racers.length; i++) {
     for (let j = i + 1; j < racers.length; j++) {
       if (!collideKarts(racers[i].kart, racers[j].kart)) continue;
-      racers[i].kart.pos = clampToTrack(race.track, racers[i].kart.pos, RACE.kartRadius).pos;
-      racers[j].kart.pos = clampToTrack(race.track, racers[j].kart.pos, RACE.kartRadius).pos;
+      racers[i].kart.pos = clampToTrack(race.track, racers[i].kart.pos, RACE.kartRadius, racers[i].kart.path).pos;
+      racers[j].kart.pos = clampToTrack(race.track, racers[j].kart.pos, RACE.kartRadius, racers[j].kart.path).pos;
     }
   }
 
@@ -293,7 +298,7 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
   }
 
   for (const r of racers) {
-    const pr = progressOf(race.track, r.kart.pos);
+    const pr = progressOf(race.track, r.kart.pos, r.kart.path);
     const cpBefore = r.lap.cpCount;
     const u = updateProgress(r.lap, pr.s, now, race.cps, race.track, race.laps);
     r.lap = u.state;
@@ -302,7 +307,7 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
     if (u.lapDone && !u.finished) race.events.push({ type: "lap", id: r.id, lap: lapsDone(r.lap, race.cps) + 1, ms: Math.round(r.lap.lastLapMs ?? 0) });
     const k = r.kart;
     const moveDir = k.heading + (k.speed < 0 ? Math.PI : 0);
-    const along = Math.cos(moveDir - pointAt(race.track, pr.s).heading);
+    const along = Math.cos(moveDir - pr.heading);
     r.wrongMs = Math.abs(k.speed) > 2 && along < -0.3 && r.lap.finishedAt === null ? r.wrongMs + dtMs : 0;
     if (r.wrongMs > 0) r.wrongTotalMs += dtMs;
     if (r.lap.finishedAt === null && Math.abs(k.speed) < 0.5 && now >= k.frozenUntil) r.stoppedMs += dtMs;
@@ -443,6 +448,7 @@ export function buildRacePrivate(race: RaceMatch, id: string): RacePrivate | nul
       // a previsão local precisa do teto do turbo e das xícaras, senão a própria cadeira dá tranco
       boostSpeed: k.boostSpeed,
       cups: k.cups ?? 0,
+      path: k.path ?? -1,
     },
   };
 }

@@ -736,6 +736,7 @@ export class RaceEngine {
       // mesmo teto de turbo e mesmas xícaras do servidor, senão a previsão diverge e a cadeira dá tranco
       boostSpeed: k.boostMs > 0 ? k.boostSpeed : undefined,
       cups: k.cups ?? me.cups ?? 0,
+      path: k.path,
     };
     const old = this.pred;
     if (!old || this.snap?.phase !== "active" || me.finished) {

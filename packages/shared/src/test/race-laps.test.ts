@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { lapsDone, newLapState, raceProgress, ranking, updateProgress, type LapState } from "../race/laps";
-import { checkpoints, TRACK } from "../race/track";
+import { RACE } from "../race/balance";
+import { checkpoints, TRACK, TRACK_IDS, TRACKS } from "../race/track";
+import { flyingLap } from "./race-pilot";
 
 const CPS = checkpoints(TRACK);
 const L = TRACK.length;
@@ -82,5 +84,26 @@ describe("voltas", () => {
         { id: "primeiro", progress: 0, finishedAt: 500 },
       ]),
     ).toEqual(["primeiro", "segundo", "rapido", "lento"]);
+  });
+});
+
+describe("voltas pelo atalho", () => {
+  it("volta pelo atalho fecha e passa por todos os checkpoints na ordem", () => {
+    for (const id of TRACK_IDS) {
+      const v = flyingLap(TRACKS[id], 0);
+      expect(v.usedBranch, id).toBe(true);
+      expect(v.cpOrder, id).toEqual([...v.cps.keys()].slice(1).concat(0));
+      expect(v.maxStep, id).toBeLessThan(RACE.maxProgressStep);
+    }
+  });
+
+  it("piloto perfeito ganha entre 0,4 e 1,5 s pelo atalho (Copa, volta de 13 s: a partir de 0,25 s)", () => {
+    for (const id of TRACK_IDS) {
+      const main = flyingLap(TRACKS[id], -1);
+      const cut = flyingLap(TRACKS[id], 0);
+      const gain = (main.ms - cut.ms) / 1000;
+      expect(gain, `${id}: ${main.ms} x ${cut.ms}`).toBeGreaterThan(id === "copa" ? 0.25 : 0.4);
+      expect(gain, `${id}: ${main.ms} x ${cut.ms}`).toBeLessThan(1.5);
+    }
   });
 });

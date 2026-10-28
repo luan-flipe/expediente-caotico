@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { pointAt, progressOf, sideNormal, trackEdges, RACE, type Track, type Vec2 } from "@ec/shared";
+import { branchEdges, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Track, type Vec2 } from "@ec/shared";
 
 /** Piso de cada ambiente (nomes de track.rooms, de todas as pistas). */
 const ROOM_FLOOR: Record<string, string> = {
@@ -193,6 +193,14 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const floor = new THREE.Mesh(ribbon(edges.plus, edges.minus, 0.01, colors, true), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
   floor.receiveShadow = true;
   scene.add(floor);
+  // atalhos: piso um pouco acima da principal para não brigar com ela nas bocas
+  track.branches.forEach((br, j) => {
+    const e = branchEdges(track, j);
+    const cols = br.sOff.map((o) => new THREE.Color(ROOM_FLOOR[roomAt(track, br.sFrom + o)]).multiplyScalar(0.9));
+    const m = new THREE.Mesh(ribbon(e.plus, e.minus, 0.012, cols, false), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
+    m.receiveShadow = true;
+    scene.add(m);
+  });
 
   // fita amarela tracejada no meio
   const tape = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.6 });
@@ -235,18 +243,42 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     return m;
   };
   const cap = new THREE.MeshStandardMaterial({ color: "#5a554c" });
-  for (const side of [edges.plus, edges.minus]) {
-    for (let i = 0; i < n; i++) {
-      const a = side[i];
-      const b = side[(i + 1) % n];
-      const len = Math.hypot(b.x - a.x, b.z - a.z);
-      const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
-      const ry = Math.atan2(b.x - a.x, b.z - a.z);
-      const room = roomAt(track, track.cum[i]);
-      stat.add(mesh(new THREE.BoxGeometry(0.25, 1.0, len + 0.25), wallMat(room), mid.x, 0.5, mid.z, ry));
-      stat.add(mesh(new THREE.BoxGeometry(0.3, 0.06, len + 0.25), cap, mid.x, 1.03, mid.z, ry));
+  // parede de a até b, sem os trechos que caem dentro de outro corredor (boca do atalho fica aberta)
+  const wall = (a: Vec2, b: Vec2, room: string, open: (p: Vec2) => boolean) => {
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    const parts = Math.max(1, Math.ceil(len / 0.8));
+    const at = (t: number) => ({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+    let from = -1;
+    for (let k = 0; k <= parts; k++) {
+      const keep = k < parts && !open(at((k + 0.5) / parts));
+      if (keep && from < 0) from = k;
+      if (!keep && from >= 0) {
+        const p = at(from / parts);
+        const q = at(k / parts);
+        const l = Math.hypot(q.x - p.x, q.z - p.z);
+        const ry = Math.atan2(q.x - p.x, q.z - p.z);
+        stat.add(mesh(new THREE.BoxGeometry(0.25, 1.0, l + 0.25), wallMat(room), (p.x + q.x) / 2, 0.5, (p.z + q.z) / 2, ry));
+        stat.add(mesh(new THREE.BoxGeometry(0.3, 0.06, l + 0.25), cap, (p.x + q.x) / 2, 1.03, (p.z + q.z) / 2, ry));
+        from = -1;
+      }
     }
+  };
+  const inPath = (path: number, p: Vec2) => {
+    const pr = pathProgress(track, path, p);
+    return pr.dist < pr.halfWidth - 0.15;
+  };
+  const inBranch = (p: Vec2) => track.branches.some((_, j) => inPath(j, p));
+  for (const side of [edges.plus, edges.minus]) {
+    for (let i = 0; i < n; i++) wall(side[i], side[(i + 1) % n], roomAt(track, track.cum[i]), inBranch);
   }
+  track.branches.forEach((br, j) => {
+    const e = branchEdges(track, j);
+    const room = roomAt(track, br.sFrom + br.sOff[Math.floor(br.points.length / 2)]);
+    const open = (p: Vec2) => inPath(-1, p) || track.branches.some((_, o) => o !== j && inPath(o, p));
+    for (const side of [e.plus, e.minus]) {
+      for (let k = 0; k + 1 < side.length; k++) wall(side[k], side[k + 1], room, open);
+    }
+  });
 
   // largada
   const start = pointAt(track, 0);
@@ -392,6 +424,34 @@ function decorate(scene: THREE.Group, track: Track): void {
       const off = at.halfWidth + 2.6;
       const p = { x: at.pos.x + nrm.x * off * side, z: at.pos.z + nrm.z * off * side };
       if (free(p, 1.6)) put(room, p, at.heading);
+    }
+  }
+  // beira dos atalhos: mesas baixas no escritório, prateleiras na despensa, cones na garagem
+  for (const br of track.branches) {
+    for (let k = 1; k < br.points.length - 1; k += 2) {
+      const a = br.points[k - 1];
+      const b = br.points[k + 1];
+      const h = Math.atan2(b.x - a.x, b.z - a.z);
+      const nrm = sideNormal(Math.sin(h), Math.cos(h));
+      for (const side of [-1, 1]) {
+        const off = br.widths[k] / 2 + 1;
+        const p = { x: br.points[k].x + nrm.x * off * side, z: br.points[k].z + nrm.z * off * side };
+        if (!free(p, 0.6)) continue;
+        const g = new THREE.Group();
+        g.position.set(p.x, 0, p.z);
+        g.rotation.y = h;
+        if (track.id === "copa") {
+          g.add(mesh(new THREE.BoxGeometry(0.4, 1.6, 1.4), wood, 0, 0.8, 0));
+          for (const y of [0.5, 1.0, 1.45]) g.add(mesh(new THREE.BoxGeometry(0.3, 0.18, 0.3), cars[(k + Math.round(y * 2)) % cars.length], 0.05, y + 0.12, 0.3 - y * 0.3));
+        } else if (track.id === "estacionamento") {
+          g.add(mesh(new THREE.ConeGeometry(0.25, 0.7, 8), cars[0], 0, 0.35, 0));
+          g.add(mesh(new THREE.BoxGeometry(0.2, 0.08, 0.5), paint, 0, 0.45, 0));
+        } else {
+          g.add(mesh(new THREE.BoxGeometry(1.2, 0.06, 0.8), wood, 0, 0.45, 0));
+          for (const x of [-0.5, 0.5]) g.add(mesh(new THREE.BoxGeometry(0.05, 0.45, 0.7), dark, x, 0.22, 0));
+        }
+        scene.add(g);
+      }
     }
   }
   // mesa de reunião grande no miolo da curva larga (só no Circuito Corporativo)

@@ -3,7 +3,9 @@ import { DEFAULT_AVATAR } from "../data/avatar";
 import { RACE } from "../race/balance";
 import { DEFAULT_CHAIR } from "../race/chair";
 import { buildRacePrivate, buildRaceSnapshot, createRace, getRaceResults, respawnRequest, setKartInput, stepRace } from "../race/match";
-import { pointAt, progressOf, TRACK } from "../race/track";
+import { respawnAt } from "../race/kart";
+import { deltaS, pointAt, progressOf, TRACK } from "../race/track";
+import { pilot } from "./race-pilot";
 
 const DT = 1000 / 30;
 
@@ -79,6 +81,53 @@ describe("partida de corrida", () => {
     expect(p.kart.pos).toEqual(pos);
     for (let t = 0; t < 1000; t += DT) stepRace(r, DT);
     expect(p.kart.pos).not.toEqual(pos);
+  });
+
+  it("dentro do atalho: andar certo não é contramão e R volta no atalho", () => {
+    const r = race(2, false);
+    for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
+    const p = r.racers.get("p0")!;
+    const b = TRACK.branches[0];
+    // percorre o atalho até a metade, passando pelos checkpoints da principal
+    const span = deltaS(TRACK, b.sFrom, b.sTo);
+    p.kart = { ...p.kart, ...respawnAt(TRACK, b.sFrom - 4, -1), path: -1, speed: 0 };
+    p.lap = { ...p.lap, lastS: b.sFrom - 4 };
+    for (let i = 0; i < 90 && deltaS(TRACK, b.sFrom + span * 0.6, progressOf(TRACK, p.kart.pos, p.kart.path).s) < 0; i++) {
+      setKartInput(r, "p0", pilot(TRACK, p.kart, 0));
+      stepRace(r, DT);
+      expect(p.wrongMs).toBe(0);
+    }
+    expect(p.kart.path).toBe(0);
+    respawnRequest(r, "p0");
+    stepRace(r, DT);
+    expect(p.kart.path).toBe(0);
+    expect(progressOf(TRACK, p.kart.pos, 0).path).toBe(0);
+  });
+
+  it("bots pegam o atalho conforme o nível e não ficam presos nele", () => {
+    const b = TRACK.branches[0];
+    const share = (botLevel: "easy" | "hard") => {
+      let used = 0;
+      for (let seed = 1; seed <= 200; seed++) {
+        const r = createRace({ seed, botLevel, players: [{ id: "b", name: "B", avatar: DEFAULT_AVATAR, chair: DEFAULT_CHAIR, isBot: true }] });
+        const bot = r.racers.get("b")!;
+        let took = false;
+        for (let i = 0; i < 1200 && bot.lap.cpCount < 1 + Math.ceil((b.sTo + 10) / RACE.checkpointEvery); i++) {
+          stepRace(r, DT);
+          if (bot.kart.path === 0) {
+            // no miolo do atalho (as bocas se confundem com a curva da principal)
+            if (deltaS(TRACK, b.sFrom, bot.lap.lastS) > deltaS(TRACK, b.sFrom, b.sTo) / 2) took = true;
+            expect(bot.kart.frozenUntil, `semente ${seed}`).toBeLessThanOrEqual(r.countdownEndsAt);
+          }
+        }
+        if (took) used++;
+      }
+      return used / 200;
+    };
+    const hard = share("hard");
+    expect(hard).toBeGreaterThan(0.6);
+    expect(hard).toBeLessThan(0.9);
+    expect(share("easy")).toBeLessThan(0.25);
   });
 
   it("comandos numerados: um por tick, na ordem, e o privado confirma o último aplicado", () => {

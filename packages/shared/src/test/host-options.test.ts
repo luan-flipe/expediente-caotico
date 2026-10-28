@@ -42,7 +42,7 @@ describe("mensagem de opções da sala (Zod)", () => {
 describe("dificuldade dos bots", () => {
   it("normal é exatamente o comportamento de antes", () => {
     expect(SHOOTER_BOT.normal).toEqual({ thinkBaseMs: 350, thinkRangeMs: 500, aimError: 0.24, speed: 1, abilityRate: 0.02, dodgeRate: 0.01, fireRange: 22 });
-    expect(RACE_BOT.normal).toEqual({ lookBase: 6, lookSpeed: 0.35, steerGain: 2.5, throttleMax: 1, cornerThrottle: 0.2, laneSpread: 0.9, holdScale: 1, rangeScale: 1 });
+    expect(RACE_BOT.normal).toEqual({ lookBase: 6, lookSpeed: 0.35, steerGain: 2.5, throttleMax: 1, cornerThrottle: 0.2, laneSpread: 0.9, holdScale: 1, rangeScale: 1, shortcutChance: 0.4 });
     expect(BOT_LEVELS).toEqual(["easy", "normal", "hard"]);
   });
 
