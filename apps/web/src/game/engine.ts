@@ -114,6 +114,8 @@ export class Engine {
   private keys = new Set<string>();
   private firing = false;
   private nextZombieAmbientSoundTime = 0;
+  /** Projéteis que já estavam no ar ao entrar na partida não tocam som todos de uma vez. */
+  private projectileSounds = false;
   private locked = false;
   private pred: Vec2 | null = null;
   private history: { t: number; x: number; z: number }[] = [];
@@ -355,7 +357,7 @@ export class Engine {
         this.scene.add(m);
         this.projectiles.set(pr.id, m);
         if (pr.kind === "ball") this.views.get(pr.owner)?.char.play("throw");
-        playShootSound({
+        if (this.projectileSounds) playShootSound({
           x: pr.x,
           z: pr.z,
           listenerX: myPos.x,
@@ -365,6 +367,7 @@ export class Engine {
       }
       this.projectiles.get(pr.id)!.userData = pr;
     }
+    this.projectileSounds = true;
     for (const [id, m] of this.projectiles) {
       if (ids.has(id)) continue;
       this.scene.remove(m);

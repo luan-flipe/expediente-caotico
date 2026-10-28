@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getLobbyMusicEnabled, preloadSounds, setLobbyMusicEnabled, startLobbyMusic, stopLobbyMusic, subscribeLobbyMusic } from "./sound";
+import { getSettings } from "./settings";
+import { getLobbyMusicEnabled, getLobbyMusicVolume, preloadSounds, setLobbyMusicEnabled, setLobbyMusicVolume, startLobbyMusic, stopLobbyMusic, subscribeLobbyMusic } from "./sound";
 
 function fakeStorage(initial: Record<string, string> = {}) {
   const data = new Map(Object.entries(initial));
@@ -52,5 +53,24 @@ describe("sound system", () => {
 
   it("preloadSounds não lança exceção em ambiente de teste", () => {
     expect(() => preloadSounds()).not.toThrow();
+  });
+
+  it("volume da música da sala é próprio: padrão 0,8, limitado a 0..1 e não mexe no volume de música das configurações", () => {
+    const before = getSettings().volume.music;
+    expect(getLobbyMusicVolume()).toBe(0.8);
+    setLobbyMusicVolume(0.3);
+    expect(getLobbyMusicVolume()).toBe(0.3);
+    setLobbyMusicVolume(5);
+    expect(getLobbyMusicVolume()).toBe(1);
+    setLobbyMusicVolume(-1);
+    expect(getLobbyMusicVolume()).toBe(0);
+    setLobbyMusicEnabled(false);
+    setLobbyMusicEnabled(true);
+    expect(getSettings().volume.music).toBe(before);
+  });
+
+  it("valor guardado inválido volta ao padrão", () => {
+    localStorage.setItem("ec_lobby_music_volume", "abc");
+    expect(getLobbyMusicVolume()).toBe(0.8);
   });
 });

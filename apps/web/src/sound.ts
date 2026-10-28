@@ -1,10 +1,19 @@
 import { getSettings, subscribeSettings } from "./settings";
 
-const LOBBY_MUSIC_URL = "/assets/audio/lobby-music.wav";
-const SHOOT_URL = "/assets/audio/tiro.wav";
-const ZOMBIE_GROWL_URL = "/assets/audio/zumbi-grunhido.wav";
+const LOBBY_MUSIC_URL = "/assets/audio/lobby-music.mp3";
+const SHOOT_URL = "/assets/audio/tiro.mp3";
+const ZOMBIE_GROWL_URL = "/assets/audio/zumbi-grunhido.mp3";
+
+/**
+ * Trecho em loop da música da sala, em segundos. O MP3 começa com o atraso do codificador (1105 amostras a 48 kHz)
+ * e termina com enchimento; sem cortar os dois, o loop teria um respiro de silêncio. O original tem 821448 amostras.
+ */
+const LOBBY_LOOP_START = 1105 / 48000;
+const LOBBY_LOOP_END = LOBBY_LOOP_START + 821448 / 48000;
 
 const STORAGE_KEY_LOBBY_MUSIC_ENABLED = "ec_lobby_music_enabled";
+const STORAGE_KEY_LOBBY_MUSIC_VOLUME = "ec_lobby_music_volume";
+const DEFAULT_LOBBY_MUSIC_VOLUME = 0.8;
 
 let audioCtx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -12,6 +21,7 @@ let musicGain: GainNode | null = null;
 let effectsGain: GainNode | null = null;
 
 const bufferCache = new Map<string, Promise<AudioBuffer | null>>();
+let resumeArmed = false;
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -32,8 +42,11 @@ function getAudioContext(): AudioContext | null {
     subscribeSettings(applyVolumeSettings);
   }
 
-  if (audioCtx.state === "suspended") {
+  if (audioCtx.state === "suspended" && !resumeArmed) {
+    // uma escuta só até o primeiro gesto, não uma nova a cada som tocado antes dele
+    resumeArmed = true;
     const resume = () => {
+      resumeArmed = false;
       if (audioCtx && audioCtx.state === "suspended") {
         void audioCtx.resume();
       }
@@ -56,8 +69,8 @@ function applyVolumeSettings(): void {
   masterGain.gain.setTargetAtTime(s.volume.master, t, 0.05);
   effectsGain.gain.setTargetAtTime(s.volume.effects, t, 0.05);
 
-  const lobbyEnabled = getLobbyMusicEnabled();
-  const musicVol = lobbyEnabled ? s.volume.music : 0;
+  // o volume da sala é por cima do volume de música das configurações, sem alterá-lo
+  const musicVol = getLobbyMusicEnabled() ? s.volume.music * getLobbyMusicVolume() : 0;
   musicGain.gain.setTargetAtTime(musicVol, t, 0.05);
 }
 
@@ -113,6 +126,28 @@ export function setLobbyMusicEnabled(enabled: boolean): void {
   for (const fn of lobbyListeners) fn();
 }
 
+/** Volume só da música da sala (0 a 1), multiplicado pelo volume de música das configurações. */
+export function getLobbyMusicVolume(): number {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_LOBBY_MUSIC_VOLUME);
+    const v = raw === null ? NaN : Number(raw);
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : DEFAULT_LOBBY_MUSIC_VOLUME;
+  } catch {
+    return DEFAULT_LOBBY_MUSIC_VOLUME;
+  }
+}
+
+export function setLobbyMusicVolume(v: number): void {
+  const clamped = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : DEFAULT_LOBBY_MUSIC_VOLUME;
+  try {
+    localStorage.setItem(STORAGE_KEY_LOBBY_MUSIC_VOLUME, String(clamped));
+  } catch {
+    /* sem storage */
+  }
+  applyVolumeSettings();
+  for (const fn of lobbyListeners) fn();
+}
+
 export function subscribeLobbyMusic(fn: () => void): () => void {
   lobbyListeners.add(fn);
   return () => lobbyListeners.delete(fn);
@@ -140,10 +175,12 @@ export function startLobbyMusic(): void {
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = true;
+    src.loopStart = LOBBY_LOOP_START;
+    src.loopEnd = Math.min(LOBBY_LOOP_END, buffer.duration);
     src.connect(musicGain!);
 
     // Começa reprodução
-    src.start(0);
+    src.start(0, LOBBY_LOOP_START);
     lobbySource = src;
   });
 }
