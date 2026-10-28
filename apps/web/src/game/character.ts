@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { HAIR_COLORS, PANTS, SHIRTS, SKINS, type AvatarDNA } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
 
@@ -19,6 +21,8 @@ export interface Character {
 export const HIP_HEIGHT = 0.82;
 
 const MODEL_URL = "/assets/characters/boneco.glb";
+const ZOMBIE_URL = "/assets/characters/Zombie.fbx";
+const ZOMBIE_TEXTURE_URL = "/assets/characters/zombie_texture.png";
 const TARGET_HEIGHT = 1.75;
 const HEIGHT_SCALE = [0.9, 1, 1.1];
 /** Duração em segundos de cada ação no jogo (os clipes originais são mais longos). */
@@ -34,8 +38,31 @@ interface Loaded {
   scale: number;
 }
 
+interface LoadedZombie {
+  scene: THREE.Group;
+  clip: THREE.AnimationClip | null;
+  scale: number;
+}
+
 let loaded: Loaded | null = null;
 let loading: Promise<boolean> | null = null;
+
+let loadedZombie: LoadedZombie | null = null;
+let loadingZombie: Promise<boolean> | null = null;
+let zombieTexture: THREE.Texture | null = null;
+
+// Pré-carrega a textura PNG do zumbi
+new THREE.TextureLoader().load(
+  ZOMBIE_TEXTURE_URL,
+  (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    zombieTexture = tex;
+  },
+  undefined,
+  (err) => {
+    console.warn("Falha ao carregar zombie_texture.png, usando fallback procedural ou de cor", err);
+  },
+);
 
 /**
  * Remove trilhas que brigam com o jogo: deslocamento do corpo (a posição vem do servidor)
@@ -47,8 +74,30 @@ function cleanClip(clip: THREE.AnimationClip): THREE.AnimationClip {
   return c;
 }
 
+/**
+ * Zera o deslocamento lateral/frontal (root motion X e Z) dos ossos na animação do zumbi,
+ * mantendo o balanço vertical Y e todas as rotações das articulações da caminhada.
+ */
+function cleanZombieClip(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const c = clip.clone();
+  for (const track of c.tracks) {
+    if (track.name.endsWith(".position") && track instanceof THREE.VectorKeyframeTrack) {
+      const vals = track.values;
+      for (let i = 0; i < vals.length; i += 3) {
+        vals[i] = 0; // zera deslocamento X
+        vals[i + 2] = 0; // zera deslocamento Z
+      }
+    }
+  }
+  return c;
+}
+
 export function modelReady(): boolean {
   return loaded !== null;
+}
+
+export function zombieReady(): boolean {
+  return loadedZombie !== null;
 }
 
 /** Carrega o GLB uma vez. Resolve false se falhar (o jogo segue com o boneco procedural). */
@@ -72,6 +121,101 @@ export function preloadCharacter(): Promise<boolean> {
       return false;
     });
   return loading;
+}
+
+/** Carrega o Zombie.fbx com sua animação embutida de zumbi em movimento. */
+export function preloadZombie(): Promise<boolean> {
+  loadingZombie ??= new FBXLoader()
+    .loadAsync(ZOMBIE_URL)
+    .then((fbx) => {
+      const bbox = new THREE.Box3().setFromObject(fbx);
+      const size = new THREE.Vector3();
+      bbox.getSize(size);
+      const h = size.y > 0 ? size.y : 1.0;
+      const rawClip = fbx.animations && fbx.animations.length > 0 ? fbx.animations[0] : null;
+      const clip = rawClip ? cleanZombieClip(rawClip) : null;
+      loadedZombie = {
+        scene: fbx,
+        clip,
+        scale: TARGET_HEIGHT / h,
+      };
+      return true;
+    })
+    .catch((err) => {
+      console.warn("Zombie.fbx não carregou, usando fallback procedural", err);
+      return false;
+    });
+  return loadingZombie;
+}
+
+// Inicia o pré-carregamento do zumbi imediatamente ao carregar o módulo
+void preloadZombie();
+
+export function createZombieCharacter(): Character {
+  if (!loadedZombie) {
+    const zombieDna: AvatarDNA = {
+      name: "Zumbi",
+      skin: 5,
+      hair: 0,
+      hairColor: 0,
+      beard: false,
+      glasses: 0,
+      shirt: 0,
+      pants: 0,
+      accessory: 0,
+      height: 1,
+    };
+    return proceduralCharacter(zombieDna);
+  }
+
+  const root = new THREE.Group();
+  // Usa SkeletonUtils.clone para preservar as ligações dos ossos do SkinnedMesh
+  const inner = SkeletonUtils.clone(loadedZombie.scene) as THREE.Group;
+  inner.scale.setScalar(loadedZombie.scale);
+  const mats: THREE.Material[] = [];
+
+  inner.traverse((o) => {
+    const mesh = o as THREE.SkinnedMesh;
+    if (mesh.isMesh) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      const orig = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const origMap = (orig as { map?: THREE.Texture })?.map ?? null;
+      const map = zombieTexture ?? origMap;
+      const standardMat = new THREE.MeshStandardMaterial({
+        map,
+        color: map ? 0xffffff : 0x5a7d52,
+        roughness: 0.75,
+        metalness: 0.1,
+      });
+      mesh.material = standardMat;
+      mats.push(standardMat);
+    }
+  });
+  root.add(inner);
+
+  const mixer = new THREE.AnimationMixer(inner);
+  if (loadedZombie.clip) {
+    const action = mixer.clipAction(loadedZombie.clip);
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.play();
+  }
+
+  return {
+    root,
+    update(dt, speed01) {
+      // Como o zumbi já está em movimento contínuo na animação, escala proporcionalmente à velocidade
+      const rate = 0.6 + Math.max(0.2, speed01) * 0.8;
+      mixer.update(dt * rate);
+    },
+    play() {},
+    sit() {},
+    dispose() {
+      mixer.stopAllAction();
+      for (const m of mats) m.dispose();
+    },
+  };
 }
 
 function shade(hex: string, k: number): THREE.Color {
@@ -247,7 +391,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     const m = src.clone();
     const color = palette[src.name];
     if (color) m.color.copy(color);
-    // mechas do modelo são brilhantes e viram um reflexo cinza em cabelo recolorido
     if (src.name.startsWith("Cabelo")) m.roughness = 0.9;
     mesh.material = m;
     mats.push(m);
@@ -255,7 +398,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
 
   const head = inner.getObjectByName("Cabeca");
   const body = inner.getObjectByName("Boneco");
-  // careca e moicano dispensam o cabelo curto do modelo
   const baseHair = dna.hair !== 0 && dna.hair !== 5;
   for (const n of ["Cabelo_Curto", "Mecha_1", "Mecha_2", "Mecha_3"]) {
     const o = inner.getObjectByName(n);
@@ -320,7 +462,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       }
     },
     dispose() {
-      // geometrias do GLB são compartilhadas entre clones; só as peças extras são deste boneco
       mixer.stopAllAction();
       root.traverse((o) => {
         const mesh = o as THREE.Mesh;

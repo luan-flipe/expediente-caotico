@@ -35,6 +35,7 @@ import {
   type RaceResultRow,
   type ResultRow,
   type ServerMsg,
+  type ShooterSubmode,
 } from "@ec/shared";
 import { TokenBucket } from "./ratelimit";
 
@@ -85,6 +86,7 @@ export class Room {
   hostId = "";
   phase: LobbyState["phase"] = "lobby";
   mode: GameMode = "shooter";
+  shooterSubmode: ShooterSubmode = "pvp";
   durationMs = 300000;
   members = new Map<string, Member>();
   match: Match | null = null;
@@ -114,6 +116,7 @@ export class Room {
       hostId: this.hostId,
       phase: this.phase,
       mode: this.mode,
+      shooterSubmode: this.shooterSubmode,
       durationMs: this.durationMs,
       players: [...this.members.values()].map((m) => ({
         id: m.id,
@@ -154,13 +157,15 @@ export class Room {
 
   start(): string | null {
     if (this.phase !== "lobby") return "A partida já começou";
-    if (this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
+    if (this.mode !== "shooter" || this.shooterSubmode !== "zombies") {
+      if (this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
+    }
     const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
     if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
     const seed = randomInt(1, 2 ** 31);
     const players = [...this.members.values()].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
     if (this.mode === "race") this.race = createRace({ seed, players, ...this.raceOpts });
-    else this.match = createMatch({ durationMs: this.durationMs, seed, players });
+    else this.match = createMatch({ durationMs: this.durationMs, seed, players, submode: this.shooterSubmode });
     this.phase = "match";
     this.results = null;
     this.raceResults = null;
@@ -170,7 +175,7 @@ export class Room {
     this.pendingMs = 0;
     // intervalo menor que o passo: no Windows o timer arredonda para ~16 ms e a partida andaria mais devagar
     this.timer = setInterval(() => this.tick(), TICK_MS / 2);
-    log(`[${this.code}] ${this.mode === "race" ? "corrida" : "partida"} iniciada com ${this.members.size} participantes`);
+    log(`[${this.code}] ${this.mode === "race" ? "corrida" : this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida"} iniciada com ${this.members.size} participantes`);
     return null;
   }
 
@@ -229,36 +234,33 @@ export class Room {
         send(mem.conn, `{"t":"rsnap","s":${s},"me":${JSON.stringify(buildRacePrivate(r, mem.id))}}`);
       }
     }
-    if (r.phase === "finished") this.finish();
+    if (r.phase === "finished") this.finishRace(r);
+  }
+
+  private finishRace(r: RaceMatch): void {
+    this.dispose();
+    this.raceResults = getRaceResults(r);
+    this.phase = "results";
+    this.broadcast({ t: "rresults", rows: this.raceResults });
+    this.broadcastLobby();
+    log(`[${this.code}] corrida finalizada, vencedor: ${this.raceResults[0]?.name ?? "ninguém"}`);
   }
 
   private finish(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
-    if (this.race) {
-      this.raceResults = getRaceResults(this.race);
-      this.results = null;
-    } else {
-      this.results = this.match ? getResults(this.match) : [];
-      this.raceResults = null;
-    }
-    this.match = null;
-    this.race = null;
+    this.dispose();
+    if (!this.match) return;
+    this.results = getResults(this.match);
     this.phase = "results";
-    for (const mem of this.members.values()) mem.ready = false;
-    for (const id of [...this.members.keys()]) {
-      const mem = this.members.get(id)!;
-      if (!mem.isBot && !mem.conn) this.removeMember(id);
-    }
-    if (this.raceResults) this.broadcast({ t: "rresults", rows: this.raceResults });
-    else if (this.results) this.broadcast({ t: "results", rows: this.results });
+    this.broadcast({ t: "results", rows: this.results });
     this.broadcastLobby();
-    log(`[${this.code}] partida encerrada`);
+    log(`[${this.code}] partida finalizada`);
   }
 
   dispose(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   handle(conn: Conn, member: Member, msg: ClientMsg): void {
@@ -266,17 +268,24 @@ export class Room {
     const m = this.match;
     switch (msg.t) {
       case "ready":
-        if (this.phase === "lobby") member.ready = msg.ready;
+        if (this.phase !== "lobby") return;
+        member.ready = msg.ready;
         return this.broadcastLobby();
-      case "avatar":
-        if (this.phase === "match") return;
+      case "avatar": {
         member.avatar = sanitizeAvatar(msg.avatar);
-        member.name = member.avatar.name;
-        if (msg.chair !== undefined) member.chair = sanitizeChair(msg.chair);
+        member.chair = sanitizeChair(msg.chair);
+        const inMatch = m?.players.get(member.id);
+        if (inMatch) inMatch.avatar = member.avatar;
+        const racer = this.race?.racers.get(member.id);
+        if (racer) {
+          racer.avatar = member.avatar;
+          racer.chair = member.chair;
+        }
         return this.broadcastLobby();
+      }
       case "addBot": {
         if (!isHost || this.phase !== "lobby") return;
-        if (this.members.size >= BALANCE.maxPlayers) return send(conn, { t: "error", msg: "Sala cheia" });
+        if (this.members.size >= BALANCE.maxPlayers) return;
         const name = BOT_NAMES[this.nextBot % BOT_NAMES.length];
         this.addMember(name, randomAvatar(Math.random, name), null, true, randomChair(Math.random));
         return this.broadcastLobby();
@@ -290,6 +299,10 @@ export class Room {
       case "mode":
         if (!isHost || this.phase !== "lobby") return;
         this.mode = msg.mode;
+        return this.broadcastLobby();
+      case "shooterSubmode":
+        if (!isHost || this.phase !== "lobby") return;
+        this.shooterSubmode = msg.submode;
         return this.broadcastLobby();
       case "duration":
         if (!isHost || this.phase !== "lobby") return;

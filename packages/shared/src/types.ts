@@ -66,6 +66,9 @@ export interface PlayerSim {
   name: string;
   avatar: AvatarDNA;
   isBot: boolean;
+  isZombie?: boolean;
+  zombieDamage?: number;
+  lastZombieAttackAt?: number;
   connected: boolean;
   pos: Vec2;
   yaw: number;
@@ -177,9 +180,33 @@ export type GameEvent =
 
 export type Phase = "countdown" | "active" | "finished";
 
+export interface ZombieWaveState {
+  wave: number;
+  maxWaves: number;
+  remainingZombies: number;
+  waveState: "waiting" | "active" | "cleared" | "defeat" | "victory";
+  nextWaveCountdownMs: number;
+}
+
+export interface ZombieInternalState {
+  wave: number;
+  maxWaves: number;
+  waveState: "waiting" | "active" | "cleared" | "defeat" | "victory";
+  nextWaveAt: number;
+  totalZombiesInWave: number;
+  spawnedZombiesInWave: number;
+  nextSpawnAt: number;
+  aliveZombies: number;
+  waveHp: number;
+  waveDamage: number;
+  waveSpeed: number;
+}
+
 export interface Match {
   now: number;
   phase: Phase;
+  submode?: "pvp" | "zombies";
+  zombieState?: ZombieInternalState;
   countdownEndsAt: number;
   endsAt: number;
   durationMs: number;
@@ -203,6 +230,7 @@ export interface PublicPlayer {
   name: string;
   x: number;
   z: number;
+  y?: number;
   yaw: number;
   hp: number;
   maxHp: number;
@@ -216,6 +244,7 @@ export interface PublicPlayer {
   flags: string[];
   moving: boolean;
   isBot: boolean;
+  isZombie?: boolean;
   connected: boolean;
   abilities: PublicAbility[];
 }
@@ -225,6 +254,7 @@ export interface Snapshot {
   phase: Phase;
   remainingMs: number;
   countdownMs: number;
+  zombieWave?: ZombieWaveState;
   players: PublicPlayer[];
   projectiles: { id: number; kind: string; x: number; z: number; vx: number; vz: number; owner: string; radius: number }[];
   zones: { id: number; kind: AbilityId; x: number; z: number; radius: number; owner: string }[];
@@ -255,6 +285,7 @@ export interface ResultRow {
   name: string;
   avatar: AvatarDNA;
   isBot: boolean;
+  isZombie?: boolean;
   score: number;
   kills: number;
   deaths: number;
@@ -262,4 +293,6 @@ export interface ResultRow {
   abilities: PublicAbility[];
   rank: number;
   tie: boolean;
+  teamResult?: "victory" | "defeat";
+  waveReached?: number;
 }

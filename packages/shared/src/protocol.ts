@@ -4,6 +4,7 @@ import type { RacePrivate, RaceResultRow, RaceSnapshot } from "./race/types";
 import type { AvatarDNA, PrivateState, ResultRow, Snapshot } from "./types";
 
 export type GameMode = "shooter" | "race";
+export type ShooterSubmode = "pvp" | "zombies";
 
 const num = z.number().finite();
 const avatar = z.unknown();
@@ -19,6 +20,7 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("ready"), ready: z.boolean() }),
   z.object({ t: z.literal("avatar"), avatar, chair }),
   z.object({ t: z.literal("mode"), mode: z.enum(["shooter", "race"]) }),
+  z.object({ t: z.literal("shooterSubmode"), submode: z.enum(["pvp", "zombies"]) }),
   z.object({ t: z.literal("addBot") }),
   z.object({ t: z.literal("removeBot") }),
   z.object({ t: z.literal("duration"), ms: z.union([z.literal(180000), z.literal(300000), z.literal(600000)]) }),
@@ -58,6 +60,7 @@ export interface LobbyState {
   hostId: string;
   phase: "lobby" | "match" | "results";
   mode: GameMode;
+  shooterSubmode?: ShooterSubmode;
   durationMs: number;
   players: LobbyPlayer[];
 }

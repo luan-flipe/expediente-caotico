@@ -1,7 +1,7 @@
 import { BALANCE } from "../data/balance";
-import { OFFICE_MAP } from "../data/map";
+import { OFFICE_MAP, getGroundHeight } from "../data/map";
 import { mulberry32 } from "../rng";
-import type { AvatarDNA, Match, PlayerAction, PlayerInput, PlayerSim, PrivateState, ResultRow, Snapshot } from "../types";
+import type { AvatarDNA, Match, PlayerAction, PlayerInput, PlayerSim, PrivateState, ResultRow, Snapshot, ZombieInternalState } from "../types";
 import { activeSynergies, castAbility, dashContacts, dirOf, fireBall, resolveAbility, stepProjectiles, stepZones } from "./abilities";
 import { stepBot } from "./bots";
 import { moveCircle } from "./collision";
@@ -16,6 +16,34 @@ export interface MatchPlayerInfo {
   avatar: AvatarDNA;
   isBot: boolean;
 }
+
+export interface ZombieWaveDef {
+  wave: number;
+  count: number;
+  hp: number;
+  damage: number;
+  speed: number;
+  spawnIntervalMs: number;
+}
+
+export const ZOMBIE_WAVES: ZombieWaveDef[] = [
+  { wave: 1, count: 8, hp: 60, damage: 10, speed: 4.8, spawnIntervalMs: 1400 },
+  { wave: 2, count: 14, hp: 90, damage: 14, speed: 5.0, spawnIntervalMs: 1100 },
+  { wave: 3, count: 20, hp: 130, damage: 18, speed: 5.2, spawnIntervalMs: 900 },
+  { wave: 4, count: 28, hp: 180, damage: 24, speed: 5.4, spawnIntervalMs: 750 },
+  { wave: 5, count: 38, hp: 240, damage: 30, speed: 5.6, spawnIntervalMs: 600 },
+];
+
+const ZOMBIE_SPAWN_POINTS = [
+  { x: 30, z: -1.5 },   // Elevador superior
+  { x: 30, z: 14 },     // Elevador inferior
+  { x: -30, z: -18 },   // Sala executiva
+  { x: -16, z: -18 },   // Sala de infra
+  { x: -28, z: 18 },    // Sala de gestão
+  { x: -28, z: -1 },    // Cozinha
+  { x: 20, z: 18 },     // Sala suporte
+  { x: 20, z: -18 },    // Sala reunião
+];
 
 const MAX_ACTIONS_PER_TICK = 4;
 
@@ -64,14 +92,41 @@ function makePlayer(info: MatchPlayerInfo, pos: { x: number; z: number }): Playe
   };
 }
 
-export function createMatch(opts: { durationMs: number; seed: number; players: MatchPlayerInfo[] }): Match {
+export function createMatch(opts: {
+  durationMs: number;
+  seed: number;
+  players: MatchPlayerInfo[];
+  submode?: "pvp" | "zombies";
+}): Match {
   const rng = mulberry32(opts.seed);
   const spawns = [...OFFICE_MAP.spawns].sort(() => rng() - 0.5);
   const countdownEndsAt = BALANCE.countdownMs;
   const first = OFFICE_MAP.objectivePoints[0];
+
+  const submode = opts.submode ?? "pvp";
+  let zombieState: ZombieInternalState | undefined;
+  if (submode === "zombies") {
+    const w1 = ZOMBIE_WAVES[0];
+    zombieState = {
+      wave: 1,
+      maxWaves: 5,
+      waveState: "waiting",
+      nextWaveAt: countdownEndsAt,
+      totalZombiesInWave: w1.count,
+      spawnedZombiesInWave: 0,
+      nextSpawnAt: countdownEndsAt,
+      aliveZombies: 0,
+      waveHp: w1.hp,
+      waveDamage: w1.damage,
+      waveSpeed: w1.speed,
+    };
+  }
+
   const m: Match = {
     now: 0,
     phase: "countdown",
+    submode,
+    zombieState,
     countdownEndsAt,
     endsAt: countdownEndsAt + opts.durationMs,
     durationMs: opts.durationMs,
@@ -91,6 +146,7 @@ export function createMatch(opts: { durationMs: number; seed: number; players: M
     rng,
     nextId: 1,
   };
+
   opts.players.forEach((info, i) => {
     const p = makePlayer(info, spawns[i % spawns.length]);
     p.choiceSeq = 1;
@@ -103,15 +159,15 @@ export function createMatch(opts: { durationMs: number; seed: number; players: M
 
 export function setInput(m: Match, id: string, input: PlayerInput): void {
   const p = m.players.get(id);
-  if (p) p.input = input;
+  if (p && !p.isZombie) p.input = input;
 }
 
 export function queueAction(m: Match, id: string, action: PlayerAction): void {
   const p = m.players.get(id);
-  if (p && p.actions.length < MAX_ACTIONS_PER_TICK) p.actions.push(action);
+  if (p && !p.isZombie && p.actions.length < MAX_ACTIONS_PER_TICK) p.actions.push(action);
 }
 
-/** Ponto de renascimento mais distante dos adversários vivos. */
+/** Ponto de renascimento mais distante dos adversários/zumbis vivos. */
 function pickSpawn(m: Match, p: PlayerSim) {
   let best = OFFICE_MAP.spawns[0];
   let bestScore = -Infinity;
@@ -127,6 +183,136 @@ function pickSpawn(m: Match, p: PlayerSim) {
     }
   }
   return best;
+}
+
+function spawnZombie(m: Match, waveDef: ZombieWaveDef): void {
+  const spawnPt = ZOMBIE_SPAWN_POINTS[Math.floor(m.rng() * ZOMBIE_SPAWN_POINTS.length)];
+  const numId = m.nextId++;
+  const id = `zombie_${numId}`;
+  const z: PlayerSim = {
+    id,
+    name: `Zumbi ${numId}`,
+    avatar: {
+      name: "Zumbi",
+      skin: 5,
+      hair: 0,
+      hairColor: 0,
+      beard: false,
+      glasses: 0,
+      shirt: 0,
+      pants: 0,
+      accessory: 0,
+      height: 1,
+    },
+    isBot: true,
+    isZombie: true,
+    zombieDamage: waveDef.damage,
+    connected: true,
+    pos: { x: spawnPt.x + (m.rng() - 0.5) * 1.5, z: spawnPt.z + (m.rng() - 0.5) * 1.5 },
+    yaw: m.rng() * Math.PI * 2,
+    moving: true,
+    push: { x: 0, z: 0 },
+    hp: waveDef.hp,
+    maxHp: waveDef.hp,
+    shield: 0,
+    shieldUntil: 0,
+    alive: true,
+    respawnAt: Infinity,
+    invulnUntil: 0,
+    stunImmuneUntil: 0,
+    statuses: [],
+    input: { mx: 0, mz: 0, yaw: 0, fire: false },
+    actions: [],
+    lastShotAt: -Infinity,
+    dodgeReadyAt: 0,
+    dodgeUntil: 0,
+    dodgeDir: { x: 0, z: 1 },
+    dashUntil: 0,
+    dashDir: { x: 0, z: 1 },
+    dashSpeed: 0,
+    dashHit: [],
+    xp: 0,
+    level: 1,
+    abilities: [],
+    options: null,
+    choiceSeq: 0,
+    optionsExpireAt: 0,
+    pendingLevels: 0,
+    stats: { hp: 0, speed: 0, ball: 0 },
+    score: 0,
+    kills: 0,
+    deaths: 0,
+    assists: 0,
+    damageLog: [],
+    zoneMs: 0,
+    zoneCycleMs: 0,
+  };
+  m.players.set(id, z);
+}
+
+function stepZombie(m: Match, z: PlayerSim, dtMs: number): void {
+  if (!z.alive) return;
+  const dt = dtMs / 1000;
+  const now = m.now;
+  const stunned = hasStatus(z, "stun", now);
+
+  // Procura o jogador vivo não-zumbi mais próximo
+  let target: PlayerSim | null = null;
+  let targetDist = Infinity;
+  for (const p of m.players.values()) {
+    if (!p.isZombie && p.alive) {
+      const d = Math.hypot(p.pos.x - z.pos.x, p.pos.z - z.pos.z);
+      if (d < targetDist) {
+        target = p;
+        targetDist = d;
+      }
+    }
+  }
+
+  let dx = 0;
+  let dz = 0;
+  if (target && !stunned) {
+    const rawDx = target.pos.x - z.pos.x;
+    const rawDz = target.pos.z - z.pos.z;
+    z.yaw = Math.atan2(rawDx, rawDz);
+
+    // Ataque corpo a corpo quando próximo
+    if (targetDist < 1.4 && now >= (z.lastZombieAttackAt || 0) + 900) {
+      z.lastZombieAttackAt = now;
+      const dmg = z.zombieDamage ?? 10;
+      target.hp -= Math.min(target.hp, dmg);
+      m.events.push({
+        type: "hit",
+        target: target.id,
+        from: z.id,
+        amount: dmg,
+        x: target.pos.x,
+        z: target.pos.z,
+      });
+      if (target.hp <= 0) {
+        target.alive = false;
+        target.deaths++;
+        target.respawnAt = now + BALANCE.respawnMs;
+        m.events.push({ type: "kill", killer: z.id, victim: target.id, assists: [] });
+      }
+    }
+
+    // Movimentação em direção ao alvo
+    if (targetDist > 0.8) {
+      const spd = m.zombieState?.waveSpeed ?? 4.8;
+      dx = (rawDx / targetDist) * spd * dt;
+      dz = (rawDz / targetDist) * spd * dt;
+    }
+  }
+
+  z.moving = Math.hypot(dx, dz) > 0.001;
+  dx += z.push.x * dt;
+  dz += z.push.z * dt;
+  const decay = Math.max(0, 1 - BALANCE.knockDecayPerSec * dt);
+  z.push.x *= decay;
+  z.push.z *= decay;
+  z.pos = moveCircle(z.pos, dx, dz, BALANCE.playerRadius, OFFICE_MAP.boxes, { w: OFFICE_MAP.width, d: OFFICE_MAP.depth });
+  z.statuses = z.statuses.filter((s) => s.until > now);
 }
 
 function stepPlayer(m: Match, p: PlayerSim, dtMs: number): void {
@@ -180,38 +366,145 @@ function stepPlayer(m: Match, p: PlayerSim, dtMs: number): void {
   p.statuses = p.statuses.filter((s) => s.until > now);
 }
 
+function stepZombiesMode(m: Match): void {
+  const zs = m.zombieState;
+  if (!zs) return;
+
+  const humans = [...m.players.values()].filter((p) => !p.isZombie);
+  const aliveHumans = humans.filter((p) => p.alive);
+
+  // Derrota: se todos os humanos foram eliminados
+  if (aliveHumans.length === 0 && humans.length > 0) {
+    zs.waveState = "defeat";
+    m.phase = "finished";
+    m.events.push({ type: "info", text: `💀 O escritório foi dominado pelos zumbis na Horda ${zs.wave}!` });
+    return;
+  }
+
+  const curDef = ZOMBIE_WAVES[zs.wave - 1] ?? ZOMBIE_WAVES[ZOMBIE_WAVES.length - 1];
+
+  if (zs.waveState === "waiting") {
+    if (m.now >= zs.nextWaveAt) {
+      zs.waveState = "active";
+      zs.spawnedZombiesInWave = 0;
+      zs.totalZombiesInWave = curDef.count;
+      zs.waveHp = curDef.hp;
+      zs.waveDamage = curDef.damage;
+      zs.waveSpeed = curDef.speed;
+      zs.nextSpawnAt = m.now;
+      m.events.push({
+        type: "info",
+        text: `⚠️ HORDA ${zs.wave} DE ${zs.maxWaves} INICIADA! (${curDef.count} zumbis)`,
+      });
+    }
+  } else if (zs.waveState === "active") {
+    // Spawna zumbis periódicos
+    if (zs.spawnedZombiesInWave < zs.totalZombiesInWave && m.now >= zs.nextSpawnAt) {
+      spawnZombie(m, curDef);
+      zs.spawnedZombiesInWave++;
+      zs.nextSpawnAt = m.now + curDef.spawnIntervalMs;
+    }
+
+    // Conta zumbis vivos
+    const currentZombies = [...m.players.values()].filter((p) => p.isZombie);
+    const aliveZombies = currentZombies.filter((p) => p.alive).length;
+    zs.aliveZombies = aliveZombies;
+
+    // Se todos os zumbis da horda foram spawnados e todos estão mortos
+    if (zs.spawnedZombiesInWave >= zs.totalZombiesInWave && aliveZombies === 0) {
+      if (zs.wave >= zs.maxWaves) {
+        // Vitória completa!
+        zs.waveState = "victory";
+        m.phase = "finished";
+        m.events.push({
+          type: "info",
+          text: "🏆 VITÓRIA! Vocês sobreviveram a todas as 5 hordas de zumbis!",
+        });
+      } else {
+        // Concluiu a horda atual
+        const prevWave = zs.wave;
+        zs.wave++;
+        zs.waveState = "waiting";
+        zs.nextWaveAt = m.now + 6000; // 6 segundos de intervalo
+        m.events.push({
+          type: "info",
+          text: `🎉 Horda ${prevWave} derrotada! Horda ${zs.wave} chegando em 6 segundos...`,
+        });
+
+        // Cura parcial e renascimento dos humanos caídos entre as hordas
+        for (const h of humans) {
+          if (!h.alive) {
+            h.alive = true;
+            h.hp = h.maxHp;
+            h.pos = { ...pickSpawn(m, h) };
+            h.invulnUntil = m.now + BALANCE.spawnInvulnMs;
+          } else {
+            h.hp = Math.min(h.maxHp, h.hp + 40);
+          }
+        }
+      }
+    }
+  }
+}
+
 export function stepMatch(m: Match, dtMs: number): void {
   if (m.phase === "finished") return;
   m.now += dtMs;
   if (m.phase === "countdown") {
     if (m.now < m.countdownEndsAt) return;
     m.phase = "active";
-    m.events.push({ type: "info", text: "Valendo! Bom expediente." });
+    m.events.push({
+      type: "info",
+      text: m.submode === "zombies" ? "Preparem-se! A primeira horda de zumbis está chegando!" : "Valendo! Bom expediente.",
+    });
   }
-  if (m.now >= m.endsAt) {
+
+  // No modo zumbis a partida termina por vitória ou derrota das 5 hordas (endsAt estendido)
+  if (m.submode !== "zombies" && m.now >= m.endsAt) {
     m.phase = "finished";
     m.projectiles = [];
     m.zones = [];
     return;
   }
 
+  // Renascimento de humanos caídos
   for (const p of m.players.values()) {
-    if (!p.alive && m.now >= p.respawnAt) {
+    if (!p.isZombie && !p.alive && m.now >= p.respawnAt) {
       p.alive = true;
       p.hp = p.maxHp;
       p.pos = { ...pickSpawn(m, p) };
       p.invulnUntil = m.now + BALANCE.spawnInvulnMs;
     }
   }
+
   expireEvolutions(m);
-  for (const p of m.players.values()) if (p.isBot) stepBot(m, p);
-  for (const p of m.players.values()) {
-    if (p.alive) stepPlayer(m, p, dtMs);
-    else p.actions = [];
+
+  // Zumbis gerenciam as hordas
+  if (m.submode === "zombies" && m.phase === "active") {
+    stepZombiesMode(m);
   }
+
+  // Atualização dos bots e jogadores
+  for (const p of m.players.values()) {
+    if (p.isZombie) {
+      stepZombie(m, p, dtMs);
+    } else if (p.isBot) {
+      stepBot(m, p);
+    }
+  }
+
+  for (const p of m.players.values()) {
+    if (!p.isZombie) {
+      if (p.alive) stepPlayer(m, p, dtMs);
+      else p.actions = [];
+    }
+  }
+
   stepProjectiles(m, dtMs);
   stepZones(m);
-  stepObjective(m, dtMs);
+  if (m.submode !== "zombies") {
+    stepObjective(m, dtMs);
+  }
 }
 
 function flagsOf(p: PlayerSim, now: number): string[] {
@@ -226,16 +519,27 @@ function flagsOf(p: PlayerSim, now: number): string[] {
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
 export function buildSnapshot(m: Match): Snapshot {
+  const zs = m.zombieState;
   return {
     t: m.now,
     phase: m.phase,
     remainingMs: m.phase === "countdown" ? m.durationMs : Math.max(0, m.endsAt - m.now),
     countdownMs: Math.max(0, m.countdownEndsAt - m.now),
+    zombieWave: zs
+      ? {
+          wave: zs.wave,
+          maxWaves: zs.maxWaves,
+          remainingZombies: Math.max(0, zs.totalZombiesInWave - zs.spawnedZombiesInWave + zs.aliveZombies),
+          waveState: zs.waveState,
+          nextWaveCountdownMs: Math.max(0, zs.nextWaveAt - m.now),
+        }
+      : undefined,
     players: [...m.players.values()].map((p) => ({
       id: p.id,
       name: p.name,
       x: r2(p.pos.x),
       z: r2(p.pos.z),
+      y: r2(getGroundHeight(p.pos.x, p.pos.z)),
       yaw: r2(p.yaw),
       hp: Math.ceil(p.hp),
       maxHp: p.maxHp,
@@ -249,6 +553,7 @@ export function buildSnapshot(m: Match): Snapshot {
       flags: flagsOf(p, m.now),
       moving: p.moving,
       isBot: p.isBot,
+      isZombie: p.isZombie,
       connected: p.connected,
       abilities: p.abilities.map((a) => ({ id: a.id, level: a.level, spec: a.spec })),
     })),
@@ -305,5 +610,16 @@ export function buildPrivate(m: Match, id: string): PrivateState | null {
 }
 
 export function getResults(m: Match): ResultRow[] {
-  return rankPlayers([...m.players.values()]);
+  // Apenas participantes humanos e bots aliados (não lista os zumbis no placar)
+  const participants = [...m.players.values()].filter((p) => !p.isZombie);
+  const rows = rankPlayers(participants);
+  if (m.submode === "zombies") {
+    const victory = m.zombieState?.waveState === "victory";
+    const waveReached = m.zombieState?.wave ?? 1;
+    for (const r of rows) {
+      r.teamResult = victory ? "victory" : "defeat";
+      r.waveReached = waveReached;
+    }
+  }
+  return rows;
 }

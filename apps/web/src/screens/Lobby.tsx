@@ -17,6 +17,7 @@ export function Lobby() {
   const bots = lobby.players.filter((p) => p.isBot).length;
   const full = lobby.players.length >= BALANCE.maxPlayers;
   const race = lobby.mode === "race";
+  const isZombies = !race && lobby.shooterSubmode === "zombies";
 
   const copy = async () => {
     try {
@@ -112,9 +113,38 @@ export function Lobby() {
                 </button>
               </div>
             </div>
+
+            {!race && (
+              <div className="row">
+                <span className="muted">Tipo:</span>
+                <div className="seg">
+                  <button
+                    className={!isZombies ? "on" : ""}
+                    disabled={!isHost}
+                    onClick={() => net.send({ t: "shooterSubmode", submode: "pvp" })}
+                  >
+                    Versus (PvP)
+                  </button>
+                  <button
+                    className={isZombies ? "on" : ""}
+                    disabled={!isHost}
+                    onClick={() => net.send({ t: "shooterSubmode", submode: "zombies" })}
+                  >
+                    🧟 Modo Zumbis (Co-op)
+                  </button>
+                </div>
+              </div>
+            )}
+
             {race ? (
               <div className="row">
                 <span className="muted">Corrida de cadeiras: {RACE.laps} voltas no Circuito Corporativo, até {RACE.maxPlayers} pilotos.</span>
+              </div>
+            ) : isZombies ? (
+              <div className="row">
+                <span className="muted" style={{ color: "#2e7d32", fontWeight: 600 }}>
+                  Cooperativo: sobrevivam em equipe contra 5 hordas de zumbis! Quantidade, dano e vida aumentam a cada round.
+                </span>
               </div>
             ) : (
               <div className="row">
@@ -128,6 +158,7 @@ export function Lobby() {
                 </div>
               </div>
             )}
+
             {isHost && (
               <>
                 <div className="row">
@@ -139,7 +170,7 @@ export function Lobby() {
                   </button>
                 </div>
                 <button className="btn primary" onClick={() => net.send({ t: "start" })}>
-                  {race ? "Iniciar corrida" : "Iniciar expediente"}
+                  {race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
                 </button>
               </>
             )}

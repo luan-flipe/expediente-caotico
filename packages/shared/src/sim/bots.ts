@@ -6,7 +6,7 @@ import { chooseEvolution } from "./progression";
 
 /** IA simples dos "estagiários": persegue, atira com erro, usa habilidades, escolhe evolução. */
 export function stepBot(m: Match, p: PlayerSim): void {
-  if (!p.alive) {
+  if (!p.alive || p.isZombie) {
     p.input = { mx: 0, mz: 0, yaw: p.yaw, fire: false };
     return;
   }
@@ -21,9 +21,14 @@ export function stepBot(m: Match, p: PlayerSim): void {
     brain.nextThink = m.now + 350 + rng() * 500;
     brain.strafe = rng() < 0.5 ? -1 : 1;
     let best: PlayerSim | null = null;
-    let bestD = 30;
+    let bestD = 35;
     for (const e of m.players.values()) {
       if (e.id === p.id || !e.alive) continue;
+      // No modo zumbis, o bot só atira em zumbis
+      if (m.submode === "zombies" && !e.isZombie) continue;
+      // No modo PvP normal, o bot não atira em si mesmo
+      if (m.submode !== "zombies" && e.isZombie) continue;
+
       const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
       if (d < bestD && !segmentBlocked(p.pos, e.pos, OFFICE_MAP.boxes)) {
         best = e;

@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 
-export type BoxKind = "wall" | "glass" | "desk" | "cabinet" | "counter" | "plant" | "partition" | "sofa";
+export type BoxKind = "wall" | "glass" | "desk" | "cabinet" | "counter" | "plant" | "partition" | "sofa" | "railing";
 
 /** Caixa alinhada aos eixos: centro (x, z), largura em x (w), profundidade em z (d), altura (h). */
 export interface Box {
@@ -21,6 +21,30 @@ export interface Room {
   floor: string;
 }
 
+export interface ElevationArea {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  h: number;
+}
+
+export interface StairArea {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  axis: "x" | "z";
+  direction: 1 | -1; // 1 = sobe na direção positiva; -1 = sobe na direção negativa
+  h0: number;
+  h1: number;
+  steps: number;
+}
+
 export interface GameMap {
   width: number;
   depth: number;
@@ -28,6 +52,8 @@ export interface GameMap {
   spawns: Vec2[];
   objectivePoints: Vec2[];
   rooms: Room[];
+  elevations: ElevationArea[];
+  stairs: StairArea[];
 }
 
 const T = 0.4;
@@ -59,137 +85,73 @@ export const OFFICE_MAP: GameMap = {
   width: W,
   depth: D,
   rooms: [
-    { name: "Sala executiva", x: -29, z: -15, w: 12, d: 14, floor: "#ede8df" },
-    { name: "Sala de infra", x: -16, z: -15, w: 14, d: 14, floor: "#e5e3dc" },
-    { name: "Banheiro", x: -5.5, z: -15, w: 7, d: 14, floor: "#dee2e6" },
-    { name: "Sala do comandante", x: 1.5, z: -15, w: 7, d: 14, floor: "#e8e5dc" },
-    { name: "Sala de reunião", x: 15, z: -15, w: 20, d: 14, floor: "#ded9cf" },
-    { name: "Cozinha", x: -20, z: -1, w: 18, d: 14, floor: "#e6e1d8" },
-    { name: "Corredor central", x: 0, z: 4.5, w: 50, d: 7, floor: "#eae6de" },
-    { name: "Banheiro feminino", x: -9, z: -2, w: 10, d: 7.5, floor: "#e2e5e8" },
-    { name: "Sala de reunião menor 1", x: 14, z: -3.8, w: 8, d: 3.5, floor: "#ded9cf" },
-    { name: "Sala de reunião menor 2", x: 14, z: -0.2, w: 8, d: 3.5, floor: "#ded9cf" },
-    { name: "Sala de gestão", x: -29.5, z: 15, w: 11, d: 14, floor: "#e5e2da" },
-    { name: "Sala dos devs", x: -11, z: 15, w: 26, d: 14, floor: "#e2ded4" },
-    { name: "Sala suporte", x: 13.5, z: 15, w: 23, d: 14, floor: "#e4dfd6" },
-    { name: "Elevador aberto", x: 30, z: -1, w: 10, d: 14, floor: "#9ea6ae" },
-    { name: "Elevador aberto", x: 30, z: 14, w: 10, d: 16, floor: "#9ea6ae" },
+    { name: "Campo Gramado", x: 0, z: 0, w: W, d: D, floor: "#4f7d3d" },
   ],
-  boxes: [
-    // --- Perímetro externo fechado ---
-    box(-5, -22, 60, T, H, "wall"),
-    box(-35, 0, T, 44, H, "wall"),
-    box(-5, 22, 60, T, H, "wall"),
-    box(25, -15, T, 14, H, "wall"),
-    box(30, -8, 10, T, H, "wall"),
-    box(35, 7, T, 30, H, "wall"),
-    box(30, 22, 10, T, H, "wall"),
-
-    // --- Parede horizontal divisória das salas superiores (z = -8) ---
-    ...wallX(-8, -35, 25, [
-      [-27, 2.4],
-      [-14, 2.4],
-      [-4.5, 2.2],
-      [1.0, 2.2],
-      [10.0, 2.6],
-    ]),
-
-    // Divisórias verticais superiores (z de -22 a -8)
-    box(-23, -15, T, 14, H, "wall"),
-    box(-9, -15, T, 14, H, "wall"),
-    box(-2, -15, T, 14, H, "wall"),
-    box(5, -15, T, 14, H, "wall"),
-    box(-5, -18.5, T, 7, H, "wall"),
-
-    // --- Corredor central e Cozinha ---
-    box(4, -1, 4, 3.6, 0.8, "desk"),
-
-    // Bloco Central Saliente (Banheiro Feminino): z de -5.5 a 1.5, x de -14 a -4
-    box(-9, -5.5, 10, T, H, "wall"),
-    ...wallX(1.5, -14, -4, [[-9, 2.0]]),
-    box(-14, -2, T, 7.5, H, "wall"),
-    box(-4, -2, T, 7.5, H, "wall"),
-    box(-5.5, -2, 1.2, 3.5, 1.0, "counter"),
-
-    // Salas de Reunião Menores (x de 10 a 18, z de -5.5 a 1.5)
-    box(14, -5.5, 8, T, H, "wall"),
-    ...wallX(1.5, 10, 18, [[14, 2.2]]),
-    box(10, -2, T, 7.5, H, "wall"),
-    box(18, -2, T, 7.5, H, "wall"),
-    box(14, -2, 8, T, H, "wall"),
-    box(14, -3.8, 3.2, 1.4, 0.8, "desk"),
-    box(14, -0.2, 3.2, 1.4, 0.8, "desk"),
-
-    // Parede horizontal divisória inferior em z = 8
-    ...wallX(8, -35, 25, [
-      [-29, 2.6],
-      [-16, 3.0],
-      [8, 3.0],
-    ]),
-
-    // Divisórias verticais inferiores (z de 8 a 22)
-    box(-24, 15, T, 14, H, "wall"),
-    box(2, 15, T, 14, H, "wall"),
-
-    // Divisória dos elevadores em x = 25 (de z = -8 a 22)
-    ...wallZ(25, -8, 22, [
-      [-1.5, 4.0],
-      [13.5, 4.0],
-    ], "glass"),
-    box(30, 6, 10, T, H, "wall"),
-
-    // =========================================================================
-    // MOBILIÁRIO CONFORME A PLANTA
-    // =========================================================================
-
-    // Sala Superior Esquerda: Mesa em T
-    box(-29, -15, 5, 1.4, 0.8, "desk"),
-    box(-31, -15, 1.4, 3, 0.8, "desk"),
-
-    // Sala de Infra: Bancada longa de computadores e rack
-    box(-16, -10, 9, 1.4, 0.85, "counter"),
-    box(-21, -19, 1.4, 3, 2.1, "cabinet"),
-
-    // Sala do Comandante: Mesa executiva
-    box(1.5, -15, 1.4, 4.5, 0.8, "desk"),
-
-    // Sala de Reunião Grande: Mesa de 10 lugares
-    box(15, -15, 12, 3.5, 0.8, "desk"),
-
-    // Cozinha: Mesa redonda central e planta
-    box(-20, -1, 3.2, 3.2, 0.8, "desk"),
-    box(-20, -1, 1.0, 1.0, 1.5, "plant"),
-
-    // Sala de Gestão: Mesa em T executiva
-    box(-29, 15, 1.4, 5, 0.8, "desk"),
-    box(-31, 15, 3, 1.4, 0.8, "desk"),
-
-    // Sala dos Devs: Duas grandes ilhas verticais
-    box(-19, 15, 2.2, 8, 0.8, "desk"),
-    box(-19, 15, 0.15, 8, 1.4, "partition"),
-    box(-11, 15, 2.2, 8, 0.8, "desk"),
-    box(-11, 15, 0.15, 8, 1.4, "partition"),
-
-    // Sala Suporte: Duas mesas verticais e uma horizontal
-    box(6, 15, 2.0, 6, 0.8, "desk"),
-    box(12, 15, 2.0, 6, 0.8, "desk"),
-    box(19, 15, 6, 2.0, 0.8, "desk"),
+  elevations: [
+    // 1. Colina / Platô Central do Campo
+    { id: "elev-central", name: "Colina Central", x: 0, z: 0, w: 8.0, d: 8.0, h: 1.0 },
+    // 2. Mirante Norte
+    { id: "elev-norte", name: "Mirante Norte", x: 18, z: -11, w: 9.0, d: 7.0, h: 1.2 },
+    // 3. Mirante Sul
+    { id: "elev-sul", name: "Mirante Sul", x: -18, z: 11, w: 9.0, d: 7.0, h: 1.1 },
   ],
+  stairs: [
+    // Escadas para a Colina Central (oeste e leste)
+    { id: "stair-central-w", name: "Escada Central Oeste", x: -5.0, z: 0, w: 2.0, d: 4.0, axis: "x", direction: 1, h0: 0, h1: 1.0, steps: 5 },
+    { id: "stair-central-e", name: "Escada Central Leste", x: 5.0, z: 0, w: 2.0, d: 4.0, axis: "x", direction: -1, h0: 0, h1: 1.0, steps: 5 },
+    // Escada para o Mirante Norte (subindo pelo sul em direção a z=-11)
+    { id: "stair-norte", name: "Escada Mirante Norte", x: 18, z: -6.5, w: 4.0, d: 2.0, axis: "z", direction: -1, h0: 0, h1: 1.2, steps: 6 },
+    // Escada para o Mirante Sul (subindo pelo norte em direção a z=11)
+    { id: "stair-sul", name: "Escada Mirante Sul", x: -18, z: 6.5, w: 4.0, d: 2.0, axis: "z", direction: 1, h0: 0, h1: 1.1, steps: 5 },
+  ],
+  // Campo 100% aberto: todos os objetos e paredes foram removidos
+  boxes: [],
   spawns: [
-    { x: -28, z: 4.5 },   // Corredor / Cozinha
-    { x: -16, z: -15 },   // Sala de infra
-    { x: -1, z: -12 },    // Sala do comandante
-    { x: 20, z: -11 },    // Sala de reunião grande
-    { x: -29, z: 10.5 },  // Sala de gestão (amplo espaço livre da mesa)
-    { x: -15, z: 15 },    // Sala dos devs
-    { x: 9, z: 11 },      // Sala suporte (amplo espaço livre da mesa)
-    { x: 30, z: -1.5 },   // Elevador aberto superior
+    { x: -26, z: -14 },
+    { x: 26, z: -14 },
+    { x: -26, z: 14 },
+    { x: 26, z: 14 },
+    { x: -28, z: 0 },
+    { x: 28, z: 0 },
+    { x: 0, z: -16 },
+    { x: 0, z: 16 },
   ],
   objectivePoints: [
-    { x: 15, z: -11 },    // Sala de reunião grande
-    { x: -25, z: 4.5 },   // Cozinha
-    { x: -15, z: 10 },    // Sala dos devs
-    { x: 1, z: -11 },     // Sala do comandante
-    { x: 30, z: -1.5 },   // Hall dos elevadores
+    { x: 0, z: 0 },
+    { x: 18, z: -11 },
+    { x: -18, z: 11 },
+    { x: -20, z: -10 },
+    { x: 20, z: 10 },
   ],
 };
+
+/** Retorna a altura da superfície (chão, escada ou plataforma elevada) no ponto (x, z). */
+export function getGroundHeight(x: number, z: number, map: GameMap = OFFICE_MAP): number {
+  if (map.stairs) {
+    for (const s of map.stairs) {
+      const halfW = s.w / 2;
+      const halfD = s.d / 2;
+      if (Math.abs(x - s.x) <= halfW && Math.abs(z - s.z) <= halfD) {
+        if (s.axis === "x") {
+          const t = s.direction > 0 ? (x - (s.x - halfW)) / s.w : (s.x + halfW - x) / s.w;
+          const clamped = Math.max(0, Math.min(1, t));
+          return s.h0 + (s.h1 - s.h0) * clamped;
+        } else {
+          const t = s.direction > 0 ? (z - (s.z - halfD)) / s.d : (s.z + halfD - z) / s.d;
+          const clamped = Math.max(0, Math.min(1, t));
+          return s.h0 + (s.h1 - s.h0) * clamped;
+        }
+      }
+    }
+  }
+
+  if (map.elevations) {
+    for (const e of map.elevations) {
+      if (Math.abs(x - e.x) <= e.w / 2 && Math.abs(z - e.z) <= e.d / 2) {
+        return e.h;
+      }
+    }
+  }
+
+  return 0;
+}
