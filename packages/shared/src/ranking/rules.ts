@@ -1,4 +1,5 @@
-import type { GhostSample, LapRow, MonthRow, PlayerStats, RallyRow, RankingData, RankingRowBase, RankingTab, RankingView, ShooterRow, StoredLap } from "./types";
+import { CHALLENGE_POINTS, WEEKS_KEPT, challengeDone, challengeOfWeek, emptyProgress, weekKey, type WeekProgress } from "./challenges";
+import type { ChallengeView, GhostSample, LapRow, MonthRow, PlayerStats, RallyRow, RankingData, RankingRowBase, RankingTab, RankingView, ShooterRow, StoredLap } from "./types";
 
 /** Pontos do mês por colocação (1º, 2º, 3º); os demais ganham PARTICIPATION_POINTS. */
 export const PLACE_POINTS = [10, 6, 4];
@@ -13,7 +14,7 @@ export const RANKING_ROWS = 20;
 const MONTH_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" });
 
 export function emptyRankingData(): RankingData {
-  return { version: 1, accounts: {}, stats: {}, months: {}, laps: {} };
+  return { version: 1, accounts: {}, stats: {}, months: {}, laps: {}, challenges: {} };
 }
 
 /** "YYYY-MM" em horário de Brasília (o mês vira à meia-noite de lá, não de UTC). */
@@ -41,6 +42,25 @@ function addPoints(data: RankingData, now: number, id: string, points: number): 
   month[id] = (month[id] ?? 0) + points;
 }
 
+/** Progresso da conta na semana de `now`; cria (e poda semanas antigas) se ainda não existe. */
+function weekProgress(data: RankingData, now: number, id: string): WeekProgress {
+  const challenges = (data.challenges ??= {});
+  const key = weekKey(new Date(now));
+  if (!challenges[key]) {
+    challenges[key] = {};
+    for (const old of Object.keys(challenges).sort().slice(0, -WEEKS_KEPT)) delete challenges[old];
+  }
+  return (challenges[key][id] ??= emptyProgress());
+}
+
+/** Se o progresso já cumpre o desafio da semana e ainda não pagou, paga +8 e devolve true (uma vez por semana). */
+function settleChallenge(data: RankingData, now: number, id: string, p: WeekProgress): boolean {
+  if (p.doneAt !== null || !challengeDone(challengeOfWeek(weekKey(new Date(now))), p)) return false;
+  p.doneAt = now;
+  addPoints(data, now, id, CHALLENGE_POINTS);
+  return true;
+}
+
 function placePoints(place: number): number {
   return PLACE_POINTS[place - 1] ?? PARTICIPATION_POINTS;
 }
@@ -57,29 +77,61 @@ function onePerAccount<T extends { accountId: string | null }>(rows: T[], better
   return [...best.values()];
 }
 
-/** `rank` já considera empate (empatados no 1º lugar vêm todos com rank 1 e todos vencem). */
-export function applyShooterResult(data: RankingData, rows: { accountId: string | null; rank: number; kills: number }[], now: number): void {
-  if (!matchCounts(rows)) return;
+/**
+ * `rank` já considera empate (empatados no 1º lugar vêm todos com rank 1 e todos vencem).
+ * Devolve as contas que cumpriram o desafio da semana com esta partida.
+ */
+export function applyShooterResult(data: RankingData, rows: { accountId: string | null; rank: number; kills: number }[], now: number): string[] {
+  if (!matchCounts(rows)) return [];
   const better = (a: { rank: number; kills: number }, b: { rank: number; kills: number }) => a.rank < b.rank || (a.rank === b.rank && a.kills > b.kills);
+  const completed: string[] = [];
   for (const r of onePerAccount(rows, better)) {
     const s = statsOf(data, r.accountId);
     s.shooterMatches++;
     s.shooterKills += r.kills;
     if (r.rank === 1) s.shooterWins++;
     addPoints(data, now, r.accountId, placePoints(r.rank));
+    const w = weekProgress(data, now, r.accountId);
+    w.shooterMatches++;
+    w.shooterKills += r.kills;
+    w.bestKills = Math.max(w.bestKills, r.kills);
+    if (r.rank === 1) w.shooterWins++;
+    if (settleChallenge(data, now, r.accountId, w)) completed.push(r.accountId);
   }
+  return completed;
 }
 
-/** `place` de todos que correram, inclusive quem não terminou (conta como corrida jogada). */
-export function applyRaceResult(data: RankingData, rows: { accountId: string | null; place: number }[], now: number): void {
-  if (!matchCounts(rows)) return;
+/**
+ * `place` de todos que correram, inclusive quem não terminou (conta como corrida jogada).
+ * `finished` ausente vale "terminou". Devolve as contas que cumpriram o desafio da semana.
+ */
+export function applyRaceResult(data: RankingData, rows: { accountId: string | null; place: number; finished?: boolean }[], now: number): string[] {
+  if (!matchCounts(rows)) return [];
+  const completed: string[] = [];
   for (const r of onePerAccount(rows, (a, b) => a.place < b.place)) {
     const s = statsOf(data, r.accountId);
     s.raceMatches++;
     if (r.place === 1) s.raceWins++;
     if (r.place <= PLACE_POINTS.length) s.racePodiums++;
     addPoints(data, now, r.accountId, placePoints(r.place));
+    const w = weekProgress(data, now, r.accountId);
+    w.raceMatches++;
+    if (r.finished !== false) w.raceFinished++;
+    if (r.place === 1) w.raceWins++;
+    if (r.place <= PLACE_POINTS.length) w.racePodiums++;
+    if (settleChallenge(data, now, r.accountId, w)) completed.push(r.accountId);
   }
+  return completed;
+}
+
+/**
+ * Volta válida da conta para o desafio da semana (vale em qualquer modo, inclusive Contra o relógio, sem exigir 2 contas).
+ * Chamar a cada volta fechada, mesmo que não melhore a melhor de sempre. Devolve a conta se acabou de cumprir o desafio.
+ */
+export function applyWeeklyLap(data: RankingData, accountId: string, ms: number, now: number): string[] {
+  const w = weekProgress(data, now, accountId);
+  w.bestLapMs = w.bestLapMs === null ? ms : Math.min(w.bestLapMs, ms);
+  return settleChallenge(data, now, accountId, w) ? [accountId] : [];
 }
 
 /**
@@ -141,12 +193,29 @@ export function rankingView(data: RankingData, now: number, viewerId?: string): 
   const voltas: Omit<LapRow, "rank">[] = lapStandings(data, MAIN_TRACK_ID).map(({ id, lap }) => ({ id, name: nameOf(id), ms: lap.ms }));
 
   const prev = previousMonth(current);
+  const week = weekKey(new Date(now));
+  const challenge = challengeOfWeek(week);
+  const weekRows = data.challenges?.[week] ?? {};
+  const mineProgress = viewerId === undefined ? undefined : (weekRows[viewerId] ?? emptyProgress());
+  const desafio: ChallengeView = {
+    id: challenge.id,
+    text: challenge.text,
+    target: challenge.target,
+    points: CHALLENGE_POINTS,
+    week,
+    mine: mineProgress === undefined ? null : { value: Math.min(challenge.value(mineProgress), challenge.target), target: challenge.target, done: mineProgress.doneAt !== null, bestLapMs: mineProgress.bestLapMs },
+    completed: Object.entries(weekRows)
+      .filter(([, p]) => p.doneAt !== null)
+      .sort((a, b) => a[1].doneAt! - b[1].doneAt! || byId({ id: a[0] }, { id: b[0] }))
+      .map(([id]) => ({ id, name: nameOf(id) })),
+  };
   const top = monthRows(prev)[0];
   return {
     mes: buildTab<MonthRow>(monthRows(current), viewerId),
     tiroteio: buildTab<ShooterRow>(tiroteio, viewerId),
     rally: buildTab<RallyRow>(rally, viewerId),
     voltas: buildTab<LapRow>(voltas, viewerId),
+    desafio,
     mesPassado: top ? { month: prev, id: top.id, name: top.name, points: top.points } : null,
   };
 }

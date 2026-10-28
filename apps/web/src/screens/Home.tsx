@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AvatarPreview } from "../game/AvatarPreview";
 import { loadConfig, loadGoogle, login, loginSession } from "../net/session";
+import { ChallengeCard, useChallenge } from "./ChallengeCard";
 import { keyLabel, useSettings } from "../settings";
 import { net, saveAvatar, setAccount, setState, useStore } from "../store";
 
@@ -37,6 +38,7 @@ export function Home() {
   const error = useStore((s) => s.error);
   const account = useStore((s) => s.account);
   const keys = useSettings().keys.shooter;
+  const challenge = useChallenge();
   const [code, setCode] = useState(() => new URLSearchParams(location.search).get("sala")?.toUpperCase() ?? "");
   const [name, setName] = useState(avatar.name);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -146,6 +148,11 @@ export function Home() {
             </div>
           </div>
         </div>
+        {challenge && (
+          <div style={{ marginTop: 16 }}>
+            <ChallengeCard challenge={challenge} />
+          </div>
+        )}
         <div className="pair" style={{ marginTop: 16 }}>
         <div className="card stack">
           <div>

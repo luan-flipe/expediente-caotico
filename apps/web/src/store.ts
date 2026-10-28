@@ -75,6 +75,8 @@ export interface State {
   chat: ChatItem[];
   /** Painel do chat rápido aberto: o jogo ignora o teclado e solta o mouse enquanto isso. */
   chatOpen: boolean;
+  /** Aviso de desafio da semana cumprido (some sozinho depois de alguns segundos). */
+  toast: { id: number; text: string; points: number } | null;
 }
 
 export interface Ghosts {
@@ -134,6 +136,7 @@ let state: State = {
   ghosts: null,
   chat: [],
   chatOpen: false,
+  toast: null,
 };
 const listeners = new Set<() => void>();
 
@@ -214,6 +217,8 @@ export function leaveRoom(): void {
 
 let feedId = 0;
 let chatId = 0;
+let toastId = 0;
+const TOAST_MS = 7000;
 function pushFeed(items: Omit<FeedItem, "id" | "at">[]): void {
   if (!items.length) return;
   const now = performance.now();
@@ -268,6 +273,14 @@ function onMessage(msg: ServerMsg): void {
     case "chat":
       setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });
       return;
+    case "challenge": {
+      const id = ++toastId;
+      setState({ toast: { id, text: msg.text, points: msg.points } });
+      setTimeout(() => {
+        if (state.toast?.id === id) setState({ toast: null });
+      }, TOAST_MS);
+      return;
+    }
     case "ghosts":
       setState({ ghosts: { mine: msg.mine, record: msg.record } });
       return;

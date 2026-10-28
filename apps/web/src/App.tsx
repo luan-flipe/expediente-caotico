@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
+import { ChallengeToast } from "./screens/ChallengeCard";
 import { Creator } from "./screens/Creator";
 import { Home } from "./screens/Home";
 import { Loading } from "./screens/Loading";
@@ -55,6 +56,7 @@ export function App() {
     <>
       <Suspense fallback={<Loading />}>{screen()}</Suspense>
       <QuickChat />
+      <ChallengeToast />
       {settingsOpen && <Settings />}
     </>
   );
