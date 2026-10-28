@@ -35,6 +35,12 @@ describe("avatar", () => {
     expect(sanitizeAvatar({ shoes: 7 }).shoes).toBe(2);
   });
 
+  it("cor da barba é própria, e crachá antigo sem ela herda a do cabelo", () => {
+    expect(sanitizeAvatar({ hairColor: 4 }).beardColor).toBe(4);
+    expect(sanitizeAvatar({ hairColor: 4, beardColor: 6 }).beardColor).toBe(6);
+    expect(sanitizeAvatar({ hairColor: 4, beardColor: 99 }).beardColor).toBe(4);
+  });
+
   it("ordem dos penteados na tela mostra cada um uma vez", () => {
     expect([...HAIR_ORDER].sort((x, y) => x - y)).toEqual(HAIR_STYLES.map((_, i) => i));
   });

@@ -12,7 +12,13 @@ export interface AvatarDNA {
   hairColor: number;
   eyes: number;
   beard: number;
+  /** Índice de HAIR_COLORS para a barba; crachá antigo sem o campo herda a cor do cabelo. */
+  beardColor: number;
   glasses: number;
+  /** Índice de TOPS: modelo da parte de cima, na cor de shirt. */
+  top: number;
+  /** Índice de BOTTOMS: modelo da parte de baixo, na cor de pants. O Vestido de TOPS dispensa. */
+  bottom: number;
   shirt: number;
   pants: number;
   shoes: number;

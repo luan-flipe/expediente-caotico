@@ -2,7 +2,9 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   ACCESSORIES,
   BEARDS,
+  BOTTOMS,
   DEFAULT_AVATAR,
+  DRESS,
   EYE_COLORS,
   GLASSES,
   HAIR_COLORS,
@@ -15,6 +17,7 @@ import {
   SHIRTS,
   SHOES,
   SKINS,
+  TOPS,
   randomAvatar,
   type AvatarDNA,
 } from "@ec/shared";
@@ -22,7 +25,7 @@ import { AvatarPreview } from "../game/AvatarPreview";
 import { avatarThumbnail } from "../game/character";
 import { saveAvatar, setState, useStore } from "../store";
 
-type NumKey = "model" | "skin" | "hair" | "hairColor" | "eyes" | "beard" | "glasses" | "shirt" | "pants" | "shoes" | "accessory" | "height";
+type NumKey = "model" | "skin" | "hair" | "hairColor" | "eyes" | "beard" | "beardColor" | "glasses" | "top" | "bottom" | "shirt" | "pants" | "shoes" | "accessory" | "height";
 
 type Start = "skin" | "preset" | "custom";
 type Step = "start" | "body" | "face" | "hair" | "clothes" | "extras" | "name";
@@ -82,6 +85,22 @@ export function Creator() {
   const [start, setStart] = useState<Start>(saved.model !== 0 ? "skin" : "custom");
   const [preset, setPreset] = useState(-1);
   const [step, setStep] = useState<Step>("start");
+  const [spin, setSpin] = useState(() => {
+    try {
+      return localStorage.getItem("ec.creatorSpin") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggleSpin = () => {
+    const next = !spin;
+    setSpin(next);
+    try {
+      localStorage.setItem("ec.creatorSpin", next ? "1" : "0");
+    } catch {
+      // sem storage a escolha vale só nesta sessão
+    }
+  };
   const set = (k: NumKey) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
   const ready = useStore((s) => s.modelReady);
   const thumbs = useMemo(() => PRESETS.map((p) => avatarThumbnail(p.dna, 120)), [ready]);
@@ -172,6 +191,11 @@ export function Creator() {
         <Field label="Barba">
           <Seg items={BEARDS} value={dna.beard} onPick={set("beard")} />
         </Field>
+        {dna.beard !== 0 && (
+          <Field label="Cor da barba">
+            <Swatches colors={HAIR_COLORS} value={dna.beardColor} onPick={set("beardColor")} />
+          </Field>
+        )}
         <Field label="Óculos">
           <Seg items={GLASSES} value={dna.glasses} onPick={set("glasses")} />
         </Field>
@@ -189,12 +213,22 @@ export function Creator() {
     ),
     clothes: (
       <>
-        <Field label="Camisa">
+        <Field label="Parte de cima">
+          <Seg items={TOPS} value={dna.top} onPick={set("top")} />
+        </Field>
+        <Field label={dna.top === DRESS ? "Cor do vestido" : "Cor da parte de cima"}>
           <Swatches colors={SHIRTS} value={dna.shirt} onPick={set("shirt")} />
         </Field>
-        <Field label="Calça">
-          <Swatches colors={PANTS} value={dna.pants} onPick={set("pants")} />
-        </Field>
+        {dna.top !== DRESS && (
+          <>
+            <Field label="Parte de baixo">
+              <Seg items={BOTTOMS} value={dna.bottom} onPick={set("bottom")} />
+            </Field>
+            <Field label="Cor da parte de baixo">
+              <Swatches colors={PANTS} value={dna.pants} onPick={set("pants")} />
+            </Field>
+          </>
+        )}
         <Field label="Calçado">
           <Seg items={SHOES} value={dna.shoes} onPick={set("shoes")} />
         </Field>
@@ -225,9 +259,11 @@ export function Creator() {
             <div className="badge">
               <div className="badge-top">
                 <span>CRACHÁ</span>
-                <span>ARRASTE PARA GIRAR</span>
+                <button type="button" className="badge-spin" aria-pressed={spin} onClick={toggleSpin}>
+                  {spin ? "■ PAUSAR GIRO" : "▶ GIRO AUTOMÁTICO"}
+                </button>
               </div>
-              <AvatarPreview dna={dna} className="badge-preview" />
+              <AvatarPreview dna={dna} className="badge-preview" autoRotate={spin} />
               <div className="badge-name">{dna.name}</div>
             </div>
             <div className="row">
