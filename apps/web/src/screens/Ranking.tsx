@@ -33,7 +33,9 @@ function Board<R extends RankingRowBase>({ tab, cols, empty, action }: { tab: Ra
     <tr key={r.id} className={r.id === meId ? "me" : r.rank === 1 ? "lead" : undefined}>
       <td className="num">{r.rank}º</td>
       <td>
-        <strong>{r.name}</strong>
+        <button className="name-link" title="Ver perfil" onClick={() => setState({ perfil: r.id })}>
+          {r.name}
+        </button>
         {r.id === meId && <span className="tag" style={{ marginLeft: 8 }}>VOCÊ</span>}
       </td>
       {cols.map((c) => (

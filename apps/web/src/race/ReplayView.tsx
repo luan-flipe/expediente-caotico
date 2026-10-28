@@ -16,6 +16,7 @@ const close = () => setState({ replay: null });
 /** Replay da volta recorde: busca a gravação e a repete numa pista sem servidor de jogo. */
 export function ReplayView() {
   const target = useStore((s) => s.replay);
+  const voltaPara = useStore((s) => (s.perfil ? "perfil" : "ranking"));
   const [data, setData] = useState<ReplayData | null>(null);
   const [fail, setFail] = useState<string | null>(null);
 
@@ -47,7 +48,7 @@ export function ReplayView() {
       <div className="wrap stack">
         {fail ? <div className="error">{fail}</div> : <p className="muted">Carregando o replay...</p>}
         <button className="btn" onClick={close}>
-          Voltar ao ranking
+          Voltar ao {voltaPara}
         </button>
       </div>
     </div>
@@ -55,6 +56,7 @@ export function ReplayView() {
 }
 
 function Player({ data, track }: { data: ReplayData; track: Track }) {
+  const voltaPara = useStore((s) => (s.perfil ? "perfil" : "ranking"));
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<ReplayEngine | null>(null);
   const [time, setTime] = useState(0);
@@ -112,7 +114,7 @@ function Player({ data, track }: { data: ReplayData; track: Track }) {
           </div>
           <div className="panel timer">{fmtRace(time)}</div>
           <button className="btn small" onClick={close}>
-            Voltar ao ranking (Esc)
+            Voltar ao {voltaPara} (Esc)
           </button>
         </div>
         <div className="replay-bar panel">

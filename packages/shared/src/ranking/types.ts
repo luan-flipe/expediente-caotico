@@ -16,6 +16,20 @@ export interface PlayerStats {
   bestLapMs: number | null;
 }
 
+/** Resumo de uma partida que contou para o ranking (o perfil mostra as últimas). */
+export interface MatchSummary {
+  at: number;
+  mode: "shooter" | "race";
+  /** Pista da corrida (só no rally). */
+  track?: string;
+  /** Colocação final (1 = vencedor). */
+  place: number;
+  /** Eliminações (só no tiroteio). */
+  kills?: number;
+  /** Melhor volta da corrida; null se não fechou nenhuma (só no rally). */
+  bestLapMs?: number | null;
+}
+
 export interface RankingAccount {
   email: string;
   name: string;
@@ -23,6 +37,12 @@ export interface RankingAccount {
   /** Último boneco e cadeira com que a pessoa jogou logada (usados no replay do recorde). */
   avatar?: AvatarDNA;
   chair?: ChairDNA;
+  /** Prêmios bobos ganhos em partidas que contam: nome do prêmio -> vezes. Arquivos antigos não têm: vale vazio. */
+  awards?: Record<string, number>;
+  /** Últimas partidas que contaram (as mais novas por último). Arquivos antigos não têm: vale vazio. */
+  history?: MatchSummary[];
+  /** Desafios da semana cumpridos desde que o contador existe (o progresso por semana é podado). */
+  challengesDone?: number;
 }
 
 /** Resposta de GET /api/replay: a volta de uma linha do ranking, sem nenhum id de conta. */
@@ -108,4 +128,23 @@ export interface RankingView {
   /** Líder do mês anterior ("Funcionário do mês passado"). */
   desafio: ChallengeView;
   mesPassado: { month: string; id: string; name: string; points: number } | null;
+}
+
+/** Resposta de GET /api/perfil: tudo do jogador para a página de perfil, sem id de conta nem e-mail. */
+export interface PlayerProfile {
+  /** Apelido público (o mesmo do link ?perfil=). */
+  id: string;
+  name: string;
+  avatar: AvatarDNA;
+  chair: ChairDNA;
+  stats: Omit<PlayerStats, "bestLapMs">;
+  /** Melhor volta por pista (só as que a pessoa tem); rank é a linha da aba Recordes de volta (e do replay). */
+  laps: { track: string; trackName: string; ms: number; rank: number }[];
+  /** Pontos do mês atual e posição na aba do mês (null sem pontos). */
+  month: { month: string; points: number; position: number | null };
+  challenges: { completed: number; week: { text: string; target: number; value: number; done: boolean } };
+  /** Prêmios bobos, do mais frequente para o menos. */
+  awards: { title: string; count: number }[];
+  /** Últimas partidas, da mais nova para a mais antiga. */
+  history: (MatchSummary & { trackName?: string })[];
 }

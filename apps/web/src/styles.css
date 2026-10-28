@@ -1986,3 +1986,48 @@ input {
 .touch .badge-spin {
   min-height: 44px;
 }
+
+/* perfil do jogador */
+.name-link {
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.name-link:hover {
+  text-decoration-style: solid;
+}
+
+.perfil-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.perfil-num {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.perfil-stat .label {
+  font-size: 10px;
+}
+
+.perfil-awards {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.perfil-hist {
+  overflow-x: auto;
+}
