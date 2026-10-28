@@ -208,6 +208,8 @@ export interface RacePrivate {
     frozenMs: number;
     boostSpeed?: number;
     cups?: number;
+    /** Caminho atual (-1 = principal, 0.. = atalho), para a previsão local escolher o mesmo corredor. */
+    path?: number;
   };
 }
 

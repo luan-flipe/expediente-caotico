@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { RACE } from "../race/balance";
 import { collideKarts, newKart, stepKart, type KartInput, type KartState } from "../race/kart";
-import { pointAt, progressOf, TRACK } from "../race/track";
+import { deltaS, pointAt, progressOf, TRACK, TRACKS } from "../race/track";
+import { pilot } from "./race-pilot";
 
 const DT = 1000 / 30;
 const GAS: KartInput = { steer: 0, throttle: 1, drift: false };
@@ -164,5 +165,24 @@ describe("física da cadeira", () => {
     }
     expect(k10.speed).toBeCloseTo(RACE.maxSpeed * (1 + 10 * RACE.cupSpeedPerUnit), 1);
     expect(k10.speed).toBeGreaterThan(k0.speed);
+  });
+
+  it("cadeira atravessa o atalho do Corporativo sem bater, com path 0 no meio e -1 no fim", () => {
+    const T = TRACKS.corporativo;
+    const b = T.branches[0];
+    const at = pointAt(T, b.sFrom - 25);
+    let k = newKart(at.pos, at.heading);
+    let now = 0;
+    const paths: number[] = [];
+    for (let i = 0; i < 400; i++) {
+      now += 50;
+      const r = stepKart(k, pilot(T, k, 0), 50, now, T);
+      k = r.state;
+      expect(r.wall, `passo ${i}`).toBe(false);
+      paths.push(k.path ?? -1);
+      if (deltaS(T, b.sTo + 30, progressOf(T, k.pos, k.path).s) > 0) break;
+    }
+    expect(paths).toContain(0);
+    expect(paths.at(-1)).toBe(-1);
   });
 });
