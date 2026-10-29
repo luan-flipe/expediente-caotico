@@ -36,7 +36,7 @@ import type { Ghosts } from "../store";
 import { buildTrack } from "./trackScene";
 import { buildParachute, parachuteFor } from "./parachute";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
-import { applyFresnelRimToHierarchy, calculateDynamicFov, CasterBlobShadows, RaceVfxManager, type DriftLevel } from "./vfxJuice";
+import { applyFresnelRimToHierarchy, applyStylizedToonToHierarchy, calculateDynamicFov, CasterBlobShadows, RaceVfxManager, type DriftLevel } from "./vfxJuice";
 import { TrackInteractiveManager, type KartInteractiveInfo } from "./trackInteractive";
 
 interface Sample {
@@ -883,6 +883,8 @@ export class RaceEngine {
     r3d.root.add(bubble);
     // Sombra de contato suave sob as 5 rodinhas para pregar a cadeira no chão
     const blobShadows = new CasterBlobShadows(r3d.root);
+    applyStylizedToonToHierarchy(r3d.root);
+    applyFresnelRimToHierarchy(r3d.root, "#ffffff", 0.65, 2.5);
 
 
 
@@ -1151,6 +1153,7 @@ export class RaceEngine {
               this.pred.boostUntil = Math.max(this.pred.boostUntil, now + bDur);
               this.pred.boostSpeed = Math.max(this.pred.boostSpeed ?? 0, bSpeed);
               this.shake = Math.min(0.4, this.shake + 0.12);
+              this.vfx?.spawnOnomatopoeia(this.pred.pos.x, (this.pred.y ?? 0) + 1.2, this.pred.pos.z, "VRUUUM!", 1.15);
             }
             if (out.bonk) {
               if (out.bonkImpulse) {
@@ -1159,9 +1162,11 @@ export class RaceEngine {
               }
               this.pred.speed *= 0.5;
               this.shake = Math.min(0.5, this.shake + 0.25);
+              this.vfx?.spawnOnomatopoeia(this.pred.pos.x, (this.pred.y ?? 0) + 1.1, this.pred.pos.z, "POW!", 1.25);
             }
             if (out.spin) {
               this.pred.spinUntil = Math.max(this.pred.spinUntil, now + 800);
+              this.vfx?.spawnOnomatopoeia(this.pred.pos.x, (this.pred.y ?? 0) + 1.1, this.pred.pos.z, "VISH!", 1.2);
             }
             if (out.airCushionLift !== undefined && out.airCushionLift > 0) {
               this.pred.y = Math.max(this.pred.y ?? 0, out.airCushionLift);
@@ -1172,7 +1177,7 @@ export class RaceEngine {
       }
     }
 
-    this.vfx?.update(dt, now);
+    this.vfx?.update(dt, now, this.camera);
 
     for (const b of this.boxes.values()) {
       b.rotation.y += dt * 1.6;
@@ -1323,7 +1328,13 @@ export class RaceEngine {
       v.hopY = 0.03;
       v.hopVel = 2.4;
       v.wasDrifting = true;
+      if (own) {
+        this.vfx?.spawnOnomatopoeia(x, y + 1.25, z, "BOING!", 0.95);
+      }
     } else if (drift < 0) {
+      if (v.wasDrifting && own && this.pred && this.clock < this.pred.boostUntil) {
+        this.vfx?.spawnOnomatopoeia(x, y + 1.25, z, "TURBO!", 1.1);
+      }
       v.wasDrifting = false;
     }
 

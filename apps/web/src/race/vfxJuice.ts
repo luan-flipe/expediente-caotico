@@ -159,6 +159,580 @@ export function applyFresnelRimToHierarchy(
 }
 
 
+
+// ----------------------------------------------------------------------------
+// 3.1. CEL / TOON SHADING COM RAMP DE CORES QUENTES (SUPER MARIO ODYSSEY / MK8)
+// ----------------------------------------------------------------------------
+
+export type ToonTintMode = "cobalt" | "lavender" | "warm";
+
+export interface ToonRampOptions {
+  tintMode?: ToonTintMode;
+  shadowColor?: string | THREE.ColorRepresentation;
+  midColor?: string | THREE.ColorRepresentation;
+  lightColor?: string | THREE.ColorRepresentation;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Cria textura de rampa cartoon 1D/2D com bandas suaves e tonalidades quentes/vibrantes.
+ * Sombras tingidas de azul-cobalto ou lavanda corporativo no estilo Mario Odyssey.
+ */
+export function createToonRampTexture(options: ToonRampOptions = {}): THREE.Texture {
+  const width = options.width ?? 256;
+  const height = options.height ?? 16;
+  const tintMode = options.tintMode ?? "cobalt";
+
+  let shadowHex = tintMode === "lavender" ? "#2d244a" : tintMode === "warm" ? "#3b1e10" : "#1e295d";
+  let midHex = tintMode === "lavender" ? "#a855f7" : tintMode === "warm" ? "#f97316" : "#38bdf8";
+  let lightHex = "#fffdf5";
+
+  if (options.shadowColor) {
+    shadowHex = typeof options.shadowColor === "string" ? options.shadowColor : "#" + new THREE.Color(options.shadowColor).getHexString();
+  }
+  if (options.midColor) {
+    midHex = typeof options.midColor === "string" ? options.midColor : "#" + new THREE.Color(options.midColor).getHexString();
+  }
+  if (options.lightColor) {
+    lightHex = typeof options.lightColor === "string" ? options.lightColor : "#" + new THREE.Color(options.lightColor).getHexString();
+  }
+
+  if (typeof document === "undefined") {
+    // Node / Vitest fallback
+    const c1 = new THREE.Color(shadowHex);
+    const data = new Uint8Array([Math.floor(c1.r * 255), Math.floor(c1.g * 255), Math.floor(c1.b * 255), 255]);
+    const tex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const grad = ctx.createLinearGradient(0, 0, width, 0);
+    // Smooth Nintendo stepped cel ramp
+    grad.addColorStop(0.0, shadowHex);
+    grad.addColorStop(0.28, shadowHex);
+    grad.addColorStop(0.32, midHex);
+    grad.addColorStop(0.68, midHex);
+    grad.addColorStop(0.72, lightHex);
+    grad.addColorStop(1.0, lightHex);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  return texture;
+}
+
+export interface StylizedToonOptions {
+  shadowTint?: string | THREE.ColorRepresentation;
+  warmHighlight?: string | THREE.ColorRepresentation;
+  intensity?: number;
+}
+
+/**
+ * Aplica toon/cel shading com sombras quentes tingidas de azul-cobalto ou lavanda corporativo
+ * a um MeshStandardMaterial via hook onBeforeCompile.
+ */
+export function applyStylizedToonShading(
+  material: THREE.MeshStandardMaterial,
+  options: StylizedToonOptions = {}
+): THREE.MeshStandardMaterial {
+  if (material.userData.hasToonShading) {
+    if (material.userData.toonUniforms) {
+      if (options.shadowTint) material.userData.toonUniforms.uToonShadowTint.value.set(options.shadowTint);
+      if (options.warmHighlight) material.userData.toonUniforms.uToonWarmHighlight.value.set(options.warmHighlight);
+      if (options.intensity !== undefined) material.userData.toonUniforms.uToonIntensity.value = options.intensity;
+    }
+    return material;
+  }
+  material.userData.hasToonShading = true;
+
+  const shadowTint = options.shadowTint ?? "#1e295d"; // Azul cobalto corporativo
+  const warmHighlight = options.warmHighlight ?? "#fff8e7";
+  const intensity = options.intensity ?? 0.65;
+
+  const uniforms = {
+    uToonShadowTint: { value: new THREE.Color(shadowTint) },
+    uToonWarmHighlight: { value: new THREE.Color(warmHighlight) },
+    uToonIntensity: { value: intensity },
+  };
+
+  material.userData.toonUniforms = uniforms;
+  const prevCustomKey = material.customProgramCacheKey ? material.customProgramCacheKey() : "";
+  material.customProgramCacheKey = () => `toonShade_${material.uuid}_${prevCustomKey}`;
+
+  const prevOnBeforeCompile = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (prevOnBeforeCompile) {
+      prevOnBeforeCompile(shader, renderer);
+    }
+
+    if (shader.fragmentShader.includes("uToonShadowTint")) {
+      return;
+    }
+
+    shader.uniforms.uToonShadowTint = uniforms.uToonShadowTint;
+    shader.uniforms.uToonWarmHighlight = uniforms.uToonWarmHighlight;
+    shader.uniforms.uToonIntensity = uniforms.uToonIntensity;
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <common>",
+      /* glsl */ `
+      #include <common>
+      uniform vec3 uToonShadowTint;
+      uniform vec3 uToonWarmHighlight;
+      uniform float uToonIntensity;
+      `
+    );
+
+    const toonCalculation = /* glsl */ `
+      // Stylized Cel / Toon Shading (Nintendo Odyssey / MK8 palette)
+      vec3 toonKeyDir = normalize( vec3( 0.35, 0.9, 0.45 ) );
+      vec3 toonNorm = normalize( normal );
+      #ifdef DOUBLE_SIDED
+      if ( ! gl_FrontFacing ) toonNorm = - toonNorm;
+      #endif
+      float tNdotL = clamp( dot( toonNorm, toonKeyDir ), 0.0, 1.0 );
+      float tBand1 = smoothstep( 0.22, 0.30, tNdotL );
+      float tBand2 = smoothstep( 0.58, 0.66, tNdotL );
+      float tRamp = tBand1 * 0.45 + tBand2 * 0.55;
+      vec3 tShadowColor = mix( uToonShadowTint, vec3( 1.0 ), tRamp );
+      outgoingLight = mix( outgoingLight, outgoingLight * tShadowColor, uToonIntensity );
+      outgoingLight += uToonWarmHighlight * ( smoothstep( 0.80, 1.0, tNdotL ) * 0.16 * uToonIntensity );
+    `;
+
+    if (shader.fragmentShader.includes("#include <opaque_fragment>")) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <opaque_fragment>",
+        `${toonCalculation}\n#include <opaque_fragment>`
+      );
+    } else {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <dithering_fragment>",
+        `${toonCalculation}\n#include <dithering_fragment>`
+      );
+    }
+  };
+
+  material.needsUpdate = true;
+  return material;
+}
+
+/**
+ * Aplica toon-shading a toda a hierarquia de objetos 3D.
+ */
+export function applyStylizedToonToHierarchy(
+  root: THREE.Object3D,
+  options: StylizedToonOptions = {}
+): void {
+  root.traverse((obj) => {
+    if (obj instanceof THREE.Mesh && obj.material) {
+      if (Array.isArray(obj.material)) {
+        for (const mat of obj.material) {
+          if (mat instanceof THREE.MeshStandardMaterial) {
+            applyStylizedToonShading(mat, options);
+          }
+        }
+      } else if (obj.material instanceof THREE.MeshStandardMaterial) {
+        applyStylizedToonShading(obj.material, options);
+      }
+    }
+  });
+}
+
+// ----------------------------------------------------------------------------
+// 3.2. PISO ENCERADO DE ESCRITÓRIO (GLOSSY CORPORATE FLOOR SHEEN)
+// ----------------------------------------------------------------------------
+
+export interface WaxedFloorOptions {
+  sheenIntensity?: number;
+  neonColor?: string | THREE.ColorRepresentation;
+  tubeSpacing?: number;
+  fresnelPower?: number;
+  roughness?: number;
+  metalness?: number;
+}
+
+/**
+ * Adiciona brilho de linóleo/madeira encerada polida com reflexos estéticos
+ * (specular Fresnel highlight + reflexo de faixas de luz de teto neon).
+ */
+export function applyWaxedFloorSheen(
+  material: THREE.MeshStandardMaterial,
+  options: WaxedFloorOptions = {}
+): THREE.MeshStandardMaterial {
+  if (material.userData.hasWaxedFloorSheen) {
+    if (material.userData.floorUniforms) {
+      if (options.sheenIntensity !== undefined) material.userData.floorUniforms.uFloorSheen.value = options.sheenIntensity;
+      if (options.neonColor) material.userData.floorUniforms.uNeonColor.value.set(options.neonColor);
+      if (options.tubeSpacing !== undefined) material.userData.floorUniforms.uTubeSpacing.value = options.tubeSpacing;
+      if (options.fresnelPower !== undefined) material.userData.floorUniforms.uFloorFresnelPower.value = options.fresnelPower;
+    }
+    return material;
+  }
+  material.userData.hasWaxedFloorSheen = true;
+
+  material.roughness = options.roughness ?? 0.28;
+  material.metalness = options.metalness ?? 0.06;
+
+  const uniforms = {
+    uFloorSheen: { value: options.sheenIntensity ?? 0.85 },
+    uNeonColor: { value: new THREE.Color(options.neonColor ?? "#e0f2fe") },
+    uTubeSpacing: { value: options.tubeSpacing ?? 4.8 },
+    uFloorFresnelPower: { value: options.fresnelPower ?? 3.2 },
+  };
+
+  material.userData.floorUniforms = uniforms;
+  const prevCustomKey = material.customProgramCacheKey ? material.customProgramCacheKey() : "";
+  material.customProgramCacheKey = () => `waxedFloor_${material.uuid}_${prevCustomKey}`;
+
+  const prevOnBeforeCompile = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (prevOnBeforeCompile) {
+      prevOnBeforeCompile(shader, renderer);
+    }
+
+    if (shader.fragmentShader.includes("uFloorSheen")) {
+      return;
+    }
+
+    shader.uniforms.uFloorSheen = uniforms.uFloorSheen;
+    shader.uniforms.uNeonColor = uniforms.uNeonColor;
+    shader.uniforms.uTubeSpacing = uniforms.uTubeSpacing;
+    shader.uniforms.uFloorFresnelPower = uniforms.uFloorFresnelPower;
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <common>",
+      /* glsl */ `
+      #include <common>
+      uniform float uFloorSheen;
+      uniform vec3 uNeonColor;
+      uniform float uTubeSpacing;
+      uniform float uFloorFresnelPower;
+      `
+    );
+
+    const floorCalculation = /* glsl */ `
+      // Polished Office Linoleum Floor Sheen & Neon Ceiling Tube Reflections
+      vec3 flrView = normalize( vViewPosition );
+      vec3 flrNorm = normalize( normal );
+      #ifdef DOUBLE_SIDED
+      if ( ! gl_FrontFacing ) flrNorm = - flrNorm;
+      #endif
+      float flrFresnel = pow( 1.0 - clamp( dot( flrNorm, flrView ), 0.0, 1.0 ), uFloorFresnelPower );
+      
+      // Procedural neon ceiling fluorescent tube light reflection streaks
+      vec3 flrRefl = reflect( - flrView, flrNorm );
+      float tubeMod = abs( mod( vViewPosition.x * 0.75 + 2.0, uTubeSpacing ) - ( uTubeSpacing * 0.5 ) );
+      float tubeStripe = exp( - tubeMod * tubeMod * 8.5 ) * max( 0.0, flrRefl.y );
+      float neonSpecular = pow( clamp( tubeStripe, 0.0, 1.0 ), 5.0 ) * smoothstep( 0.12, 0.82, flrRefl.y );
+
+      outgoingLight += ( uNeonColor * ( neonSpecular * 0.78 ) + vec3( 1.0 ) * ( flrFresnel * 0.32 ) ) * uFloorSheen;
+    `;
+
+    if (shader.fragmentShader.includes("#include <opaque_fragment>")) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <opaque_fragment>",
+        `${floorCalculation}\n#include <opaque_fragment>`
+      );
+    } else {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <dithering_fragment>",
+        `${floorCalculation}\n#include <dithering_fragment>`
+      );
+    }
+  };
+
+  material.needsUpdate = true;
+  return material;
+}
+
+// ----------------------------------------------------------------------------
+// 3.3. SISTEMA DE ONOMATOPEIAS 3D ESTILO HQ (COMIC SPEECH BUBBLES)
+// ----------------------------------------------------------------------------
+
+export type ComicWord = "BOING!" | "VRUUUM!" | "VISH!" | "EITA!" | "POW!" | "OUCH!" | "TURBO!";
+
+export interface OnomatopoeiaInstance {
+  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  active: boolean;
+  age: number;
+  duration: number;
+  baseScale: number;
+  x: number;
+  y: number;
+  z: number;
+  vy: number;
+}
+
+const COMIC_PALETTES: Record<string, { bg: string; text: string; stroke: string; burst: boolean }> = {
+  "BOING!": { bg: "#84cc16", text: "#fef08a", stroke: "#0f172a", burst: true },
+  "VRUUUM!": { bg: "#ea580c", text: "#fff7ed", stroke: "#450a0a", burst: false },
+  "VISH!": { bg: "#7c3aed", text: "#38bdf8", stroke: "#1e1b4b", burst: true },
+  "EITA!": { bg: "#dc2626", text: "#fde047", stroke: "#450a0a", burst: true },
+  "POW!": { bg: "#e11d48", text: "#fef08a", stroke: "#020617", burst: true },
+  "OUCH!": { bg: "#f59e0b", text: "#ffffff", stroke: "#451a03", burst: true },
+  "TURBO!": { bg: "#0284c7", text: "#f0fdf4", stroke: "#082f49", burst: false },
+};
+
+function createComicWordTexture(word: string): THREE.Texture {
+  if (typeof document === "undefined") {
+    const data = new Uint8Array([255, 220, 40, 255]);
+    const tex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.Texture();
+
+  const pal = COMIC_PALETTES[word] ?? { bg: "#f59e0b", text: "#ffffff", stroke: "#0f172a", burst: true };
+
+  const cx = 128;
+  const cy = 64;
+
+  ctx.clearRect(0, 0, 256, 128);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.06);
+
+  if (pal.burst) {
+    // Jagged comic starburst explosion
+    const points = 16;
+    const outerR = 60;
+    const innerR = 44;
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const r = i % 2 === 0 ? outerR : innerR;
+      const a = (i / (points * 2)) * Math.PI * 2;
+      const px = Math.cos(a) * (r * 1.6);
+      const py = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  } else {
+    // Dynamic tilted action pill with rounded edges
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(-98, -44, 196, 88, 22);
+    } else {
+      ctx.rect(-98, -44, 196, 88);
+    }
+    ctx.closePath();
+  }
+
+  // 3D Drop shadow
+  ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+  ctx.fill();
+
+  // Offset up-left for fill & thick border
+  ctx.translate(-4, -4);
+  ctx.fillStyle = pal.bg;
+  ctx.fill();
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = pal.stroke;
+  ctx.stroke();
+
+  // Bold slanted comic text with multi-layer shadow
+  ctx.font = "900 42px 'Impact', 'Arial Black', sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Black block shadow
+  ctx.fillStyle = pal.stroke;
+  for (let offset = 4; offset >= 1; offset--) {
+    ctx.fillText(word, offset, offset);
+  }
+
+  // White inner rim
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#ffffff";
+  ctx.strokeText(word, 0, 0);
+
+  // Gradient fill
+  const textGrad = ctx.createLinearGradient(0, -20, 0, 20);
+  textGrad.addColorStop(0, "#ffffff");
+  textGrad.addColorStop(0.3, pal.text);
+  textGrad.addColorStop(1, pal.text);
+  ctx.fillStyle = textGrad;
+  ctx.fillText(word, 0, 0);
+
+  ctx.restore();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  return tex;
+}
+
+export class HQOnomatopoeiaManager {
+  public group = new THREE.Group();
+  private pool: OnomatopoeiaInstance[] = [];
+  private poolIdx = 0;
+  private maxBubbles: number;
+  private geometry: THREE.PlaneGeometry;
+  private textureCache = new Map<string, THREE.Texture>();
+
+  constructor(scene?: THREE.Scene, maxBubbles = 16) {
+    this.maxBubbles = maxBubbles;
+    this.geometry = new THREE.PlaneGeometry(1.9, 0.95);
+    this.group.name = "onomatopoeias";
+
+    for (let i = 0; i < this.maxBubbles; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(this.geometry, mat);
+      mesh.visible = false;
+      this.group.add(mesh);
+
+      this.pool.push({
+        mesh,
+        active: false,
+        age: 0,
+        duration: 0.75,
+        baseScale: 1.0,
+        x: 0,
+        y: 0,
+        z: 0,
+        vy: 1.5,
+      });
+    }
+
+    if (scene) {
+      scene.add(this.group);
+    }
+  }
+
+  private getTexture(word: string): THREE.Texture {
+    let tex = this.textureCache.get(word);
+    if (!tex) {
+      tex = createComicWordTexture(word);
+      this.textureCache.set(word, tex);
+    }
+    return tex;
+  }
+
+  public spawn(
+    x: number,
+    y: number,
+    z: number,
+    text: ComicWord | string = "BOING!",
+    scale = 1.0,
+    duration = 0.78
+  ): void {
+    const inst = this.pool[this.poolIdx];
+    this.poolIdx = (this.poolIdx + 1) % this.maxBubbles;
+
+    inst.active = true;
+    inst.age = 0;
+    inst.duration = duration;
+    inst.baseScale = scale;
+    inst.x = x;
+    inst.y = y;
+    inst.z = z;
+    inst.vy = 1.4 + Math.random() * 0.6;
+
+    inst.mesh.material.map = this.getTexture(text);
+    inst.mesh.material.needsUpdate = true;
+    inst.mesh.position.set(x, y, z);
+    inst.mesh.scale.set(0.01, 0.01, 1);
+    inst.mesh.material.opacity = 1;
+    inst.mesh.visible = true;
+  }
+
+  public update(dt: number, camera?: THREE.Camera): void {
+    for (let i = 0; i < this.maxBubbles; i++) {
+      const inst = this.pool[i];
+      if (!inst.active) continue;
+
+      inst.age += dt;
+      if (inst.age >= inst.duration) {
+        inst.active = false;
+        inst.mesh.visible = false;
+        continue;
+      }
+
+      const p = inst.age / inst.duration;
+
+      // Float upwards gently
+      inst.y += inst.vy * dt;
+      inst.vy = Math.max(0.3, inst.vy - 1.2 * dt);
+      inst.mesh.position.set(inst.x, inst.y, inst.z);
+
+      // Billboard facing camera
+      if (camera) {
+        inst.mesh.quaternion.copy(camera.quaternion);
+      }
+
+      // Harmonic Squash & Stretch Animation:
+      // Phase 1 (0..0.22): Explosive pop with horizontal squash
+      // Phase 2 (0.22..0.68): Elastic harmonic oscillation (wobble)
+      // Phase 3 (0.68..1.0): Dissolve & float away
+      let scaleX = inst.baseScale;
+      let scaleY = inst.baseScale;
+
+      if (p < 0.22) {
+        const pop = Math.sin((p / 0.22) * Math.PI * 0.5);
+        scaleX *= pop * 1.35;
+        scaleY *= pop * 0.82;
+        inst.mesh.material.opacity = 1.0;
+      } else if (p < 0.68) {
+        const wobblePhase = (p - 0.22) / 0.46;
+        const wobble = Math.sin(wobblePhase * Math.PI * 4.0) * Math.exp(-wobblePhase * 3.0) * 0.28;
+        scaleX *= (1.0 + wobble);
+        scaleY *= (1.0 - wobble);
+        inst.mesh.material.opacity = 1.0;
+      } else {
+        const fadePhase = (p - 0.68) / 0.32;
+        const fade = 1.0 - fadePhase;
+        scaleX *= (1.0 + (1.0 - fade) * 0.2) * fade;
+        scaleY *= (1.0 + (1.0 - fade) * 0.2) * fade;
+        inst.mesh.material.opacity = Math.max(0, fade);
+      }
+
+      inst.mesh.scale.set(scaleX, scaleY, 1);
+    }
+  }
+
+  public getActiveCount(): number {
+    let count = 0;
+    for (const b of this.pool) if (b.active) count++;
+    return count;
+  }
+
+  public dispose(): void {
+    if (this.group.parent) {
+      this.group.parent.remove(this.group);
+    }
+    this.geometry.dispose();
+    for (const b of this.pool) {
+      b.mesh.material.dispose();
+    }
+    for (const tex of this.textureCache.values()) {
+      tex.dispose();
+    }
+    this.textureCache.clear();
+  }
+}
+
 // ----------------------------------------------------------------------------
 // 3.5. DYNAMIC FOV & CAMERA SQUASH (JUICE)
 // ----------------------------------------------------------------------------
@@ -554,6 +1128,7 @@ export interface RaceVfxOptions {
   maxStreaks?: number;
   maxDroplets?: number;
   maxShockwaves?: number;
+  maxOnomatopoeias?: number;
 }
 
 // ----------------------------------------------------------------------------
@@ -605,6 +1180,8 @@ export class RaceVfxManager {
   private shockwaveIdx = 0;
   private shockwaveGroup = new THREE.Group();
   private shockwaveGeo: THREE.RingGeometry;
+
+  private onomatopoeias: HQOnomatopoeiaManager;
 
   constructor(scene: THREE.Scene, camera: THREE.Camera, options: RaceVfxOptions = {}) {
     this.scene = scene;
@@ -762,6 +1339,8 @@ export class RaceVfxManager {
     this.shockwaveGeo = new THREE.RingGeometry(0.82, 1.0, 36);
     this.scene.add(this.shockwaveGroup);
 
+    this.onomatopoeias = new HQOnomatopoeiaManager(this.scene, options.maxOnomatopoeias ?? 16);
+
     for (let i = 0; i < this.maxShockwaves; i++) {
       const ringMat = new THREE.MeshBasicMaterial({
         color: 0xffffff,
@@ -789,6 +1368,24 @@ export class RaceVfxManager {
   // --------------------------------------------------------------------------
   // SPAWN METHODS
   // --------------------------------------------------------------------------
+
+  /**
+   * Spawns a stylized 3D comic speech bubble / sound effect ("BOING!", "VRUUUM!", "VISH!", "EITA!", "POW!").
+   */
+  public spawnOnomatopoeia(
+    x: number,
+    y: number,
+    z: number,
+    text: ComicWord | string = "BOING!",
+    scale = 1.0,
+    duration = 0.78
+  ): void {
+    this.onomatopoeias.spawn(x, y, z, text, scale, duration);
+  }
+
+  public getOnomatopoeiaManager(): HQOnomatopoeiaManager {
+    return this.onomatopoeias;
+  }
 
   /**
    * Spawns a chunky cartoon drift smoke puff with squash & stretch physics.
@@ -1024,7 +1621,7 @@ export class RaceVfxManager {
    * Main per-frame update tick.
    * Call inside the game render loop before `renderer.render()`.
    */
-  public update(dt: number, _now = 0): void {
+  public update(dt: number, _now = 0, camera?: THREE.Camera): void {
     // ------------------------------------------------------------------------
     // 1. UPDATE SMOKE PUFFS (Squash & Stretch Cartoon Clouds)
     // ------------------------------------------------------------------------
@@ -1326,6 +1923,11 @@ export class RaceVfxManager {
 
       sw.mesh.scale.set(currentRadius, currentRadius, 1);
     }
+
+    // ------------------------------------------------------------------------
+    // 6. UPDATE 3D COMIC ONOMATOPOEIAS (HQ Speech Bubbles)
+    // ------------------------------------------------------------------------
+    this.onomatopoeias.update(dt, camera ?? this.camera);
   }
 
   // --------------------------------------------------------------------------
@@ -1333,6 +1935,9 @@ export class RaceVfxManager {
   // --------------------------------------------------------------------------
 
   public dispose(): void {
+    this.scene.remove(this.onomatopoeias.group);
+    this.onomatopoeias.dispose();
+
     this.scene.remove(this.smokeMesh);
     this.smokeGeo.dispose();
     this.smokeMat.dispose();

@@ -141,6 +141,31 @@ describe("TrackInteractiveManager", () => {
       expect(item.bowMesh).toBeDefined();
     });
 
+    it("possui modelo 3D estético Mario Odyssey com garrafa bojuda, manômetro analógico, caneca lascada com vapor cartoon e laço 3D", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const item = manager.coffeeCalcinhas[0];
+      expect(item).toBeDefined();
+
+      // Manômetro analógico com ponteiro na zona fervendo
+      expect(item.manometerMesh).toBeDefined();
+      expect(item.manometerMesh?.material).toBeDefined();
+
+      // Caneca de cerâmica esmaltada com café líquido ondulante e nuvem de vapor cartoon
+      expect(item.mugLiquidMesh).toBeDefined();
+      expect(item.mugSteamCluster).toBeDefined();
+      expect(item.mugSteamCluster?.children.length).toBe(5); // 5 esferas cartoon conectadas
+
+      // Laço 3D fofinho na calcinha
+      expect(item.bowMesh).toBeDefined();
+      expect(item.bowMesh.children.length).toBeGreaterThanOrEqual(3); // nó central + laço esq + laço dir
+
+      // Tampo da mesa e pés curvados cromados
+      expect(item.group.children.length).toBeGreaterThan(5);
+    });
+
     it("balança a calcinha no vórtex de ar quando o kart passa veloz (>10 m/s)", () => {
       const scene = new THREE.Scene();
       const manager = new TrackInteractiveManager();
@@ -247,6 +272,39 @@ describe("TrackInteractiveManager", () => {
       expect(r.bonkTimer).toBeGreaterThan(0);
       expect(r.squashFactor).toBeGreaterThan(1.0);
       expect(r.patrolDir).toBe(-initialDir);
+      expect(r.emotion).toBe("bonked");
+    });
+
+    it("apresenta LED Matrix Face com estados happy, surprised e bonked, cone amassado e vassouras radiais", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const r = manager.roombas[0];
+      expect(r).toBeDefined();
+
+      // Em patrulha normal: face happy (^‿^)
+      expect(r.emotion).toBe("happy");
+      expect(r.ledMat.map).toBeDefined();
+
+      // Cone de trânsito amassadinho no topo
+      expect(r.coneGroup).toBeDefined();
+      expect(r.coneGroup.children.length).toBeGreaterThanOrEqual(1);
+
+      // Vassourinhas com 1 hub central + 5 raios/cerdas visíveis cada
+      expect(r.brushL.children.length).toBe(6);
+      expect(r.brushR.children.length).toBe(6);
+
+      // Kart raspando velozmente por perto (>10 m/s, entre 1.15m e 2.5m)
+      // Dispara expressão surpresa (O_O)
+      manager.update(0.016, [
+        {
+          pos: { x: r.pos.x + 1.8, z: r.pos.z },
+          speed: 15.0,
+        },
+      ]);
+      expect(r.emotion).toBe("surprised");
+      expect(r.surprisedTimer).toBeGreaterThan(0);
     });
   });
 

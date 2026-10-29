@@ -101,7 +101,7 @@ export function RaceHud({ myId }: { myId: string }) {
       finalLapSeenRef.current = false;
       setFinalLapBanner(false);
     }
-  }, [snap?.phase]);
+  }, [snap]);
 
   useEffect(() => {
     const triggerBanner = () => {
@@ -138,7 +138,7 @@ export function RaceHud({ myId }: { myId: string }) {
     }
 
     return () => window.removeEventListener("ec:finallap", handleEvent);
-  }, [me?.lap, snap?.laps, snap?.phase, snap?.timeTrial]);
+  }, [me, snap]);
 
   if (!snap) return <div className="hud center-msg">Ajustando a cadeira...</div>;
   const now = performance.now();

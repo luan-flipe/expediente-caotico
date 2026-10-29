@@ -5,17 +5,26 @@ import { pointAt, progressOf, sideNormal, type Track, type Vec2 } from "@ec/shar
  * Módulo de Cenário Interativo e Obstáculos de Pista no estilo Nintendo (Super Mario Odyssey / Galaxy / Mario Kart 8).
  *
  * Funcionalidades:
- * 1. O FAMOSO "CAFÉ COADO NA CALCINHA":
- *    - Posicionado na lateral da pista logo após a linha de largada / arco inicial (S ≈ 15m a 25m).
- *    - Mesinha de fórmica, garrafa térmica vintage com bilhete amarelo "Café da Dona Neide - NÃO MEXER",
- *      suporte de arame com calcinha estilizada de bolinhas com lacinho servindo de coador de pano de café!
- *    - Fio contínuo de café cartoon escorrendo pelo fundo da calcinha até caneca fumegante com cachinhos de vapor.
+ * 1. O FAMOSO "CAFÉ COADO NA CALCINHA" (DONA NEIDE 2.0 - VISUAL CHUNKY & TÁTIL PBR):
+ *    - Posicionado na lateral da pista logo após a linha de largada / arco inicial (S ≈ 18m).
+ *    - Mesinha de copa de fórmica vintage com cantos arredondados (bevels/fillet) e pernas curvas elegantes cromadas.
+ *    - Garrafa térmica retrô bojuda vermelha esmaltada, tampa cromada brilhante, bico curvado e manômetro analógico redondo com ponteiro "FERVENDO",
+ *      além do clássico bilhete amarelo com fita crepe: "Café da Dona Neide - NÃO MEXER! (ou levará bronca)".
+ *    - Suporte de arame com coador de calcinha anatômico com curvas suaves, babadinhos 3D ao redor das pernas, textura nítida de renda com poás rosa,
+ *      e laço tridimensional fofinho na frente em cetim vermelho.
+ *    - Fio contínuo de café cartoon escorrendo pelo fundo até a Caneca da Vovó em cerâmica/esmalte lascada com café ondulante
+ *      e nuvenzinhas de vapor cartoon volumétricas estilo metaball/esferas conectadas flutuando suavemente.
  *    - Reatividade: Karts a >10 m/s fazem a calcinha balançar intensamente no vórtex de ar.
- *    - Ao raspar / passar muito perto (<2.2m), a calcinha dá uma estilingada elástica (BOING!) e solta um jato de café
- *      que concede um mini boost turbo com aroma dourado de café para o piloto e espirra gotículas no chão!
+ *    - Ao raspar / passar muito perto (<2.2m), a calcinha dá uma estilingada elástica (BOING!) com squash & stretch vigoroso,
+ *      soltando um jato de café que concede um mini boost turbo com aroma dourado de cafeína para o piloto e espirra gotículas no chão!
  *
- * 2. ASPIRADOR ROBÔ ("ROOMBA DA FIRMA"):
- *    - Aspirador autônomo gordinho com LED pulsante no para-choque, vassourinhas giratórias e um cone de trânsito em cima.
+ * 2. ASPIRADOR ROBÔ ("ROOMBA DA FIRMA" COM EXPRESSÕES LED MATRIX):
+ *    - Aspirador autônomo gordinho com display digital frontal em matriz de pontos LED animada:
+ *      * (^‿^) Sorriso fofo durante a patrulha normal.
+ *      * (>_<) Olhos de dor/rodopio quando atropelado ou ao dar bumper no kart.
+ *      * (O_O) Olhos arregalados e espantados ao ser raspado velozmente por um kart.
+ *    - Cone de trânsito amassadinho no topo em laranja fluorescente com faixas reflexivas vivas.
+ *    - Duas vassourinhas giratórias dianteiras com cerdas individuais visíveis.
  *    - Patrulha corredores largos em movimento de vai-e-vem com rotação suave ao inverter rota.
  *    - Colisão cartoon tipo pinball: ao bater de frente, a cadeira quica/gira com impulso de ricochete, e o Roomba
  *      squasha indignado, pisca alerta vermelho furioso e inverte imediatamente a rota!
@@ -97,7 +106,10 @@ export interface CoffeeCalcinhaObstacle {
   streamMesh: THREE.Mesh;
   thermosMesh: THREE.Group;
   mugGroup: THREE.Group;
+  mugLiquidMesh?: THREE.Mesh;
+  mugSteamCluster?: THREE.Group;
   bowMesh: THREE.Group;
+  manometerMesh?: THREE.Mesh;
   swingAngle: number;
   swingVelocity: number;
   elasticStretch: number;
@@ -115,14 +127,16 @@ export interface RoombaObstacle {
   ledMesh: THREE.Mesh;
   ledMat: THREE.MeshBasicMaterial;
   coneGroup: THREE.Group;
-  brushL: THREE.Mesh;
-  brushR: THREE.Mesh;
+  brushL: THREE.Object3D;
+  brushR: THREE.Object3D;
   patrolStart: { x: number; z: number };
   patrolEnd: { x: number; z: number };
   patrolT: number;
   patrolDir: 1 | -1;
   patrolSpeed: number;
   state: "patrol" | "turning" | "bonked";
+  emotion: "happy" | "bonked" | "surprised";
+  surprisedTimer: number;
   bonkTimer: number;
   squashFactor: number;
   radius: number;
@@ -331,7 +345,153 @@ function createDonaNeideTexture(): THREE.Texture {
   return tex;
 }
 
-/** Textura estilizada de bolinhas e renda para a calcinha coadora */
+/** Textura de mostrador/manômetro analógico com ponteiro vermelho apontando na zona fervendo */
+function createManometerTexture(): THREE.Texture {
+  if (typeof document === "undefined") {
+    const data = new Uint8Array([255, 50, 50, 255]);
+    const tex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+
+  // Aro metálico chanfrado
+  ctx.fillStyle = "#cbd5e1";
+  ctx.beginPath();
+  ctx.arc(64, 64, 60, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#0f172a";
+  ctx.beginPath();
+  ctx.arc(64, 64, 52, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Fundo bege clássico de instrumento retrô
+  ctx.fillStyle = "#fffbeb";
+  ctx.beginPath();
+  ctx.arc(64, 64, 48, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Arco térmico: verde -> amarelo -> vermelho fervendo
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "#22c55e";
+  ctx.beginPath();
+  ctx.arc(64, 64, 38, Math.PI * 0.75, Math.PI * 1.15);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#eab308";
+  ctx.beginPath();
+  ctx.arc(64, 64, 38, Math.PI * 1.15, Math.PI * 1.6);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#ef4444";
+  ctx.beginPath();
+  ctx.arc(64, 64, 38, Math.PI * 1.6, Math.PI * 2.25);
+  ctx.stroke();
+
+  // Texto
+  ctx.fillStyle = "#334155";
+  ctx.font = "bold 10px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("FERVENDO", 64, 84);
+  ctx.fillText("°C", 64, 98);
+
+  // Ponteiro apontando no vermelho fervendo
+  ctx.strokeStyle = "#dc2626";
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.moveTo(64, 64);
+  ctx.lineTo(88, 42);
+  ctx.stroke();
+
+  // Rebite central de latão
+  ctx.fillStyle = "#b45309";
+  ctx.beginPath();
+  ctx.arc(64, 64, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Textura sutil de fórmica vintage com granulação orgânica e borda chanfrada */
+function createFormicaTableTexture(): THREE.Texture {
+  if (typeof document === "undefined") {
+    const data = new Uint8Array([248, 250, 252, 255]);
+    const tex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d")!;
+
+  ctx.fillStyle = "#f8f9fa";
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Granulação sutil linho / fórmica
+  ctx.fillStyle = "rgba(148, 163, 184, 0.16)";
+  for (let y = 0; y < 256; y += 4) {
+    for (let x = (y % 8 === 0 ? 0 : 2); x < 256; x += 4) {
+      ctx.fillRect(x, y, 1.8, 1.8);
+    }
+  }
+
+  ctx.strokeStyle = "rgba(100, 116, 139, 0.25)";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(4, 4, 248, 248);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Textura de caneca de cerâmica/esmalte com lasquinhas na borda */
+function createEnamelMugTexture(): THREE.Texture {
+  if (typeof document === "undefined") {
+    const data = new Uint8Array([56, 189, 248, 255]);
+    const tex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+
+  // Esmalte azul celeste vintage
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillRect(0, 0, 128, 128);
+
+  // Borda esmaltada lascada vintage no topo
+  ctx.fillStyle = "#0369a1";
+  ctx.fillRect(0, 0, 128, 10);
+
+  // Lascas pretas de ferrugem / esmalte descascado
+  ctx.fillStyle = "#0f172a";
+  ctx.beginPath();
+  ctx.arc(32, 6, 6, 0, Math.PI * 2);
+  ctx.arc(76, 5, 5, 0, Math.PI * 2);
+  ctx.arc(104, 7, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#78350f";
+  ctx.beginPath();
+  ctx.arc(32, 6, 3, 0, Math.PI * 2);
+  ctx.arc(104, 7, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Textura estilizada de bolinhas e renda nítida para a calcinha coadora */
 function createCalcinhaTexture(): THREE.Texture {
   if (typeof document === "undefined") {
     const data = new Uint8Array([255, 117, 143, 255]);
@@ -377,6 +537,63 @@ function createCalcinhaTexture(): THREE.Texture {
   return tex;
 }
 
+/** Cria display digital frontal em matriz de pontos LED simulada com emoções cartoon */
+function createRoombaFaceTexture(emotion: "happy" | "bonked" | "surprised"): THREE.Texture {
+  if (typeof document === "undefined") {
+    const data = new Uint8Array([0, 240, 255, 255]);
+    const tex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+
+  ctx.fillStyle = "#080a10";
+  ctx.fillRect(0, 0, 256, 64);
+
+  // Matriz de pontos LED apagados de fundo
+  ctx.fillStyle = "rgba(30, 41, 59, 0.4)";
+  for (let x = 6; x < 256; x += 10) {
+    for (let y = 6; y < 64; y += 10) {
+      ctx.beginPath();
+      ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  if (emotion === "happy") {
+    // (^‿^) - Sorriso fofo durante a patrulha em Ciano Neon
+    ctx.shadowColor = "#00f0ff";
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = "#38bdf8";
+    ctx.font = "900 34px sans-serif";
+    ctx.fillText("( ^ ‿ ^ )", 128, 32);
+  } else if (emotion === "bonked") {
+    // (>_<) - Olhos de dor/rodopio quando atropelado em Vermelho Alerta
+    ctx.shadowColor = "#ef4444";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = "#f87171";
+    ctx.font = "900 34px sans-serif";
+    ctx.fillText("( > _ < )", 128, 32);
+  } else {
+    // (O_O) - Olhos arregalados e espantados ao ser raspado velozmente em Amarelo/Ouro
+    ctx.shadowColor = "#fbbf24";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = "#fde047";
+    ctx.font = "900 34px sans-serif";
+    ctx.fillText("( O _ O )", 128, 32);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 /** Textura de faixas de segurança corporativas jateadas das portas de vidro */
 function createDoorStripesTexture(): THREE.Texture {
   if (typeof document === "undefined") {
@@ -392,11 +609,9 @@ function createDoorStripesTexture(): THREE.Texture {
 
   ctx.clearRect(0, 0, 256, 64);
 
-  // Faixa translúcida jateada
   ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
   ctx.fillRect(0, 12, 256, 40);
 
-  // Listras zebradas de alta visibilidade amarela e preta corporativa
   for (let x = -32; x < 288; x += 32) {
     ctx.fillStyle = "#facc15";
     ctx.beginPath();
@@ -488,13 +703,11 @@ function createVentGrateTexture(): THREE.Texture {
   ctx.fillStyle = "#1e293b";
   ctx.fillRect(0, 0, 128, 128);
 
-  // Aletas e ranhuras de fluxo de ar
   ctx.fillStyle = "#090d16";
   for (let y = 8; y < 128; y += 16) {
     ctx.fillRect(8, y, 112, 8);
   }
 
-  // Destaque metálico chanfrado nas aletas
   ctx.fillStyle = "#475569";
   for (let y = 6; y < 128; y += 16) {
     ctx.fillRect(8, y, 112, 2);
@@ -625,9 +838,17 @@ export class TrackInteractiveManager {
   // Texturas procedurais compartilhadas
   private galaxyBoxTexture: THREE.Texture | null = null;
   private donaNeideTexture: THREE.Texture | null = null;
+  private manometerTexture: THREE.Texture | null = null;
+  private formicaTableTexture: THREE.Texture | null = null;
+  private enamelMugTexture: THREE.Texture | null = null;
   private calcinhaTexture: THREE.Texture | null = null;
   private doorStripesTexture: THREE.Texture | null = null;
   private roombaTopTexture: THREE.Texture | null = null;
+  private roombaFaces: {
+    happy: THREE.Texture;
+    bonked: THREE.Texture;
+    surprised: THREE.Texture;
+  } | null = null;
   private ventGrateTexture: THREE.Texture | null = null;
 
   // Recursos para descarte
@@ -668,7 +889,6 @@ export class TrackInteractiveManager {
       }));
     }
 
-    // Se mesas ainda não foram definidas, busca na pista, na cena ou usa padrões
     if (this.desks.length === 0 && this.track) {
       const trackDesks = extractDesksFromTrack(this.track);
       if (trackDesks.length > 0) this.desks = trackDesks;
@@ -688,7 +908,7 @@ export class TrackInteractiveManager {
     // 1. Inicializa o Café Coado na Calcinha (Logo no início da corrida)
     this.initCoffeeCalcinhaSystem(options);
 
-    // 2. Inicializa os Roombas da Firma (Corredores largos)
+    // 2. Inicializa os Roombas da Firma (Corredores largos com LED Matrix)
     this.initRoombasSystem(options);
 
     // 3. Inicializa as Portas Automáticas de Vidro
@@ -988,7 +1208,7 @@ export class TrackInteractiveManager {
   }
 
   // ==========================================================================
-  // 1. SISTEMA: O FAMOSO "CAFÉ COADO NA CALCINHA" (DONA NEIDE)
+  // 1. SISTEMA: O FAMOSO "CAFÉ COADO NA CALCINHA" (DONA NEIDE 2.0)
   // ==========================================================================
   private initCoffeeCalcinhaSystem(options?: TrackInteractiveOptions): void {
     if (options?.enableCoffeeCalcinha === false) return;
@@ -1005,7 +1225,7 @@ export class TrackInteractiveManager {
       // Exigência: Posicionado logo após a linha de largada / arco inicial (S ≈ 18m)
       const at = pointAt(this.track, 18);
       const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-      const shoulderOff = at.halfWidth - 0.75;
+      const shoulderOff = at.halfWidth + 2.2;
       posX = at.pos.x + nrm.x * shoulderOff;
       posZ = at.pos.z + nrm.z * shoulderOff;
       heading = at.heading + Math.PI;
@@ -1015,7 +1235,7 @@ export class TrackInteractiveManager {
   }
 
   /**
-   * Constrói e registra a famosa mesinha de café coado na calcinha da Dona Neide.
+   * Constrói e registra o Café Coado na Calcinha da Dona Neide 2.0 (Redesign Orgânico, Chunky & Tátil).
    */
   public registerCoffeeCalcinha(pos: {
     x: number;
@@ -1032,183 +1252,415 @@ export class TrackInteractiveManager {
       this.donaNeideTexture = createDonaNeideTexture();
       this.disposables.push(this.donaNeideTexture);
     }
+    if (!this.manometerTexture) {
+      this.manometerTexture = createManometerTexture();
+      this.disposables.push(this.manometerTexture);
+    }
+    if (!this.formicaTableTexture) {
+      this.formicaTableTexture = createFormicaTableTexture();
+      this.disposables.push(this.formicaTableTexture);
+    }
+    if (!this.enamelMugTexture) {
+      this.enamelMugTexture = createEnamelMugTexture();
+      this.disposables.push(this.enamelMugTexture);
+    }
     if (!this.calcinhaTexture) {
       this.calcinhaTexture = createCalcinhaTexture();
       this.disposables.push(this.calcinhaTexture);
     }
 
-    // 1. Mesinha de copa de fórmica
-    const tableGroup = new THREE.Group();
-    const topGeo = new THREE.BoxGeometry(1.4, 0.08, 0.85);
-    const topMat = new THREE.MeshStandardMaterial({
+    const chromeMat = new THREE.MeshStandardMaterial({
       color: "#f1f5f9",
-      roughness: 0.35,
+      metalness: 0.92,
+      roughness: 0.16,
+    });
+    this.disposables.push(chromeMat);
+
+    // ------------------------------------------------------------------------
+    // 1. MESA DE COPA 2.0 (Tampo chanfrado com bevels e pés em curvas elegantes)
+    // ------------------------------------------------------------------------
+    const tableGroup = new THREE.Group();
+
+    // Tampo central com cantos arredondados (fillets)
+    const topCenterGeo = new THREE.BoxGeometry(1.36, 0.07, 0.81);
+    const topMat = new THREE.MeshStandardMaterial({
+      map: this.formicaTableTexture,
+      roughness: 0.38,
       metalness: 0.08,
     });
-    const tableTop = new THREE.Mesh(topGeo, topMat);
+    const tableTop = new THREE.Mesh(topCenterGeo, topMat);
     tableTop.position.y = 0.74;
     tableTop.castShadow = true;
     tableTop.receiveShadow = true;
     tableGroup.add(tableTop);
 
-    // Borda emborrachada chanfrada da mesa
-    const rimGeo = new THREE.BoxGeometry(1.42, 0.03, 0.87);
-    const rimMat = new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.6 });
+    // 4 cantos arredondados (fillets verticais suaves)
+    const cornerGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.07, 12);
+    for (const cx of [-0.635, 0.635]) {
+      for (const cz of [-0.36, 0.36]) {
+        const cMesh = new THREE.Mesh(cornerGeo, topMat);
+        cMesh.position.set(cx, 0.74, cz);
+        tableGroup.add(cMesh);
+      }
+    }
+
+    // Borda chanfrada emborrachada vintage escurecida
+    const rimGeo = new THREE.BoxGeometry(1.42, 0.035, 0.87);
+    const rimMat = new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.55 });
     const tableRim = new THREE.Mesh(rimGeo, rimMat);
     tableRim.position.y = 0.74;
     tableGroup.add(tableRim);
 
-    // 4 pernas metálicas cromadas
-    const legGeo = new THREE.CylinderGeometry(0.028, 0.028, 0.70, 8);
-    const legMat = new THREE.MeshStandardMaterial({ color: "#94a3b8", metalness: 0.85, roughness: 0.2 });
-    for (const lx of [-0.62, 0.62]) {
-      for (const lz of [-0.34, 0.34]) {
-        const leg = new THREE.Mesh(legGeo, legMat);
-        leg.position.set(lx, 0.35, lz);
-        leg.castShadow = true;
-        tableGroup.add(leg);
+    // Pernas tubulares com curvas elegantes retrô (splayed / flared)
+    const legUpperGeo = new THREE.CylinderGeometry(0.026, 0.026, 0.32, 12);
+    const legLowerGeo = new THREE.CylinderGeometry(0.024, 0.024, 0.44, 12);
+    const footSphereGeo = new THREE.SphereGeometry(0.038, 10, 8);
+    const footRubberGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.018, 10);
+    const rubberMat = new THREE.MeshStandardMaterial({ color: "#0f172a", roughness: 0.8 });
+    const stretcherGeo = new THREE.CylinderGeometry(0.016, 0.016, 0.72, 8);
+
+    for (const lx of [-0.58, 0.58]) {
+      // Barra de reforço horizontal conectando as pernas dianteiras e traseiras
+      const stretcher = new THREE.Mesh(stretcherGeo, chromeMat);
+      stretcher.position.set(lx, 0.22, 0);
+      stretcher.rotation.x = Math.PI / 2;
+      tableGroup.add(stretcher);
+
+      for (const lz of [-0.32, 0.32]) {
+        const legGroup = new THREE.Group();
+        legGroup.position.set(lx, 0, lz);
+
+        const upper = new THREE.Mesh(legUpperGeo, chromeMat);
+        upper.position.y = 0.55;
+        legGroup.add(upper);
+
+        const lower = new THREE.Mesh(legLowerGeo, chromeMat);
+        // Curvatura suave para fora
+        const tiltX = lx > 0 ? 0.11 : -0.11;
+        const tiltZ = lz > 0 ? 0.09 : -0.09;
+        lower.position.set(tiltX * 0.22, 0.20, tiltZ * 0.22);
+        lower.rotation.z = -tiltX;
+        lower.rotation.x = tiltZ;
+        legGroup.add(lower);
+
+        // Sapata de borracha e esfera cromada retrô no chão
+        const footSphere = new THREE.Mesh(footSphereGeo, chromeMat);
+        footSphere.position.set(tiltX * 0.45, 0.03, tiltZ * 0.45);
+        legGroup.add(footSphere);
+
+        const footRubber = new THREE.Mesh(footRubberGeo, rubberMat);
+        footRubber.position.set(tiltX * 0.45, 0.009, tiltZ * 0.45);
+        legGroup.add(footRubber);
+
+        tableGroup.add(legGroup);
       }
     }
     group.add(tableGroup);
 
-    // 2. Garrafa térmica vintage de pressão
+    // ------------------------------------------------------------------------
+    // 2. GARRAFA TÉRMICA RETRÔ 2.0 (Corpo bojudo arredondado, bico curvado, manômetro)
+    // ------------------------------------------------------------------------
     const thermosGroup = new THREE.Group();
     thermosGroup.position.set(-0.42, 0.78, 0.05);
 
-    const thermosBodyGeo = new THREE.CylinderGeometry(0.15, 0.17, 0.46, 16);
-    const thermosMat = new THREE.MeshStandardMaterial({
-      color: "#d91e36",
-      roughness: 0.3,
-      metalness: 0.25,
+    const redJugMat = new THREE.MeshStandardMaterial({
+      color: "#d90429",
+      roughness: 0.24,
+      metalness: 0.22,
     });
-    const thermosBody = new THREE.Mesh(thermosBodyGeo, thermosMat);
-    thermosBody.position.y = 0.23;
-    thermosBody.castShadow = true;
-    thermosGroup.add(thermosBody);
 
-    const pumpCollarGeo = new THREE.CylinderGeometry(0.14, 0.16, 0.08, 16);
-    const pumpCollar = new THREE.Mesh(pumpCollarGeo, legMat);
-    pumpCollar.position.y = 0.48;
-    thermosGroup.add(pumpCollar);
+    // Base cromada em anel chanfrado
+    const thermosBaseGeo = new THREE.CylinderGeometry(0.18, 0.19, 0.04, 24);
+    const thermosBase = new THREE.Mesh(thermosBaseGeo, chromeMat);
+    thermosBase.position.y = 0.02;
+    thermosGroup.add(thermosBase);
 
-    const pumpBtnGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.04, 12);
-    const pumpBtnMat = new THREE.MeshStandardMaterial({ color: "#0f172a", roughness: 0.5 });
-    const pumpBtn = new THREE.Mesh(pumpBtnGeo, pumpBtnMat);
-    pumpBtn.position.y = 0.54;
-    thermosGroup.add(pumpBtn);
+    // Bojo inferior bojudo e orgânico arredondado retrô
+    const bulbGeo = new THREE.SphereGeometry(0.21, 24, 18);
+    const bulbMesh = new THREE.Mesh(bulbGeo, redJugMat);
+    bulbMesh.scale.set(1.0, 0.82, 1.0);
+    bulbMesh.position.y = 0.18;
+    bulbMesh.castShadow = true;
+    thermosGroup.add(bulbMesh);
 
-    // Bilhete amarelo "Café da Dona Neide - NÃO MEXER"
-    const noteGeo = new THREE.PlaneGeometry(0.18, 0.18);
+    // Cone de transição do ombro afunilando para o pescoço
+    const shoulderGeo = new THREE.CylinderGeometry(0.13, 0.21, 0.18, 24);
+    const shoulderMesh = new THREE.Mesh(shoulderGeo, redJugMat);
+    shoulderMesh.position.y = 0.32;
+    thermosGroup.add(shoulderMesh);
+
+    // Colar de pescoço em anel cromado
+    const neckGeo = new THREE.CylinderGeometry(0.11, 0.13, 0.06, 24);
+    const neckMesh = new THREE.Mesh(neckGeo, chromeMat);
+    neckMesh.position.y = 0.43;
+    thermosGroup.add(neckMesh);
+
+    // Cúpula da tampa em domo cromado polido brilhante
+    const domeGeo = new THREE.SphereGeometry(0.115, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    const domeMesh = new THREE.Mesh(domeGeo, chromeMat);
+    domeMesh.position.y = 0.46;
+    thermosGroup.add(domeMesh);
+
+    // Botão de pressão com botão preto no topo
+    const plungerGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.04, 16);
+    const plungerMat = new THREE.MeshStandardMaterial({ color: "#0f172a", roughness: 0.5 });
+    const plunger = new THREE.Mesh(plungerGeo, plungerMat);
+    plunger.position.y = 0.52;
+    thermosGroup.add(plunger);
+
+    // Bico curvado retro saindo do topo apontando suavemente para a calcinha
+    const spoutGeo = new THREE.CylinderGeometry(0.024, 0.038, 0.12, 12);
+    const spout = new THREE.Mesh(spoutGeo, redJugMat);
+    spout.position.set(0.11, 0.46, 0.05);
+    spout.rotation.z = -Math.PI * 0.32;
+    spout.rotation.y = Math.PI * 0.15;
+    thermosGroup.add(spout);
+
+    // Alça retrô curva clássica em arco estilizada
+    const handleGeo = new THREE.TorusGeometry(0.14, 0.022, 8, 20, Math.PI);
+    const handle = new THREE.Mesh(handleGeo, chromeMat);
+    handle.position.set(-0.16, 0.28, 0);
+    handle.rotation.z = Math.PI * 0.5;
+    handle.rotation.y = -Math.PI * 0.5;
+    thermosGroup.add(handle);
+
+    // Manômetro/termômetro analógico redondo com ponteirinho pintado no bojo frontal
+    const manoBezelGeo = new THREE.CylinderGeometry(0.062, 0.062, 0.018, 20);
+    const manoBezel = new THREE.Mesh(manoBezelGeo, chromeMat);
+    manoBezel.rotation.x = Math.PI * 0.5;
+    manoBezel.position.set(0, 0.22, 0.198);
+
+    const manoFaceGeo = new THREE.CircleGeometry(0.056, 20);
+    const manoMat = new THREE.MeshBasicMaterial({
+      map: this.manometerTexture,
+      side: THREE.DoubleSide,
+    });
+    const manometerMesh = new THREE.Mesh(manoFaceGeo, manoMat);
+    manometerMesh.position.z = 0.01;
+    manoBezel.add(manometerMesh);
+    thermosGroup.add(manoBezel);
+
+    // Bilhete amarelo da Dona Neide preso por fita com ligeira inclinação orgânica
+    const noteGeo = new THREE.PlaneGeometry(0.19, 0.19);
     const noteMat = new THREE.MeshBasicMaterial({
       map: this.donaNeideTexture,
       side: THREE.DoubleSide,
       transparent: true,
     });
     const noteMesh = new THREE.Mesh(noteGeo, noteMat);
-    noteMesh.position.set(0, 0.25, 0.172);
+    noteMesh.position.set(-0.06, 0.26, 0.185);
+    noteMesh.rotation.y = -0.15;
+    noteMesh.rotation.z = 0.06;
     thermosGroup.add(noteMesh);
 
     group.add(thermosGroup);
 
-    // 3. Suporte de arame cromado
+    // ------------------------------------------------------------------------
+    // 3. SUPORTE DE ARAME CROMADO
+    // ------------------------------------------------------------------------
     const standGroup = new THREE.Group();
     standGroup.position.set(0.18, 0.78, 0);
 
-    const wireUprightGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.48, 8);
-    const wireUpright = new THREE.Mesh(wireUprightGeo, legMat);
+    const wireUprightGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.48, 10);
+    const wireUpright = new THREE.Mesh(wireUprightGeo, chromeMat);
     wireUpright.position.set(-0.16, 0.24, 0);
     standGroup.add(wireUpright);
 
-    const wireRingGeo = new THREE.TorusGeometry(0.17, 0.012, 8, 20);
-    const wireRing = new THREE.Mesh(wireRingGeo, legMat);
+    const wireRingGeo = new THREE.TorusGeometry(0.18, 0.014, 8, 24);
+    const wireRing = new THREE.Mesh(wireRingGeo, chromeMat);
     wireRing.rotation.x = -Math.PI / 2;
     wireRing.position.set(0, 0.48, 0);
     standGroup.add(wireRing);
 
     group.add(standGroup);
 
-    // 4. A famosa Calcinha Coador com lacinho e estampa de bolinhas
+    // ------------------------------------------------------------------------
+    // 4. COADOR DE CALCINHA RIQUÍSSIMO 2.0 (Curvas anatômicas, babadinhos 3D, laço fofinho)
+    // ------------------------------------------------------------------------
     const calcinhaPivot = new THREE.Group();
     calcinhaPivot.position.set(0.18, 1.26, 0);
 
-    // Funil cônico estilizado de tecido da calcinha
-    const calcinhaGeo = new THREE.CylinderGeometry(0.17, 0.038, 0.28, 16, 1, true);
+    // Cós elástico franzido no topo
+    const waistGeo = new THREE.TorusGeometry(0.18, 0.016, 8, 24);
+    const waistMat = new THREE.MeshStandardMaterial({ color: "#fff0f3", roughness: 0.5 });
+    const waistMesh = new THREE.Mesh(waistGeo, waistMat);
+    waistMesh.rotation.x = -Math.PI / 2;
+    calcinhaPivot.add(waistMesh);
+
+    // Corpo de tecido com curvas anatômicas suaves e recorte
+    const calcinhaGeo = new THREE.CylinderGeometry(0.178, 0.042, 0.29, 24, 2, true);
     const calcinhaMat = new THREE.MeshStandardMaterial({
       map: this.calcinhaTexture,
-      roughness: 0.8,
+      roughness: 0.78,
       side: THREE.DoubleSide,
     });
     const calcinhaMesh = new THREE.Mesh(calcinhaGeo, calcinhaMat);
-    calcinhaMesh.position.y = -0.14;
+    calcinhaMesh.position.y = -0.145;
     calcinhaMesh.castShadow = true;
     calcinhaPivot.add(calcinhaMesh);
 
-    // Lacinho 3D delicado na frente do elástico da calcinha
-    const bowGroup = new THREE.Group();
-    bowGroup.position.set(0, 0, 0.175);
+    // Babadinhos 3D franzidos ao redor das aberturas das pernas (3D Ruffles)
+    const ruffleMat = new THREE.MeshStandardMaterial({
+      color: "#ffffff",
+      roughness: 0.6,
+      side: THREE.DoubleSide,
+    });
+    const ruffleLGeo = new THREE.TorusGeometry(0.08, 0.014, 6, 16);
+    const ruffleL = new THREE.Mesh(ruffleLGeo, ruffleMat);
+    ruffleL.position.set(-0.11, -0.14, 0);
+    ruffleL.rotation.y = Math.PI * 0.42;
+    ruffleL.rotation.z = Math.PI * 0.2;
+    calcinhaPivot.add(ruffleL);
 
-    const bowMat = new THREE.MeshStandardMaterial({ color: "#e11d48", roughness: 0.4 });
-    const bowKnotGeo = new THREE.SphereGeometry(0.022, 8, 8);
+    const ruffleRGeo = new THREE.TorusGeometry(0.08, 0.014, 6, 16);
+    const ruffleR = new THREE.Mesh(ruffleRGeo, ruffleMat);
+    ruffleR.position.set(0.11, -0.14, 0);
+    ruffleR.rotation.y = -Math.PI * 0.42;
+    ruffleR.rotation.z = -Math.PI * 0.2;
+    calcinhaPivot.add(ruffleR);
+
+    // Laço tridimensional fofinho na frente (chubby satin bow)
+    const bowGroup = new THREE.Group();
+    bowGroup.position.set(0, 0, 0.182);
+
+    const bowMat = new THREE.MeshStandardMaterial({
+      color: "#e11d48",
+      roughness: 0.35,
+      metalness: 0.1,
+    });
+    const bowKnotGeo = new THREE.SphereGeometry(0.028, 12, 10);
     const bowKnot = new THREE.Mesh(bowKnotGeo, bowMat);
     bowGroup.add(bowKnot);
 
-    const bowWingGeo = new THREE.ConeGeometry(0.032, 0.065, 8);
+    const bowWingGeo = new THREE.SphereGeometry(0.038, 10, 8);
     const bowLeft = new THREE.Mesh(bowWingGeo, bowMat);
-    bowLeft.rotation.z = Math.PI / 2;
-    bowLeft.position.x = -0.042;
+    bowLeft.scale.set(1.6, 0.9, 0.6);
+    bowLeft.rotation.z = Math.PI * 0.18;
+    bowLeft.position.set(-0.046, 0.01, 0);
     bowGroup.add(bowLeft);
 
     const bowRight = new THREE.Mesh(bowWingGeo, bowMat);
-    bowRight.rotation.z = -Math.PI / 2;
-    bowRight.position.x = 0.042;
+    bowRight.scale.set(1.6, 0.9, 0.6);
+    bowRight.rotation.z = -Math.PI * 0.18;
+    bowRight.position.set(0.046, 0.01, 0);
     bowGroup.add(bowRight);
+
+    // Caimentos de fita ondulantes
+    const ribbonTailGeo = new THREE.BoxGeometry(0.018, 0.075, 0.006);
+    const tailL = new THREE.Mesh(ribbonTailGeo, bowMat);
+    tailL.position.set(-0.02, -0.045, 0.005);
+    tailL.rotation.z = 0.22;
+    bowGroup.add(tailL);
+
+    const tailR = new THREE.Mesh(ribbonTailGeo, bowMat);
+    tailR.position.set(0.02, -0.045, 0.005);
+    tailR.rotation.z = -0.22;
+    bowGroup.add(tailR);
 
     calcinhaPivot.add(bowGroup);
     group.add(calcinhaPivot);
 
-    // 5. Fio contínuo de café cartoon escorrendo pelo fundo da calcinha
-    const streamGeo = new THREE.CylinderGeometry(0.012, 0.016, 0.22, 8);
+    // ------------------------------------------------------------------------
+    // 5. FIO CONTÍNUO DE CAFÉ CARTOON ESCORRENDO
+    // ------------------------------------------------------------------------
+    const streamGeo = new THREE.CylinderGeometry(0.012, 0.018, 0.22, 10);
     const streamMat = new THREE.MeshStandardMaterial({
       color: COLOR_COFFEE_BROWN,
-      roughness: 0.1,
+      roughness: 0.08,
       metalness: 0.15,
     });
     const streamMesh = new THREE.Mesh(streamGeo, streamMat);
     streamMesh.position.set(0.18, 0.90, 0);
     group.add(streamMesh);
 
-    // 6. Caneca fumegante sobre a mesa recebendo o café
+    // ------------------------------------------------------------------------
+    // 6. CANECA DA VOVÓ 2.0 (Cerâmica/esmalte lascada, café ondulante, vapor metaball)
+    // ------------------------------------------------------------------------
     const mugGroup = new THREE.Group();
     mugGroup.position.set(0.18, 0.78, 0);
 
-    const mugBodyGeo = new THREE.CylinderGeometry(0.09, 0.08, 0.15, 12);
-    const mugMat = new THREE.MeshStandardMaterial({ color: "#0ea5e9", roughness: 0.3 });
+    const mugBodyGeo = new THREE.CylinderGeometry(0.095, 0.082, 0.16, 20);
+    const mugMat = new THREE.MeshStandardMaterial({
+      map: this.enamelMugTexture,
+      roughness: 0.32,
+      metalness: 0.1,
+    });
     const mugBody = new THREE.Mesh(mugBodyGeo, mugMat);
-    mugBody.position.y = 0.075;
+    mugBody.position.y = 0.08;
     mugBody.castShadow = true;
     mugGroup.add(mugBody);
 
-    const mugHandleGeo = new THREE.TorusGeometry(0.045, 0.014, 8, 12, Math.PI);
+    const mugRimGeo = new THREE.TorusGeometry(0.095, 0.012, 8, 20);
+    const mugRimMat = new THREE.MeshStandardMaterial({ color: "#0369a1", roughness: 0.4 });
+    const mugRim = new THREE.Mesh(mugRimGeo, mugRimMat);
+    mugRim.rotation.x = -Math.PI / 2;
+    mugRim.position.y = 0.16;
+    mugGroup.add(mugRim);
+
+    const mugHandleGeo = new THREE.TorusGeometry(0.052, 0.018, 8, 16, Math.PI);
     const mugHandle = new THREE.Mesh(mugHandleGeo, mugMat);
-    mugHandle.position.set(0.095, 0.075, 0);
+    mugHandle.position.set(0.10, 0.08, 0);
     mugHandle.rotation.y = Math.PI / 2;
     mugGroup.add(mugHandle);
 
-    const liquidGeo = new THREE.CircleGeometry(0.082, 12);
-    const liquidMat = new THREE.MeshStandardMaterial({ color: COLOR_COFFEE_BROWN, roughness: 0.1 });
-    const liquid = new THREE.Mesh(liquidGeo, liquidMat);
-    liquid.rotation.x = -Math.PI / 2;
-    liquid.position.y = 0.145;
-    mugGroup.add(liquid);
+    const liquidGeo = new THREE.CircleGeometry(0.088, 16);
+    const liquidMat = new THREE.MeshStandardMaterial({
+      color: COLOR_COFFEE_BROWN,
+      roughness: 0.08,
+    });
+    const mugLiquidMesh = new THREE.Mesh(liquidGeo, liquidMat);
+    mugLiquidMesh.rotation.x = -Math.PI / 2;
+    mugLiquidMesh.position.y = 0.155;
+    mugGroup.add(mugLiquidMesh);
 
+    // Nuvenzinhas de vapor cartoon volumétricas estilo metaball/esferas conectadas
+    const mugSteamCluster = new THREE.Group();
+    mugSteamCluster.position.set(0, 0.22, 0);
+
+    const steamCloudMat = new THREE.MeshStandardMaterial({
+      color: COLOR_STEAM_WHITE,
+      roughness: 0.3,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+    });
+
+    const puffCenterGeo = new THREE.IcosahedronGeometry(0.065, 1);
+    const puffCenter = new THREE.Mesh(puffCenterGeo, steamCloudMat);
+    mugSteamCluster.add(puffCenter);
+
+    const puffLGeo = new THREE.IcosahedronGeometry(0.048, 1);
+    const puffL = new THREE.Mesh(puffLGeo, steamCloudMat);
+    puffL.position.set(-0.045, -0.015, 0.02);
+    mugSteamCluster.add(puffL);
+
+    const puffRGeo = new THREE.IcosahedronGeometry(0.052, 1);
+    const puffR = new THREE.Mesh(puffRGeo, steamCloudMat);
+    puffR.position.set(0.04, 0.02, -0.018);
+    mugSteamCluster.add(puffR);
+
+    const puffTGeo = new THREE.IcosahedronGeometry(0.038, 1);
+    const puffT = new THREE.Mesh(puffTGeo, steamCloudMat);
+    puffT.position.set(0.02, 0.06, 0.015);
+    mugSteamCluster.add(puffT);
+
+    const puffT2Geo = new THREE.IcosahedronGeometry(0.032, 1);
+    const puffT2 = new THREE.Mesh(puffT2Geo, steamCloudMat);
+    puffT2.position.set(-0.025, 0.075, -0.01);
+    mugSteamCluster.add(puffT2);
+
+    mugGroup.add(mugSteamCluster);
     group.add(mugGroup);
 
     this.disposables.push(
-      topGeo, topMat, rimGeo, rimMat, legGeo, legMat,
-      thermosBodyGeo, thermosMat, pumpCollarGeo, pumpBtnGeo, pumpBtnMat,
-      noteGeo, noteMat, wireUprightGeo, wireRingGeo, calcinhaGeo, calcinhaMat,
-      bowMat, bowKnotGeo, bowWingGeo, streamGeo, streamMat,
-      mugBodyGeo, mugMat, mugHandleGeo, liquidGeo, liquidMat
+      topCenterGeo, topMat, cornerGeo, rimGeo, rimMat,
+      legUpperGeo, legLowerGeo, footSphereGeo, footRubberGeo, rubberMat, stretcherGeo,
+      thermosBaseGeo, bulbGeo, redJugMat, shoulderGeo, neckGeo, domeGeo,
+      plungerGeo, plungerMat, spoutGeo, handleGeo, manoBezelGeo, manoFaceGeo, manoMat,
+      noteGeo, noteMat, wireUprightGeo, wireRingGeo, waistGeo, waistMat, calcinhaGeo, calcinhaMat,
+      ruffleMat, ruffleLGeo, ruffleRGeo, bowMat, bowKnotGeo, bowWingGeo, ribbonTailGeo,
+      streamGeo, streamMat, mugBodyGeo, mugMat, mugRimGeo, mugRimMat, mugHandleGeo, liquidGeo, liquidMat,
+      steamCloudMat, puffCenterGeo, puffLGeo, puffRGeo, puffTGeo, puffT2Geo
     );
 
     const obstacle: CoffeeCalcinhaObstacle = {
@@ -1221,7 +1673,10 @@ export class TrackInteractiveManager {
       streamMesh,
       thermosMesh: thermosGroup,
       mugGroup,
+      mugLiquidMesh,
+      mugSteamCluster,
       bowMesh: bowGroup,
+      manometerMesh,
       swingAngle: 0,
       swingVelocity: 0,
       elasticStretch: 0,
@@ -1238,7 +1693,7 @@ export class TrackInteractiveManager {
   }
 
   // ==========================================================================
-  // 2. SISTEMA: ASPIRADOR ROBÔ ("ROOMBA DA FIRMA")
+  // 2. SISTEMA: ASPIRADOR ROBÔ ("ROOMBA DA FIRMA" COM LED MATRIX FACE)
   // ==========================================================================
   private initRoombasSystem(options?: TrackInteractiveOptions): void {
     if (options?.enableRoombas === false) return;
@@ -1251,7 +1706,6 @@ export class TrackInteractiveManager {
     }
 
     if (this.track) {
-      // Posição padrão ao longo do corredor largo pós-recepção (S ≈ 36m a S ≈ 52m)
       const at1 = pointAt(this.track, 36);
       const at2 = pointAt(this.track, 50);
       this.registerRoomba(
@@ -1260,13 +1714,12 @@ export class TrackInteractiveManager {
         2.2
       );
     } else {
-      // Posição padrão sem pista para testes unitários
       this.registerRoomba({ x: 22.0, z: -35.5 }, { x: 34.0, z: -35.5 }, 2.2);
     }
   }
 
   /**
-   * Constrói e registra um aspirador robô autônomo e gordinho com cone de trânsito em cima.
+   * Constrói e registra o Roomba da Firma com expressões dinâmicas em LED Matrix (^‿^, >_<, O_O).
    */
   public registerRoomba(
     start: { x: number; z: number },
@@ -1282,6 +1735,15 @@ export class TrackInteractiveManager {
     if (!this.roombaTopTexture) {
       this.roombaTopTexture = createRoombaTopTexture();
       this.disposables.push(this.roombaTopTexture);
+    }
+
+    if (!this.roombaFaces) {
+      this.roombaFaces = {
+        happy: createRoombaFaceTexture("happy"),
+        bonked: createRoombaFaceTexture("bonked"),
+        surprised: createRoombaFaceTexture("surprised"),
+      };
+      this.disposables.push(this.roombaFaces.happy, this.roombaFaces.bonked, this.roombaFaces.surprised);
     }
 
     // 1. Corpo cilíndrico robusto e gordinho
@@ -1307,20 +1769,25 @@ export class TrackInteractiveManager {
     topMesh.position.y = 0.222;
     group.add(topMesh);
 
-    // 2. Para-choque frontal com LED animado
+    // 2. Para-choque frontal emborrachado com Display LED Matrix
     const bumperGeo = new THREE.CylinderGeometry(0.57, 0.60, 0.16, 16, 1, false, 0, Math.PI);
     const bumperMat = new THREE.MeshStandardMaterial({ color: "#0f1115", roughness: 0.7 });
     const bumper = new THREE.Mesh(bumperGeo, bumperMat);
     bumper.position.y = 0.10;
     group.add(bumper);
 
-    const ledGeo = new THREE.CylinderGeometry(0.58, 0.59, 0.035, 16, 1, false, 0.2, Math.PI - 0.4);
-    const ledMat = new THREE.MeshBasicMaterial({ color: "#06b6d4" });
+    // Display digital frontal em matriz de pontos LED
+    const ledGeo = new THREE.CylinderGeometry(0.585, 0.595, 0.08, 24, 1, false, 0.2, Math.PI - 0.4);
+    const ledMat = new THREE.MeshBasicMaterial({
+      map: this.roombaFaces.happy,
+      transparent: true,
+      side: THREE.DoubleSide,
+    });
     const ledMesh = new THREE.Mesh(ledGeo, ledMat);
     ledMesh.position.y = 0.12;
     group.add(ledMesh);
 
-    // 3. Topper cômico: Cone de trânsito cartoon laranja com faixas reflexivas brancas
+    // 3. Topper cômico: Cone de trânsito cartoon amassadinho no topo
     const coneGroup = new THREE.Group();
     coneGroup.position.set(0, 0.22, 0);
 
@@ -1330,37 +1797,79 @@ export class TrackInteractiveManager {
     coneBase.position.y = 0.015;
     coneGroup.add(coneBase);
 
-    const coneGeo = new THREE.ConeGeometry(0.18, 0.48, 12);
-    const coneMat = new THREE.MeshStandardMaterial({ color: "#ff5722", roughness: 0.35 });
+    // Geometria de cone com vinco/amassadinha cômica cartoon em um dos lados
+    const coneGeo = new THREE.ConeGeometry(0.18, 0.48, 16);
+    const posAttr = coneGeo.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+      const y = posAttr.getY(i);
+      const x = posAttr.getX(i);
+      const z = posAttr.getZ(i);
+      // Amassadinha de impacto cartoon no terço médio-superior
+      if (y > 0.04 && y < 0.32 && x > 0.02) {
+        const dent = 0.74 + (y - 0.18) * (y - 0.18);
+        posAttr.setX(i, x * dent);
+        posAttr.setZ(i, z * dent);
+      }
+    }
+    coneGeo.computeVertexNormals();
+
+    const coneMat = new THREE.MeshStandardMaterial({
+      color: "#ff5500",
+      roughness: 0.32,
+    });
     const cone = new THREE.Mesh(coneGeo, coneMat);
     cone.position.y = 0.255;
     cone.castShadow = true;
     coneGroup.add(cone);
 
-    const stripeGeo = new THREE.CylinderGeometry(0.11, 0.14, 0.09, 12);
+    // 2 faixas reflexivas brancas bem vivas
+    const stripe1Geo = new THREE.CylinderGeometry(0.11, 0.14, 0.08, 16);
     const stripeMat = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
-    const stripe = new THREE.Mesh(stripeGeo, stripeMat);
-    stripe.position.y = 0.23;
-    coneGroup.add(stripe);
+    const stripe1 = new THREE.Mesh(stripe1Geo, stripeMat);
+    stripe1.position.y = 0.21;
+    coneGroup.add(stripe1);
+
+    const stripe2Geo = new THREE.CylinderGeometry(0.065, 0.085, 0.06, 16);
+    const stripe2 = new THREE.Mesh(stripe2Geo, stripeMat);
+    stripe2.position.y = 0.32;
+    coneGroup.add(stripe2);
 
     group.add(coneGroup);
 
-    // 4. Vassourinhas giratórias dianteiras
-    const brushGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.02, 6);
-    const brushMat = new THREE.MeshBasicMaterial({ color: "#e2e8f0" });
+    // 4. Vassourinhas giratórias dianteiras com cerdas individuais visíveis
+    const hubGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.018, 10);
+    const hubMat = new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.5 });
+    const bristleGeo = new THREE.BoxGeometry(0.085, 0.006, 0.012);
+    const bristleMat = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
 
-    const brushL = new THREE.Mesh(brushGeo, brushMat);
-    brushL.position.set(-0.35, 0.015, 0.35);
+    const createBrush = (bx: number, bz: number): THREE.Group => {
+      const brush = new THREE.Group();
+      brush.position.set(bx, 0.015, bz);
+
+      const hub = new THREE.Mesh(hubGeo, hubMat);
+      brush.add(hub);
+
+      // 5 feixes de cerdas individuais visíveis saindo radialmente
+      for (let b = 0; b < 5; b++) {
+        const angle = (b / 5) * Math.PI * 2;
+        const spoke = new THREE.Mesh(bristleGeo, bristleMat);
+        spoke.position.set(Math.cos(angle) * 0.052, 0, Math.sin(angle) * 0.052);
+        spoke.rotation.y = -angle;
+        brush.add(spoke);
+      }
+      return brush;
+    };
+
+    const brushL = createBrush(-0.35, 0.35);
     group.add(brushL);
 
-    const brushR = new THREE.Mesh(brushGeo, brushMat);
-    brushR.position.set(0.35, 0.015, 0.35);
+    const brushR = createBrush(0.35, 0.35);
     group.add(brushR);
 
     this.disposables.push(
       bodyGeo, bodyMat, topGeo, topMat, bumperGeo, bumperMat,
       ledGeo, ledMat, coneBaseGeo, coneBaseMat, coneGeo, coneMat,
-      stripeGeo, stripeMat, brushGeo, brushMat
+      stripe1Geo, stripe2Geo, stripeMat, hubGeo, hubMat, bristleGeo, bristleMat
     );
 
     const obstacle: RoombaObstacle = {
@@ -1379,6 +1888,8 @@ export class TrackInteractiveManager {
       patrolDir: 1,
       patrolSpeed: speed,
       state: "patrol",
+      emotion: "happy",
+      surprisedTimer: 0,
       bonkTimer: 0,
       squashFactor: 1.0,
       radius: 0.58,
@@ -1404,7 +1915,6 @@ export class TrackInteractiveManager {
     }
 
     if (this.track) {
-      // Localizada na transição entre ambientes (ex: entrada de Sala de Reunião S ≈ 112m)
       const at = pointAt(this.track, 112);
       this.registerAutomaticDoor({ x: at.pos.x, z: at.pos.z, heading: at.heading }, at.halfWidth * 2.0);
     } else {
@@ -1435,7 +1945,6 @@ export class TrackInteractiveManager {
       roughness: 0.3,
     });
 
-    // Colunas laterais estruturais
     const colGeo = new THREE.BoxGeometry(0.24, 3.2, 0.28);
     const colL = new THREE.Mesh(colGeo, frameMat);
     colL.position.set(-width / 2 - 0.12, 1.6, 0);
@@ -1445,26 +1954,22 @@ export class TrackInteractiveManager {
     colR.position.set(width / 2 + 0.12, 1.6, 0);
     group.add(colR);
 
-    // Viga superior com sensor
     const headerGeo = new THREE.BoxGeometry(width + 0.48, 0.32, 0.32);
     const header = new THREE.Mesh(headerGeo, frameMat);
     header.position.set(0, 3.04, 0);
     group.add(header);
 
-    // LED de status do sensor corporativo (Verde / Vermelho)
     const ledGeo = new THREE.BoxGeometry(0.18, 0.08, 0.06);
     const sensorLedMat = new THREE.MeshBasicMaterial({ color: "#22c55e" });
     const sensorLed = new THREE.Mesh(ledGeo, sensorLedMat);
     sensorLed.position.set(0, 2.82, 0.165);
     group.add(sensorLed);
 
-    // Trilho guia de piso
     const floorGuideGeo = new THREE.BoxGeometry(width, 0.02, 0.24);
     const floorGuide = new THREE.Mesh(floorGuideGeo, frameMat);
     floorGuide.position.y = 0.01;
     group.add(floorGuide);
 
-    // Folhas de vidro deslizantes (Esquerda e Direita)
     const doorLeafWidth = width * 0.52;
     const doorGeo = new THREE.BoxGeometry(doorLeafWidth, 2.7, 0.06);
     const glassMat = new THREE.MeshStandardMaterial({
@@ -1483,7 +1988,6 @@ export class TrackInteractiveManager {
     rightDoor.position.set(doorLeafWidth * 0.5, 1.45, 0.02);
     group.add(rightDoor);
 
-    // Faixas de segurança corporativas jateadas na altura dos olhos
     const stripeGeo = new THREE.PlaneGeometry(doorLeafWidth, 0.36);
     const stripeMat = new THREE.MeshBasicMaterial({
       map: this.doorStripesTexture,
@@ -1544,7 +2048,6 @@ export class TrackInteractiveManager {
     }
 
     if (this.track) {
-      // Duas grelhas de ventilação estratégicas na pista (ex: reta inicial S ≈ 28m e S ≈ 90m)
       const at1 = pointAt(this.track, 28);
       this.registerAirVent({ x: at1.pos.x, z: at1.pos.z, heading: at1.heading }, 3.8, 2.2);
 
@@ -1573,7 +2076,6 @@ export class TrackInteractiveManager {
       this.disposables.push(this.ventGrateTexture);
     }
 
-    // Moldura de aço escovado escuro embutida no piso
     const frameGeo = new THREE.BoxGeometry(width, 0.035, length);
     const frameMat = new THREE.MeshStandardMaterial({
       map: this.ventGrateTexture,
@@ -1585,7 +2087,6 @@ export class TrackInteractiveManager {
     frame.receiveShadow = true;
     group.add(frame);
 
-    // Coluna volumétrica de fluxo de ar suave com gradiente ciano
     const streamGeo = new THREE.BoxGeometry(width * 0.9, 1.6, length * 0.9);
     const streamMat = new THREE.MeshBasicMaterial({
       color: COLOR_VENT_CYAN,
@@ -1616,7 +2117,6 @@ export class TrackInteractiveManager {
       particleCount: 16,
     };
 
-    // Associa partículas azuis à grelha
     const startP = obstacle.particleOffset;
     const endP = Math.min(startP + obstacle.particleCount, this.MAX_VENT_PARTICLES);
     for (let p = startP; p < endP; p++) {
@@ -1843,7 +2343,7 @@ export class TrackInteractiveManager {
 
   /**
    * Atualização principal a cada quadro a 60 FPS (Zero GC).
-   * Processa física de papéis, caixas, xícaras, o café na calcinha, roombas, portas e grelhas.
+   * Processa física de papéis, caixas, xícaras, o café na calcinha, roombas com display LED matrix, portas e grelhas.
    * Retorna os eventos e impulsos de interação calculados para cada kart.
    */
   public update(dt: number, karts: KartInteractiveInfo[]): readonly KartInteractionOutput[] {
@@ -1852,7 +2352,6 @@ export class TrackInteractiveManager {
 
     const numKarts = karts.length;
 
-    // Garante tamanho do array reutilizável de saídas sem realocar além da capacidade necessária
     while (this.kartOutputs.length < numKarts) {
       this.kartOutputs.push({
         boost: false,
@@ -1861,7 +2360,6 @@ export class TrackInteractiveManager {
       });
     }
 
-    // Limpa estados de interação deste quadro
     for (let k = 0; k < numKarts; k++) {
       const out = this.kartOutputs[k];
       out.boost = false;
@@ -1903,10 +2401,10 @@ export class TrackInteractiveManager {
     this.updateItemBoxes(dt);
     this.updateCoffeeCupsAndSteam(dt);
 
-    // 4. Café Coado na Calcinha (Vórtex de vento, estilingada e boost de aroma)
+    // 4. Café Coado na Calcinha 2.0 (Vórtex de vento, estilingada e vapor volumétrico)
     this.updateCoffeeCalcinhas(dt, karts);
 
-    // 5. Roombas da Firma (Patrulha, rotação e colisão pinball)
+    // 5. Roombas da Firma com Expressão LED Matrix (Patrulha, rotação e colisão pinball)
     this.updateRoombas(dt, karts);
 
     // 6. Portas Automáticas de Vidro (Ciclos de abertura e bloqueio físico)
@@ -1919,7 +2417,7 @@ export class TrackInteractiveManager {
   }
 
   // ==========================================================================
-  // ATUALIZAÇÃO: CAFÉ COADO NA CALCINHA
+  // ATUALIZAÇÃO: CAFÉ COADO NA CALCINHA 2.0
   // ==========================================================================
   private updateCoffeeCalcinhas(dt: number, karts: KartInteractiveInfo[]): void {
     const numCalcinhas = this._coffeeCalcinhas.length;
@@ -1928,7 +2426,6 @@ export class TrackInteractiveManager {
     for (let c = 0; c < numCalcinhas; c++) {
       const item = this._coffeeCalcinhas[c];
 
-      // Reduz tempo de recarga da estilingada
       if (item.boostCooldown > 0) {
         item.boostCooldown -= dt;
       }
@@ -1949,14 +2446,12 @@ export class TrackInteractiveManager {
 
         // Proximidade extrema / raspar (< 2.2m): estilingada elástica (BOING!) e mini boost de café
         if (distSq < 2.2 * 2.2 && item.boostCooldown <= 0) {
-          item.boostCooldown = 3.0; // cooldown entre boosts
-          item.elasticVelocity = 14.0; // estilingada elástica vigorosa
+          item.boostCooldown = 3.0;
+          item.elasticVelocity = 14.0;
           item.swingVelocity += (Math.random() - 0.5) * 12.0;
 
-          // Disparo das gotículas cartoon no chão
           this.triggerCoffeeSplash(item.pos.x + 0.18, item.pos.z);
 
-          // Concede mini boost turbo com aroma dourado de café para o piloto
           const out = this.kartOutputs[k];
           out.boost = true;
           out.boostSpeed = 24.5;
@@ -1972,7 +2467,6 @@ export class TrackInteractiveManager {
       item.swingVelocity += (-springK * item.swingAngle - damping * item.swingVelocity) * dt;
       item.swingAngle += item.swingVelocity * dt;
 
-      // Balanço senoidal sutil mesmo quando parada
       const idleSway = Math.sin(this.clock * 2.5 + item.id) * 0.04;
       item.calcinhaPivot.rotation.z = item.swingAngle + idleSway;
       item.calcinhaPivot.rotation.x = item.swingAngle * 0.35;
@@ -1990,9 +2484,24 @@ export class TrackInteractiveManager {
       // Fio contínuo de café cartoon: oscilação na espessura
       const streamPulse = 1.0 + Math.sin(this.clock * 14.0) * 0.12;
       item.streamMesh.scale.set(streamPulse, 1.0, streamPulse);
+
+      // Leve ondulação na superfície do café da caneca
+      if (item.mugLiquidMesh) {
+        const liquidWave = 1.0 + Math.sin(this.clock * 8.0) * 0.04;
+        item.mugLiquidMesh.scale.set(liquidWave, liquidWave, liquidWave);
+      }
+
+      // Nuvenzinhas de vapor cartoon volumétricas estilo metaball/esferas conectadas
+      if (item.mugSteamCluster) {
+        const t = this.clock * 2.2 + item.id;
+        const bob = Math.sin(t) * 0.03;
+        item.mugSteamCluster.position.y = 0.22 + bob;
+        const puffScale = 1.0 + Math.sin(t * 1.5) * 0.08;
+        item.mugSteamCluster.scale.set(puffScale, puffScale * 1.08, puffScale);
+        item.mugSteamCluster.rotation.y += dt * 0.8;
+      }
     }
 
-    // 4. Atualização das gotículas de café no chão
     this.updateCoffeeSplashes(dt);
   }
 
@@ -2029,12 +2538,11 @@ export class TrackInteractiveManager {
       this.splashAge[i] += dt;
       const u = this.splashAge[i] / this.splashLife[i];
 
-      this.splashVelY[i] -= 12.0 * dt; // gravidade
+      this.splashVelY[i] -= 12.0 * dt;
       this.splashPosX[i] += this.splashVelX[i] * dt;
       this.splashPosY[i] += this.splashVelY[i] * dt;
       this.splashPosZ[i] += this.splashVelZ[i] * dt;
 
-      // Colisão com o chão
       if (this.splashPosY[i] <= 0.02) {
         this.splashPosY[i] = 0.02;
         this.splashVelX[i] *= 0.8;
@@ -2052,7 +2560,7 @@ export class TrackInteractiveManager {
   }
 
   // ==========================================================================
-  // ATUALIZAÇÃO: ASPIRADOR ROBÔ ("ROOMBA DA FIRMA")
+  // ATUALIZAÇÃO: ASPIRADOR ROBÔ ("ROOMBA DA FIRMA" COM LED MATRIX FACE)
   // ==========================================================================
   private updateRoombas(dt: number, karts: KartInteractiveInfo[]): void {
     const numRoombas = this._roombas.length;
@@ -2068,21 +2576,61 @@ export class TrackInteractiveManager {
       // Bobbing sutil do cone de trânsito em cima
       roomba.coneGroup.rotation.z = Math.sin(this.clock * 6.0) * 0.04;
 
-      // 1. Estado de Bonked (Indignado pós-colisão)
+      const collisionRadius = roomba.radius + 0.65;
+
+      // Checa se algum kart passou veloz (> 10 m/s) a menos de 2.5m (deixa o Roomba surpreso!)
+      for (let k = 0; k < numKarts; k++) {
+        const kart = karts[k];
+        if (kart.speed > 10) {
+          const dx = kart.pos.x - roomba.pos.x;
+          const dz = kart.pos.z - roomba.pos.z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < 2.5 * 2.5 && distSq >= collisionRadius * collisionRadius && roomba.bonkTimer <= 0) {
+            roomba.surprisedTimer = 1.0;
+            break;
+          }
+        }
+      }
+
+      // 1. Gerenciamento de Expressão da Matriz de Pontos LED
       if (roomba.bonkTimer > 0) {
         roomba.bonkTimer -= dt;
+        roomba.emotion = "bonked";
+
+        if (this.roombaFaces && roomba.ledMat.map !== this.roombaFaces.bonked) {
+          roomba.ledMat.map = this.roombaFaces.bonked;
+          roomba.ledMat.needsUpdate = true;
+        }
 
         // Pisca LED vermelho furioso a 14 Hz
         const blink = Math.sin(this.clock * 28.0) > 0;
-        roomba.ledMat.color.setHex(blink ? 0xef4444 : 0x450a0a);
+        roomba.ledMat.color.setHex(blink ? 0xffffff : 0x882222);
 
         // Retorna o squash do impacto suavemente ao normal
         roomba.squashFactor += (1.0 - roomba.squashFactor) * (1.0 - Math.exp(-dt * 8.0));
         roomba.group.scale.set(roomba.squashFactor, 1.0 / roomba.squashFactor, roomba.squashFactor);
+      } else if (roomba.surprisedTimer > 0) {
+        roomba.surprisedTimer -= dt;
+        roomba.emotion = "surprised";
+
+        if (this.roombaFaces && roomba.ledMat.map !== this.roombaFaces.surprised) {
+          roomba.ledMat.map = this.roombaFaces.surprised;
+          roomba.ledMat.needsUpdate = true;
+        }
+
+        const pulse = 0.8 + Math.sin(this.clock * 12.0) * 0.2;
+        roomba.ledMat.color.setRGB(pulse, pulse, pulse);
+        roomba.group.scale.set(1, 1, 1);
       } else {
-        // LED pulsante ciano normal de patrulha
-        const pulse = 0.6 + Math.sin(this.clock * 5.0) * 0.4;
-        roomba.ledMat.color.setRGB(0.04 * pulse, 0.72 * pulse, 0.84 * pulse);
+        roomba.emotion = "happy";
+
+        if (this.roombaFaces && roomba.ledMat.map !== this.roombaFaces.happy) {
+          roomba.ledMat.map = this.roombaFaces.happy;
+          roomba.ledMat.needsUpdate = true;
+        }
+
+        const pulse = 0.75 + Math.sin(this.clock * 4.0) * 0.25;
+        roomba.ledMat.color.setRGB(pulse, pulse, pulse);
         roomba.group.scale.set(1, 1, 1);
       }
 
@@ -2112,7 +2660,6 @@ export class TrackInteractiveManager {
       roomba.group.position.set(roomba.pos.x, 0, roomba.pos.z);
 
       // 3. Colisão cartoon tipo pinball com karts
-      const collisionRadius = roomba.radius + 0.65; // Raio Roomba (0.58) + Raio Kart (0.65)
       for (let k = 0; k < numKarts; k++) {
         const kart = karts[k];
         const dx = kart.pos.x - roomba.pos.x;
@@ -2123,7 +2670,6 @@ export class TrackInteractiveManager {
           const nx = dx / dist;
           const nz = dz / dist;
 
-          // Impulso pinball para a cadeira de escritório
           const out = this.kartOutputs[k];
           out.bonk = true;
           out.spin = true;
@@ -2133,6 +2679,12 @@ export class TrackInteractiveManager {
           // Roomba reage indignado: squasha, apita e inverte a rota imediatamente!
           roomba.bonkTimer = 0.85;
           roomba.squashFactor = 1.45;
+          roomba.emotion = "bonked";
+          roomba.surprisedTimer = 0;
+          if (this.roombaFaces && roomba.ledMat.map !== this.roombaFaces.bonked) {
+            roomba.ledMat.map = this.roombaFaces.bonked;
+            roomba.ledMat.needsUpdate = true;
+          }
           roomba.patrolDir = (roomba.patrolDir === 1 ? -1 : 1);
           roomba.heading = (roomba.heading + Math.PI) % (Math.PI * 2);
           roomba.group.rotation.y = roomba.heading;
@@ -2151,7 +2703,6 @@ export class TrackInteractiveManager {
     for (let d = 0; d < numDoors; d++) {
       const door = this._automaticDoors[d];
 
-      // Máquina de estados cíclica: open -> closing -> closed -> opening
       door.stateTimer += dt;
 
       if (door.state === "open") {
@@ -2160,7 +2711,7 @@ export class TrackInteractiveManager {
           door.stateTimer -= door.durations.open;
         } else {
           door.currentOpen = 1.0;
-          door.sensorLedMat.color.setHex(0x22c55e); // LED Verde
+          door.sensorLedMat.color.setHex(0x22c55e);
         }
       }
 
@@ -2169,10 +2720,10 @@ export class TrackInteractiveManager {
           door.state = "closed";
           door.stateTimer -= door.durations.closing;
           door.currentOpen = 0.0;
-          door.sensorLedMat.color.setHex(0xef4444); // LED Vermelho
+          door.sensorLedMat.color.setHex(0xef4444);
         } else {
           const u = Math.min(1.0, Math.max(0.02, door.stateTimer / door.durations.closing));
-          door.currentOpen = 1.0 - (u * u * (3 - 2 * u)); // smoothstep fechando
+          door.currentOpen = 1.0 - (u * u * (3 - 2 * u));
           const blink = Math.sin(this.clock * 20.0) > 0;
           door.sensorLedMat.color.setHex(blink ? 0xef4444 : 0x450a0a);
         }
@@ -2184,7 +2735,7 @@ export class TrackInteractiveManager {
           door.stateTimer -= door.durations.closed;
         } else {
           door.currentOpen = 0.0;
-          door.sensorLedMat.color.setHex(0xef4444); // LED Vermelho
+          door.sensorLedMat.color.setHex(0xef4444);
         }
       }
 
@@ -2193,29 +2744,26 @@ export class TrackInteractiveManager {
           door.state = "open";
           door.stateTimer -= door.durations.opening;
           door.currentOpen = 1.0;
-          door.sensorLedMat.color.setHex(0x22c55e); // LED Verde
+          door.sensorLedMat.color.setHex(0x22c55e);
         } else {
           const u = Math.min(1.0, Math.max(0.02, door.stateTimer / door.durations.opening));
-          door.currentOpen = u * u * (3 - 2 * u); // smoothstep abrindo
+          door.currentOpen = u * u * (3 - 2 * u);
           const blink = Math.sin(this.clock * 20.0) > 0;
           door.sensorLedMat.color.setHex(blink ? 0x22c55e : 0x052e16);
         }
       }
 
-      // Shudder / vibração elástica do vidro após colisão
       if (door.shudder > 0) {
         door.shudder *= Math.exp(-dt * 6.5);
       }
       const shudderVib = Math.sin(this.clock * 42.0) * door.shudder * 0.12;
 
-      // Posição deslizante das folhas de vidro
       const slideX = door.slideDistance * door.currentOpen;
       door.leftDoor.position.x = -door.halfWidth * 0.5 - slideX;
       door.rightDoor.position.x = door.halfWidth * 0.5 + slideX;
       door.leftDoor.position.z = -0.02 + shudderVib;
       door.rightDoor.position.z = 0.02 - shudderVib;
 
-      // Bloqueio físico: quando a porta estiver fechada ou quase fechada (< 0.65)
       if (door.currentOpen < 0.65) {
         const cosH = Math.cos(door.heading);
         const sinH = Math.sin(door.heading);
@@ -2223,26 +2771,23 @@ export class TrackInteractiveManager {
         for (let k = 0; k < numKarts; k++) {
           const kart = karts[k];
 
-          // Converte posição do kart para coordenadas locais da porta
           const dx = kart.pos.x - door.pos.x;
           const dz = kart.pos.z - door.pos.z;
           const localX = dx * cosH + dz * sinH;
           const localZ = -dx * sinH + dz * cosH;
 
-          // Colisão com o plano do vidro: profundidade < 0.65m e dentro da abertura
           if (Math.abs(localZ) < 0.65 && Math.abs(localX) < door.halfWidth + 0.2) {
             const out = this.kartOutputs[k];
             out.bonk = true;
             out.soundCue = "door_bonk";
 
-            // Impulso de ricochete para fora da porta
             const pushSign = localZ >= 0 ? 1 : -1;
             out.bonkImpulse = {
               x: -sinH * pushSign * 11.5,
               z: cosH * pushSign * 11.5,
             };
 
-            door.shudder = 0.24; // vidro vibra
+            door.shudder = 0.24;
           }
         }
       }
@@ -2283,12 +2828,10 @@ export class TrackInteractiveManager {
         }
       }
 
-      // Brilho do fluxo de ar pulsa intensamente quando kart passa por cima
       const targetOpacity = kartOverVent ? 0.38 : 0.16 + Math.sin(this.clock * 4.0) * 0.05;
       vent.streamMat.opacity += (targetOpacity - vent.streamMat.opacity) * (1 - Math.exp(-dt * 6.0));
     }
 
-    // Atualização das partículas azuis ascendentes das grelhas
     if (!this.ventParticleMesh) return;
 
     for (let i = 0; i < this.MAX_VENT_PARTICLES; i++) {
@@ -2302,7 +2845,6 @@ export class TrackInteractiveManager {
         this.ventParticleAge[i] = 0;
         this.ventParticleLife[i] = 0.7 + Math.random() * 0.4;
 
-        // Gera nova partícula dentro da área da grelha
         const cosH = Math.cos(vent.heading);
         const sinH = Math.sin(vent.heading);
         const localX = (Math.random() - 0.5) * vent.width * 0.85;
@@ -2317,7 +2859,6 @@ export class TrackInteractiveManager {
       const u = this.ventParticleAge[i] / this.ventParticleLife[i];
       this.ventParticlePosY[i] += this.ventParticleVelY[i] * dt;
 
-      // Escala suave: surge, sobe e se dissipa no ar
       const scale = Math.sin(u * Math.PI) * 1.1;
       _vecA.set(this.ventParticlePosX[i], this.ventParticlePosY[i], this.ventParticlePosZ[i]);
       _scaleVec.set(scale, scale, scale);
@@ -2649,6 +3190,17 @@ export class TrackInteractiveManager {
       for (const r of this._roombas) this.scene.remove(r.group);
       for (const d of this._automaticDoors) this.scene.remove(d.group);
       for (const v of this._airVents) this.scene.remove(v.group);
+    }
+
+    if (this.roombaFaces) {
+      try {
+        this.roombaFaces.happy.dispose();
+        this.roombaFaces.bonked.dispose();
+        this.roombaFaces.surprised.dispose();
+      } catch {
+        // noop
+      }
+      this.roombaFaces = null;
     }
 
     for (const d of this.disposables) {
