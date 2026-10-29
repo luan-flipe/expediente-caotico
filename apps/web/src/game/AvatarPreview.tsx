@@ -1,18 +1,18 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import type { AvatarDNA, ChairDNA } from "@ec/shared";
-import { seatedRacer } from "../race/chairMesh";
+import { buildRacer } from "../race/chairMesh";
 import { useStore } from "../store";
 import { createCharacter, type Character, type CharacterAction } from "./character";
 
-/** Ação pedida para a prévia; seq muda a cada clique para repetir a mesma ação. "comemorar" só na cadeira. */
+/** Ação pedida para a prévia; seq muda a cada clique para repetir a mesma ação. "comemorar" só no veículo. */
 export interface PreviewAction {
   name: CharacterAction | "comemorar";
   seq: number;
 }
 
 /**
- * Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira.
+ * Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco no veículo (sentado na cadeira ou em pé no patinete).
  * move anda ou corre no lugar, action toca uma ação do jogo e spin=false para o giro automático.
  */
 export function AvatarPreview({
@@ -110,7 +110,7 @@ export function AvatarPreview({
     const scene = sceneRef.current;
     if (!scene) return;
     const old = rigRef.current;
-    const racer = chair ? seatedRacer(dna, chair) : null;
+    const racer = chair ? buildRacer(dna, chair) : null;
     const rig: Character = racer
       ? { ...racer, update: (dt) => racer.update(dt, 0), play() {}, sit: () => 0, restHands() {} }
       : createCharacter(dna);

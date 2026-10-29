@@ -12,7 +12,10 @@ import {
   HAIR_COLORS,
   HEIGHTS,
   PRESETS,
+  SCOOTER,
+  SCOOTER_WHEELS,
   SKINS,
+  VEHICLES,
   randomAvatar,
   randomChair,
   type AvatarDNA,
@@ -89,6 +92,7 @@ export function Creator() {
   const [chair, setChair] = useState<ChairDNA>(savedChair);
   const [tab, setTab] = useState(useStore((s) => s.lobby?.mode) === "race" ? 1 : 0);
   const setC = (k: keyof ChairDNA) => (i: number) => setChair((c) => ({ ...c, [k]: i }));
+  const scooter = chair.vehicle === SCOOTER;
   const [cheer, setCheer] = useState<PreviewAction>();
   const [step, setStep] = useState<Step>("start");
   const [start, setStart] = useState<Start>("custom");
@@ -233,7 +237,7 @@ export function Creator() {
           </h1>
         </div>
         <div className="seg" style={{ marginBottom: 16 }}>
-          {["Boneco", "Cadeira"].map((t, i) => (
+          {["Boneco", "Veículo"].map((t, i) => (
             <button key={t} className={tab === i ? "on" : ""} onClick={() => setTab(i)}>
               {t}
             </button>
@@ -280,21 +284,27 @@ export function Creator() {
             <div className="stack">
               <div className="card editor-grid">
                 <div style={{ gridColumn: "1 / -1" }}>
-                  <p className="label">Estofado</p>
+                  <p className="label">Veículo</p>
+                  <Seg items={VEHICLES} value={chair.vehicle} onPick={setC("vehicle")} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <p className="label">{scooter ? "Cor" : "Estofado"}</p>
                   <Swatches colors={CHAIR_SEATS} value={chair.seat} onPick={setC("seat")} />
                 </div>
                 <div style={{ gridColumn: "1 / -1" }}>
-                  <p className="label">Base</p>
+                  <p className="label">{scooter ? "Guidão e garfo" : "Base"}</p>
                   <Swatches colors={CHAIR_BASES} value={chair.base} onPick={setC("base")} />
                 </div>
                 <div>
                   <p className="label">Rodas</p>
-                  <Seg items={CHAIR_WHEELS} value={chair.wheels} onPick={setC("wheels")} />
+                  <Seg items={scooter ? SCOOTER_WHEELS : CHAIR_WHEELS} value={chair.wheels} onPick={setC("wheels")} />
                 </div>
-                <div>
-                  <p className="label">Encosto</p>
-                  <Seg items={CHAIR_BACKS} value={chair.back} onPick={setC("back")} />
-                </div>
+                {!scooter && (
+                  <div>
+                    <p className="label">Encosto</p>
+                    <Seg items={CHAIR_BACKS} value={chair.back} onPick={setC("back")} />
+                  </div>
+                )}
                 <div style={{ gridColumn: "1 / -1" }}>
                   <p className="label">Enfeite</p>
                   <Seg items={CHAIR_TRINKETS} value={chair.trinket} onPick={setC("trinket")} />
@@ -302,7 +312,7 @@ export function Creator() {
               </div>
               <div className="card">
                 <p className="muted" style={{ margin: 0 }}>
-                  Todas as cadeiras andam igual. Aqui é só estilo: quem ganha é quem pilota melhor.
+                  Cadeira ou patinete, todos andam igual. Aqui é só estilo: quem ganha é quem pilota melhor.
                 </p>
                 <button className="btn" style={{ marginTop: 12 }} onClick={() => setCheer((a) => ({ name: "comemorar", seq: (a?.seq ?? 0) + 1 }))}>
                   Comemorar

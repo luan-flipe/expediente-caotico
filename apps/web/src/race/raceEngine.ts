@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {
   DEFAULT_AVATAR,
+  DEFAULT_CHAIR,
   ITEM_IDS,
   NO_INPUT,
   pointAt,
@@ -28,7 +29,7 @@ import { getState, net, setState } from "../store";
 import { inputBlocked } from "../pause";
 import { resetTouchInput, touchInput } from "../touch";
 import { ChatBubbles, chatText } from "../chatBubbles";
-import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
+import { buildRacer, chairModelReady, type Racer3D } from "./chairMesh";
 import { createCommander, type Commander } from "./commander";
 import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, nameTag } from "./ghosts";
 import type { Ghosts } from "../store";
@@ -112,7 +113,6 @@ const INTERP_MS = 110;
 const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f", "#bd34fe"];
 /** Treino: os outros pilotos aparecem assim (sem colisão entre cadeiras). */
 const TRIAL_OTHERS_OPACITY = 0.4;
-const DEFAULT_CHAIR: ChairDNA = { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 };
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -783,7 +783,7 @@ export class RaceEngine {
     const key = JSON.stringify(person ?? k.name) + (modelReady() ? "|glb" : "") + (chairModelReady() ? "|cadeira" : "");
     const old = this.views.get(k.id);
     if (old && old.key === key) return old;
-    const r3d = seatedRacer(person?.avatar ?? { ...DEFAULT_AVATAR, name: k.name }, person?.chair ?? DEFAULT_CHAIR);
+    const r3d = buildRacer(person?.avatar ?? { ...DEFAULT_AVATAR, name: k.name }, person?.chair ?? DEFAULT_CHAIR);
     const faded = !!this.snap?.timeTrial && k.id !== this.myId;
     const restore = faded ? fadeMaterials(r3d.root, { opacity: TRIAL_OTHERS_OPACITY }) : null;
     // r3d.root fica no chão; body inclina e gira por cima dele
@@ -798,9 +798,8 @@ export class RaceEngine {
       body.add(m);
       return m;
     });
-    // turbo: jato de espuma do extintor (GLB) ou chama na cadeira procedural
-    const foam = chairModelReady();
-    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.8, 10), new THREE.MeshBasicMaterial({ color: foam ? "#eef6ff" : "#ff8a2b", transparent: true, opacity: 0.85 }));
+    // turbo: jato de espuma do extintor (GLB), chama na cadeira procedural ou faísca no patinete
+    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.8, 10), new THREE.MeshBasicMaterial({ color: r3d.jet, transparent: true, opacity: 0.85 }));
     flame.rotation.x = -Math.PI / 2;
     flame.position.set(r3d.exhaust.x, r3d.exhaust.y, r3d.exhaust.z - 0.4);
     flame.visible = false;
@@ -1298,7 +1297,7 @@ export class RaceEngine {
     if (boosting) {
       const isLevel3 = drift === 3;
       const boostFlick = 1.3 + Math.random() * 0.7;
-      (v.flame.material as THREE.MeshBasicMaterial).color.set(isLevel3 ? "#bd34fe" : chairModelReady() ? "#eef6ff" : "#ff8a2b");
+      (v.flame.material as THREE.MeshBasicMaterial).color.set(isLevel3 ? "#bd34fe" : v.r3d.jet);
       v.flame.scale.set(1.4, boostFlick, 1.4);
     }
 

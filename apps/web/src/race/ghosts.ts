@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { AvatarDNA, ChairDNA, GhostSample } from "@ec/shared";
-import { seatedRacer, type Racer3D } from "./chairMesh";
+import { buildRacer, type Racer3D } from "./chairMesh";
 
 export const GHOST_MINE = "#4aa3ff";
 export const GHOST_RECORD = "#ffd23f";
@@ -81,7 +81,7 @@ export class Ghost {
     private readonly color: string,
     label: string,
   ) {
-    this.r3d = seatedRacer(avatar, chair);
+    this.r3d = buildRacer(avatar, chair);
     this.root = this.r3d.root;
     this.restore = fadeMaterials(this.root, { opacity: GHOST_OPACITY, color, depthWrite: false });
     this.label = label;
