@@ -2081,3 +2081,9 @@ input {
     padding: 16px;
   }
 }
+
+.app-version {
+  font-size: 10px;
+  opacity: 0.6;
+  white-space: nowrap;
+}
