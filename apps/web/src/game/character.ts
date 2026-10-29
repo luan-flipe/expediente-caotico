@@ -266,6 +266,78 @@ function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THR
   body.parent?.add(piece);
 }
 
+/** Salto alto: o pé gira isto em volta do tornozelo, calcanhar para cima e ponta para baixo. */
+const HEEL_TILT = 0.35;
+/**
+ * Quanto o boneco sobe com o pé inclinado, em unidades do modelo, para a ponta do sapato tocar o chão.
+ * Medido no 03_salto_alto.glb, que desenha o salto já nessa pose.
+ */
+const HEEL_LIFT = 0.044;
+
+/** Altura do cós medida a partir do topo da saia. */
+const TUCK_BAND = 0.03;
+/** Folga entre a camiseta apertada e o lado de dentro da saia. */
+const TUCK_GAP = 0.008;
+/** Acima do cós, a camiseta volta ao tamanho dela ao longo desta altura, como tecido preso na cintura. */
+const TUCK_BLEND = 0.05;
+const TUCK_BINS = 48;
+/** Camiseta já posta para dentro, por camiseta e por saia. */
+const tucked = new WeakMap<THREE.SkinnedMesh, WeakMap<THREE.SkinnedMesh, THREE.SkinnedMesh>>();
+
+/** A camiseta com a parte de baixo apertada para dentro do cós da saia (contorno medido na própria saia). */
+function tuckShirt(shirt: THREE.SkinnedMesh, skirt: THREE.SkinnedMesh[]): THREE.SkinnedMesh {
+  const cached = tucked.get(shirt)?.get(skirt[0]);
+  if (cached) return cached;
+  // posições no espaço da amarração, onde camiseta e saia se encontram
+  const pts: THREE.Vector3[] = [];
+  for (const m of skirt) {
+    const pos = m.geometry.getAttribute("position");
+    for (let v = 0; v < pos.count; v++) pts.push(new THREE.Vector3().fromBufferAttribute(pos, v).applyMatrix4(m.bindMatrix));
+  }
+  const top = Math.max(...pts.map((p) => p.y));
+  const band = pts.filter((p) => p.y > top - TUCK_BAND);
+  const cx = band.reduce((s, p) => s + p.x, 0) / band.length;
+  const cz = band.reduce((s, p) => s + p.z, 0) / band.length;
+  const binOf = (x: number, z: number) => {
+    const a = Math.atan2(x - cx, z - cz);
+    return Math.floor(((a / (Math.PI * 2) + 1) % 1) * TUCK_BINS) % TUCK_BINS;
+  };
+  // raio do cós em cada direção: o menor, para a camiseta ficar por dentro dele todo
+  const limit = new Array<number>(TUCK_BINS).fill(Infinity);
+  for (const p of band) {
+    const b = binOf(p.x, p.z);
+    limit[b] = Math.min(limit[b], Math.hypot(p.x - cx, p.z - cz) - TUCK_GAP);
+  }
+  // direção sem ponto do cós: usa a vizinha mais próxima que tem
+  for (let b = 0; b < TUCK_BINS; b++)
+    for (let k = 1; limit[b] === Infinity && k < TUCK_BINS; k++)
+      limit[b] = Math.min(limit[(b + k) % TUCK_BINS], limit[(b - k + TUCK_BINS) % TUCK_BINS]);
+
+  const geometry = shirt.geometry.clone();
+  const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
+  const toBind = shirt.bindMatrix;
+  const fromBind = shirt.bindMatrixInverse;
+  const p = new THREE.Vector3();
+  for (let v = 0; v < pos.count; v++) {
+    p.fromBufferAttribute(pos, v).applyMatrix4(toBind);
+    if (p.y > top + TUCK_BLEND) continue;
+    const r = limit[binOf(p.x, p.z)];
+    const d = Math.hypot(p.x - cx, p.z - cz);
+    if (d <= r) continue;
+    const k = p.y <= top ? 1 : 1 - (p.y - top) / TUCK_BLEND;
+    const s = (d + (r - d) * k) / d;
+    p.set(cx + (p.x - cx) * s, p.y, cz + (p.z - cz) * s).applyMatrix4(fromBind);
+    pos.setXYZ(v, p.x, p.y, p.z);
+  }
+  // as normais ficam as da camiseta: a parte apertada some dentro da saia
+  geometry.computeBoundingSphere();
+  const out = shirt.clone();
+  out.geometry = geometry;
+  if (!tucked.has(shirt)) tucked.set(shirt, new WeakMap());
+  tucked.get(shirt)!.set(skirt[0], out);
+  return out;
+}
+
 let loaded: Loaded | null = null;
 let loading: Promise<boolean> | null = null;
 
@@ -341,16 +413,44 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const syncFace = dressFace(inner, dna, mats);
   const hairColor = HAIR_COLORS[dna.hairColor] ?? HAIR_COLORS[0];
   const beardColor = HAIR_COLORS[dna.beardColor] ?? hairColor;
+  // com saia, a camiseta vai para dentro do cós
+  const pants = model.pants[dna.pants - 1];
+  const skirt = PANTS_3D[dna.pants - 1]?.tuck && pants?.length ? pants : null;
+  const shirt = model.shirts[dna.shirt - 1];
   const pieces: [THREE.SkinnedMesh[] | undefined, string?][] = [
     [model.hairs[dna.hair - 1], hairColor],
     [model.beards[dna.beard - 1], beardColor],
-    [model.shirts[dna.shirt - 1]],
-    [model.pants[dna.pants - 1]],
+    [skirt && shirt ? shirt.map((m) => tuckShirt(m, skirt)) : shirt],
+    [pants],
     [model.shoes[dna.shoes - 1]],
   ];
   for (const [list, color] of pieces) {
     for (const piece of list ?? []) if (body) attachWearable(inner, body, piece, color, mats);
   }
+
+  // salto alto: o pé fica inclinado e o boneco sobe para a ponta do sapato tocar o chão
+  const feet =
+    SHOES_3D[dna.shoes - 1]?.heel && model.shoes[dna.shoes - 1]?.length
+      ? ["pe_D", "pe_E"].map((n) => inner.getObjectByName(n)).filter((o): o is THREE.Object3D => !!o)
+      : [];
+  if (feet.length) inner.position.y = HEEL_LIFT * inner.scale.y;
+  /** Rotação de cada pé logo depois de inclinado: igual a ela, a animação não mexeu no pé desde então. */
+  const tilted = new Map<THREE.Object3D, THREE.Quaternion>();
+  const toParent = new THREE.Quaternion();
+  const tilt = new THREE.Quaternion();
+  const side = new THREE.Vector3();
+  const tiltFeet = () => {
+    for (const foot of feet) {
+      if (tilted.get(foot)?.equals(foot.quaternion)) continue;
+      // eixo lateral do boneco escrito no espaço do pai do pé
+      toParent.identity();
+      for (let o = foot.parent; o && o !== inner; o = o.parent) toParent.premultiply(o.quaternion);
+      side.set(1, 0, 0).applyQuaternion(toParent.invert());
+      foot.quaternion.premultiply(tilt.setFromAxisAngle(side, HEEL_TILT));
+      tilted.set(foot, foot.quaternion.clone());
+    }
+  };
+  tiltFeet();
 
   const mixer = new THREE.AnimationMixer(inner);
   const loop = (name: string) => {
@@ -389,6 +489,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (seated) {
         if (!cheer?.isRunning()) return;
         mixer.update(dt);
+        tiltFeet();
         syncFace();
         if (cheer.isRunning()) return;
         for (const [o, p, q, s] of pose) {
@@ -408,6 +509,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       run?.setEffectiveWeight(r);
       if (walk) walk.timeScale = 0.6 + speed01 * (run ? 1.6 : 0.8);
       mixer.update(dt);
+      tiltFeet();
       syncFace();
     },
     updateSeated(dt, speed, _steer, driftDir) {
@@ -443,6 +545,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         const o = inner.getObjectByName(n);
         if (o) o.rotation.x = x;
       }
+      tiltFeet();
       syncFace();
       if (!body) return 0;
       // a caixa da malha com pele é calculada na pose atual dos ossos

@@ -4,6 +4,10 @@ import { MAX_WEARABLES } from "@ec/shared";
 export interface Wearable {
   label: string;
   url: string;
+  /** Saia (arquivo com "saia" no nome): com ela, a camiseta fica para dentro do cós. */
+  tuck: boolean;
+  /** Salto alto (arquivo com "salto" no nome): com ele, o pé fica inclinado e o boneco sobe. */
+  heel: boolean;
 }
 
 /** "02_moicano_alto.glb" vira "Moicano alto". */
@@ -17,7 +21,10 @@ function listOf(files: Record<string, string>): Wearable[] {
   return Object.keys(files)
     .sort()
     .slice(0, MAX_WEARABLES - 1)
-    .map((path) => ({ label: labelOf(path), url: files[path] }));
+    .map((path) => {
+      const file = path.split("/").pop()!;
+      return { label: labelOf(path), url: files[path], tuck: /saia/i.test(file), heel: /salto/i.test(file) };
+    });
 }
 
 // o glob do Vite só aceita caminho literal, por isso uma chamada por pasta
