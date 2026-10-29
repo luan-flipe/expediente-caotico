@@ -1,3 +1,4 @@
+import type { BotLevel } from "./botLevels";
 export type Vec2 = { x: number; z: number };
 
 export type AbilityId = "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3";
@@ -72,6 +73,9 @@ export interface PlayerSim {
   name: string;
   avatar: AvatarDNA;
   isBot: boolean;
+  isZombie?: boolean;
+  zombieDamage?: number;
+  lastZombieAttackAt?: number;
   connected: boolean;
   pos: Vec2;
   yaw: number;
@@ -112,6 +116,11 @@ export interface PlayerSim {
   damageLog: { from: string; amount: number; at: number }[];
   zoneMs: number;
   zoneCycleMs: number;
+  /** Contadores só para os prêmios do fim: disparos da bola, acertos dela, dano causado e esquivas. */
+  shots: number;
+  shotHits: number;
+  damageDealt: number;
+  dodges: number;
   bot?: BotBrain;
 }
 
@@ -183,9 +192,33 @@ export type GameEvent =
 
 export type Phase = "countdown" | "active" | "finished";
 
+export interface ZombieWaveState {
+  wave: number;
+  maxWaves: number;
+  remainingZombies: number;
+  waveState: "waiting" | "active" | "cleared" | "defeat" | "victory";
+  nextWaveCountdownMs: number;
+}
+
+export interface ZombieInternalState {
+  wave: number;
+  maxWaves: number;
+  waveState: "waiting" | "active" | "cleared" | "defeat" | "victory";
+  nextWaveAt: number;
+  totalZombiesInWave: number;
+  spawnedZombiesInWave: number;
+  nextSpawnAt: number;
+  aliveZombies: number;
+  waveHp: number;
+  waveDamage: number;
+  waveSpeed: number;
+}
+
 export interface Match {
   now: number;
   phase: Phase;
+  submode?: "pvp" | "zombies";
+  zombieState?: ZombieInternalState;
   countdownEndsAt: number;
   endsAt: number;
   durationMs: number;
@@ -194,8 +227,12 @@ export interface Match {
   zones: AbilityZone[];
   objective: Objective;
   events: GameEvent[];
+  /** Opção do anfitrião: dificuldade dos bots. */
+  botLevel: BotLevel;
   rng: () => number;
   nextId: number;
+  /** Semente da partida: também decide o sorteio dos prêmios. */
+  seed: number;
 }
 
 export interface PublicAbility {
@@ -209,6 +246,7 @@ export interface PublicPlayer {
   name: string;
   x: number;
   z: number;
+  y?: number;
   yaw: number;
   hp: number;
   maxHp: number;
@@ -222,6 +260,7 @@ export interface PublicPlayer {
   flags: string[];
   moving: boolean;
   isBot: boolean;
+  isZombie?: boolean;
   connected: boolean;
   abilities: PublicAbility[];
 }
@@ -231,6 +270,7 @@ export interface Snapshot {
   phase: Phase;
   remainingMs: number;
   countdownMs: number;
+  zombieWave?: ZombieWaveState;
   players: PublicPlayer[];
   projectiles: { id: number; kind: string; x: number; z: number; vx: number; vz: number; owner: string; radius: number }[];
   zones: { id: number; kind: AbilityId; x: number; z: number; radius: number; owner: string }[];
@@ -261,6 +301,7 @@ export interface ResultRow {
   name: string;
   avatar: AvatarDNA;
   isBot: boolean;
+  isZombie?: boolean;
   score: number;
   kills: number;
   deaths: number;
@@ -268,4 +309,6 @@ export interface ResultRow {
   abilities: PublicAbility[];
   rank: number;
   tie: boolean;
+  teamResult?: "victory" | "defeat";
+  waveReached?: number;
 }

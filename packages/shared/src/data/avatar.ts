@@ -3,7 +3,7 @@ import type { AvatarDNA } from "../types";
 /** O primeiro tom de pele e o primeiro de olho são os do bebê (boneco_bebe.glb) como veio. */
 export const SKINS = ["#ebbeaf", "#f6d7c3", "#eec1a0", "#d9a27a", "#c68863", "#a96d4a", "#8a5537", "#6b3f27", "#4a2c1b"];
 /** Rostos feitos com as peças de expressão do bebê; o 0 é o rosto como veio. Item novo entra no fim. */
-export const FACES = ["Feliz", "Bravo", "Furioso", "Surpreso", "Preocupado", "Desconfiado", "Sonolento", "Entediado", "Piscadinha"];
+export const FACES = ["Feliz", "Furioso", "Surpreso", "Preocupado", "Desconfiado", "Sonolento", "Entediado"];
 export const EYE_COLORS = ["#753727", "#3a2430", "#9a6a2a", "#3f7a45", "#3a6fc4", "#7d8b95", "#111111"];
 /** Penteados modelados pelo designer (e derivados deles); o 0 é careca. Item novo entra no fim, para não mudar crachás salvos. */
 export const HAIR_STYLES = ["Careca", "Repicado", "Black power", "Longo", "Médio cacheado"];
@@ -63,11 +63,11 @@ const p = (n: number, dna: Omit<AvatarDNA, "name">) => ({
 /** Funcionários prontos: pontos de partida para a primeira aba do crachá. */
 export const PRESETS: { id: string; dna: AvatarDNA }[] = [
   p(1, { skin: 2, eyes: 1, face: 0, hair: 1, hairColor: 1, beard: 0, beardColor: 1 }),
-  p(2, { skin: 3, eyes: 2, face: 8, hair: 1, hairColor: 4, beard: 0, beardColor: 4 }),
+  p(2, { skin: 3, eyes: 2, face: 2, hair: 1, hairColor: 4, beard: 0, beardColor: 4 }),
   p(3, { skin: 6, eyes: 1, face: 1, hair: 2, hairColor: 0, beard: 1, beardColor: 0 }),
-  p(4, { skin: 1, eyes: 4, face: 3, hair: 3, hairColor: 6, beard: 0, beardColor: 6 }),
-  p(5, { skin: 4, eyes: 0, face: 5, hair: 0, hairColor: 5, beard: 2, beardColor: 5 }),
-  p(6, { skin: 7, eyes: 6, face: 6, hair: 4, hairColor: 7, beard: 0, beardColor: 0 }),
-  p(7, { skin: 2, eyes: 3, face: 4, hair: 2, hairColor: 2, beard: 1, beardColor: 2 }),
-  p(8, { skin: 5, eyes: 1, face: 7, hair: 1, hairColor: 0, beard: 1, beardColor: 0 }),
+  p(4, { skin: 1, eyes: 4, face: 2, hair: 3, hairColor: 6, beard: 0, beardColor: 6 }),
+  p(5, { skin: 4, eyes: 0, face: 4, hair: 0, hairColor: 5, beard: 2, beardColor: 5 }),
+  p(6, { skin: 7, eyes: 6, face: 5, hair: 4, hairColor: 7, beard: 0, beardColor: 0 }),
+  p(7, { skin: 2, eyes: 3, face: 3, hair: 2, hairColor: 2, beard: 1, beardColor: 2 }),
+  p(8, { skin: 5, eyes: 1, face: 6, hair: 1, hairColor: 0, beard: 1, beardColor: 0 }),
 ];

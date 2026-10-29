@@ -119,3 +119,24 @@ describe("ciclo da partida", () => {
     expect(ps.every((p) => p.level > 1)).toBe(true);
   });
 });
+
+describe("ações na contagem", () => {
+  it("dodge e habilidade apertados na contagem são descartados", () => {
+    const m = createMatch({
+      durationMs: 5000,
+      seed: 1,
+      players: [{ id: "a", name: "A", avatar: DEFAULT_AVATAR, isBot: false }],
+    });
+    const a = m.players.get("a")!;
+    a.abilities.push({ id: "A2", level: 1, readyAt: 0 });
+    queueAction(m, "a", { kind: "dodge", yaw: 0 });
+    queueAction(m, "a", { kind: "ability", slot: 0, yaw: 0, dist: 3 });
+    stepMatch(m, TICK);
+    expect(m.phase).toBe("countdown");
+    stepMatch(m, BALANCE.countdownMs);
+    expect(m.phase).toBe("active");
+    expect(a.dodgeUntil).toBe(0);
+    expect(a.dodgeReadyAt).toBe(0);
+    expect(a.abilities[0].readyAt).toBe(0);
+  });
+});

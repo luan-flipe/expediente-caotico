@@ -3,3 +3,5 @@ dist
 .superpowers
 *.log
 .vitest
+.vs
+data/

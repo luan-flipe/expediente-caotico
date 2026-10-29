@@ -1,29 +1,48 @@
 import * as THREE from "three";
-import { pointAt, progressOf, sideNormal, TRACK, TRACK_ROOMS, trackEdges, RACE, type Vec2 } from "@ec/shared";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { branchEdges, gridSlots, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
 
-/** Piso de cada ambiente, na ordem de TRACK_ROOMS. */
+/** Piso de cada ambiente (nomes de track.rooms, de todas as pistas). */
 const ROOM_FLOOR: Record<string, string> = {
-  Recepção: "#b98a5e",
-  Corredor: "#8e949b",
-  "Ilhas de mesas": "#5f7590",
-  Copa: "#cfc7b4",
-  "Sala de reunião": "#7d6f8c",
-  TI: "#5e6b62",
+  Recepção: "#d48148",
+  Corredor: "#3a7fbe",
+  "Ilhas de mesas": "#2a5499",
+  Copa: "#e5a72f",
+  "Sala de reunião": "#8b45be",
+  TI: "#1c8c65",
+  Cancela: "#6b6f74",
+  Vagas: "#56595e",
+  Rampa: "#7b7f86",
+  Pilares: "#4f5358",
+  "Vagas do fundo": "#56595e",
+  Balcão: "#d9cfb8",
+  Mesas: "#c3b79c",
+  Geladeira: "#b8c4c8",
+  Cafeteira: "#a88b6c",
 };
 const ROOM_WALL: Record<string, string> = {
-  Recepção: "#ece6da",
-  Corredor: "#ece6da",
-  "Ilhas de mesas": "#6d86a6",
-  Copa: "#d8d2c4",
+  Recepção: "#fff5ea",
+  Corredor: "#f0f5fb",
+  "Ilhas de mesas": "#e2ecf7",
+  Copa: "#fdf8ee",
   "Sala de reunião": "glass",
-  TI: "#3b4048",
+  TI: "#e6f5ef",
+  Cancela: "#f2c230",
+  Vagas: "#f2c230",
+  Rampa: "#f2c230",
+  Pilares: "#f2c230",
+  "Vagas do fundo": "#f2c230",
+  Balcão: "#ece6da",
+  Mesas: "#e3d8c3",
+  Geladeira: "#ece6da",
+  Cafeteira: "#8a6a4a",
 };
 
-function roomAt(s: number): string {
-  const L = TRACK.length;
+function roomAt(track: Track, s: number): string {
+  const L = track.length;
   const ss = ((s % L) + L) % L;
-  let name = TRACK_ROOMS[0].name;
-  for (const r of TRACK_ROOMS) if (ss >= TRACK.ctrlS[r.ctrl]) name = r.name;
+  let name = track.rooms[0].name;
+  for (const r of track.rooms) if (ss >= track.ctrlS[r.ctrl]) name = r.name;
   return name;
 }
 
@@ -36,50 +55,226 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: numb
   return m;
 }
 
-function textSprite(text: string): THREE.Sprite {
+/** Placa de sinalização: subtítulo pequeno e o nome do ambiente em destaque. */
+function textSprite(text: string, textures: THREE.Texture[], subtitle = "Setor corporativo"): THREE.Sprite {
   const c = document.createElement("canvas");
   c.width = 512;
-  c.height = 128;
+  c.height = 160;
   const g = c.getContext("2d")!;
-  g.fillStyle = "#1d1b17";
-  g.fillRect(0, 0, 512, 128);
+  g.fillStyle = "#1e2430";
+  g.fillRect(0, 0, 512, 160);
   g.fillStyle = "#ffd23f";
-  g.fillRect(8, 8, 496, 112);
-  g.fillStyle = "#1d1b17";
-  g.font = "800 64px 'Bricolage Grotesque', sans-serif";
+  g.fillRect(8, 8, 496, 144);
+  g.fillStyle = "#1e2430";
   g.textAlign = "center";
-  g.textBaseline = "middle";
-  g.fillText(text.toUpperCase(), 256, 68);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c) }));
-  s.scale.set(5, 1.25, 1);
+  g.font = "800 24px 'Bricolage Grotesque', sans-serif";
+  g.fillText(subtitle.toUpperCase(), 256, 42);
+  g.font = "900 52px 'Bricolage Grotesque', sans-serif";
+  g.fillText(text.toUpperCase(), 256, 105);
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  textures.push(map);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map }));
+  s.scale.set(4.8, 1.5, 1);
   return s;
 }
 
-function checkerTexture(): THREE.CanvasTexture {
+function checkerTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = 256;
-  c.height = 32;
+  c.height = 64;
   const g = c.getContext("2d")!;
   for (let x = 0; x < 16; x++) {
-    for (let y = 0; y < 2; y++) {
-      g.fillStyle = (x + y) % 2 ? "#1d1b17" : "#fffdf7";
+    for (let y = 0; y < 4; y++) {
+      g.fillStyle = (x + y) % 2 ? "#181d24" : "#ffffff";
       g.fillRect(x * 16, y * 16, 16, 16);
     }
   }
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  textures.push(t);
   return t;
 }
 
-/** Faixa no chão entre duas listas de pontos (mesmo tamanho). */
-function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, closed: boolean): THREE.BufferGeometry {
+function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, textures: THREE.Texture[]): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  draw(c.getContext("2d")!);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  textures.push(t);
+  return t;
+}
+
+/** Piso da pista em placas desencontradas, rejunte escuro, faixas de borracha e granulado (branco: a cor do ambiente vem dos vértices). */
+function trackTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    512,
+    512,
+    (g) => {
+      g.fillStyle = "#ffffff";
+      g.fillRect(0, 0, 512, 512);
+      const colW = 256;
+      const rowH = 128;
+      for (let r = 0; r < 4; r++) {
+        const offsetX = r % 2 === 1 ? colW / 2 : 0;
+        for (let c = -1; c <= 3; c++) {
+          const x = c * colW + offsetX;
+          const y = r * rowH;
+          g.fillStyle = (r + Math.floor((x + 1024) / colW)) % 2 === 0 ? "#f2f4f8" : "#ffffff";
+          g.fillRect(x + 3, y + 3, colW - 6, rowH - 6);
+          g.fillStyle = "rgba(255, 255, 255, 0.45)";
+          g.fillRect(x + 3, y + 3, colW - 6, 2);
+          g.fillRect(x + 3, y + 3, 2, rowH - 6);
+          g.fillStyle = "rgba(20, 25, 35, 0.15)";
+          g.fillRect(x + 3, y + rowH - 5, colW - 6, 2);
+          g.fillRect(x + colW - 5, y + 3, 2, rowH - 6);
+        }
+      }
+      g.fillStyle = "#343d4c";
+      for (let r = 0; r <= 4; r++) g.fillRect(0, r * rowH - 2, 512, 4);
+      for (let r = 0; r < 4; r++) {
+        const offsetX = r % 2 === 1 ? colW / 2 : 0;
+        for (let c = -1; c <= 3; c++) g.fillRect((((c * colW + offsetX) % 512) + 512) % 512 - 2, r * rowH, 4, rowH);
+      }
+      const rubber = g.createLinearGradient(0, 0, 0, 512);
+      for (const [at, a] of [[0, 0], [0.18, 0.16], [0.35, 0], [0.5, 0.05], [0.65, 0], [0.82, 0.16], [1, 0]]) rubber.addColorStop(at, `rgba(20, 24, 32, ${a})`);
+      g.fillStyle = rubber;
+      g.fillRect(0, 0, 512, 512);
+      for (let i = 0; i < 900; i++) {
+        const a = Math.random() * 0.045 + 0.01;
+        g.fillStyle = Math.random() > 0.4 ? `rgba(255,255,255,${a * 1.5})` : `rgba(0,0,0,${a})`;
+        g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+      }
+    },
+    textures,
+  );
+}
+
+/** Guia branca na beira da pista, com junta a cada 2 m e borracha escura do lado de dentro. */
+function curbTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  const t = canvasTexture(
+    256,
+    64,
+    (g) => {
+      g.fillStyle = "#ffffff";
+      g.fillRect(0, 0, 256, 64);
+      for (const x of [0, 128]) {
+        g.fillStyle = "rgba(30, 35, 45, 0.28)";
+        g.fillRect(x, 0, 4, 64);
+        g.fillStyle = "rgba(255, 255, 255, 0.6)";
+        g.fillRect(x + 4, 0, 3, 64);
+      }
+      g.fillStyle = "#27303d";
+      g.fillRect(0, 56, 256, 8);
+    },
+    textures,
+  );
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/** Carpete em placas de 1 m para o chão fora da pista. */
+function carpetTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  const t = canvasTexture(
+    256,
+    256,
+    (g) => {
+      g.fillStyle = "#242c38";
+      g.fillRect(0, 0, 256, 256);
+      g.fillStyle = "#2a3442";
+      g.fillRect(0, 0, 128, 128);
+      g.fillRect(128, 128, 128, 128);
+      g.fillStyle = "rgba(0, 0, 0, 0.35)";
+      g.fillRect(0, 0, 256, 3);
+      g.fillRect(0, 126, 256, 3);
+      g.fillRect(0, 0, 3, 256);
+      g.fillRect(126, 0, 3, 256);
+    },
+    textures,
+  );
+  // a ShapeGeometry do chão tem UV em metros: uma repetição a cada 2 m
+  t.repeat.set(0.5, 0.5);
+  return t;
+}
+
+/** Janelas de prédio para o horizonte. */
+function skylineTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  const t = canvasTexture(
+    128,
+    256,
+    (g) => {
+      g.fillStyle = "#2b4c7e";
+      g.fillRect(0, 0, 128, 256);
+      for (let y = 10; y < 256; y += 18) {
+        for (let x = 8; x < 128; x += 16) {
+          g.fillStyle = Math.sin(x * 37 + y * 53) > -0.2 ? "#ffeaa7" : "rgba(0, 0, 0, 0.22)";
+          g.fillRect(x, y, 9, 10);
+        }
+      }
+    },
+    textures,
+  );
+  t.repeat.set(2, 5);
+  return t;
+}
+
+/**
+ * Junta as malhas estáticas do grupo em uma malha por material (e sombra), em coordenadas de mundo.
+ * Centenas de paredes, fitas e móveis viram poucas chamadas de desenho, em qualquer pista.
+ */
+function mergeStatic(group: THREE.Group): THREE.Mesh[] {
+  group.updateMatrixWorld(true);
+  const buckets = new Map<string, { mat: THREE.Material; cast: boolean; geos: THREE.BufferGeometry[] }>();
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const mat = m.material as THREE.Material;
+    const key = `${mat.uuid}:${m.castShadow}`;
+    let b = buckets.get(key);
+    if (!b) buckets.set(key, (b = { mat, cast: m.castShadow, geos: [] }));
+    b.geos.push(m.geometry.clone().applyMatrix4(m.matrixWorld));
+  });
+  const used = new Set<THREE.BufferGeometry>();
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) used.add(m.geometry);
+  });
+  used.forEach((g) => g.dispose());
+  const out: THREE.Mesh[] = [];
+  for (const b of buckets.values()) {
+    // caixas e cilindros são indexados, o icosaedro não: mistura vira tudo não indexado
+    const mixed = b.geos.some((g) => !g.index) && b.geos.some((g) => g.index);
+    const geos = mixed ? b.geos.map((g) => (g.index ? g.toNonIndexed() : g)) : b.geos;
+    const merged = mergeGeometries(geos, false);
+    b.geos.forEach((g) => g.dispose());
+    if (mixed) geos.forEach((g) => g.dispose());
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, b.mat);
+    mesh.castShadow = b.cast;
+    mesh.receiveShadow = true;
+    out.push(mesh);
+  }
+  return out;
+}
+
+/** Faixa no chão entre duas listas de pontos (mesmo tamanho). UV: u ao longo do caminho (uScale por metro), v de a para b. */
+function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, closed: boolean, uScale = 0.25): THREE.BufferGeometry {
   const n = a.length;
   const pos: number[] = [];
   const col: number[] = [];
+  const uvs: number[] = [];
   const idx: number[] = [];
+  let dist = 0;
   for (let i = 0; i < n; i++) {
     pos.push(a[i].x, y, a[i].z, b[i].x, y, b[i].z);
     if (colors) col.push(colors[i].r, colors[i].g, colors[i].b, colors[i].r, colors[i].g, colors[i].b);
+    if (i > 0) dist += Math.hypot(a[i].x - a[i - 1].x, a[i].z - a[i - 1].z);
+    uvs.push(dist * uScale, 0, dist * uScale, 1);
   }
   const segs = closed ? n : n - 1;
   for (let i = 0; i < segs; i++) {
@@ -89,6 +284,7 @@ function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, c
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   if (colors) g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
   // a ordem dos vértices depende do lado; o piso precisa sempre apontar para cima
@@ -100,48 +296,257 @@ function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, c
   return g;
 }
 
-/** Monta o Circuito Corporativo a partir de TRACK (o mesmo traçado da simulação do servidor). */
-export function buildTrack(scene: THREE.Scene): void {
-  const n = TRACK.points.length;
-  const ground = mesh(new THREE.PlaneGeometry(150, 120), new THREE.MeshStandardMaterial({ color: "#d9d3c6", roughness: 1 }), 0, -0.02, 0);
+/** Ponto do caminho path na medida d da rampa (s da principal, ou bs do próprio atalho). */
+function along(track: Track, path: number, d: number): { pos: Vec2; heading: number; halfWidth: number } {
+  const b = track.branches[path];
+  if (!b) return pointAt(track, d);
+  const n = b.points.length;
+  const i = Math.max(0, Math.min(n - 2, Math.floor(d / b.spacing)));
+  const t = Math.max(0, Math.min(1, (d - b.cum[i]) / b.spacing));
+  const p = b.points[i];
+  const q = b.points[i + 1];
+  return { pos: { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }, heading: Math.atan2(q.x - p.x, q.z - p.z), halfWidth: (b.widths[i] + (b.widths[i + 1] - b.widths[i]) * t) / 2 };
+}
+
+/** Bordas (lado +1 e -1) do caminho entre d0 e d1, a cada step. */
+function edgesBetween(track: Track, path: number, d0: number, d1: number, step = 0.5): { plus: Vec2[]; minus: Vec2[]; at: ReturnType<typeof along>[] } {
+  const plus: Vec2[] = [];
+  const minus: Vec2[] = [];
+  const at: ReturnType<typeof along>[] = [];
+  const count = Math.max(1, Math.ceil((d1 - d0) / step));
+  for (let k = 0; k <= count; k++) {
+    const a = along(track, path, d0 + ((d1 - d0) * k) / count);
+    const nrm = sideNormal(Math.sin(a.heading), Math.cos(a.heading));
+    plus.push({ x: a.pos.x + nrm.x * a.halfWidth, z: a.pos.z + nrm.z * a.halfWidth });
+    minus.push({ x: a.pos.x - nrm.x * a.halfWidth, z: a.pos.z - nrm.z * a.halfWidth });
+    at.push(a);
+  }
+  return { plus, minus, at };
+}
+
+/** Rampa como cunha: tampo cinza subindo até height, laterais e a queda do topo em faixas amarelas e pretas. */
+function rampMesh(track: Track, r: Ramp): THREE.Mesh {
+  const e = edgesBetween(track, r.path, r.sFrom, r.sTo, 0.5);
+  const n = e.plus.length;
+  const pos: number[] = [];
+  const col: number[] = [];
+  const gray = new THREE.Color("#8d9096");
+  const stripe = (i: number) => new THREE.Color(i % 2 ? "#1d1d1d" : "#f2c230");
+  const quad = (a: number[], b: number[], c: number[], d: number[], color: THREE.Color) => {
+    pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+    for (let k = 0; k < 6; k++) col.push(color.r, color.g, color.b);
+  };
+  const h = (i: number) => (r.height * i) / (n - 1) + 0.02;
+  for (let i = 0; i + 1 < n; i++) {
+    const [p0, p1, m0, m1] = [e.plus[i], e.plus[i + 1], e.minus[i], e.minus[i + 1]];
+    quad([p0.x, h(i), p0.z], [p1.x, h(i + 1), p1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], gray);
+    quad([p0.x, 0, p0.z], [p1.x, 0, p1.z], [p1.x, h(i + 1), p1.z], [p0.x, h(i), p0.z], stripe(i));
+    quad([m0.x, 0, m0.z], [m1.x, 0, m1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], stripe(i));
+  }
+  // queda do topo: faixas em diagonal
+  const top = n - 1;
+  const parts = 8;
+  for (let k = 0; k < parts; k++) {
+    const a = { x: e.plus[top].x + ((e.minus[top].x - e.plus[top].x) * k) / parts, z: e.plus[top].z + ((e.minus[top].z - e.plus[top].z) * k) / parts };
+    const b = { x: e.plus[top].x + ((e.minus[top].x - e.plus[top].x) * (k + 1)) / parts, z: e.plus[top].z + ((e.minus[top].z - e.plus[top].z) * (k + 1)) / parts };
+    quad([a.x, 0, a.z], [b.x, 0, b.z], [b.x, h(top), b.z], [a.x, h(top), a.z], stripe(k));
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }));
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+/** Vão: buraco no piso com paredes de concreto descendo até o subsolo, 3 m abaixo. */
+function gapPit(track: Track, r: Ramp): { group: THREE.Group; outline: Vec2[] } {
+  const gap = r.gap!;
+  const e = edgesBetween(track, r.path, gap.sFrom, gap.sTo, 0.5);
+  const outline = [...e.plus, ...[...e.minus].reverse()];
+  const group = new THREE.Group();
+  const depth = 3;
+  const wallMat = new THREE.MeshStandardMaterial({ color: "#4a4b4f", roughness: 1, side: THREE.DoubleSide });
+  const pos: number[] = [];
+  for (let i = 0; i < outline.length; i++) {
+    const a = outline[i];
+    const b = outline[(i + 1) % outline.length];
+    pos.push(a.x, 0.012, a.z, b.x, 0.012, b.z, b.x, -depth, b.z, a.x, 0.012, a.z, b.x, -depth, b.z, a.x, -depth, a.z);
+  }
+  const wg = new THREE.BufferGeometry();
+  wg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  wg.computeVertexNormals();
+  group.add(new THREE.Mesh(wg, wallMat));
+  // piso do subsolo, escuro, com uma faixa de vaga
+  const floor = new THREE.Mesh(ribbon(e.plus, e.minus, -depth, null, false), new THREE.MeshStandardMaterial({ color: "#26272b", roughness: 1 }));
+  group.add(floor);
+  const mid = e.at[Math.floor(e.at.length / 2)];
+  const line = mesh(new THREE.BoxGeometry(0.15, 0.02, mid.halfWidth * 1.6), new THREE.MeshStandardMaterial({ color: "#d8d8d0" }), mid.pos.x, -depth + 0.02, mid.pos.z, mid.heading + Math.PI / 2);
+  group.add(line);
+  // borda amarela de aviso na beira
+  const edge = new THREE.MeshStandardMaterial({ color: "#f2c230", roughness: 0.6 });
+  for (const side of [e.plus, e.minus]) {
+    for (let i = 0; i + 1 < side.length; i++) {
+      const a = side[i];
+      const b = side[i + 1];
+      group.add(mesh(new THREE.BoxGeometry(0.2, 0.06, Math.hypot(b.x - a.x, b.z - a.z) + 0.05), edge, (a.x + b.x) / 2, 0.03, (a.z + b.z) / 2, Math.atan2(b.x - a.x, b.z - a.z)));
+    }
+  }
+  return { group, outline };
+}
+
+/**
+ * Monta a pista a partir do traçado (o mesmo da simulação do servidor).
+ * Devolve a função que libera as texturas de canvas (placas e faixa de largada); geometrias e materiais saem com a cena.
+ */
+export function buildTrack(scene: THREE.Scene, track: Track): () => void {
+  const textures: THREE.Texture[] = [];
+  const n = track.points.length;
+  // tudo que não se mexe e não tem textura própria entra aqui e é unido no fim
+  const stat = new THREE.Group();
+  // chão em volta do traçado, com folga para a decoração
+  const xs = track.points.map((p) => p.x);
+  const zs = track.points.map((p) => p.z);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+  const gw = Math.max(...xs) - Math.min(...xs) + 50;
+  const gd = Math.max(...zs) - Math.min(...zs) + 50;
+  const parking = track.id === "estacionamento";
+  // vãos das rampas viram buracos no chão (o piso em volta é recortado)
+  const pits = track.ramps.filter((r) => r.gap).map((r) => gapPit(track, r));
+  const groundShape = new THREE.Shape([new THREE.Vector2(-gw / 2, -gd / 2), new THREE.Vector2(gw / 2, -gd / 2), new THREE.Vector2(gw / 2, gd / 2), new THREE.Vector2(-gw / 2, gd / 2)]);
+  // o plano deitado (rotation.x = -90 graus) leva o y local para -z do mundo
+  for (const p of pits) groundShape.holes.push(new THREE.Path(p.outline.map((q) => new THREE.Vector2(q.x - cx, -(q.z - cz)))));
+  // escritório: carpete em placas; estacionamento: concreto com a grade de sempre
+  const groundMat = parking ? new THREE.MeshStandardMaterial({ color: "#9a9c9f", roughness: 1 }) : new THREE.MeshStandardMaterial({ map: carpetTexture(textures), roughness: 0.85 });
+  const ground = mesh(new THREE.ShapeGeometry(groundShape), groundMat, cx, -0.02, cz);
   ground.rotation.x = -Math.PI / 2;
+  for (const p of pits) scene.add(p.group);
+  for (const r of track.ramps) scene.add(rampMesh(track, r));
   ground.castShadow = false;
   scene.add(ground);
-  const grid = new THREE.GridHelper(150, 75, "#000000", "#000000");
-  (grid.material as THREE.Material).opacity = 0.06;
-  (grid.material as THREE.Material).transparent = true;
-  scene.add(grid);
-
-  const edges = trackEdges(TRACK);
-  const colors = TRACK.cum.map((s) => new THREE.Color(ROOM_FLOOR[roomAt(s)]));
-  const floor = new THREE.Mesh(ribbon(edges.plus, edges.minus, 0.01, colors, true), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
-  floor.receiveShadow = true;
-  scene.add(floor);
-
-  // fita amarela tracejada no meio
-  const tape = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.6 });
-  const tapeGeo = new THREE.BoxGeometry(0.18, 0.02, 1.6);
-  for (let s = 4; s < TRACK.length - 2; s += 4) {
-    const at = pointAt(TRACK, s);
-    scene.add(mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading));
+  if (parking) {
+    const grid = new THREE.GridHelper(Math.max(gw, gd), Math.round(Math.max(gw, gd) / 2), "#000000", "#000000");
+    grid.position.set(cx, 0, cz);
+    (grid.material as THREE.Material).opacity = 0.06;
+    (grid.material as THREE.Material).transparent = true;
+    scene.add(grid);
   }
 
-  // carpete na borda interna das curvas fechadas
-  const rug = new THREE.MeshStandardMaterial({ color: "#6f8f5a", roughness: 1 });
-  for (const c of TRACK.carpet) {
-    const inner: Vec2[] = [];
-    const outer: Vec2[] = [];
-    const len = c.to >= c.from ? c.to - c.from : c.to + TRACK.length - c.from;
-    for (let d = 0; d <= len; d += 1.5) {
-      const at = pointAt(TRACK, c.from + d);
-      const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-      const a = at.halfWidth - RACE.carpetWidth;
-      inner.push({ x: at.pos.x + nrm.x * a * c.side, z: at.pos.z + nrm.z * a * c.side });
-      outer.push({ x: at.pos.x + nrm.x * at.halfWidth * c.side, z: at.pos.z + nrm.z * at.halfWidth * c.side });
+  const edges = trackEdges(track);
+  const colors = track.cum.map((s) => new THREE.Color(ROOM_FLOOR[roomAt(track, s)]));
+  // escritório: placas acetinadas tingidas pela cor do ambiente; estacionamento continua liso
+  const tiles = parking ? null : trackTexture(textures);
+  const floorMat = () => (tiles ? new THREE.MeshStandardMaterial({ map: tiles, vertexColors: true, roughness: 0.48, metalness: 0.03 }) : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
+  // guia branca de 45 cm nas duas beiradas e sombra de contato no pé das paredes
+  const curbW = 0.45;
+  const innerPlus: Vec2[] = [];
+  const innerMinus: Vec2[] = [];
+  const aoPlus: Vec2[] = [];
+  const aoMinus: Vec2[] = [];
+  for (let i = 0; i < n; i++) {
+    const p = track.points[i];
+    const dx = edges.plus[i].x - p.x;
+    const dz = edges.plus[i].z - p.z;
+    const hw = Math.hypot(dx, dz) || 1;
+    const at = (d: number, s: number) => ({ x: p.x + (dx / hw) * d * s, z: p.z + (dz / hw) * d * s });
+    innerPlus.push(at(hw - curbW, 1));
+    innerMinus.push(at(hw - curbW, -1));
+    aoPlus.push(at(hw - 0.22, 1));
+    aoMinus.push(at(hw - 0.22, -1));
+  }
+  const floor = new THREE.Mesh(ribbon(innerPlus, innerMinus, 0.01, colors, true), floorMat());
+  floor.receiveShadow = true;
+  scene.add(floor);
+  const curbMat = new THREE.MeshStandardMaterial({ map: curbTexture(textures), roughness: 0.42, metalness: 0.05 });
+  for (const [a, b] of [[edges.plus, innerPlus], [innerMinus, edges.minus]]) {
+    const curb = new THREE.Mesh(ribbon(a, b, 0.016, null, true, 0.5), curbMat);
+    curb.receiveShadow = true;
+    scene.add(curb);
+  }
+  const aoMat = new THREE.MeshBasicMaterial({ color: "#0a0f18", transparent: true, opacity: 0.38, depthWrite: false });
+  scene.add(new THREE.Mesh(ribbon(edges.plus, aoPlus, 0.018, null, true, 0.1), aoMat));
+  scene.add(new THREE.Mesh(ribbon(aoMinus, edges.minus, 0.018, null, true, 0.1), aoMat));
+  // atalhos: piso um pouco acima da principal para não brigar com ela nas bocas
+  track.branches.forEach((br, j) => {
+    const e = branchEdges(track, j);
+    const cols = br.sOff.map((o) => new THREE.Color(ROOM_FLOOR[roomAt(track, br.sFrom + o)]).multiplyScalar(0.9));
+    const gap = track.ramps.find((r) => r.path === j && r.gap)?.gap;
+    // com vão, o piso do atalho para na beira dele e recomeça do outro lado
+    const pieces = gap
+      ? [
+          { from: 0, to: Math.floor(gap.sFrom / br.spacing), endAt: gap.sFrom, startAt: null as number | null },
+          { from: Math.ceil(gap.sTo / br.spacing), to: br.points.length - 1, endAt: null as number | null, startAt: gap.sTo },
+        ]
+      : [{ from: 0, to: br.points.length - 1, endAt: null, startAt: null }];
+    for (const pc of pieces) {
+      const plus = e.plus.slice(pc.from, pc.to + 1);
+      const minus = e.minus.slice(pc.from, pc.to + 1);
+      const cc = cols.slice(pc.from, pc.to + 1);
+      if (pc.startAt !== null) {
+        const ed = edgesBetween(track, j, pc.startAt, pc.startAt, 1);
+        plus.unshift(ed.plus[0]);
+        minus.unshift(ed.minus[0]);
+        cc.unshift(cc[0]);
+      }
+      if (pc.endAt !== null) {
+        const ed = edgesBetween(track, j, pc.endAt, pc.endAt, 1);
+        plus.push(ed.plus[0]);
+        minus.push(ed.minus[0]);
+        cc.push(cc[cc.length - 1]);
+      }
+      const m = new THREE.Mesh(ribbon(plus, minus, 0.012, cc, false), floorMat());
+      m.receiveShadow = true;
+      scene.add(m);
     }
-    const m = new THREE.Mesh(ribbon(inner, outer, 0.025, null, false), rug);
-    m.receiveShadow = true;
-    scene.add(m);
+  });
+
+  // fita amarela tracejada no meio
+  const tape = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.45, metalness: 0.05 });
+  const tapeGeo = new THREE.BoxGeometry(0.24, 0.024, 1.9);
+  for (let s = 4; s < track.length - 2; s += 4) {
+    const at = pointAt(track, s);
+    const m = mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading);
+    m.castShadow = false;
+    stat.add(m);
+  }
+
+  // marcas brancas do grid de largada (mesmas posições da simulação)
+  const gridMat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.4, metalness: 0.1 });
+  for (const slot of gridSlots(track, 8)) {
+    const g = new THREE.Group();
+    g.position.set(slot.pos.x, 0.022, slot.pos.z);
+    g.rotation.y = slot.heading;
+    g.add(mesh(new THREE.BoxGeometry(1.5, 0.022, 0.14), gridMat, 0, 0, 0));
+    for (const x of [-0.75, 0.75]) g.add(mesh(new THREE.BoxGeometry(0.12, 0.022, 1.4), gridMat, x, 0, 0));
+    g.add(mesh(new THREE.BoxGeometry(0.55, 0.022, 0.12), gridMat, 0, 0, 0.35));
+    g.traverse((o) => (o.castShadow = false));
+    stat.add(g);
+  }
+
+  // curvas fechadas: zebra vermelha e branca na beira e grama sintética atrás (a faixa lenta da simulação)
+  const kerbRed = new THREE.MeshStandardMaterial({ color: "#e74c3c", roughness: 0.5, metalness: 0.05 });
+  const kerbWhite = new THREE.MeshStandardMaterial({ color: "#f8f9fa", roughness: 0.5, metalness: 0.05 });
+  const grass = new THREE.MeshStandardMaterial({ color: "#27ae60", roughness: 0.85 });
+  const kerbW = 0.65;
+  const grassW = RACE.carpetWidth - kerbW;
+  for (const c of track.carpet) {
+    const len = c.to >= c.from ? c.to - c.from : c.to + track.length - c.from;
+    const step = 1.1;
+    let k = 0;
+    for (let d = 0; d < len; d += step) {
+      const at = pointAt(track, c.from + Math.min(len, d + step / 2));
+      const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+      const off = (r: number) => ({ x: at.pos.x + nrm.x * r * c.side, z: at.pos.z + nrm.z * r * c.side });
+      const kp = off(at.halfWidth - kerbW / 2);
+      stat.add(mesh(new THREE.BoxGeometry(kerbW, 0.048, step * 1.04), k++ % 2 === 0 ? kerbRed : kerbWhite, kp.x, 0.038, kp.z, at.heading));
+      const gp = off(at.halfWidth - kerbW - grassW / 2);
+      const gm = mesh(new THREE.BoxGeometry(grassW, 0.032, step * 1.04), grass, gp.x, 0.028, gp.z, at.heading);
+      gm.castShadow = false;
+      stat.add(gm);
+    }
   }
 
   // paredes nas bordas: divisórias, vidro na sala de reunião, racks na TI
@@ -152,68 +557,226 @@ export function buildTrack(scene: THREE.Scene): void {
       const c = ROOM_WALL[room];
       m =
         c === "glass"
-          ? new THREE.MeshStandardMaterial({ color: "#a9d4f0", transparent: true, opacity: 0.38, roughness: 0.1 })
-          : new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, flatShading: true });
+          ? new THREE.MeshStandardMaterial({ color: "#80d0ff", transparent: true, opacity: 0.38, roughness: 0.15, metalness: 0.1 })
+          : new THREE.MeshStandardMaterial({ color: c, roughness: 0.65, metalness: 0.03 });
       wallMats.set(room, m);
     }
     return m;
   };
-  const cap = new THREE.MeshStandardMaterial({ color: "#5a554c" });
+  // faixa no meio da parede com a cor do piso do ambiente
+  const stripeMats = new Map<string, THREE.Material>();
+  const stripeMat = (room: string) => {
+    let m = stripeMats.get(room);
+    if (!m) stripeMats.set(room, (m = new THREE.MeshStandardMaterial({ color: ROOM_FLOOR[room], roughness: 0.5, metalness: 0.05 })));
+    return m;
+  };
+  const cap = new THREE.MeshStandardMaterial({ color: "#eef2f7", roughness: 0.35, metalness: 0.45 });
+  const baseboard = new THREE.MeshStandardMaterial({ color: "#18202c", roughness: 0.75, metalness: 0.1 });
+  const column = new THREE.MeshStandardMaterial({ color: "#222a36", roughness: 0.6, metalness: 0.2 });
+  const reflector = new THREE.MeshBasicMaterial({ color: "#ffd23f" });
+  // parede de a até b, sem os trechos que caem dentro de outro corredor (boca do atalho fica aberta)
+  const wall = (a: Vec2, b: Vec2, room: string, open: (p: Vec2) => boolean) => {
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    const parts = Math.max(1, Math.ceil(len / 0.8));
+    const at = (t: number) => ({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+    let from = -1;
+    for (let k = 0; k <= parts; k++) {
+      const keep = k < parts && !open(at((k + 0.5) / parts));
+      if (keep && from < 0) from = k;
+      if (!keep && from >= 0) {
+        const p = at(from / parts);
+        const q = at(k / parts);
+        const l = Math.hypot(q.x - p.x, q.z - p.z);
+        const ry = Math.atan2(q.x - p.x, q.z - p.z);
+        const mx = (p.x + q.x) / 2;
+        const mz = (p.z + q.z) / 2;
+        stat.add(mesh(new THREE.BoxGeometry(0.24, 0.95, l + 0.25), wallMat(room), mx, 0.475, mz, ry));
+        if (ROOM_WALL[room] !== "glass") stat.add(mesh(new THREE.BoxGeometry(0.26, 0.22, l + 0.25), stripeMat(room), mx, 0.56, mz, ry));
+        stat.add(mesh(new THREE.BoxGeometry(0.28, 0.16, l + 0.25), baseboard, mx, 0.08, mz, ry));
+        stat.add(mesh(new THREE.BoxGeometry(0.3, 0.08, l + 0.25), cap, mx, 0.98, mz, ry));
+        from = -1;
+      }
+    }
+  };
+  const inPath = (path: number, p: Vec2) => {
+    const pr = pathProgress(track, path, p);
+    return pr.dist < pr.halfWidth - 0.15;
+  };
+  const inBranch = (p: Vec2) => track.branches.some((_, j) => inPath(j, p));
   for (const side of [edges.plus, edges.minus]) {
     for (let i = 0; i < n; i++) {
-      const a = side[i];
-      const b = side[(i + 1) % n];
-      const len = Math.hypot(b.x - a.x, b.z - a.z);
-      const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
-      const ry = Math.atan2(b.x - a.x, b.z - a.z);
-      const room = roomAt(TRACK.cum[i]);
-      scene.add(mesh(new THREE.BoxGeometry(0.25, 1.0, len + 0.25), wallMat(room), mid.x, 0.5, mid.z, ry));
-      scene.add(mesh(new THREE.BoxGeometry(0.3, 0.06, len + 0.25), cap, mid.x, 1.03, mid.z, ry));
+      wall(side[i], side[(i + 1) % n], roomAt(track, track.cum[i]), inBranch);
+      // pilar com faixa refletiva a cada 4 pontos do traçado, fora das bocas de atalho
+      if (i % 4 === 0 && !inBranch(side[i])) {
+        stat.add(mesh(new THREE.BoxGeometry(0.34, 1.08, 0.34), column, side[i].x, 0.54, side[i].z));
+        const r = mesh(new THREE.BoxGeometry(0.36, 0.1, 0.36), reflector, side[i].x, 0.78, side[i].z);
+        r.castShadow = false;
+        stat.add(r);
+      }
     }
   }
+  track.branches.forEach((br, j) => {
+    const e = branchEdges(track, j);
+    const room = roomAt(track, br.sFrom + br.sOff[Math.floor(br.points.length / 2)]);
+    const open = (p: Vec2) => inPath(-1, p) || track.branches.some((_, o) => o !== j && inPath(o, p));
+    for (const side of [e.plus, e.minus]) {
+      for (let k = 0; k + 1 < side.length; k++) wall(side[k], side[k + 1], room, open);
+    }
+  });
 
   // largada
-  const start = pointAt(TRACK, 0);
-  const line = mesh(new THREE.PlaneGeometry(start.halfWidth * 2, 1.2), new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.8 }), start.pos.x, 0.03, start.pos.z);
+  const start = pointAt(track, 0);
+  const line = mesh(new THREE.PlaneGeometry(start.halfWidth * 2, 1.4), new THREE.MeshStandardMaterial({ map: checkerTexture(textures), roughness: 0.5, metalness: 0.05 }), start.pos.x, 0.03, start.pos.z);
   line.rotation.set(-Math.PI / 2, 0, 0);
   line.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), start.heading);
   line.castShadow = false;
   scene.add(line);
-  const arch = new THREE.MeshStandardMaterial({ color: "#ff5a3d", roughness: 0.6 });
-  const nrm = sideNormal(Math.sin(start.heading), Math.cos(start.heading));
-  for (const s of [-1, 1]) {
-    const x = start.pos.x + nrm.x * (start.halfWidth + 0.4) * s;
-    const z = start.pos.z + nrm.z * (start.halfWidth + 0.4) * s;
-    scene.add(mesh(new THREE.BoxGeometry(0.3, 4, 0.3), arch, x, 2, z));
-  }
-  const banner = textSprite("Rally da Firma");
-  banner.position.set(start.pos.x, 4.1, start.pos.z);
-  banner.scale.set(start.halfWidth * 2, start.halfWidth * 0.5, 1);
-  scene.add(banner);
+  startGantry(scene, stat, start, textures);
 
-  for (const r of TRACK_ROOMS.slice(1, -1)) {
-    const at = pointAt(TRACK, TRACK.ctrlS[r.ctrl] + 4);
-    const sign = textSprite(r.name);
-    sign.position.set(at.pos.x, 3.4, at.pos.z);
+  for (const r of track.rooms.slice(1, -1)) {
+    const at = pointAt(track, track.ctrlS[r.ctrl] + 4);
+    const sign = textSprite(r.name, textures);
+    sign.position.set(at.pos.x, 3.6, at.pos.z);
     scene.add(sign);
   }
 
-  decorate(scene);
+  // luminárias suspensas ao longo do traçado
+  const lampBody = new THREE.MeshStandardMaterial({ color: "#2c3e50", roughness: 0.6, metalness: 0.3 });
+  const led = new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: "#eaf4fc", emissiveIntensity: 0.9 });
+  const cable = new THREE.MeshStandardMaterial({ color: "#8b98a5", roughness: 0.6, metalness: 0.4 });
+  for (let s = 2; s < track.length; s += 9) {
+    const at = pointAt(track, s);
+    const g = new THREE.Group();
+    g.position.set(at.pos.x, 3.8, at.pos.z);
+    g.rotation.y = at.heading;
+    g.add(mesh(new THREE.BoxGeometry(0.24, 0.1, 3.4), lampBody, 0, 0, 0));
+    g.add(mesh(new THREE.BoxGeometry(0.14, 0.03, 3.3), led, 0, -0.05, 0));
+    for (const z of [-1.3, 1.3]) g.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.8, 6), cable, 0, 1.4, z));
+    g.traverse((o) => (o.castShadow = false));
+    stat.add(g);
+  }
+
+  // escritório: fachada de vidro em volta e prédios no horizonte
+  if (!parking) facade(stat, cx, cz, gw / 2 - 1, gd / 2 - 1);
+  skyline(stat, cx, cz, Math.max(gw, gd) / 2 + 12, textures);
+
+  decorate(stat, track);
+  for (const m of mergeStatic(stat)) scene.add(m);
+  return () => textures.forEach((t) => t.dispose());
+}
+
+/** Pórtico de largada: pilares, travessa alta, semáforo de 3 luzes e a faixa do Rally. */
+function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<typeof pointAt>, textures: THREE.Texture[]): void {
+  const truss = new THREE.MeshStandardMaterial({ color: "#1d4ed8", roughness: 0.45, metalness: 0.25 });
+  const deco = new THREE.MeshStandardMaterial({ color: "#f59e0b", roughness: 0.5, metalness: 0.1 });
+  const housing = new THREE.MeshStandardMaterial({ color: "#181d24", roughness: 0.6, metalness: 0.2 });
+  const span = start.halfWidth + 0.6;
+  const g = new THREE.Group();
+  g.position.set(start.pos.x, 0, start.pos.z);
+  g.rotation.y = start.heading;
+  for (const s of [-1, 1]) {
+    g.add(mesh(new THREE.BoxGeometry(0.42, 5.2, 0.42), truss, span * s, 2.6, 0));
+    g.add(mesh(new THREE.BoxGeometry(0.8, 0.25, 0.8), deco, span * s, 0.125, 0));
+  }
+  g.add(mesh(new THREE.BoxGeometry(span * 2 + 0.7, 0.42, 0.42), truss, 0, 5.15, 0));
+  g.add(mesh(new THREE.BoxGeometry(1.6, 0.45, 0.28), housing, 0, 4.65, 0));
+  stat.add(g);
+  // as lâmpadas têm material próprio (emissivo), ficam fora da junção
+  const lamps = new THREE.Group();
+  lamps.position.copy(g.position);
+  lamps.rotation.y = start.heading;
+  ["#ff4757", "#ffa502", "#2ed573"].forEach((color, i) => {
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.08, 16), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.85, roughness: 0.2 }));
+    lamp.rotation.x = Math.PI / 2;
+    lamp.position.set((i - 1) * 0.45, 4.65, 0.15);
+    lamps.add(lamp);
+  });
+  scene.add(lamps);
+  const banner = textSprite("Rally da Firma", textures, "Grande prêmio");
+  // a faixa termina logo abaixo da caixa do semáforo (base em 4.42 m)
+  const bannerH = start.halfWidth * 0.48;
+  banner.position.set(start.pos.x, 4.35 - bannerH / 2, start.pos.z);
+  banner.scale.set(start.halfWidth * 1.9, bannerH, 1);
+  scene.add(banner);
+}
+
+/** Fachada de vidro com caixilhos em volta do andar (retângulo de meia largura hw e meia profundidade hd). */
+function facade(stat: THREE.Group, cx: number, cz: number, hw: number, hd: number): void {
+  const mullion = new THREE.MeshStandardMaterial({ color: "#242d38", roughness: 0.5, metalness: 0.4 });
+  const glass = new THREE.MeshStandardMaterial({ color: "#a0d8ef", transparent: true, opacity: 0.22, roughness: 0.2, metalness: 0.1 });
+  const h = 7.5;
+  const corners = [
+    [cx - hw, cz - hd],
+    [cx + hw, cz - hd],
+    [cx + hw, cz + hd],
+    [cx - hw, cz + hd],
+  ];
+  corners.forEach(([x1, z1], i) => {
+    const [x2, z2] = corners[(i + 1) % 4];
+    const len = Math.hypot(x2 - x1, z2 - z1);
+    const mx = (x1 + x2) / 2;
+    const mz = (z1 + z2) / 2;
+    const ry = Math.atan2(x2 - x1, z2 - z1);
+    const pane = mesh(new THREE.BoxGeometry(0.1, h, len), glass, mx, h / 2, mz, ry);
+    pane.castShadow = false;
+    stat.add(pane);
+    for (const y of [0.16, h - 0.16]) stat.add(mesh(new THREE.BoxGeometry(0.28, 0.32, len), mullion, mx, y, mz, ry));
+    const segs = Math.max(1, Math.floor(len / 4.8));
+    for (let s = 0; s <= segs; s++) stat.add(mesh(new THREE.BoxGeometry(0.26, h, 0.26), mullion, x1 + ((x2 - x1) * s) / segs, h / 2, z1 + ((z2 - z1) * s) / segs, ry));
+  });
+}
+
+/** Prédios estilizados num anel em volta da pista, a partir do raio r. */
+function skyline(stat: THREE.Group, cx: number, cz: number, r: number, textures: THREE.Texture[]): void {
+  const tower = new THREE.MeshStandardMaterial({ map: skylineTexture(textures), roughness: 0.65, metalness: 0.1 });
+  const roof = new THREE.MeshStandardMaterial({ color: "#1f2937", roughness: 0.7 });
+  const beacon = new THREE.MeshBasicMaterial({ color: "#ff4757" });
+  const count = 38;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const dist = r + (i % 5) * 8 + (i % 3) * 6;
+    const x = cx + Math.cos(angle) * dist;
+    const z = cz + Math.sin(angle) * dist;
+    const w = 14 + (i % 4) * 4;
+    const d = 14 + ((i + 2) % 4) * 4;
+    const h = 26 + (i % 7) * 9 + ((i * 3) % 5) * 6;
+    const rh = 3.5 + (i % 3) * 2;
+    const parts = [
+      mesh(new THREE.BoxGeometry(w, h, d), tower, x, h / 2 - 8, z, angle),
+      mesh(new THREE.BoxGeometry(w * 0.5, rh, d * 0.5), roof, x, h - 8 + rh / 2, z, angle),
+      mesh(new THREE.SphereGeometry(0.55, 8, 8), beacon, x, h - 8 + rh + 0.6, z),
+    ];
+    for (const m of parts) {
+      m.castShadow = false;
+      m.receiveShadow = false;
+      stat.add(m);
+    }
+  }
 }
 
 /** Móveis fora da pista, por ambiente. Só entram onde não encostam em nenhum trecho. */
-function decorate(scene: THREE.Scene): void {
-  const wood = new THREE.MeshStandardMaterial({ color: "#c9a27a", roughness: 0.8, flatShading: true });
-  const white = new THREE.MeshStandardMaterial({ color: "#f3efe6", roughness: 0.7 });
-  const dark = new THREE.MeshStandardMaterial({ color: "#2b2f36", roughness: 0.6 });
-  const screen = new THREE.MeshStandardMaterial({ color: "#1b2433", emissive: "#2a4f8a", emissiveIntensity: 0.6 });
-  const leaf = new THREE.MeshStandardMaterial({ color: "#3e9b52", roughness: 0.9, flatShading: true });
-  const pot = new THREE.MeshStandardMaterial({ color: "#7a5236" });
+function decorate(scene: THREE.Group, track: Track): void {
+  const wood = new THREE.MeshStandardMaterial({ color: "#d97736", roughness: 0.55, metalness: 0.05 });
+  const white = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.55, metalness: 0.05 });
+  const dark = new THREE.MeshStandardMaterial({ color: "#2d3748", roughness: 0.6, metalness: 0.2 });
+  const screen = new THREE.MeshStandardMaterial({ color: "#1a202c", emissive: "#3182ce", emissiveIntensity: 0.7 });
+  const leaf = new THREE.MeshStandardMaterial({ color: "#22c55e", roughness: 0.65, flatShading: true });
+  const pot = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.35 });
   const led = new THREE.MeshBasicMaterial({ color: "#5cff8a" });
-  const sofa = new THREE.MeshStandardMaterial({ color: "#3f6b8a", roughness: 0.9 });
+  const sofa = new THREE.MeshStandardMaterial({ color: "#0284c7", roughness: 0.7 });
+  const dispenser = new THREE.MeshStandardMaterial({ color: "#38bdf8", transparent: true, opacity: 0.6, roughness: 0.15 });
+  const paper = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.85 });
+  const concrete = new THREE.MeshStandardMaterial({ color: "#b7b4ad", roughness: 0.95, flatShading: true });
+  const yellow = new THREE.MeshStandardMaterial({ color: "#f2c230", roughness: 0.6 });
+  const paint = new THREE.MeshStandardMaterial({ color: "#f4f1ea", roughness: 0.9 });
+  const glass = new THREE.MeshStandardMaterial({ color: "#2b3a4a", roughness: 0.2 });
+  const steel = new THREE.MeshStandardMaterial({ color: "#d6dadf", roughness: 0.35, metalness: 0.3 });
+  const red = new THREE.MeshBasicMaterial({ color: "#ff5a3d" });
+  const cars = ["#c0392b", "#2e6da4", "#e8e4dc", "#2b2f36", "#7f8c8d", "#d4a017"].map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.5, flatShading: true }));
+  let carIdx = 0;
 
   const free = (p: Vec2, r: number) => {
-    const pr = progressOf(TRACK, p);
+    const pr = progressOf(track, p);
     return pr.dist > pr.halfWidth + r + 0.6;
   };
   const put = (room: string, p: Vec2, ry: number) => {
@@ -225,14 +788,19 @@ function decorate(scene: THREE.Scene): void {
         g.add(mesh(new THREE.BoxGeometry(2.4, 0.08, 1.2), wood, 0, 0.74, 0));
         for (const x of [-1.1, 1.1]) g.add(mesh(new THREE.BoxGeometry(0.06, 0.74, 1.1), dark, x, 0.37, 0));
         for (const x of [-0.6, 0.6]) g.add(mesh(new THREE.BoxGeometry(0.55, 0.36, 0.04), screen, x, 1.0, -0.3));
+        g.add(mesh(new THREE.BoxGeometry(0.3, 0.12, 0.22), paper, 0.7, 0.84, 0.2));
         break;
       case "TI":
         g.add(mesh(new THREE.BoxGeometry(0.9, 2.1, 1.0), dark, 0, 1.05, 0));
         for (let y = 0; y < 6; y++) g.add(mesh(new THREE.BoxGeometry(0.06, 0.04, 0.02), led, 0.3 - (y % 2) * 0.2, 0.4 + y * 0.28, 0.51));
         break;
       case "Copa":
+      case "Balcão":
         g.add(mesh(new THREE.BoxGeometry(2.6, 0.95, 0.8), white, 0, 0.47, 0));
         g.add(mesh(new THREE.BoxGeometry(0.4, 0.5, 0.4), dark, 0.7, 1.2, 0));
+        // bebedouro com galão
+        g.add(mesh(new THREE.BoxGeometry(0.36, 0.9, 0.36), white, -0.7, 0.45, 0.65));
+        g.add(mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.38, 12), dispenser, -0.7, 1.1, 0.65));
         break;
       case "Sala de reunião":
         g.add(mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.08, 24), wood, 0, 0.74, 0));
@@ -242,6 +810,52 @@ function decorate(scene: THREE.Scene): void {
         g.add(mesh(new THREE.BoxGeometry(2.2, 0.7, 0.9), sofa, 0, 0.35, 0));
         g.add(mesh(new THREE.BoxGeometry(2.2, 0.6, 0.25), sofa, 0, 0.8, -0.35));
         break;
+      // estacionamento: carros nas vagas (com a faixa branca), pilares, cones e a guarita da cancela
+      case "Vagas":
+      case "Vagas do fundo": {
+        const body = cars[carIdx++ % cars.length];
+        g.add(mesh(new THREE.BoxGeometry(1.8, 0.7, 4.0), body, 0, 0.55, 0));
+        g.add(mesh(new THREE.BoxGeometry(1.6, 0.6, 2.0), glass, 0, 1.15, -0.2));
+        for (const [x, z] of [[-0.85, 1.3], [0.85, 1.3], [-0.85, -1.3], [0.85, -1.3]]) g.add(mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.25, 10), dark, x, 0.33, z, 0).rotateZ(Math.PI / 2));
+        for (const x of [-1.35, 1.35]) g.add(mesh(new THREE.BoxGeometry(0.12, 0.02, 4.8), paint, x, 0.03, 0));
+        break;
+      }
+      case "Pilares":
+        g.add(mesh(new THREE.BoxGeometry(0.9, 3.2, 0.9), concrete, 0, 1.6, 0));
+        for (const y of [0.25, 0.75]) g.add(mesh(new THREE.BoxGeometry(0.94, 0.25, 0.94), y === 0.25 ? yellow : dark, 0, y, 0));
+        break;
+      case "Rampa":
+        for (const x of [-0.8, 0, 0.8]) {
+          g.add(mesh(new THREE.ConeGeometry(0.25, 0.7, 10), red, x, 0.35, 0));
+          g.add(mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.1, 10), paint, x, 0.4, 0));
+        }
+        break;
+      case "Cancela":
+        g.add(mesh(new THREE.BoxGeometry(1.6, 2.3, 1.6), paint, 0, 1.15, 0));
+        g.add(mesh(new THREE.BoxGeometry(1.64, 0.7, 1.64), glass, 0, 1.5, 0));
+        g.add(mesh(new THREE.BoxGeometry(1.9, 0.12, 1.9), yellow, 0, 2.35, 0));
+        break;
+      // copa: mesinhas com banquetas, geladeira e máquina de café
+      case "Mesas":
+        g.add(mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.06, 16), white, 0, 0.75, 0));
+        g.add(mesh(new THREE.CylinderGeometry(0.06, 0.25, 0.75, 8), steel, 0, 0.37, 0));
+        for (const x of [-1, 1]) {
+          g.add(mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.06, 12), wood, x, 0.48, 0));
+          g.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.46, 6), steel, x, 0.23, 0));
+        }
+        break;
+      case "Geladeira":
+        g.add(mesh(new THREE.BoxGeometry(0.9, 1.9, 0.75), steel, 0, 0.95, 0));
+        g.add(mesh(new THREE.BoxGeometry(0.92, 0.03, 0.77), dark, 0, 1.3, 0));
+        g.add(mesh(new THREE.BoxGeometry(0.05, 0.5, 0.05), dark, 0.35, 1.55, 0.4));
+        g.add(mesh(new THREE.BoxGeometry(0.05, 0.4, 0.05), dark, 0.35, 0.9, 0.4));
+        break;
+      case "Cafeteira":
+        g.add(mesh(new THREE.BoxGeometry(1.6, 0.95, 0.7), wood, 0, 0.47, 0));
+        g.add(mesh(new THREE.BoxGeometry(0.55, 0.7, 0.45), dark, -0.3, 1.3, 0));
+        g.add(mesh(new THREE.BoxGeometry(0.1, 0.06, 0.02), red, -0.3, 1.5, 0.23));
+        g.add(mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.12, 10), white, 0.4, 1.01, 0.1));
+        break;
       default:
         g.add(mesh(new THREE.CylinderGeometry(0.3, 0.24, 0.5, 10), pot, 0, 0.25, 0));
         g.add(mesh(new THREE.IcosahedronGeometry(0.55, 0), leaf, 0, 0.95, 0));
@@ -249,9 +863,11 @@ function decorate(scene: THREE.Scene): void {
     scene.add(g);
   };
 
-  for (let s = 6; s < TRACK.length; s += 11) {
-    const at = pointAt(TRACK, s);
-    const room = roomAt(s);
+  // estacionamento enche mais as laterais; a copa é apertada e já tem bastante coisa perto
+  const every = track.id === "estacionamento" ? 8 : track.id === "copa" ? 7 : 11;
+  for (let s = 6; s < track.length; s += every) {
+    const at = pointAt(track, s);
+    const room = roomAt(track, s);
     const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
     for (const side of [-1, 1]) {
       const off = at.halfWidth + 2.6;
@@ -259,10 +875,39 @@ function decorate(scene: THREE.Scene): void {
       if (free(p, 1.6)) put(room, p, at.heading);
     }
   }
-  // mesa de reunião grande no miolo da curva larga
-  const meet = pointAt(TRACK, TRACK.ctrlS[14]);
+  // beira dos atalhos: mesas baixas no escritório, prateleiras na despensa, cones na garagem
+  for (const br of track.branches) {
+    for (let k = 1; k < br.points.length - 1; k += 2) {
+      const a = br.points[k - 1];
+      const b = br.points[k + 1];
+      const h = Math.atan2(b.x - a.x, b.z - a.z);
+      const nrm = sideNormal(Math.sin(h), Math.cos(h));
+      for (const side of [-1, 1]) {
+        const off = br.widths[k] / 2 + 1;
+        const p = { x: br.points[k].x + nrm.x * off * side, z: br.points[k].z + nrm.z * off * side };
+        if (!free(p, 0.6)) continue;
+        const g = new THREE.Group();
+        g.position.set(p.x, 0, p.z);
+        g.rotation.y = h;
+        if (track.id === "copa") {
+          g.add(mesh(new THREE.BoxGeometry(0.4, 1.6, 1.4), wood, 0, 0.8, 0));
+          for (const y of [0.5, 1.0, 1.45]) g.add(mesh(new THREE.BoxGeometry(0.3, 0.18, 0.3), cars[(k + Math.round(y * 2)) % cars.length], 0.05, y + 0.12, 0.3 - y * 0.3));
+        } else if (track.id === "estacionamento") {
+          g.add(mesh(new THREE.ConeGeometry(0.25, 0.7, 8), cars[0], 0, 0.35, 0));
+          g.add(mesh(new THREE.BoxGeometry(0.2, 0.08, 0.5), paint, 0, 0.45, 0));
+        } else {
+          g.add(mesh(new THREE.BoxGeometry(1.2, 0.06, 0.8), wood, 0, 0.45, 0));
+          for (const x of [-0.5, 0.5]) g.add(mesh(new THREE.BoxGeometry(0.05, 0.45, 0.7), dark, x, 0.22, 0));
+        }
+        scene.add(g);
+      }
+    }
+  }
+  // mesa de reunião grande no miolo da curva larga (só no Circuito Corporativo)
+  if (track.id !== "corporativo") return;
+  const meet = pointAt(track, track.ctrlS[14]);
   const nrm = sideNormal(Math.sin(meet.heading), Math.cos(meet.heading));
-  const c = TRACK.carpet[2];
+  const c = track.carpet[2];
   const p = { x: meet.pos.x + nrm.x * (meet.halfWidth + 5) * c.side, z: meet.pos.z + nrm.z * (meet.halfWidth + 5) * c.side };
   if (free(p, 2)) put("Sala de reunião", p, 0);
 }
