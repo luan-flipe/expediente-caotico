@@ -12,6 +12,7 @@ export interface AvatarDNA {
   glasses: number;
   shirt: number;
   pants: number;
+  shoes: number;
   accessory: number;
   height: number;
 }

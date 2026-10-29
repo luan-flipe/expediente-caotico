@@ -244,6 +244,7 @@ export class RaceEngine {
     for (const k of s.karts) {
       seen.add(k.id);
       const v = this.viewFor(k);
+      if (k.finished && !v.last.finished) v.r3d.celebrate();
       v.buf.push({ t: now, x: k.x, z: k.z, heading: k.heading });
       if (v.buf.length > 20) v.buf.shift();
       v.last = k;
@@ -339,7 +340,7 @@ export class RaceEngine {
     const old = this.views.get(k.id);
     if (old && old.key === key) return old;
     const r3d = seatedRacer(
-      person?.avatar ?? { name: k.name, skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, accessory: 0, height: 1 },
+      person?.avatar ?? { name: k.name, skin: 1, hair: 1, hairColor: 0, beard: false, glasses: 0, shirt: 0, pants: 0, shoes: 0, accessory: 0, height: 1 },
       person?.chair ?? { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 },
     );
     // r3d.root fica no chão; body inclina e gira por cima dele

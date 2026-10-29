@@ -8,6 +8,8 @@ export const PANTS = ["#26324a", "#1e1e1e", "#5a5f66", "#7a5b3a", "#c9b48a", "#2
 export const GLASSES = ["Sem óculos", "Redondo", "Quadrado"];
 export const ACCESSORIES = ["Nenhum", "Fone", "Boné", "Gravata", "Crachá"];
 export const HEIGHTS = ["Baixo", "Médio", "Alto"];
+/** Teto do índice de cabelo, camiseta, calça e tênis: 0 é nenhum, os demais vêm das pastas de peças do cliente. */
+export const MAX_WEARABLES = 32;
 
 export const DEFAULT_AVATAR: AvatarDNA = {
   name: "Funcionário",
@@ -18,6 +20,7 @@ export const DEFAULT_AVATAR: AvatarDNA = {
   glasses: 0,
   shirt: 0,
   pants: 0,
+  shoes: 0,
   accessory: 4,
   height: 1,
 };
@@ -43,12 +46,13 @@ export function sanitizeAvatar(raw: unknown): AvatarDNA {
   return {
     name: sanitizeName(r.name),
     skin: idx(r.skin, SKINS.length, d.skin),
-    hair: idx(r.hair, HAIR_STYLES.length, d.hair),
+    hair: idx(r.hair, MAX_WEARABLES, d.hair),
     hairColor: idx(r.hairColor, HAIR_COLORS.length, d.hairColor),
     beard: r.beard === true,
     glasses: idx(r.glasses, GLASSES.length, d.glasses),
-    shirt: idx(r.shirt, SHIRTS.length, d.shirt),
-    pants: idx(r.pants, PANTS.length, d.pants),
+    shirt: idx(r.shirt, MAX_WEARABLES, d.shirt),
+    pants: idx(r.pants, MAX_WEARABLES, d.pants),
+    shoes: idx(r.shoes, MAX_WEARABLES, d.shoes),
     accessory: idx(r.accessory, ACCESSORIES.length, d.accessory),
     height: idx(r.height, HEIGHTS.length, d.height),
   };
@@ -65,14 +69,15 @@ export function randomAvatar(rng: () => number, name = DEFAULT_AVATAR.name): Ava
     glasses: rng() < 0.6 ? 0 : 1 + r(2),
     shirt: r(SHIRTS.length),
     pants: r(PANTS.length),
+    shoes: 0,
     accessory: r(ACCESSORIES.length),
     height: r(HEIGHTS.length),
   };
 }
 
-const p = (n: number, dna: Omit<AvatarDNA, "name">) => ({
+const p = (n: number, dna: Omit<AvatarDNA, "name" | "shoes">) => ({
   id: `funcionario_${String(n).padStart(2, "0")}`,
-  dna: { name: `Funcionário ${String(n).padStart(2, "0")}`, ...dna },
+  dna: { name: `Funcionário ${String(n).padStart(2, "0")}`, shoes: 0, ...dna },
 });
 
 /** Pontos de partida editáveis. Os nomes reais entram depois. */

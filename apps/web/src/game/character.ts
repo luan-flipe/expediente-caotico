@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import type { AvatarDNA } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
+import { HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
 export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
 
@@ -16,6 +17,10 @@ export interface Character {
    * Devolve a altura da parte de baixo das coxas, para apoiá-las no assento.
    */
   sit(): number;
+  /** Já sentado, gira os ombros até os pulsos alcançarem os pontos dados (coordenadas de root). */
+  restHands(left: THREE.Vector3, right: THREE.Vector3): void;
+  /** Já sentado, toca a comemoração e volta à pose sentada. Só o corpo: assento e confete ficam com a cadeira. */
+  celebrate(): void;
   dispose(): void;
 }
 
@@ -29,6 +34,10 @@ function bottomOf(root: THREE.Object3D, parts: (THREE.Object3D | undefined)[]): 
 }
 
 const MODEL_URL = "/assets/characters/boneco_completo.glb";
+/** Comemoração na cadeira: só a animação e o confete, sem malha do boneco nem da cadeira. */
+const CELEBRATE_URL = "/assets/characters/boneco_comemora.glb";
+/** No arquivo da comemoração a figura está em escala 1,25: o pulinho dela é medido nessa escala. */
+const CELEBRATE_FIGURE_SCALE = 1.25;
 const TARGET_HEIGHT = 1.75;
 const HEIGHT_SCALE = [0.9, 1, 1.1];
 /** Duração em segundos de cada ação no jogo (os clipes originais são mais longos). */
@@ -42,6 +51,84 @@ interface Loaded {
   scene: THREE.Group;
   clips: Map<string, THREE.AnimationClip>;
   scale: number;
+  /** Malhas de cada peça das pastas, na ordem de HAIRS, SHIRTS_3D, PANTS_3D e SHOES_3D; vazio se o arquivo não serviu. */
+  hairs: THREE.SkinnedMesh[][];
+  shirts: THREE.SkinnedMesh[][];
+  pants: THREE.SkinnedMesh[][];
+  shoes: THREE.SkinnedMesh[][];
+  celebration: Celebration | null;
+}
+
+/** Comemoração sentada, separada por quem a toca: o boneco, o assento da cadeira e o confete. */
+export interface Celebration {
+  body: THREE.AnimationClip;
+  /** Giro do assento, já com o nome do nó da cadeira do jogo. */
+  seat: THREE.AnimationClip | null;
+  confetti: { scene: THREE.Object3D; clip: THREE.AnimationClip } | null;
+}
+
+function splitCelebration(clip: THREE.AnimationClip | undefined, file: THREE.Object3D, model: THREE.Object3D): Celebration | null {
+  if (!clip) return null;
+  const node = (t: THREE.KeyframeTrack) => t.name.slice(0, t.name.lastIndexOf("."));
+  const body = clip.tracks
+    // o arquivo anima nós que o boneco do jogo não tem (olho feliz)
+    .filter((t) => !node(t).startsWith("confete") && node(t) !== "assento_giratorio" && model.getObjectByName(node(t)))
+    .map((t) => {
+      if (t.name !== "figura.position") return t;
+      // só o pulinho: o boneco já está sentado no lugar certo da cadeira do jogo
+      const d = t.clone();
+      for (let i = 0; i < d.values.length; i++) d.values[i] = (t.values[i] - t.values[i % 3]) / CELEBRATE_FIGURE_SCALE;
+      return d;
+    });
+  const seat = clip.tracks
+    .filter((t) => node(t) === "assento_giratorio")
+    .map((t) => {
+      const s = t.clone();
+      s.name = s.name.replace("assento_giratorio", "Assento_Giratorio");
+      return s;
+    });
+  const confetti = file.getObjectByName("confete");
+  const bits = clip.tracks.filter((t) => node(t).startsWith("confete_"));
+  return {
+    body: new THREE.AnimationClip("comemorar", clip.duration, body),
+    seat: seat.length ? new THREE.AnimationClip("comemorar_assento", clip.duration, seat) : null,
+    confetti: confetti && bits.length ? { scene: confetti, clip: new THREE.AnimationClip("comemorar_confete", clip.duration, bits) } : null,
+  };
+}
+
+export function celebrationExtras(): Celebration | null {
+  return loaded?.celebration ?? null;
+}
+
+/** Malhas da peça (cabelo, roupa, um tênis por pé): um GLB exportado do mesmo esqueleto do boneco. */
+function loadWearable(loader: GLTFLoader, url: string): Promise<THREE.SkinnedMesh[]> {
+  return loader
+    .loadAsync(url)
+    .then((gltf) => {
+      const meshes: THREE.SkinnedMesh[] = [];
+      gltf.scene.traverse((o) => {
+        if ((o as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(o as THREE.SkinnedMesh);
+      });
+      if (!meshes.length) console.warn(`${url}: peça sem malha com pele, ignorada`);
+      return meshes;
+    })
+    .catch((err) => {
+      console.warn(`${url}: peça não carregou`, err);
+      return [];
+    });
+}
+
+/** Prende a peça aos ossos do boneco, pelo nome, para ela seguir as animações. */
+function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THREE.SkinnedMesh): void {
+  const bones = src.skeleton.bones.map((b) => inner.getObjectByName(b.name));
+  if (bones.some((b) => !(b as THREE.Bone | undefined)?.isBone)) {
+    console.warn(`peça ${src.name}: esqueleto diferente do boneco, ignorada`);
+    return;
+  }
+  const piece = src.clone();
+  piece.castShadow = true;
+  piece.bind(new THREE.Skeleton(bones as THREE.Bone[], src.skeleton.boneInverses), src.bindMatrix);
+  body.parent?.add(piece);
 }
 
 let loaded: Loaded | null = null;
@@ -61,17 +148,27 @@ export function modelReady(): boolean {
   return loaded !== null;
 }
 
-/** Carrega o GLB uma vez. Resolve false se falhar (o jogo segue com o boneco procedural). */
+/** Carrega o GLB e as peças uma vez. Resolve false se o boneco falhar (o jogo segue com o procedural). */
 export function preloadCharacter(): Promise<boolean> {
-  loading ??= new GLTFLoader()
-    .loadAsync(MODEL_URL)
-    .then((gltf) => {
+  const loader = new GLTFLoader();
+  const load = (list: Wearable[]) => Promise.all(list.map((w) => loadWearable(loader, w.url)));
+  const cheer = loader.loadAsync(CELEBRATE_URL).catch((err) => {
+    console.warn("boneco_comemora.glb não carregou, sem comemoração", err);
+    return null;
+  });
+  loading ??= Promise.all([loader.loadAsync(MODEL_URL), load(HAIRS), load(SHIRTS_3D), load(PANTS_3D), load(SHOES_3D), cheer])
+    .then(([gltf, hairs, shirts, pants, shoes, party]) => {
       const scene = gltf.scene;
       const h = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
       loaded = {
         scene,
         clips: new Map(gltf.animations.map((a) => [a.name, cleanClip(a)])),
         scale: TARGET_HEIGHT / h,
+        hairs,
+        shirts,
+        pants,
+        shoes,
+        celebration: party ? splitCelebration(party.animations[0], party.scene, scene) : null,
       };
       return true;
     })
@@ -95,6 +192,10 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     mesh.castShadow = true;
     if (mesh.isSkinnedMesh) body = mesh;
   });
+  const pieces = [model.hairs[dna.hair - 1], model.shirts[dna.shirt - 1], model.pants[dna.pants - 1], model.shoes[dna.shoes - 1]];
+  for (const piece of pieces.flatMap((p) => p ?? [])) {
+    if (body) attachWearable(inner, body, piece);
+  }
 
   const mixer = new THREE.AnimationMixer(inner);
   const loop = (name: string) => {
@@ -118,11 +219,26 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     actions.set(k, a);
   }
 
+  const cheer = model.celebration ? mixer.clipAction(model.celebration.body) : null;
+  cheer?.setLoop(THREE.LoopOnce, 1);
+  /** Pose sentada guardada ao começar a comemoração, para voltar a ela no fim. */
+  let pose: [THREE.Object3D, THREE.Vector3, THREE.Quaternion, THREE.Vector3][] = [];
+
   let seated = false;
   return {
     root,
     update(dt, speed01) {
-      if (seated) return;
+      if (seated) {
+        if (!cheer?.isRunning()) return;
+        mixer.update(dt);
+        if (cheer.isRunning()) return;
+        for (const [o, p, q, s] of pose) {
+          o.position.copy(p);
+          o.quaternion.copy(q);
+          o.scale.copy(s);
+        }
+        return;
+      }
       const busy = [...actions.values()].some((a) => a.isRunning());
       const w = busy ? 0 : speed01;
       walk?.setEffectiveWeight(w);
@@ -153,6 +269,30 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       (body as THREE.SkinnedMesh).computeBoundingBox();
       return bottomOf(root, [body]);
     },
+    restHands(left, right) {
+      root.updateMatrixWorld(true);
+      for (const [side, target] of [
+        ["E", left],
+        ["D", right],
+      ] as const) {
+        const shoulder = inner.getObjectByName(`ombro_${side}`);
+        const wrist = inner.getObjectByName(`punho_${side}`);
+        if (!shoulder?.parent || !wrist) continue;
+        const s = shoulder.getWorldPosition(new THREE.Vector3());
+        const from = wrist.getWorldPosition(new THREE.Vector3()).sub(s).normalize();
+        const to = root.localToWorld(target.clone()).sub(s).normalize();
+        // gira o ombro no espaço do mundo e devolve a rotação para o espaço do pai
+        const world = shoulder.getWorldQuaternion(new THREE.Quaternion()).premultiply(new THREE.Quaternion().setFromUnitVectors(from, to));
+        shoulder.quaternion.copy(shoulder.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(world));
+        shoulder.updateMatrixWorld(true);
+      }
+    },
+    celebrate() {
+      if (!seated || !cheer || cheer.isRunning()) return;
+      pose = [];
+      inner.traverse((o) => pose.push([o, o.position.clone(), o.quaternion.clone(), o.scale.clone()]));
+      cheer.reset().play();
+    },
     dispose() {
       // malha, materiais e texturas do GLB são compartilhados entre clones
       mixer.stopAllAction();
@@ -181,6 +321,12 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       rig.legL.rotation.x = rig.legR.rotation.x = -Math.PI / 2;
       rig.armL.rotation.x = rig.armR.rotation.x = -0.75;
       return bottomOf(rig.root, [rig.legL, rig.legR]);
+    },
+    restHands() {
+      // o boneco procedural já sai de sit() com os braços no apoio
+    },
+    celebrate() {
+      // sem animação de comemoração no boneco procedural
     },
     dispose() {
       disposeAvatar(rig);

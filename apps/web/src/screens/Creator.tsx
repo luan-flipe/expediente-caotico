@@ -11,7 +11,8 @@ import {
   type AvatarDNA,
   type ChairDNA,
 } from "@ec/shared";
-import { AvatarPreview } from "../game/AvatarPreview";
+import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
+import { HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
 import { saveAvatar, saveChair, setState, useStore } from "../store";
 
 function Swatches({ colors, value, onPick }: { colors: string[]; value: number; onPick: (i: number) => void }) {
@@ -43,6 +44,7 @@ export function Creator() {
   const [chair, setChair] = useState<ChairDNA>(savedChair);
   const [tab, setTab] = useState(useStore((s) => s.lobby?.mode) === "race" ? 1 : 0);
   const setC = (k: keyof ChairDNA) => (i: number) => setChair((c) => ({ ...c, [k]: i }));
+  const [cheer, setCheer] = useState<PreviewAction>();
 
   const done = () => {
     saveChair(chair);
@@ -72,7 +74,7 @@ export function Creator() {
                 <span>CRACHÁ</span>
                 <span>ARRASTE PARA GIRAR</span>
               </div>
-              <AvatarPreview dna={dna} chair={tab === 1 ? chair : undefined} className="badge-preview" />
+              <AvatarPreview dna={dna} chair={tab === 1 ? chair : undefined} action={tab === 1 ? cheer : undefined} className="badge-preview" />
               <div className="badge-name">{dna.name}</div>
             </div>
             <div className="row">
@@ -82,7 +84,8 @@ export function Creator() {
               <button
                 className="btn"
                 onClick={() => {
-                  setDna((d) => randomAvatar(Math.random, d.name));
+                  const pick = (n: number) => Math.floor(Math.random() * n);
+                  setDna((d) => ({ ...randomAvatar(Math.random, d.name), hair: pick(HAIR_LABELS.length), shirt: pick(SHIRT_LABELS.length), pants: pick(PANTS_LABELS.length), shoes: pick(SHOE_LABELS.length) }));
                   setChair(randomChair(Math.random));
                 }}
               >
@@ -122,6 +125,9 @@ export function Creator() {
                 <p className="muted" style={{ margin: 0 }}>
                   Todas as cadeiras andam igual. Aqui é só estilo: quem ganha é quem pilota melhor.
                 </p>
+                <button className="btn" style={{ marginTop: 12 }} onClick={() => setCheer((a) => ({ name: "comemorar", seq: (a?.seq ?? 0) + 1 }))}>
+                  Comemorar
+                </button>
               </div>
             </div>
           ) : (
@@ -134,6 +140,30 @@ export function Creator() {
               <p className="label">Altura</p>
               <Seg items={HEIGHTS} value={dna.height} onPick={(i) => setDna((d) => ({ ...d, height: i }))} />
             </div>
+            {HAIR_LABELS.length > 1 && (
+              <div className="card">
+                <p className="label">Cabelo</p>
+                <Seg items={HAIR_LABELS} value={dna.hair} onPick={(i) => setDna((d) => ({ ...d, hair: i }))} />
+              </div>
+            )}
+            {SHIRT_LABELS.length > 1 && (
+              <div className="card">
+                <p className="label">Camiseta</p>
+                <Seg items={SHIRT_LABELS} value={dna.shirt} onPick={(i) => setDna((d) => ({ ...d, shirt: i }))} />
+              </div>
+            )}
+            {PANTS_LABELS.length > 1 && (
+              <div className="card">
+                <p className="label">Calça</p>
+                <Seg items={PANTS_LABELS} value={dna.pants} onPick={(i) => setDna((d) => ({ ...d, pants: i }))} />
+              </div>
+            )}
+            {SHOE_LABELS.length > 1 && (
+              <div className="card">
+                <p className="label">Tênis</p>
+                <Seg items={SHOE_LABELS} value={dna.shoes} onPick={(i) => setDna((d) => ({ ...d, shoes: i }))} />
+              </div>
+            )}
           </div>
           )}
         </div>

@@ -5,9 +5,9 @@ import { seatedRacer } from "../race/chairMesh";
 import { useStore } from "../store";
 import { createCharacter, type Character, type CharacterAction } from "./character";
 
-/** Ação pedida para a prévia; seq muda a cada clique para repetir a mesma ação. */
+/** Ação pedida para a prévia; seq muda a cada clique para repetir a mesma ação. "comemorar" só na cadeira. */
 export interface PreviewAction {
-  name: CharacterAction;
+  name: CharacterAction | "comemorar";
   seq: number;
 }
 
@@ -109,7 +109,10 @@ export function AvatarPreview({
     const scene = sceneRef.current;
     if (!scene) return;
     const old = rigRef.current;
-    const rig: Character = chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit: () => 0 } : createCharacter(dna);
+    const racer = chair ? seatedRacer(dna, chair) : null;
+    const rig: Character = racer
+      ? { ...racer, update: (dt) => racer.update(dt, 0), play() {}, sit: () => 0, restHands() {} }
+      : createCharacter(dna);
     if (old) {
       rig.root.rotation.y = old.root.rotation.y;
       scene.remove(old.root);
@@ -120,7 +123,8 @@ export function AvatarPreview({
   }, [dna, chair, ready]);
 
   useEffect(() => {
-    if (action) rigRef.current?.play(action.name);
+    if (action?.name === "comemorar") rigRef.current?.celebrate();
+    else if (action) rigRef.current?.play(action.name);
   }, [action]);
 
   return <canvas ref={ref} className={className} />;
