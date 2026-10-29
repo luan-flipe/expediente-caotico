@@ -1430,6 +1430,8 @@ export class RaceEngine {
     TMP_SEATED_OPTIONS.draft = flags.has("slipstream");
     TMP_SEATED_OPTIONS.spinning = spinning;
     TMP_SEATED_OPTIONS.countdown = this.snap?.phase === "countdown" || (this.snap?.countdownMs ?? 0) > 0;
+    TMP_SEATED_OPTIONS.isBraking = braking || speed < -0.5;
+    TMP_SEATED_OPTIONS.inAir = inAir;
     if (v.lastPlace !== undefined) {
       if (k.place <= 2 && v.lastPlace > 2) {
         v.r3d.char.setEmotion?.("victory", 1.8);

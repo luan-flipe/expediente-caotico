@@ -819,6 +819,9 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
         char.root.position.y = baseCharY + (seat.pistonOffset ?? 0);
         char.root.rotation.z = seat.rollAngle ?? 0;
       }
+      if (options && options.inAir === undefined) {
+        options.inAir = air;
+      }
       char.updateSeated?.(dt, speed, steer, driftDir, boosting, rivalDir, options);
       char.update(dt, 0);
       mixer.update(dt);

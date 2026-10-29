@@ -18,6 +18,9 @@ export interface CharacterSeatedOptions {
   spinning?: boolean;
   countdown?: boolean;
   stoppedSeconds?: number;
+  isBraking?: boolean;
+  inAir?: boolean;
+  acceleration?: number;
 }
 
 /** Boneco renderizado: GLB do romulo-h quando carregado, boneco procedural enquanto isso. */
@@ -131,6 +134,102 @@ export class CharacterEmotionManager {
     this.wPanic += (targetPanic - this.wPanic) * k;
     this.wVictory += (targetVictory - this.wVictory) * k;
     this.wYawn += (targetYawn - this.wYawn) * k;
+  }
+}
+
+/**
+ * Física de Inércia, Transferência de Peso e Reatividade Corporal (Mario Kart 8 style)
+ * 1. Lean-In radical nas curvas e drift (inclinação lateral do tronco para o interior da curva).
+ * 2. Força G longitudinal: mergulho na frenagem brusca vs projeção para trás no turbo/aceleração.
+ * 3. Squash & Stretch na aterrissagem de saltos e desníveis da pista.
+ * 4. Micro-vibração tátil (chatter) de alta velocidade e pista.
+ */
+export class CharacterPhysicsInertia {
+  // Inclinação lateral e deslocamento de massa (lean-in para o ápice)
+  public bodyRoll = 0;
+  public bodyShiftX = 0;
+
+  // Inclinação longitudinal (G-Force de arrancada/turbo vs freada)
+  public bodyPitch = 0;
+
+  // Squash & Stretch vertical (oscilador harmônico na aterrissagem)
+  public squashY = 0;
+  public squashVel = 0;
+
+  // Trepidação tátil de alta velocidade
+  public chatterY = 0;
+  public chatterRot = 0;
+
+  private wasInAir = false;
+  private time = 0;
+
+  public reset(): void {
+    this.bodyRoll = 0;
+    this.bodyShiftX = 0;
+    this.bodyPitch = 0;
+    this.squashY = 0;
+    this.squashVel = 0;
+    this.chatterY = 0;
+    this.chatterRot = 0;
+    this.wasInAir = false;
+    this.time = 0;
+  }
+
+  public update(
+    dt: number,
+    speed: number,
+    steer: number,
+    driftDir: number,
+    boosting: boolean,
+    inAir: boolean,
+    isBraking: boolean,
+  ): void {
+    this.time += dt;
+
+    // 1. Inclinação lateral: no drift ou curva forte, o corpo se joga para dentro da curva
+    const targetRoll = -steer * 0.24 - driftDir * 0.44;
+    const targetShiftX = -steer * 0.08 - driftDir * 0.16;
+    const leanK = Math.min(1, dt * 10);
+    this.bodyRoll += (targetRoll - this.bodyRoll) * leanK;
+    this.bodyShiftX += (targetShiftX - this.bodyShiftX) * leanK;
+
+    // 2. Força G longitudinal: aceleração/turbo joga tronco para trás, frenagem joga para a frente
+    let targetPitch = 0;
+    if (boosting) {
+      targetPitch = -0.24; // Tronco colado no encosto
+    } else if (isBraking) {
+      targetPitch = 0.28; // Projeção para a frente sobre os apoios
+    } else if (speed > 4) {
+      const speed01 = Math.min(1, (speed - 4) / 14);
+      targetPitch = -0.06 * speed01;
+    }
+    const pitchK = Math.min(1, dt * 9);
+    this.bodyPitch += (targetPitch - this.bodyPitch) * pitchK;
+
+    // 3. Squash & Stretch na aterrissagem de saltos
+    if (this.wasInAir && !inAir) {
+      this.squashVel = -5.0; // Impacto elástico ao tocar o solo
+    }
+    this.wasInAir = inAir;
+
+    // Mola harmônica amortecida
+    const springK = 54.0;
+    const damping = 7.2;
+    const acc = -springK * this.squashY - damping * this.squashVel;
+    this.squashVel += acc * dt;
+    this.squashY += this.squashVel * dt;
+    this.squashY = Math.max(-0.28, Math.min(0.35, this.squashY));
+
+    // 4. Turbulência de alta velocidade (pista / zebras)
+    if (speed > 8 && !inAir) {
+      const speedFactor = Math.min(1, (speed - 8) / 10);
+      const freq = 36.0;
+      this.chatterY = Math.sin(this.time * freq) * 0.008 * speedFactor;
+      this.chatterRot = Math.cos(this.time * (freq * 0.8)) * 0.005 * speedFactor;
+    } else {
+      this.chatterY *= Math.max(0, 1 - dt * 12);
+      this.chatterRot *= Math.max(0, 1 - dt * 12);
+    }
   }
 }
 
@@ -540,7 +639,8 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
 function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const root = new THREE.Group();
   const inner = cloneSkinned(model.scene);
-  inner.scale.setScalar(model.scale * (HEIGHT_SCALE[dna.height] ?? 1));
+  const baseScale = model.scale * (HEIGHT_SCALE[dna.height] ?? 1);
+  inner.scale.setScalar(baseScale);
   root.add(inner);
   let body: THREE.SkinnedMesh | null = null;
   inner.traverse((o) => {
@@ -594,6 +694,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   let handsRested = false;
 
   const emotion = new CharacterEmotionManager();
+  const inertia = new CharacterPhysicsInertia();
 
   const mixer = new THREE.AnimationMixer(inner);
   const loop = (name: string) => {
@@ -665,13 +766,31 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
       if (!seated || cheer?.isRunning()) return;
       emotion.update(dt, speed, options, boosting);
+      inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking);
 
-      // pé no chão no drift para apoio e remadas na arrancada lenta; os braços ficam no apoio
+      // 1. Postura corporal do tronco (inércia centrífuga nas curvas e transferência de peso longitudinal)
+      inner.position.x = inertia.bodyShiftX;
+      inner.position.y = inertia.squashY * 0.22 + inertia.chatterY;
+      inner.rotation.z = inertia.bodyRoll;
+      inner.rotation.x = inertia.bodyPitch + inertia.chatterRot;
+
+      const sY = Math.max(0.65, Math.min(1.35, 1.0 + inertia.squashY));
+      const sXZ = 1.0 / Math.sqrt(sY);
+      inner.scale.set(baseScale * sXZ, baseScale * sY, baseScale * sXZ);
+
+      // 2. Pernas: apoio e plantada de pé no drift, remada lenta ou frenagem
       let legD = -Math.PI / 2;
       let legE = -Math.PI / 2;
-      if (driftDir > 0) legD += 0.38;
-      else if (driftDir < 0) legE += 0.38;
-      else if (speed > 0.1 && speed < 3.2) {
+      if (driftDir > 0) {
+        legD += 0.52; // perna interna finca no chão
+        legE -= 0.18; // perna externa encolhe
+      } else if (driftDir < 0) {
+        legE += 0.52; // perna interna finca no chão
+        legD -= 0.18; // perna externa encolhe
+      } else if (options?.isBraking) {
+        legD += 0.24; // pés firmam para frente contendo inércia
+        legE += 0.24;
+      } else if (speed > 0.1 && speed < 3.2) {
         const push = Math.sin(performance.now() * 0.012);
         legD += Math.max(0, push) * 0.32;
         legE += Math.max(0, -push) * 0.32;
@@ -682,9 +801,9 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
 
       let stareWeight = 0;
       if (cabeca) {
-        let targetHeadY = -steer * 0.38 - driftDir * 0.42;
-        let targetHeadZ = steer * 0.08 + driftDir * 0.12;
-        let targetHeadX = boosting ? -0.2 : speed > 2 ? -0.1 : 0;
+        let targetHeadY = -steer * 0.40 - driftDir * 0.46;
+        let targetHeadZ = -inertia.bodyRoll * 0.35 + steer * 0.08 + driftDir * 0.12;
+        let targetHeadX = inertia.bodyPitch * 0.35 + (boosting ? -0.22 : options?.isBraking ? 0.24 : speed > 2 ? -0.08 : 0);
 
         if (rivalDir) {
           const rivalDist = Math.hypot(rivalDir.x, rivalDir.z);
@@ -743,8 +862,16 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, emotion.wVictory);
         if (ombroD && handsRested) ombroD.quaternion.copy(restQuatD);
       } else if (handsRested) {
-        if (ombroD) ombroD.quaternion.copy(restQuatD);
-        if (ombroE) ombroE.quaternion.copy(restQuatE);
+        if (options?.isBraking && pArm <= 0 && emotion.wVictory <= 0.01) {
+          // Trava os braços com força nos apoios para conter o peso
+          _eArmTemp.set(-0.95, 0, 0.08);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD?.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.35);
+          ombroE?.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.35);
+        } else {
+          if (ombroD) ombroD.quaternion.copy(restQuatD);
+          if (ombroE) ombroE.quaternion.copy(restQuatE);
+        }
       }
 
       applyGlbEmotion(faceParts, baseTransforms, emotion, stareWeight);
@@ -812,6 +939,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
 function proceduralCharacter(dna: AvatarDNA): Character {
   const rig = buildAvatar(dna);
   const emotion = new CharacterEmotionManager();
+  const inertia = new CharacterPhysicsInertia();
   let t = 0;
   let aimUntil = 0;
   let seated = false;
@@ -848,12 +976,29 @@ function proceduralCharacter(dna: AvatarDNA): Character {
     updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
       if (!seated) return;
       emotion.update(dt, speed, options, boosting);
+      inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking);
+
+      rig.body.position.x = inertia.bodyShiftX;
+      rig.body.position.y = inertia.squashY * 0.22 + inertia.chatterY;
+      rig.body.rotation.z = inertia.bodyRoll;
+      rig.body.rotation.x = inertia.bodyPitch + inertia.chatterRot;
+
+      const sY = Math.max(0.65, Math.min(1.35, 1.0 + inertia.squashY));
+      const sXZ = 1.0 / Math.sqrt(sY);
+      rig.root.scale.set(sXZ, sY, sXZ);
 
       let legD = -Math.PI / 2;
       let legE = -Math.PI / 2;
-      if (driftDir > 0) legD += 0.38;
-      else if (driftDir < 0) legE += 0.38;
-      else if (speed > 0.1 && speed < 3.2) {
+      if (driftDir > 0) {
+        legD += 0.52;
+        legE -= 0.18;
+      } else if (driftDir < 0) {
+        legE += 0.52;
+        legD -= 0.18;
+      } else if (options?.isBraking) {
+        legD += 0.24;
+        legE += 0.24;
+      } else if (speed > 0.1 && speed < 3.2) {
         const push = Math.sin(performance.now() * 0.012);
         legD += Math.max(0, push) * 0.32;
         legE += Math.max(0, -push) * 0.32;
@@ -862,9 +1007,9 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       rig.legR.rotation.x += (legD - rig.legR.rotation.x) * k;
       rig.legL.rotation.x += (legE - rig.legL.rotation.x) * k;
 
-      let targetHeadY = -steer * 0.38 - driftDir * 0.42;
-      let targetHeadZ = steer * 0.08 + driftDir * 0.12;
-      let targetHeadX = boosting ? -0.2 : speed > 2 ? -0.1 : 0;
+      let targetHeadY = -steer * 0.40 - driftDir * 0.46;
+      let targetHeadZ = -inertia.bodyRoll * 0.35 + steer * 0.08 + driftDir * 0.12;
+      let targetHeadX = inertia.bodyPitch * 0.35 + (boosting ? -0.22 : options?.isBraking ? 0.24 : speed > 2 ? -0.08 : 0);
       let stareWeight = 0;
 
       if (rivalDir) {
@@ -924,10 +1069,11 @@ function proceduralCharacter(dna: AvatarDNA): Character {
         rig.armR.rotation.z = 0;
         rig.armR.rotation.y = 0;
       } else {
-        rig.armL.rotation.x = -0.75;
+        const brakeArm = options?.isBraking ? -0.95 : -0.75;
+        rig.armL.rotation.x = brakeArm;
         rig.armL.rotation.z = 0;
         rig.armL.rotation.y = 0;
-        rig.armR.rotation.x = -0.75;
+        rig.armR.rotation.x = brakeArm;
         rig.armR.rotation.z = 0;
         rig.armR.rotation.y = 0;
       }
