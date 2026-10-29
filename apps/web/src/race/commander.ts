@@ -9,7 +9,7 @@ const SOUND_URL = "/assets/audio/helicoptero.m4a";
 const SOUND_LOOP: [number, number] = [1.3, 5.9];
 /** Distâncias (m) do som: cheio até NEAR, zero a partir de FAR. */
 const SOUND_NEAR = 6;
-const SOUND_FAR = 55;
+const SOUND_FAR = 40;
 const ROTOR_CLIP = "Rotores_Girando";
 /** Velocidade e altura do voo durante a corrida (puxa o pelotão). */
 const FLY_SPEED = 13;
@@ -104,7 +104,12 @@ export function createCommander(track: Track, listener?: THREE.AudioListener, ef
     root.add(audio);
     void loadSound().then((buffer) => {
       if (!buffer || disposed) return;
-      if (effectsBus) audio.setFilter(effectsBus);
+      // a saída (depois da distância e do volume) entra no canal dos efeitos. Como filtro, o canal recebia o som
+      // cru e, ligado direto à saída, tocava o helicóptero em volume cheio, sem queda com a distância
+      if (effectsBus) {
+        audio.gain.disconnect();
+        audio.gain.connect(effectsBus);
+      }
       audio.setBuffer(buffer);
       audio.setLoop(true);
       audio.setLoopStart(SOUND_LOOP[0]);
@@ -115,8 +120,8 @@ export function createCommander(track: Track, listener?: THREE.AudioListener, ef
       audio.setRefDistance(SOUND_NEAR);
       audio.setMaxDistance(SOUND_FAR);
       audio.setRolloffFactor(1);
-      // o áudio foi gravado alto: 60% no máximo, mesmo com o helicóptero colado na câmera
-      audio.setVolume(0.6);
+      // o áudio foi gravado alto: 20% no máximo, mesmo com o helicóptero colado na câmera
+      audio.setVolume(0.2);
       audio.play();
     });
   }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AvatarPreview } from "../game/AvatarPreview";
 import { loadConfig, loadGoogle, login, loginSession } from "../net/session";
 import { ChallengeCard, useChallenge } from "./ChallengeCard";
+import { MenuMusicControl } from "./MenuMusicControl";
 import { instalar, useInstalavel } from "../pwa/registrar";
 import { keyLabel, useSettings } from "../settings";
 import { net, saveAvatar, setAccount, setState, useStore } from "../store";
@@ -179,6 +180,7 @@ export function Home() {
               </button>
             )}
           </div>
+          <MenuMusicControl label="Música" />
         </div>
         <div className="card">
           <p className="label">Sobre o jogo</p>
