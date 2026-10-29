@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ABILITIES, ABILITY_IDS } from "../data/abilities";
-import { HAIR_ORDER, HAIR_STYLES, PRESETS, randomAvatar, sanitizeAvatar } from "../data/avatar";
+import { HAIR_ORDER, HAIR_STYLES, MAX_WEARABLES, PRESETS, randomAvatar, sanitizeAvatar } from "../data/avatar";
 import { OFFICE_MAP } from "../data/map";
 import { SYNERGIES } from "../data/synergies";
 import { BALANCE } from "../data/balance";
@@ -30,9 +30,18 @@ describe("avatar", () => {
     expect(sanitizeAvatar({ model: 1 }).model).toBe(1);
     expect(sanitizeAvatar({ eyes: 3 }).eyes).toBe(3);
     expect(sanitizeAvatar({ eyes: -1 }).eyes).toBe(0);
-    expect(sanitizeAvatar({}).shoes).toBe(2);
+    // tênis indexa a pasta de peças: 0 é descalço
+    expect(sanitizeAvatar({}).shoes).toBe(0);
     expect(sanitizeAvatar({ shoes: 6 }).shoes).toBe(6);
-    expect(sanitizeAvatar({ shoes: 7 }).shoes).toBe(2);
+    expect(sanitizeAvatar({ shoes: MAX_WEARABLES }).shoes).toBe(0);
+  });
+
+  it("crachá salvo antes dos rostos fica com o rosto feliz; barba indexa a pasta", () => {
+    expect(sanitizeAvatar({ skin: 2, eyes: 1 }).face).toBe(0);
+    expect(sanitizeAvatar({ face: 4 }).face).toBe(4);
+    expect(sanitizeAvatar({ face: 99 }).face).toBe(0);
+    expect(sanitizeAvatar({ beard: 5 }).beard).toBe(5);
+    expect(sanitizeAvatar({ beard: MAX_WEARABLES }).beard).toBe(0);
   });
 
   it("cor da barba é própria, e crachá antigo sem ela herda a do cabelo", () => {

@@ -1,57 +1,41 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  ACCESSORIES,
-  BEARDS,
-  BOTTOMS,
   CHAIR_BACKS,
   CHAIR_BASES,
   CHAIR_SEATS,
   CHAIR_TRINKETS,
   CHAIR_WHEELS,
   DEFAULT_AVATAR,
-  DRESS,
   EYE_COLORS,
-  GLASSES,
+  FACES,
   HAIR_COLORS,
-  HAIR_ORDER,
-  HAIR_STYLES,
   HEIGHTS,
-  MODELS,
-  PANTS,
   PRESETS,
-  SHIRTS,
-  SHOES,
   SKINS,
-  TOPS,
   randomAvatar,
   randomChair,
   type AvatarDNA,
   type ChairDNA,
 } from "@ec/shared";
-import { AvatarPreview } from "../game/AvatarPreview";
+import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail } from "../game/character";
+import { BEARD_LABELS, HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
 import { saveAvatar, saveChair, setState, useStore } from "../store";
 
-type NumKey = "model" | "skin" | "hair" | "hairColor" | "eyes" | "beard" | "beardColor" | "glasses" | "top" | "bottom" | "shirt" | "pants" | "shoes" | "accessory" | "height";
+type Step = "start" | "body" | "hair" | "clothes";
+type Start = "preset" | "custom";
 
-type Start = "skin" | "preset" | "custom";
-type Step = "start" | "body" | "face" | "hair" | "clothes" | "extras" | "name";
-
-/** Ordem das abas. custom: só aparece para quem monta o boneco (skin pronta fica como veio). */
-const STEPS: { id: Step; label: string; custom?: boolean }[] = [
+/** Abas do boneco, na ordem do crachá. Cada item novo entra numa delas. */
+const STEPS: { id: Step; label: string }[] = [
   { id: "start", label: "Começo" },
-  { id: "body", label: "Corpo" },
-  { id: "face", label: "Rosto", custom: true },
-  { id: "hair", label: "Cabelo", custom: true },
-  { id: "clothes", label: "Roupa", custom: true },
-  { id: "extras", label: "Acessórios", custom: true },
-  { id: "name", label: "Nome" },
+  { id: "body", label: "Pele e olhos" },
+  { id: "hair", label: "Cabelo e barba" },
+  { id: "clothes", label: "Roupas" },
 ];
 
 const STARTS: { id: Start; title: string; text: string }[] = [
-  { id: "skin", title: "Skin pronta", text: "Um personagem completo, do jeito que veio." },
-  { id: "preset", title: "Funcionário pronto", text: "Comece de um modelo e ajuste o que quiser." },
-  { id: "custom", title: "Personalizar", text: "Escolha cada detalhe, aba por aba." },
+  { id: "preset", title: "Funcionário pronto", text: "Comece de um modelo e ajuste o que quiser nas próximas abas." },
+  { id: "custom", title: "Do zero", text: "Comece do boneco padrão e escolha cada detalhe." },
 ];
 
 function Swatches({ colors, value, onPick }: { colors: string[]; value: number; onPick: (i: number) => void }) {
@@ -64,13 +48,12 @@ function Swatches({ colors, value, onPick }: { colors: string[]; value: number; 
   );
 }
 
-/** order muda só a posição dos botões; onPick recebe o índice de items. */
-function Seg({ items, value, onPick, order }: { items: string[]; value: number; onPick: (i: number) => void; order?: number[] }) {
+function Seg({ items, value, onPick }: { items: string[]; value: number; onPick: (i: number) => void }) {
   return (
     <div className="seg">
-      {(order ?? items.map((_, i) => i)).map((i) => (
-        <button key={items[i]} className={i === value ? "on" : ""} onClick={() => onPick(i)}>
-          {items[i]}
+      {items.map((t, i) => (
+        <button key={t} className={i === value ? "on" : ""} onClick={() => onPick(i)}>
+          {t}
         </button>
       ))}
     </div>
@@ -79,7 +62,7 @@ function Seg({ items, value, onPick, order }: { items: string[]; value: number; 
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="field-group">
+    <div>
       <p className="label">{label}</p>
       {children}
     </div>
@@ -89,44 +72,26 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 export function Creator() {
   const saved = useStore((s) => s.avatar);
   const [dna, setDna] = useState<AvatarDNA>(saved);
-  const [start, setStart] = useState<Start>(saved.model !== 0 ? "skin" : "custom");
-  const [preset, setPreset] = useState(-1);
-  const [step, setStep] = useState<Step>("start");
-  const [spin, setSpin] = useState(() => {
-    try {
-      return localStorage.getItem("ec.creatorSpin") !== "0";
-    } catch {
-      return true;
-    }
-  });
-  const toggleSpin = () => {
-    const next = !spin;
-    setSpin(next);
-    try {
-      localStorage.setItem("ec.creatorSpin", next ? "1" : "0");
-    } catch {
-      // sem storage a escolha vale só nesta sessão
-    }
-  };
   const savedChair = useStore((s) => s.chair);
   const [chair, setChair] = useState<ChairDNA>(savedChair);
   const [tab, setTab] = useState(useStore((s) => s.lobby?.mode) === "race" ? 1 : 0);
-  const set = (k: NumKey) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
   const setC = (k: keyof ChairDNA) => (i: number) => setChair((c) => ({ ...c, [k]: i }));
+  const [cheer, setCheer] = useState<PreviewAction>();
+  const [step, setStep] = useState<Step>("start");
+  const [start, setStart] = useState<Start>("custom");
+  const [preset, setPreset] = useState(-1);
+  const set = (k: keyof AvatarDNA) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
   const ready = useStore((s) => s.modelReady);
+  // ready refaz as miniaturas quando o boneco termina de carregar
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const thumbs = useMemo(() => PRESETS.map((p) => avatarThumbnail(p.dna, 120)), [ready]);
-  // skin pronta ignora o crachá, então a miniatura não depende do boneco atual
-  const skinThumbs = useMemo(() => MODELS.map((_, i) => (i === 0 ? "" : avatarThumbnail({ ...DEFAULT_AVATAR, model: i }, 120))), [ready]);
 
-  const isSkin = dna.model !== 0;
-  const steps = STEPS.filter((s) => !(isSkin && s.custom));
-  const at = Math.max(0, steps.findIndex((s) => s.id === step));
-  const current = steps[at];
+  const at = STEPS.findIndex((s) => s.id === step);
 
   const chooseStart = (s: Start) => {
     setStart(s);
-    if (s === "skin") setDna((d) => ({ ...d, model: d.model === 0 ? 1 : d.model }));
-    else setDna((d) => ({ ...d, model: 0 }));
+    setPreset(-1);
+    if (s === "custom") setDna((d) => ({ ...DEFAULT_AVATAR, name: d.name }));
   };
 
   const done = () => {
@@ -138,6 +103,9 @@ export function Creator() {
   const panels: Record<Step, ReactNode> = {
     start: (
       <>
+        <Field label="Nome no crachá">
+          <input className="field" value={dna.name} maxLength={16} onChange={(e) => setDna((d) => ({ ...d, name: e.target.value }))} />
+        </Field>
         <Field label="Como você quer começar?">
           <div className="choices">
             {STARTS.map((s) => (
@@ -148,19 +116,6 @@ export function Creator() {
             ))}
           </div>
         </Field>
-        {start === "skin" && (
-          <Field label="Escolha a skin">
-            <div className="presets">
-              {MODELS.map((m, i) =>
-                i === 0 ? null : (
-                  <button key={m} title={m} className={dna.model === i ? "on" : ""} onClick={() => set("model")(i)}>
-                    <img src={skinThumbs[i]} alt={m} />
-                  </button>
-                ),
-              )}
-            </div>
-          </Field>
-        )}
         {start === "preset" && (
           <Field label="Escolha um funcionário">
             <div className="presets">
@@ -184,77 +139,60 @@ export function Creator() {
     ),
     body: (
       <>
-        {!isSkin && (
-          <Field label="Pele">
-            <Swatches colors={SKINS} value={dna.skin} onPick={set("skin")} />
-          </Field>
-        )}
-        <Field label="Altura">
-          <Seg items={HEIGHTS} value={dna.height} onPick={set("height")} />
+        <Field label="Cor da pele">
+          <Swatches colors={SKINS} value={dna.skin} onPick={set("skin")} />
         </Field>
-        {isSkin && <p className="muted">Skin pronta fica do jeito que veio; só a altura muda. Para escolher cada detalhe, volte ao Começo e use "Personalizar".</p>}
-      </>
-    ),
-    face: (
-      <>
         <Field label="Cor dos olhos">
           <Swatches colors={EYE_COLORS} value={dna.eyes} onPick={set("eyes")} />
         </Field>
-        <Field label="Barba">
-          <Seg items={BEARDS} value={dna.beard} onPick={set("beard")} />
-        </Field>
-        {dna.beard !== 0 && (
-          <Field label="Cor da barba">
-            <Swatches colors={HAIR_COLORS} value={dna.beardColor} onPick={set("beardColor")} />
-          </Field>
-        )}
-        <Field label="Óculos">
-          <Seg items={GLASSES} value={dna.glasses} onPick={set("glasses")} />
+        <Field label="Rosto">
+          <Seg items={FACES} value={dna.face} onPick={set("face")} />
         </Field>
       </>
     ),
     hair: (
       <>
-        <Field label="Corte">
-          <Seg items={HAIR_STYLES} order={HAIR_ORDER} value={dna.hair} onPick={set("hair")} />
+        <Field label="Cabelo">
+          <Seg items={HAIR_LABELS} value={dna.hair} onPick={set("hair")} />
         </Field>
-        <Field label="Cor do cabelo">
-          <Swatches colors={HAIR_COLORS} value={dna.hairColor} onPick={set("hairColor")} />
-        </Field>
+        {dna.hair !== 0 && (
+          <Field label="Cor do cabelo">
+            <Swatches colors={HAIR_COLORS} value={dna.hairColor} onPick={set("hairColor")} />
+          </Field>
+        )}
+        {BEARD_LABELS.length > 1 && (
+          <Field label="Barba">
+            <Seg items={BEARD_LABELS} value={dna.beard} onPick={set("beard")} />
+          </Field>
+        )}
+        {dna.beard !== 0 && (
+          <Field label="Cor da barba">
+            <Swatches colors={HAIR_COLORS} value={dna.beardColor} onPick={set("beardColor")} />
+          </Field>
+        )}
       </>
     ),
     clothes: (
       <>
-        <Field label="Parte de cima">
-          <Seg items={TOPS} value={dna.top} onPick={set("top")} />
+        <Field label="Altura">
+          <Seg items={HEIGHTS} value={dna.height} onPick={set("height")} />
         </Field>
-        <Field label={dna.top === DRESS ? "Cor do vestido" : "Cor da parte de cima"}>
-          <Swatches colors={SHIRTS} value={dna.shirt} onPick={set("shirt")} />
-        </Field>
-        {dna.top !== DRESS && (
-          <>
-            <Field label="Parte de baixo">
-              <Seg items={BOTTOMS} value={dna.bottom} onPick={set("bottom")} />
-            </Field>
-            <Field label="Cor da parte de baixo">
-              <Swatches colors={PANTS} value={dna.pants} onPick={set("pants")} />
-            </Field>
-          </>
+        {SHIRT_LABELS.length > 1 && (
+          <Field label="Camiseta">
+            <Seg items={SHIRT_LABELS} value={dna.shirt} onPick={set("shirt")} />
+          </Field>
         )}
-        <Field label="Calçado">
-          <Seg items={SHOES} value={dna.shoes} onPick={set("shoes")} />
-        </Field>
+        {PANTS_LABELS.length > 1 && (
+          <Field label="Calça">
+            <Seg items={PANTS_LABELS} value={dna.pants} onPick={set("pants")} />
+          </Field>
+        )}
+        {SHOE_LABELS.length > 1 && (
+          <Field label="Tênis">
+            <Seg items={SHOE_LABELS} value={dna.shoes} onPick={set("shoes")} />
+          </Field>
+        )}
       </>
-    ),
-    extras: (
-      <Field label="Acessório">
-        <Seg items={ACCESSORIES} value={dna.accessory} onPick={set("accessory")} />
-      </Field>
-    ),
-    name: (
-      <Field label="Nome no crachá">
-        <input className="field" value={dna.name} maxLength={16} onChange={(e) => setDna((d) => ({ ...d, name: e.target.value }))} />
-      </Field>
     ),
   };
 
@@ -278,11 +216,9 @@ export function Creator() {
             <div className="badge">
               <div className="badge-top">
                 <span>CRACHÁ</span>
-                <button type="button" className="badge-spin" aria-pressed={spin} onClick={toggleSpin}>
-                  {spin ? "■ PAUSAR GIRO" : "▶ GIRO AUTOMÁTICO"}
-                </button>
+                <span>ARRASTE PARA GIRAR</span>
               </div>
-              <AvatarPreview dna={dna} chair={tab === 1 ? chair : undefined} className="badge-preview" autoRotate={spin} />
+              <AvatarPreview dna={dna} chair={tab === 1 ? chair : undefined} action={tab === 1 ? cheer : undefined} className="badge-preview" />
               <div className="badge-name">{dna.name}</div>
             </div>
             <div className="row">
@@ -292,8 +228,15 @@ export function Creator() {
               <button
                 className="btn"
                 onClick={() => {
-                  setStart("custom");
-                  setDna((d) => ({ ...randomAvatar(Math.random, d.name), model: 0 }));
+                  const pick = (n: number) => Math.floor(Math.random() * n);
+                  setDna((d) => ({
+                    ...randomAvatar(Math.random, d.name),
+                    hair: pick(HAIR_LABELS.length),
+                    beard: Math.random() < 0.3 ? pick(BEARD_LABELS.length) : 0,
+                    shirt: pick(SHIRT_LABELS.length),
+                    pants: pick(PANTS_LABELS.length),
+                    shoes: pick(SHOE_LABELS.length),
+                  }));
                   setChair(randomChair(Math.random));
                 }}
               >
@@ -333,37 +276,40 @@ export function Creator() {
                 <p className="muted" style={{ margin: 0 }}>
                   Todas as cadeiras andam igual. Aqui é só estilo: quem ganha é quem pilota melhor.
                 </p>
+                <button className="btn" style={{ marginTop: 12 }} onClick={() => setCheer((a) => ({ name: "comemorar", seq: (a?.seq ?? 0) + 1 }))}>
+                  Comemorar
+                </button>
               </div>
             </div>
           ) : (
-          <div className="stack">
-            <div className="tabs" role="tablist">
-              {steps.map((s, i) => (
-                <button key={s.id} role="tab" aria-selected={i === at} className={`tab ${i === at ? "on" : ""}`} onClick={() => setStep(s.id)}>
-                  <span className="tab-n">{i + 1}</span>
-                  {s.label}
-                </button>
-              ))}
-            </div>
-            <div className="card step-panel" role="tabpanel">
-              <h2 className="step-title">{current.label}</h2>
-              {panels[current.id]}
-              <div className="step-nav">
-                <button className="btn" disabled={at === 0} onClick={() => setStep(steps[at - 1].id)}>
-                  ← Anterior
-                </button>
-                {at < steps.length - 1 ? (
-                  <button className="btn dark" onClick={() => setStep(steps[at + 1].id)}>
-                    Próximo: {steps[at + 1].label} →
+            <div className="stack">
+              <div className="tabs" role="tablist">
+                {STEPS.map((s, i) => (
+                  <button key={s.id} role="tab" aria-selected={i === at} className={`tab ${i === at ? "on" : ""}`} onClick={() => setStep(s.id)}>
+                    <span className="tab-n">{i + 1}</span>
+                    {s.label}
                   </button>
-                ) : (
-                  <button className="btn primary" onClick={done}>
-                    Salvar boneco
+                ))}
+              </div>
+              <div className="card step-panel" role="tabpanel">
+                <h2 className="step-title">{STEPS[at].label}</h2>
+                {panels[step]}
+                <div className="step-nav">
+                  <button className="btn" disabled={at === 0} onClick={() => setStep(STEPS[at - 1].id)}>
+                    ← Anterior
                   </button>
-                )}
+                  {at < STEPS.length - 1 ? (
+                    <button className="btn dark" onClick={() => setStep(STEPS[at + 1].id)}>
+                      Próximo: {STEPS[at + 1].label} →
+                    </button>
+                  ) : (
+                    <button className="btn primary" onClick={done}>
+                      Salvar boneco
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
           )}
         </div>
       </div>

@@ -56,7 +56,7 @@ export interface State {
   rme: RacePrivate | null;
   feed: FeedItem[];
   scoreboard: boolean;
-  /** boneco.glb carregado; telas refazem miniaturas e prévias. */
+  /** boneco_completo.glb carregado; telas refazem miniaturas e prévias. */
   modelReady: boolean;
   /** Boneco e cadeira terminaram de carregar (ou falharam, ou estourou o tempo): a tela de carregamento some. */
   assetsReady: boolean;

@@ -11,6 +11,7 @@ import { QuickChat } from "./screens/QuickChat";
 import { Ranking } from "./screens/Ranking";
 import { Results } from "./screens/Results";
 import { Settings } from "./screens/Settings";
+import { startLobbyMusic, stopLobbyMusic } from "./sound";
 import { getState, setState, useStore } from "./store";
 
 // o código de cada modo só baixa quando a partida começa
@@ -47,6 +48,15 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // a música da sala toca na tela inicial e na sala, sem recomeçar quando uma vira a outra
+  const showsLobby = !!lobby && !inMatch && !(lobby.phase === "results" && (raceResults || results));
+  const menuMusic = assetsReady && !editing && !ranking && !perfil && (!lobby || showsLobby);
+  useEffect(() => {
+    if (!menuMusic) return;
+    startLobbyMusic();
+    return () => stopLobbyMusic();
+  }, [menuMusic]);
 
   // a partida acabou com o menu aberto: ele não volta sozinho na próxima
   useEffect(() => {

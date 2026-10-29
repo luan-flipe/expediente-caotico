@@ -81,8 +81,9 @@ function addHair(head: THREE.Group, style: number, m: THREE.Material): void {
 /** Monta o boneco procedural a partir do "Crachá". Olha para +z. */
 export function buildAvatar(dna: AvatarDNA): AvatarRig {
   const skin = mat(SKINS[dna.skin]);
-  const shirt = mat(SHIRTS[dna.shirt]);
-  const pants = mat(PANTS[dna.pants]);
+  // shirt e pants também indexam as pastas de peças, que podem passar do tamanho da paleta
+  const shirt = mat(SHIRTS[dna.shirt % SHIRTS.length]);
+  const pants = mat(PANTS[dna.pants % PANTS.length]);
   const hair = mat(HAIR_COLORS[dna.hairColor], 0.95);
   const dark = mat("#1d1b17", 0.6);
   const shoe = mat("#2a2622");

@@ -17,14 +17,35 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeIO, PropertyType } from "@gltf-transform/core";
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from "@gltf-transform/extensions";
-import { dedup, quantize, reorder, weld } from "@gltf-transform/functions";
+import { dedup, prune, quantize, reorder, weld } from "@gltf-transform/functions";
 import { MeshoptDecoder, MeshoptEncoder } from "meshoptimizer";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "assets-src");
 const out = join(root, "apps", "web", "public", "assets");
 
-const MODELS = ["characters/boneco.glb", "characters/boneco_polo_barba.glb", "chairs/cadeira_escritorio.glb", "characters/comandante_helicoptero.glb"];
+const MODELS = [
+  "characters/boneco_completo.glb",
+  "characters/boneco_comemora.glb",
+  "chairs/cadeira_escritorio.glb",
+  "characters/comandante_helicoptero.glb",
+];
+// Roupas e cabelos: originais em assets-src/roupas/<pasta>, saída em apps/web/src/assets/<pasta>
+// (o jogo lista as peças pelo glob do Vite). As animações das peças saem: o jogo só usa a malha e o skin,
+// quem anima é o esqueleto do boneco_completo.
+const WEARABLES = [
+  "cabelos/01_cabelo.glb",
+  "cabelos/02_repicado.glb",
+  "cabelos/03_black_power.glb",
+  "cabelos/04_longo.glb",
+  "cabelos/05_medio_cacheado.glb",
+  "barbas/01_barba.glb",
+  "barbas/02_barba_longa.glb",
+  "camisetas/01_camiseta.glb",
+  "calcas/01_calca.glb",
+  "tenis/01_tenis.glb",
+];
+const wearablesOut = join(root, "apps", "web", "src", "assets");
 const MUSIC = "audio/turbo_pixel_drift.mp3";
 
 const kb = (n) => `${(n / 1024).toFixed(0)} KB`;
@@ -36,10 +57,13 @@ const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ "meshopt.encoder": MeshoptEncoder, "meshopt.decoder": MeshoptDecoder });
 
-async function optimizeModel(rel) {
-  const from = join(src, rel);
-  const to = join(out, rel);
+async function optimizeModel(rel, { from = join(src, rel), to = join(out, rel), dropAnimations = false } = {}) {
   const doc = await io.read(from);
+  if (dropAnimations) {
+    for (const anim of doc.getRoot().listAnimations()) anim.dispose();
+    // acessores que eram só das animações
+    await doc.transform(prune({ propertyTypes: [PropertyType.ACCESSOR] }));
+  }
   await doc.transform(
     weld(),
     reorder({ encoder: MeshoptEncoder, target: "size" }),
@@ -77,4 +101,5 @@ function stripMusic(rel) {
 }
 
 for (const m of MODELS) await optimizeModel(m);
+for (const w of WEARABLES) await optimizeModel(`roupas/${w}`, { to: join(wearablesOut, w), dropAnimations: true });
 stripMusic(MUSIC);

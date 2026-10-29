@@ -1,4 +1,6 @@
 FROM node:22-alpine AS build
+ARG SOURCE_COMMIT=""
+ENV SOURCE_COMMIT=$SOURCE_COMMIT
 RUN corepack enable
 WORKDIR /app
 COPY . .

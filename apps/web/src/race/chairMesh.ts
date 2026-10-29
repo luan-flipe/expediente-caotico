@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { CHAIR_BASES, CHAIR_SEATS, type AvatarDNA, type ChairDNA } from "@ec/shared";
-import { createCharacter, modelReady, type Character } from "../game/character";
+import { celebrationExtras, createCharacter, modelReady, type Character } from "../game/character";
 import { createGltfLoader } from "../game/gltfLoader";
 
 const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
@@ -17,6 +17,8 @@ interface Anchors {
   seatZ: number;
   armX: number;
   armY: number;
+  /** z do meio do braço da cadeira. */
+  armZ: number;
   backTop: number;
   /** z da face de trás do encosto. */
   backZ: number;
@@ -69,6 +71,41 @@ export function preloadChair(onProgress?: (e: ProgressEvent) => void): Promise<b
 }
 
 const ENCOSTO_K = [0.7, 1, 1.2];
+/** Braço da cadeira mais perto e mais alto que no GLB, ao alcance das mãos do boneco sentado. */
+const ARM_X = 0.38;
+const ARM_LIFT = 0.06;
+
+/** Traz haste e apoio de cada braço para ARM_X, encurta o suporte e estreita o assento para caber entre eles. */
+function fitArms(inner: THREE.Object3D): void {
+  const get = (name: string) => inner.getObjectByName(name) as THREE.Mesh | undefined;
+  const sizeOf = (m: THREE.Mesh) => {
+    m.geometry.computeBoundingBox();
+    return m.geometry.boundingBox!.getSize(new THREE.Vector3());
+  };
+  for (const [support, riser, pad] of [
+    ["Peca_42", "Peca_43", "Peca_44"],
+    ["Peca_45", "Peca_46", "Peca_47"],
+  ]) {
+    const s = get(support);
+    const r = get(riser);
+    const p = get(pad);
+    if (!s || !r || !p) return;
+    const side = Math.sign(p.position.x);
+    const w = sizeOf(s).x;
+    const from = Math.abs(s.position.x) - w / 2;
+    s.scale.x = (ARM_X - from) / w;
+    s.position.x = (side * (from + ARM_X)) / 2;
+    const h = sizeOf(r).y;
+    r.scale.y = (h + ARM_LIFT) / h;
+    r.position.set(side * ARM_X, r.position.y + ARM_LIFT / 2, r.position.z);
+    p.position.set(side * ARM_X, p.position.y + ARM_LIFT, p.position.z);
+  }
+  const room = ARM_X - sizeOf(get("Peca_44")!).x / 2 - 0.01;
+  for (const name of ["Assento", "Peca_41"]) {
+    const m = get(name);
+    if (m) m.scale.x = room / (sizeOf(m).x / 2);
+  }
+}
 
 function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
   const group = new THREE.Group();
@@ -150,6 +187,7 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
     mesh.castShadow = !isWheel || src.metalness >= 0.5;
   });
   if (chair.wheels === 2) for (const w of wheelNodes) w.scale.setScalar(1.45);
+  fitArms(inner);
 
   // Nós mecânicos da cadeira para dinâmica viva
   const pistaoNode = inner.getObjectByName("Pistao_Altura");
@@ -181,6 +219,7 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
     seatZ: seatBox ? (seatBox.min.z + seatBox.max.z) / 2 : 0,
     armX: armBox ? (armBox.min.x + armBox.max.x) / 2 : 0.47,
     armY: armBox?.max.y ?? 0.7,
+    armZ: armBox ? (armBox.min.z + armBox.max.z) / 2 : 0,
     backTop: padBox?.max.y ?? 1.2,
     backZ: padBox?.min.z ?? -0.4,
   };
@@ -508,10 +547,10 @@ function proceduralChair(chair: ChairDNA): ChairModel {
     seatZ: 0,
     armX: 0.33,
     armY: SEAT_TOP + 0.2,
+    armZ: 0.02,
     backTop: SEAT_TOP + 0.08 + backH,
     backZ: -0.383,
   };
-
   const extras: THREE.Mesh[] = [];
   addTrinket(g, chair.trinket, anchors, extras, backGroup, seatAssemblyGroup);
 
@@ -671,27 +710,27 @@ function addTrinket(
     }
     case 2: {
       const targetParent = seatParent ?? g;
-      add(new THREE.SphereGeometry(0.06, 12, 10), new THREE.MeshStandardMaterial({ color: "#d62828", roughness: 0.5 }), a.armX, a.armY + 0.05, -0.06, 0, 0, 0, targetParent);
-      add(new THREE.ConeGeometry(0.05, 0.16, 12, 1, true), new THREE.MeshStandardMaterial({ color: "#d4af37", metalness: 0.7, roughness: 0.3, side: THREE.DoubleSide }), a.armX, a.armY + 0.05, 0.06, -Math.PI / 2, 0, 0, targetParent);
+      add(new THREE.SphereGeometry(0.06, 12, 10), new THREE.MeshStandardMaterial({ color: "#d62828", roughness: 0.5 }), a.armX, a.armY + 0.05, 0.09, 0, 0, 0, targetParent);
+      add(new THREE.ConeGeometry(0.05, 0.16, 12, 1, true), new THREE.MeshStandardMaterial({ color: "#d4af37", metalness: 0.7, roughness: 0.3, side: THREE.DoubleSide }), a.armX, a.armY + 0.05, 0.21, -Math.PI / 2, 0, 0, targetParent);
       break;
     }
     case 3: {
       const targetParent = seatParent ?? g;
-      add(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 14), new THREE.MeshStandardMaterial({ color: "#f5f0e1" }), -a.armX, a.armY + 0.05, 0.08, 0, 0, 0, targetParent);
-      add(new THREE.TorusGeometry(0.025, 0.008, 6, 12), new THREE.MeshStandardMaterial({ color: "#f5f0e1" }), -a.armX - 0.05, a.armY + 0.05, 0.08, 0, Math.PI / 2, 0, targetParent);
-      add(new THREE.CircleGeometry(0.04, 14), new THREE.MeshStandardMaterial({ color: "#4a2c1a" }), -a.armX, a.armY + 0.095, 0.08, -Math.PI / 2, 0, 0, targetParent);
+      add(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 14), new THREE.MeshStandardMaterial({ color: "#f5f0e1" }), -a.armX, a.armY + 0.05, 0.12, 0, 0, 0, targetParent);
+      add(new THREE.TorusGeometry(0.025, 0.008, 6, 12), new THREE.MeshStandardMaterial({ color: "#f5f0e1" }), -a.armX - 0.05, a.armY + 0.05, 0.12, 0, Math.PI / 2, 0, targetParent);
+      add(new THREE.CircleGeometry(0.04, 14), new THREE.MeshStandardMaterial({ color: "#4a2c1a" }), -a.armX, a.armY + 0.095, 0.12, -Math.PI / 2, 0, 0, targetParent);
       break;
     }
     case 4: {
       const targetParent = seatParent ?? g;
-      add(new THREE.CylinderGeometry(0.05, 0.04, 0.08, 10), new THREE.MeshStandardMaterial({ color: "#b5651d" }), a.armX, a.armY + 0.04, 0.06, 0, 0, 0, targetParent);
+      add(new THREE.CylinderGeometry(0.05, 0.04, 0.08, 10), new THREE.MeshStandardMaterial({ color: "#b5651d" }), a.armX, a.armY + 0.04, 0.12, 0, 0, 0, targetParent);
       const leaf = new THREE.MeshStandardMaterial({ color: "#3e9b52", flatShading: true });
       for (const [x, y, z] of [
         [0, 0.12, 0],
         [0.04, 0.1, 0.02],
         [-0.03, 0.1, -0.02],
       ])
-        add(new THREE.IcosahedronGeometry(0.045, 0), leaf, a.armX + x, a.armY + y, 0.06 + z, 0, 0, 0, targetParent);
+        add(new THREE.IcosahedronGeometry(0.045, 0), leaf, a.armX + x, a.armY + y, 0.12 + z, 0, 0, 0, targetParent);
       break;
     }
     case 5: {
@@ -726,6 +765,8 @@ export interface Racer3D {
     rivalDir?: THREE.Vector3,
     air?: boolean,
   ): void;
+  /** Comemoração da chegada: o boneco festeja, o assento gira e cai confete. */
+  celebrate(): void;
   dispose(): void;
 }
 
@@ -735,10 +776,35 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
   const seat = buildChair(chair);
   const char = createCharacter(avatar);
   const thighBottom = char.sit();
-  const baseCharY = seat.anchors.seatTop - thighBottom;
-  const baseCharZ = seat.anchors.seatZ - 0.06;
+  const a = seat.anchors;
+  const baseCharY = a.seatTop - thighBottom;
+  const baseCharZ = a.seatZ - 0.06;
   char.root.position.set(0, baseCharY, baseCharZ);
+  // pontos no topo de cada braço da cadeira, no espaço do boneco (a esquerda dele fica em +x)
+  const arm = (x: number) => new THREE.Vector3(x, a.armY + 0.03, a.armZ).sub(char.root.position);
+  char.restHands(arm(Math.abs(a.armX)), arm(-Math.abs(a.armX)));
   root.add(seat.group, char.root);
+  // o boneco vai junto com o assento quando ele gira na comemoração
+  const pivot = seat.group.getObjectByName("Assento_Giratorio");
+  if (pivot) {
+    root.updateMatrixWorld(true);
+    pivot.attach(char.root);
+  }
+
+  const party = celebrationExtras();
+  const mixer = new THREE.AnimationMixer(root);
+  const once = (clip: THREE.AnimationClip) => mixer.clipAction(clip).setLoop(THREE.LoopOnce, 1);
+  const actions = party?.seat && pivot ? [once(party.seat)] : [];
+  const confetti = party?.confetti ? party.confetti.scene.clone() : null;
+  if (confetti && party?.confetti) {
+    confetti.visible = false;
+    root.add(confetti);
+    const fall = once(party.confetti.clip);
+    actions.push(fall);
+    mixer.addEventListener("finished", (e) => {
+      if (e.action === fall) confetti.visible = false;
+    });
+  }
 
   return {
     root,
@@ -746,12 +812,22 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
     exhaust: seat.exhaust,
     update(dt, speed, steer = 0, driftDir = 0, boosting = false, rivalDir, air = false) {
       seat.update(dt, speed, steer, driftDir, boosting, air, rivalDir);
-      // Sincroniza o boneco com a compressão do pistão a gás e inclinação do assento
-      char.root.position.y = baseCharY + (seat.pistonOffset ?? 0);
-      char.root.rotation.z = seat.rollAngle ?? 0;
+      if (!pivot) {
+        char.root.position.y = baseCharY + (seat.pistonOffset ?? 0);
+        char.root.rotation.z = seat.rollAngle ?? 0;
+      }
       char.updateSeated?.(dt, speed, steer, driftDir, boosting, rivalDir);
+      char.update(dt, 0);
+      mixer.update(dt);
+    },
+    celebrate() {
+      char.celebrate();
+      for (const x of actions) x.reset().play();
+      if (confetti) confetti.visible = true;
     },
     dispose() {
+      // malhas e materiais do confete são compartilhados entre clones
+      mixer.stopAllAction();
       char.dispose();
       seat.dispose();
     },

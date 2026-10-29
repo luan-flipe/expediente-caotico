@@ -5,21 +5,21 @@ const SHOOT_URL = "/assets/audio/tiro.mp3";
 const ZOMBIE_GROWL_URL = "/assets/audio/zumbi-grunhido.mp3";
 
 /**
- * Trecho em loop da música da sala, em segundos. O MP3 começa com o atraso do codificador (1105 amostras a 48 kHz)
- * e termina com enchimento; sem cortar os dois, o loop teria um respiro de silêncio. O original tem 821448 amostras.
+ * Trecho em loop da música da sala (Super Lobby Bounce), em segundos. A faixa abre com quase 2 s de silêncio
+ * (94773 amostras a 48 kHz): o loop volta de onde o som começa, sem o respiro. Ela tem 8611840 amostras.
  */
-const LOBBY_LOOP_START = 1105 / 48000;
-const LOBBY_LOOP_END = LOBBY_LOOP_START + 821448 / 48000;
+const LOBBY_LOOP_START = 94773 / 48000;
+const LOBBY_LOOP_END = 8611840 / 48000;
 
 /**
  * Mixagem (RMS medido decodificando cada arquivo com Web Audio, em dBFS):
- * lobby-music -21.6, turbo_pixel_drift -17.5, race-select-chiptune -18.8, helicoptero -18.0 (x0.6 = -22.4 perto),
+ * lobby-music -18.9, turbo_pixel_drift -17.5, race-select-chiptune -18.8, helicoptero -18.0 (x0.2 = -32 perto, como as músicas da corrida),
  * rolamento das rodinhas -29.2 e derrapagem -38.0 no máximo antigo.
  * Efeitos da corrida subiram (rolamento -23.2, derrapagem -30.8) e as músicas da corrida ficam em -32,
- * uns 9 a 10 dB abaixo do rolamento e do helicóptero. O lobby, sem efeitos competindo, fica em -29.5
+ * uns 9 a 10 dB abaixo do rolamento. O lobby, sem efeitos competindo, fica em -29.5
  * no volume padrão da sala (0.8): a troca lobby -> corrida baixa só 2.5 dB.
  */
-const LOBBY_TRACK_GAIN = 0.5;
+const LOBBY_TRACK_GAIN = 0.37;
 
 const STORAGE_KEY_LOBBY_MUSIC_ENABLED = "ec_lobby_music_enabled";
 const STORAGE_KEY_LOBBY_MUSIC_VOLUME = "ec_lobby_music_volume";
@@ -357,7 +357,8 @@ export function playShootSound(opts?: SoundPosition & { isLocal?: boolean }): vo
     src.detune.value = detune;
 
     const gain = ctx.createGain();
-    const vol = att * 0.75;
+    // bem baixo de propósito: com muitos tiros seguidos o som cansava
+    const vol = att * 0.06;
     gain.gain.value = vol;
 
     src.connect(gain);
