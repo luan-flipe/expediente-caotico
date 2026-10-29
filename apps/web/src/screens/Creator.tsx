@@ -1,19 +1,42 @@
-import { useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   CHAIR_BACKS,
   CHAIR_BASES,
   CHAIR_SEATS,
   CHAIR_TRINKETS,
   CHAIR_WHEELS,
+  DEFAULT_AVATAR,
+  EYE_COLORS,
+  FACES,
+  HAIR_COLORS,
   HEIGHTS,
+  PRESETS,
+  SKINS,
   randomAvatar,
   randomChair,
   type AvatarDNA,
   type ChairDNA,
 } from "@ec/shared";
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
-import { HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
+import { avatarThumbnail } from "../game/character";
+import { BEARD_LABELS, HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
 import { saveAvatar, saveChair, setState, useStore } from "../store";
+
+type Step = "start" | "body" | "hair" | "clothes";
+type Start = "preset" | "custom";
+
+/** Abas do boneco, na ordem do crachá. Cada item novo entra numa delas. */
+const STEPS: { id: Step; label: string }[] = [
+  { id: "start", label: "Começo" },
+  { id: "body", label: "Pele e olhos" },
+  { id: "hair", label: "Cabelo e barba" },
+  { id: "clothes", label: "Roupas" },
+];
+
+const STARTS: { id: Start; title: string; text: string }[] = [
+  { id: "preset", title: "Funcionário pronto", text: "Comece de um modelo e ajuste o que quiser nas próximas abas." },
+  { id: "custom", title: "Do zero", text: "Comece do boneco padrão e escolha cada detalhe." },
+];
 
 function Swatches({ colors, value, onPick }: { colors: string[]; value: number; onPick: (i: number) => void }) {
   return (
@@ -37,6 +60,15 @@ function Seg({ items, value, onPick }: { items: string[]; value: number; onPick:
   );
 }
 
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="label">{label}</p>
+      {children}
+    </div>
+  );
+}
+
 export function Creator() {
   const saved = useStore((s) => s.avatar);
   const [dna, setDna] = useState<AvatarDNA>(saved);
@@ -45,11 +77,123 @@ export function Creator() {
   const [tab, setTab] = useState(useStore((s) => s.lobby?.mode) === "race" ? 1 : 0);
   const setC = (k: keyof ChairDNA) => (i: number) => setChair((c) => ({ ...c, [k]: i }));
   const [cheer, setCheer] = useState<PreviewAction>();
+  const [step, setStep] = useState<Step>("start");
+  const [start, setStart] = useState<Start>("custom");
+  const [preset, setPreset] = useState(-1);
+  const set = (k: keyof AvatarDNA) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
+  const ready = useStore((s) => s.modelReady);
+  // ready refaz as miniaturas quando o boneco termina de carregar
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const thumbs = useMemo(() => PRESETS.map((p) => avatarThumbnail(p.dna, 120)), [ready]);
+
+  const at = STEPS.findIndex((s) => s.id === step);
+
+  const chooseStart = (s: Start) => {
+    setStart(s);
+    setPreset(-1);
+    if (s === "custom") setDna((d) => ({ ...DEFAULT_AVATAR, name: d.name }));
+  };
 
   const done = () => {
     saveChair(chair);
     saveAvatar(dna);
     setState({ editing: false });
+  };
+
+  const panels: Record<Step, ReactNode> = {
+    start: (
+      <>
+        <Field label="Nome no crachá">
+          <input className="field" value={dna.name} maxLength={16} onChange={(e) => setDna((d) => ({ ...d, name: e.target.value }))} />
+        </Field>
+        <Field label="Como você quer começar?">
+          <div className="choices">
+            {STARTS.map((s) => (
+              <button key={s.id} className={`choice ${start === s.id ? "on" : ""}`} onClick={() => chooseStart(s.id)}>
+                <strong>{s.title}</strong>
+                <span>{s.text}</span>
+              </button>
+            ))}
+          </div>
+        </Field>
+        {start === "preset" && (
+          <Field label="Escolha um funcionário">
+            <div className="presets">
+              {PRESETS.map((p, i) => (
+                <button
+                  key={p.id}
+                  title={p.id}
+                  className={preset === i ? "on" : ""}
+                  onClick={() => {
+                    setPreset(i);
+                    setDna({ ...p.dna, name: dna.name });
+                  }}
+                >
+                  <img src={thumbs[i]} alt={p.id} />
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
+      </>
+    ),
+    body: (
+      <>
+        <Field label="Cor da pele">
+          <Swatches colors={SKINS} value={dna.skin} onPick={set("skin")} />
+        </Field>
+        <Field label="Cor dos olhos">
+          <Swatches colors={EYE_COLORS} value={dna.eyes} onPick={set("eyes")} />
+        </Field>
+        <Field label="Rosto">
+          <Seg items={FACES} value={dna.face} onPick={set("face")} />
+        </Field>
+      </>
+    ),
+    hair: (
+      <>
+        <Field label="Cabelo">
+          <Seg items={HAIR_LABELS} value={dna.hair} onPick={set("hair")} />
+        </Field>
+        {dna.hair !== 0 && (
+          <Field label="Cor do cabelo">
+            <Swatches colors={HAIR_COLORS} value={dna.hairColor} onPick={set("hairColor")} />
+          </Field>
+        )}
+        {BEARD_LABELS.length > 1 && (
+          <Field label="Barba">
+            <Seg items={BEARD_LABELS} value={dna.beard} onPick={set("beard")} />
+          </Field>
+        )}
+        {dna.beard !== 0 && (
+          <Field label="Cor da barba">
+            <Swatches colors={HAIR_COLORS} value={dna.beardColor} onPick={set("beardColor")} />
+          </Field>
+        )}
+      </>
+    ),
+    clothes: (
+      <>
+        <Field label="Altura">
+          <Seg items={HEIGHTS} value={dna.height} onPick={set("height")} />
+        </Field>
+        {SHIRT_LABELS.length > 1 && (
+          <Field label="Camiseta">
+            <Seg items={SHIRT_LABELS} value={dna.shirt} onPick={set("shirt")} />
+          </Field>
+        )}
+        {PANTS_LABELS.length > 1 && (
+          <Field label="Calça">
+            <Seg items={PANTS_LABELS} value={dna.pants} onPick={set("pants")} />
+          </Field>
+        )}
+        {SHOE_LABELS.length > 1 && (
+          <Field label="Tênis">
+            <Seg items={SHOE_LABELS} value={dna.shoes} onPick={set("shoes")} />
+          </Field>
+        )}
+      </>
+    ),
   };
 
   return (
@@ -68,7 +212,7 @@ export function Creator() {
           ))}
         </div>
         <div className="grid-2">
-          <div className="stack">
+          <div className="stack creator-side">
             <div className="badge">
               <div className="badge-top">
                 <span>CRACHÁ</span>
@@ -85,7 +229,14 @@ export function Creator() {
                 className="btn"
                 onClick={() => {
                   const pick = (n: number) => Math.floor(Math.random() * n);
-                  setDna((d) => ({ ...randomAvatar(Math.random, d.name), hair: pick(HAIR_LABELS.length), shirt: pick(SHIRT_LABELS.length), pants: pick(PANTS_LABELS.length), shoes: pick(SHOE_LABELS.length) }));
+                  setDna((d) => ({
+                    ...randomAvatar(Math.random, d.name),
+                    hair: pick(HAIR_LABELS.length),
+                    beard: Math.random() < 0.3 ? pick(BEARD_LABELS.length) : 0,
+                    shirt: pick(SHIRT_LABELS.length),
+                    pants: pick(PANTS_LABELS.length),
+                    shoes: pick(SHOE_LABELS.length),
+                  }));
                   setChair(randomChair(Math.random));
                 }}
               >
@@ -131,40 +282,34 @@ export function Creator() {
               </div>
             </div>
           ) : (
-          <div className="stack">
-            <div className="card">
-              <p className="label">Nome</p>
-              <input className="field" value={dna.name} maxLength={16} onChange={(e) => setDna((d) => ({ ...d, name: e.target.value }))} />
+            <div className="stack">
+              <div className="tabs" role="tablist">
+                {STEPS.map((s, i) => (
+                  <button key={s.id} role="tab" aria-selected={i === at} className={`tab ${i === at ? "on" : ""}`} onClick={() => setStep(s.id)}>
+                    <span className="tab-n">{i + 1}</span>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+              <div className="card step-panel" role="tabpanel">
+                <h2 className="step-title">{STEPS[at].label}</h2>
+                {panels[step]}
+                <div className="step-nav">
+                  <button className="btn" disabled={at === 0} onClick={() => setStep(STEPS[at - 1].id)}>
+                    ← Anterior
+                  </button>
+                  {at < STEPS.length - 1 ? (
+                    <button className="btn dark" onClick={() => setStep(STEPS[at + 1].id)}>
+                      Próximo: {STEPS[at + 1].label} →
+                    </button>
+                  ) : (
+                    <button className="btn primary" onClick={done}>
+                      Salvar boneco
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="card">
-              <p className="label">Altura</p>
-              <Seg items={HEIGHTS} value={dna.height} onPick={(i) => setDna((d) => ({ ...d, height: i }))} />
-            </div>
-            {HAIR_LABELS.length > 1 && (
-              <div className="card">
-                <p className="label">Cabelo</p>
-                <Seg items={HAIR_LABELS} value={dna.hair} onPick={(i) => setDna((d) => ({ ...d, hair: i }))} />
-              </div>
-            )}
-            {SHIRT_LABELS.length > 1 && (
-              <div className="card">
-                <p className="label">Camiseta</p>
-                <Seg items={SHIRT_LABELS} value={dna.shirt} onPick={(i) => setDna((d) => ({ ...d, shirt: i }))} />
-              </div>
-            )}
-            {PANTS_LABELS.length > 1 && (
-              <div className="card">
-                <p className="label">Calça</p>
-                <Seg items={PANTS_LABELS} value={dna.pants} onPick={(i) => setDna((d) => ({ ...d, pants: i }))} />
-              </div>
-            )}
-            {SHOE_LABELS.length > 1 && (
-              <div className="card">
-                <p className="label">Tênis</p>
-                <Seg items={SHOE_LABELS} value={dna.shoes} onPick={(i) => setDna((d) => ({ ...d, shoes: i }))} />
-              </div>
-            )}
-          </div>
           )}
         </div>
       </div>

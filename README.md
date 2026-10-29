@@ -147,10 +147,19 @@ O servidor é a autoridade: o cliente só manda intenções (movimento, mira, bo
 - **Mapa:** `packages/shared/src/data/map.ts`. O escritório é uma lista de caixas (`x`, `z` = centro, `w`, `d` = tamanho, `h` = altura, `kind` = aparência). A mesma lista gera o visual e a colisão do servidor, então trocar pela planta real do escritório é editar esse arquivo. Caixas com altura menor que 1,2 m bloqueiam passagem mas não tiros.
 - **Pistas da corrida:** `packages/shared/src/race/track.ts` (Circuito Corporativo, Estacionamento e Copa, no registro `TRACKS`). Cada pista é uma lista de pontos da linha central com a largura em cada um; paredes, checkpoints, carpete e caixas saem dela. Para mudar uma pista, troque os pontos dela (o teste `race-tracks.test.ts` avisa se ficou curta, longa, dobrando ou encostando nela mesma, e roda corridas só com bots em cada dificuldade). A decoração por ambiente fica em `apps/web/src/race/trackScene.ts`.
 - **Física e itens da corrida:** `packages/shared/src/race/balance.ts` e os pesos de sorteio em `race/items.ts`.
+- **Boneco:** `apps/web/public/assets/characters/boneco_completo.glb` montado em `apps/web/src/game/character.ts`. As opções do crachá ficam em `packages/shared/src/data/avatar.ts` (o servidor valida por ali). O crachá tem quatro abas:
+
+  | Aba | De onde vem |
+  | --- | --- |
+  | Começo | nome e os funcionários prontos (`PRESETS`) |
+  | Pele e olhos | cores em `SKINS` e `EYE_COLORS`, pintadas por shader; rostos em `apps/web/src/game/itens/pele-e-olhos.ts` (`ROSTOS`), montados com as peças de expressão do próprio boneco em `apps/web/src/game/rosto.ts` |
+  | Cabelo e barba | GLBs em `apps/web/src/assets/cabelos/` e `apps/web/src/assets/barbas/`; peça sem textura pega a cor do crachá |
+  | Roupas | altura e os GLBs de `apps/web/src/assets/{camisetas,calcas,tenis}/` |
+
+  Peça nova: o original em `assets-src/roupas/<pasta>/` com prefixo numérico no fim da lista (`06_moicano.glb`), uma linha em `WEARABLES` no `scripts/optimize-assets.mjs` e `node scripts/optimize-assets.mjs`. O README de cada pasta explica como exportar. Rosto novo: uma linha em `ROSTOS` e o nome no fim de `FACES`.
 - **Ranking:** pontos por colocação e bônus de recorde em `packages/shared/src/ranking/rules.ts`. A regra de "partida conta" (2 ou mais logados) fica no mesmo arquivo, com teste em `packages/shared/src/test/ranking.test.ts`.
 - **Teclas padrão:** `apps/web/src/settings.ts` (`DEFAULT_SETTINGS`). É a única fonte, o jogo e os textos de ajuda leem de lá.
 - **Modelos e música:** coloque o original em `assets-src/` e rode `node scripts/optimize-assets.mjs`. O script comprime a malha dos GLB (meshopt) e tira a capa embutida do MP3. O código procura nós e materiais pelo nome, então não use `gltf-transform optimize` direto: ele renomeia peças.
-- **Bonecos:** opções em `packages/shared/src/data/avatar.ts`, montagem 3D em `apps/web/src/game/avatarMesh.ts`. Os 12 presets `funcionario_01..12` são pontos de partida para os colegas reais.
 
 ## Como colaborar
 

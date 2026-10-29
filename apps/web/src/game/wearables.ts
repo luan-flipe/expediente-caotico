@@ -22,11 +22,13 @@ function listOf(files: Record<string, string>): Wearable[] {
 
 // o glob do Vite só aceita caminho literal, por isso uma chamada por pasta
 export const HAIRS = listOf(import.meta.glob<string>("../assets/cabelos/*.glb", { eager: true, query: "?url", import: "default" }));
+export const BEARDS_3D = listOf(import.meta.glob<string>("../assets/barbas/*.glb", { eager: true, query: "?url", import: "default" }));
 export const SHIRTS_3D = listOf(import.meta.glob<string>("../assets/camisetas/*.glb", { eager: true, query: "?url", import: "default" }));
 export const PANTS_3D = listOf(import.meta.glob<string>("../assets/calcas/*.glb", { eager: true, query: "?url", import: "default" }));
 export const SHOES_3D = listOf(import.meta.glob<string>("../assets/tenis/*.glb", { eager: true, query: "?url", import: "default" }));
 
 export const HAIR_LABELS = ["Sem cabelo", ...HAIRS.map((h) => h.label)];
+export const BEARD_LABELS = ["Sem barba", ...BEARDS_3D.map((b) => b.label)];
 export const SHIRT_LABELS = ["Sem camiseta", ...SHIRTS_3D.map((s) => s.label)];
 export const PANTS_LABELS = ["Sem calça", ...PANTS_3D.map((p) => p.label)];
 export const SHOE_LABELS = ["Descalço", ...SHOES_3D.map((s) => s.label)];

@@ -25,7 +25,6 @@ const src = join(root, "assets-src");
 const out = join(root, "apps", "web", "public", "assets");
 
 const MODELS = [
-  "characters/boneco_polo_barba.glb",
   "characters/boneco_completo.glb",
   "characters/boneco_comemora.glb",
   "chairs/cadeira_escritorio.glb",
@@ -34,7 +33,18 @@ const MODELS = [
 // Roupas e cabelos: originais em assets-src/roupas/<pasta>, saída em apps/web/src/assets/<pasta>
 // (o jogo lista as peças pelo glob do Vite). As animações das peças saem: o jogo só usa a malha e o skin,
 // quem anima é o esqueleto do boneco_completo.
-const WEARABLES = ["cabelos/01_cabelo.glb", "camisetas/01_camiseta.glb", "calcas/01_calca.glb", "tenis/01_tenis.glb"];
+const WEARABLES = [
+  "cabelos/01_cabelo.glb",
+  "cabelos/02_repicado.glb",
+  "cabelos/03_black_power.glb",
+  "cabelos/04_longo.glb",
+  "cabelos/05_medio_cacheado.glb",
+  "barbas/01_barba.glb",
+  "barbas/02_barba_longa.glb",
+  "camisetas/01_camiseta.glb",
+  "calcas/01_calca.glb",
+  "tenis/01_tenis.glb",
+];
 const wearablesOut = join(root, "apps", "web", "src", "assets");
 const MUSIC = "audio/turbo_pixel_drift.mp3";
 

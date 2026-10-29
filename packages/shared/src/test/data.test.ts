@@ -36,6 +36,14 @@ describe("avatar", () => {
     expect(sanitizeAvatar({ shoes: MAX_WEARABLES }).shoes).toBe(0);
   });
 
+  it("crachá salvo antes dos rostos fica com o rosto feliz; barba indexa a pasta", () => {
+    expect(sanitizeAvatar({ skin: 2, eyes: 1 }).face).toBe(0);
+    expect(sanitizeAvatar({ face: 4 }).face).toBe(4);
+    expect(sanitizeAvatar({ face: 99 }).face).toBe(0);
+    expect(sanitizeAvatar({ beard: 5 }).beard).toBe(5);
+    expect(sanitizeAvatar({ beard: MAX_WEARABLES }).beard).toBe(0);
+  });
+
   it("cor da barba é própria, e crachá antigo sem ela herda a do cabelo", () => {
     expect(sanitizeAvatar({ hairColor: 4 }).beardColor).toBe(4);
     expect(sanitizeAvatar({ hairColor: 4, beardColor: 6 }).beardColor).toBe(6);

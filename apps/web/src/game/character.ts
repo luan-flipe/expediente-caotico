@@ -2,10 +2,11 @@ import * as THREE from "three";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
-import type { AvatarDNA, ItemId } from "@ec/shared";
+import { HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
-import { HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
+import { dressFace } from "./rosto";
+import { BEARDS_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
 export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
 
@@ -57,8 +58,9 @@ interface Loaded {
   scene: THREE.Group;
   clips: Map<string, THREE.AnimationClip>;
   scale: number;
-  /** Malhas de cada peça das pastas, na ordem de HAIRS, SHIRTS_3D, PANTS_3D e SHOES_3D; vazio se o arquivo não serviu. */
+  /** Malhas de cada peça das pastas, na ordem de HAIRS, BEARDS_3D, SHIRTS_3D, PANTS_3D e SHOES_3D; vazio se o arquivo não serviu. */
   hairs: THREE.SkinnedMesh[][];
+  beards: THREE.SkinnedMesh[][];
   shirts: THREE.SkinnedMesh[][];
   pants: THREE.SkinnedMesh[][];
   shoes: THREE.SkinnedMesh[][];
@@ -241,8 +243,11 @@ function retargetWearable(src: THREE.SkinnedMesh, samples: LimbSample[][], body:
   );
 }
 
-/** Prende a peça aos ossos do boneco, pelo nome, para ela seguir as animações. */
-function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THREE.SkinnedMesh): void {
+/**
+ * Prende a peça aos ossos do boneco, pelo nome, para ela seguir as animações. Peça sem textura (cabelo e
+ * barba modelados, o desenho vem do relevo) ganha a cor do crachá, num material só deste boneco.
+ */
+function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THREE.SkinnedMesh, color?: string, mats?: THREE.Material[]): void {
   const bones = src.skeleton.bones.map((b) => inner.getObjectByName(b.name));
   if (bones.some((b) => !(b as THREE.Bone | undefined)?.isBone)) {
     console.warn(`peça ${src.name}: esqueleto diferente do boneco, ignorada`);
@@ -250,6 +255,13 @@ function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THR
   }
   const piece = src.clone();
   piece.castShadow = true;
+  const own = piece.material as THREE.MeshStandardMaterial;
+  if (color && mats && !Array.isArray(own) && own.isMeshStandardMaterial && !own.map) {
+    const m = own.clone();
+    m.color.set(color);
+    piece.material = m;
+    mats.push(m);
+  }
   piece.bind(new THREE.Skeleton(bones as THREE.Bone[], src.skeleton.boneInverses), src.bindMatrix);
   body.parent?.add(piece);
 }
@@ -279,8 +291,8 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
     console.warn("boneco_comemora.glb não carregou, sem comemoração", err);
     return null;
   });
-  loading ??= Promise.all([loader.loadAsync(MODEL_URL, onProgress), load(HAIRS), load(SHIRTS_3D), load(PANTS_3D), load(SHOES_3D), cheer])
-    .then(([gltf, hairs, shirts, pants, shoes, party]) => {
+  loading ??= Promise.all([loader.loadAsync(MODEL_URL, onProgress), load(HAIRS), load(BEARDS_3D), load(SHIRTS_3D), load(PANTS_3D), load(SHOES_3D), cheer])
+    .then(([gltf, hairs, beards, shirts, pants, shoes, party]) => {
       const scene = gltf.scene;
       let skeleton: THREE.Skeleton | null = null;
       scene.traverse((o) => {
@@ -288,7 +300,7 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
       });
       if (skeleton) {
         const samples = limbSamples(scene);
-        for (const piece of [hairs, shirts, pants, shoes].flat(2)) retargetWearable(piece, samples, skeleton);
+        for (const piece of [hairs, beards, shirts, pants, shoes].flat(2)) retargetWearable(piece, samples, skeleton);
       }
       const h = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
       loaded = {
@@ -296,6 +308,7 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
         clips: new Map(gltf.animations.map((a) => [a.name, cleanClip(a)])),
         scale: TARGET_HEIGHT / h,
         hairs,
+        beards,
         shirts,
         pants,
         shoes,
@@ -323,9 +336,20 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     mesh.castShadow = true;
     if (mesh.isSkinnedMesh) body = mesh;
   });
-  const pieces = [model.hairs[dna.hair - 1], model.shirts[dna.shirt - 1], model.pants[dna.pants - 1], model.shoes[dna.shoes - 1]];
-  for (const piece of pieces.flatMap((p) => p ?? [])) {
-    if (body) attachWearable(inner, body, piece);
+  // pele, olhos e rosto do crachá; os materiais tingidos são só deste boneco
+  const mats: THREE.Material[] = [];
+  const syncFace = dressFace(inner, dna, mats);
+  const hairColor = HAIR_COLORS[dna.hairColor] ?? HAIR_COLORS[0];
+  const beardColor = HAIR_COLORS[dna.beardColor] ?? hairColor;
+  const pieces: [THREE.SkinnedMesh[] | undefined, string?][] = [
+    [model.hairs[dna.hair - 1], hairColor],
+    [model.beards[dna.beard - 1], beardColor],
+    [model.shirts[dna.shirt - 1]],
+    [model.pants[dna.pants - 1]],
+    [model.shoes[dna.shoes - 1]],
+  ];
+  for (const [list, color] of pieces) {
+    for (const piece of list ?? []) if (body) attachWearable(inner, body, piece, color, mats);
   }
 
   const mixer = new THREE.AnimationMixer(inner);
@@ -365,6 +389,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (seated) {
         if (!cheer?.isRunning()) return;
         mixer.update(dt);
+        syncFace();
         if (cheer.isRunning()) return;
         for (const [o, p, q, s] of pose) {
           o.position.copy(p);
@@ -383,6 +408,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       run?.setEffectiveWeight(r);
       if (walk) walk.timeScale = 0.6 + speed01 * (run ? 1.6 : 0.8);
       mixer.update(dt);
+      syncFace();
     },
     updateSeated(dt, speed, _steer, driftDir) {
       if (!seated || cheer?.isRunning()) return;
@@ -417,6 +443,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         const o = inner.getObjectByName(n);
         if (o) o.rotation.x = x;
       }
+      syncFace();
       if (!body) return 0;
       // a caixa da malha com pele é calculada na pose atual dos ossos
       inner.updateMatrixWorld(true);
@@ -448,8 +475,9 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       cheer.reset().play();
     },
     dispose() {
-      // malha, materiais e texturas do GLB são compartilhados entre clones
+      // malha, materiais e texturas do GLB são compartilhados entre clones; os tingidos são deste boneco
       mixer.stopAllAction();
+      for (const m of mats) m.dispose();
     },
   };
 }
@@ -567,6 +595,7 @@ export function createZombieCharacter(): Character {
     const zombieDna: AvatarDNA = {
       name: "Zumbi",
       model: 0,
+      face: 0,
       skin: 5,
       hair: 0,
       hairColor: 0,

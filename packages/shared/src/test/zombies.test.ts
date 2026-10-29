@@ -11,6 +11,7 @@ const fakeAvatar = {
   hair: 0,
   hairColor: 0,
   eyes: 0,
+  face: 0,
   beard: 0,
   beardColor: 0,
   glasses: 0,

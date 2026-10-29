@@ -8,7 +8,7 @@ salve o arquivo aqui e recarregue o jogo.
 - Exporte do **mesmo esqueleto** do boneco (`boneco_completo.glb`): ossos `root`, `tronco`,
   `cabeca` etc., com os mesmos nomes.
 - O cabelo precisa ser uma malha **com pele** (skinned), presa ao osso `cabeca`. Assim ele
-  acompanha todas as animações.
+  acompanha todas as animações. Sem textura, ele pega a cor do cabelo escolhida no crachá.
 - Exporte na pose de repouso, sem mover o boneco. As animações dentro do arquivo são ignoradas.
 - Malha leve: até uns 5 mil vértices. Arquivos grandes atrasam a carga do jogo.
 
