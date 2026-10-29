@@ -1,6 +1,5 @@
 import { pickAwards, shooterCandidates, type Award } from "../awards";
 import type { BotLevel } from "../botLevels";
-import { DEFAULT_AVATAR } from "../data/avatar";
 import { BALANCE } from "../data/balance";
 import { OFFICE_MAP, getGroundHeight } from "../data/map";
 import { mulberry32 } from "../rng";
@@ -202,7 +201,25 @@ function spawnZombie(m: Match, waveDef: ZombieWaveDef): void {
   const z: PlayerSim = {
     id,
     name: `Zumbi ${numId}`,
-    avatar: { ...DEFAULT_AVATAR, name: "Zumbi", skin: 5 },
+    avatar: {
+      name: "Zumbi",
+      model: 0,
+      skin: 5,
+      hair: 0,
+      hairColor: 0,
+      eyes: 0,
+      face: 0,
+      beard: 0,
+      beardColor: 0,
+      glasses: 0,
+      top: 0,
+      bottom: 0,
+      shirt: 0,
+      pants: 0,
+      shoes: 0,
+      accessory: 0,
+      height: 1,
+    },
     isBot: true,
     isZombie: true,
     zombieDamage: waveDef.damage,

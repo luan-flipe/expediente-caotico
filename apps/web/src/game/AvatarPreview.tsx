@@ -5,37 +5,38 @@ import { seatedRacer } from "../race/chairMesh";
 import { useStore } from "../store";
 import { createCharacter, type Character, type CharacterAction } from "./character";
 
-/** Ação pedida para a prévia; seq muda a cada clique para repetir a mesma ação. */
+/** Ação pedida para a prévia; seq muda a cada clique para repetir a mesma ação. "comemorar" só na cadeira. */
 export interface PreviewAction {
-  name: CharacterAction;
+  name: CharacterAction | "comemorar";
   seq: number;
 }
 
 /**
  * Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira.
- * walking anda no lugar e action toca uma ação do jogo.
+ * move anda ou corre no lugar, action toca uma ação do jogo e spin=false para o giro automático.
  */
 export function AvatarPreview({
   dna,
   chair,
   className,
-  autoRotate = true,
-  walking = false,
+  move,
   action,
+  spin = true,
 }: {
   dna: AvatarDNA;
   chair?: ChairDNA;
   className?: string;
-  autoRotate?: boolean;
-  walking?: boolean;
+  move?: "walk" | "run";
   action?: PreviewAction;
+  spin?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const autoRef = useRef(autoRotate);
-  autoRef.current = autoRotate;
-  const walkingRef = useRef(walking);
-  walkingRef.current = walking;
   const rigRef = useRef<Character | null>(null);
+  /** Velocidade passada ao boneco: metade anda, inteira corre. */
+  const speedRef = useRef(0);
+  speedRef.current = move === "run" ? 1 : move === "walk" ? 0.5 : 0;
+  const spinRef = useRef(spin);
+  spinRef.current = spin;
   const ready = useStore((s) => s.modelReady);
   const sceneRef = useRef<THREE.Scene | null>(null);
 
@@ -83,11 +84,11 @@ export function AvatarPreview({
         cam.aspect = w / h;
         cam.updateProjectionMatrix();
       }
-      if (!dragging && autoRef.current) yaw += 0.004;
+      if (!dragging && spinRef.current) yaw += 0.004;
       const rig = rigRef.current;
       if (rig) {
         rig.root.rotation.y = yaw;
-        rig.update(Math.min(0.05, (ms - last) / 1000), walkingRef.current ? 1 : 0);
+        rig.update(Math.min(0.05, (ms - last) / 1000), speedRef.current);
       }
       renderer.render(scene, cam);
       last = ms;
@@ -109,7 +110,10 @@ export function AvatarPreview({
     const scene = sceneRef.current;
     if (!scene) return;
     const old = rigRef.current;
-    const rig: Character = chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit: () => 0 } : createCharacter(dna);
+    const racer = chair ? seatedRacer(dna, chair) : null;
+    const rig: Character = racer
+      ? { ...racer, update: (dt) => racer.update(dt, 0), play() {}, sit: () => 0, restHands() {} }
+      : createCharacter(dna);
     if (old) {
       rig.root.rotation.y = old.root.rotation.y;
       scene.remove(old.root);
@@ -120,7 +124,8 @@ export function AvatarPreview({
   }, [dna, chair, ready]);
 
   useEffect(() => {
-    if (action) rigRef.current?.play(action.name);
+    if (action?.name === "comemorar") rigRef.current?.celebrate();
+    else if (action) rigRef.current?.play(action.name);
   }, [action]);
 
   return <canvas ref={ref} className={className} />;

@@ -1,11 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_AVATAR } from "../data/avatar";
 import { getGroundHeight } from "../data/map";
 import { applyDamage } from "../sim/combat";
 import { ZOMBIE_WAVES, createMatch, stepMatch, buildSnapshot, getResults } from "../sim/match";
 import type { MatchPlayerInfo } from "../sim/match";
 
-const fakeAvatar = { ...DEFAULT_AVATAR, name: "Test" };
+const fakeAvatar = {
+  name: "Test",
+  model: 0,
+  skin: 0,
+  hair: 0,
+  hairColor: 0,
+  eyes: 0,
+  face: 0,
+  beard: 0,
+  beardColor: 0,
+  glasses: 0,
+  top: 0,
+  bottom: 0,
+  shirt: 0,
+  pants: 0,
+  shoes: 0,
+  accessory: 0,
+  height: 1,
+};
 
 const player1: MatchPlayerInfo = { id: "p1", name: "Alice", avatar: fakeAvatar, isBot: false };
 const player2: MatchPlayerInfo = { id: "p2", name: "Bob", avatar: fakeAvatar, isBot: false };

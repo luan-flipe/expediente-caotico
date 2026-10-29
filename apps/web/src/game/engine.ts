@@ -2,7 +2,6 @@ import * as THREE from "three";
 import {
   ABILITIES,
   BALANCE,
-  DEFAULT_AVATAR,
   OFFICE_MAP,
   dirOf,
   getGroundHeight,
@@ -23,8 +22,7 @@ import { playShootSound, playZombieSound } from "../sound";
 import { getState, net, setState } from "../store";
 import { inputBlocked } from "../pause";
 import { IS_TOUCH, resetTouchInput, takeLook, touchInput } from "../touch";
-import { createCharacter, modelReady, type Character } from "./character";
-import { createZombieCharacter, preloadZombie, zombieReady } from "./zombie";
+import { createCharacter, createZombieCharacter, modelReady, preloadZombie, zombieReady, type Character } from "./character";
 import { FxSystem } from "./fx";
 import { buildOffice } from "./officeScene";
 import { createDynamicSky, type DynamicSky } from "./sky";
@@ -495,7 +493,9 @@ export class Engine {
     let v = this.views.get(p.id);
     if (v && v.avatarKey === key) return v;
     if (v) this.dropView(v);
-    const char = isZombie ? createZombieCharacter() : createCharacter(dna ?? { ...DEFAULT_AVATAR, name: p.name });
+    const char = isZombie
+      ? createZombieCharacter()
+      : createCharacter(dna ?? { name: p.name, model: 0, skin: 1, hair: 1, hairColor: 0, eyes: 0, face: 0, beard: 0, beardColor: 0, glasses: 0, top: 0, bottom: 0, shirt: 0, pants: 0, shoes: 0, accessory: 0, height: 1 });
     const bubble = new THREE.Mesh(new THREE.SphereGeometry(1.05, 20, 14), new THREE.MeshBasicMaterial({ color: "#8f9cff", transparent: true, opacity: 0.22, depthWrite: false }));
     bubble.position.y = 1;
     const stars = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.05, 6, 12), new THREE.MeshBasicMaterial({ color: "#ffe14d" }));

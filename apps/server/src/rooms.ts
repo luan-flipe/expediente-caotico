@@ -31,9 +31,9 @@ import {
   NO_INPUT,
   queueAction,
   queueItemUse,
+  randomAvatar,
   randomChair,
   respawnRequest,
-  PRESETS,
   sanitizeAvatar,
   sanitizeChair,
   sanitizeName,
@@ -470,7 +470,7 @@ export class Room {
         if (!isHost || this.phase !== "lobby" || this.mode === "timetrial") return;
         if (this.members.size >= BALANCE.maxPlayers) return send(conn, { t: "error", msg: "Sala cheia" });
         const name = BOT_NAMES[this.nextBot % BOT_NAMES.length];
-        this.addMember(name, { ...PRESETS[randomInt(PRESETS.length)].dna, name }, null, true, randomChair(Math.random));
+        this.addMember(name, randomAvatar(Math.random, name), null, true, randomChair(Math.random));
         return this.broadcastLobby();
       }
       case "removeBot": {

@@ -27,7 +27,7 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "ec-replay-"));
   store = new Store(dir);
   store.data.accounts = {
-    "g-ana": { email: "ana@firma.com", name: "Ana", since: 1, avatar: { ...DEFAULT_AVATAR, name: "Ana", hair: 4 }, chair: { ...DEFAULT_CHAIR, back: 2 } },
+    "g-ana": { email: "ana@firma.com", name: "Ana", since: 1, avatar: { ...DEFAULT_AVATAR, name: "Ana", hair: 5 }, chair: { ...DEFAULT_CHAIR, back: 2 } },
     "g-beto": { email: "beto@firma.com", name: "Beto", since: 1 },
     "g-caio": { email: "caio@firma.com", name: "Caio", since: 1 },
   };
@@ -52,7 +52,7 @@ describe("GET /api/replay", () => {
     const a = (await r1.json()) as ReplayData;
     expect(a).toMatchObject({ name: "Ana", ms: 55000 });
     expect(a.ghost).toEqual(ghost(55000));
-    expect(a.avatar.hair).toBe(4);
+    expect(a.avatar.hair).toBe(5);
     expect(a.chair.back).toBe(2);
     const b = (await (await replay(`?pista=${MAIN_TRACK_ID}&linha=2`)).json()) as ReplayData;
     expect(b).toMatchObject({ name: "Beto", ms: 61000 });

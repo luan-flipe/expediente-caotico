@@ -185,8 +185,13 @@ export function Home() {
           <p className="muted" style={{ margin: 0, lineHeight: 1.6 }}>
             Jogo de navegador gratuito para colegas de escritório: tiroteio de bolinha de papel, corrida de cadeiras (Rally da Firma) e treino contra o relógio. Não precisa de cadastro. O login com Google é opcional e serve só para guardar seus resultados no ranking da firma.
           </p>
-          <p className="muted" style={{ margin: "8px 0 0" }}>
-            <a href="/privacidade.html">Política de privacidade</a> · <a href="/termos.html">Termos de serviço</a>
+          <p className="muted" style={{ margin: "8px 0 0", display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+            <span>
+              <a href="/privacidade.html">Política de privacidade</a> · <a href="/termos.html">Termos de serviço</a>
+            </span>
+            <span className="app-version" title="Versão no ar">
+              v{__APP_VERSION__}
+            </span>
           </p>
         </div>
         </div>

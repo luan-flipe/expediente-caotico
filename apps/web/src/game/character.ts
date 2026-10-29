@@ -1,26 +1,22 @@
 import * as THREE from "three";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
-import { EYE_COLORS, HAIR_COLORS, SKINS, type AvatarDNA, type ItemId } from "@ec/shared";
+import { HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shared";
+import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
-import { BARBAS, CABELOS, type PieceDef } from "./itens/cabelo-e-barba";
-import { ROSTOS, type FacePiece } from "./itens/pele-e-olhos";
-import { SeatedPose } from "./seatedPose";
+import { dressFace } from "./rosto";
+import { BEARDS_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
-/**
- * Boneco do jogo: boneco_bebe.glb, um bebê careca de fralda com esqueleto, expressões (piscar,
- * cara brava) e as animações do jogo. O crachá tinge pele e olhos pelo shader, monta o rosto com as
- * peças de expressão do próprio bebê e põe cabelo e barba (modelos do designer). Os itens de cada aba
- * do crachá ficam registrados em ./itens/.
- */
 export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
 
+/** Boneco renderizado: GLB do romulo-h quando carregado, boneco procedural enquanto isso. */
 export interface Character {
   root: THREE.Group;
   update(dt: number, speed01: number): void;
-  play(action: CharacterAction): void;
   /** Atualização dinâmica na cadeira de corrida (inclinação do corpo, cabeça na curva, braços esterçando). */
   updateSeated?(dt: number, speed: number, steer: number, driftDir: number, boosting: boolean): void;
+  play(action: CharacterAction): void;
   /** Executa um gesto animado ao usar um item/power-up na corrida de cadeiras. */
   playItemGesture?(item: ItemId): void;
   /**
@@ -28,676 +24,344 @@ export interface Character {
    * Devolve a altura da parte de baixo das coxas, para apoiá-las no assento.
    */
   sit(): number;
+  /** Já sentado, gira os ombros até os pulsos alcançarem os pontos dados (coordenadas de root). */
+  restHands(left: THREE.Vector3, right: THREE.Vector3): void;
+  /** Já sentado, toca a comemoração e volta à pose sentada. Só o corpo: assento e confete ficam com a cadeira. */
+  celebrate(): void;
   dispose(): void;
 }
 
 /** Altura (no espaço do boneco) da parte mais baixa das peças, já na pose sentada. */
-function bottomOf(root: THREE.Object3D, parts: THREE.Object3D[]): number {
+function bottomOf(root: THREE.Object3D, parts: (THREE.Object3D | undefined)[]): number {
   root.updateMatrixWorld(true);
   const inv = root.matrixWorld.clone().invert();
   const box = new THREE.Box3();
-  for (const p of parts) box.union(new THREE.Box3().setFromObject(p).applyMatrix4(inv));
+  for (const p of parts) if (p) box.union(new THREE.Box3().setFromObject(p).applyMatrix4(inv));
   return box.isEmpty() ? 0 : box.min.y;
 }
 
-const MODEL_URL = "/assets/characters/boneco/boneco_bebe.glb";
-/** Altura do GLB e a do boneco no jogo (colisão, câmera e balões são medidos para ela). */
-const MODEL_HEIGHT = 1.9;
-export const TARGET_HEIGHT = 1.75;
-const SCALE = TARGET_HEIGHT / MODEL_HEIGHT;
-/** Duração no jogo de cada ação (os clipes são mais longos) e o clipe de cada uma. */
+const MODEL_URL = "/assets/characters/boneco_completo.glb";
+/** Comemoração na cadeira: só a animação e o confete, sem malha do boneco nem da cadeira. */
+const CELEBRATE_URL = "/assets/characters/boneco_comemora.glb";
+/** No arquivo da comemoração a figura está em escala 1,25: o pulinho dela é medido nessa escala. */
+const CELEBRATE_FIGURE_SCALE = 1.25;
+const TARGET_HEIGHT = 1.75;
+const HEIGHT_SCALE = [0.9, 1, 1.1];
+/** Duração em segundos de cada ação no jogo (os clipes originais são mais longos). */
 const ACTION_SECONDS: Record<CharacterAction, number> = { throw: 0.45, cafe: 0.7, dash: 0.3, tchau: 3.2 };
 const CLIP_OF: Record<CharacterAction, string> = { throw: "jogar_bolinha", cafe: "jogar_cafe", dash: "dash", tchau: "tchau" };
 /** Trecho útil de cada clipe em segundos: o resto é a volta para a pose parada. */
 const CLIP_RANGE: Record<CharacterAction, [number, number]> = { throw: [0, 0.9], cafe: [0, 1.5], dash: [0, 1.1], tchau: [0, 3.2] };
 const FPS = 30;
-/**
- * Parado e andando, os clipes deixam os braços ~69° abaixo da horizontal, colados no corpo. Depois de
- * cada quadro o braço abre este tanto para fora (no espaço do tronco): cada braço fica ~15° abaixo da
- * horizontal, uns 150° entre os dois. Nas ações o braço segue o clipe, que já o tira do corpo.
- */
-const ARM_OPEN = THREE.MathUtils.degToRad(54);
 
 interface Loaded {
   scene: THREE.Group;
   clips: Map<string, THREE.AnimationClip>;
-  /** Cabelos do designer já carregados, com a matriz do espaço do osso cabeca para o modelo. */
-  modelHairs: Map<number, Piece>;
-  /** Barbas do designer, ligadas ao esqueleto de cada boneco ao vestir. */
-  beards: Map<number, THREE.BufferGeometry>;
-  /** Pele do rosto em grade, para as peças de expressão encostarem nela e pegarem a sombra dela. */
-  faceSkin: Map<string, SkinCell>;
-  /** Peças de expressão giradas ou subidas, feitas uma vez por posição. */
-  faceGeos: Map<string, THREE.BufferGeometry>;
-  /** Corpo sem a sobrancelha e/ou a boca esculpidas, por combinação. */
-  bodyGeos: Map<string, THREE.BufferGeometry>;
+  scale: number;
+  /** Malhas de cada peça das pastas, na ordem de HAIRS, BEARDS_3D, SHIRTS_3D, PANTS_3D e SHOES_3D; vazio se o arquivo não serviu. */
+  hairs: THREE.SkinnedMesh[][];
+  beards: THREE.SkinnedMesh[][];
+  shirts: THREE.SkinnedMesh[][];
+  pants: THREE.SkinnedMesh[][];
+  shoes: THREE.SkinnedMesh[][];
+  celebration: Celebration | null;
 }
 
-interface Piece {
-  geo: THREE.BufferGeometry;
-  frame: THREE.Matrix4;
+/** Comemoração sentada, separada por quem a toca: o boneco, o assento da cadeira e o confete. */
+export interface Celebration {
+  body: THREE.AnimationClip;
+  /** Giro do assento, já com o nome do nó da cadeira do jogo. */
+  seat: THREE.AnimationClip | null;
+  confetti: { scene: THREE.Object3D; clip: THREE.AnimationClip } | null;
+}
+
+function splitCelebration(clip: THREE.AnimationClip | undefined, file: THREE.Object3D, model: THREE.Object3D): Celebration | null {
+  if (!clip) return null;
+  const node = (t: THREE.KeyframeTrack) => t.name.slice(0, t.name.lastIndexOf("."));
+  const body = clip.tracks
+    // o arquivo anima nós que o boneco do jogo não tem (olho feliz)
+    .filter((t) => !node(t).startsWith("confete") && node(t) !== "assento_giratorio" && model.getObjectByName(node(t)))
+    .map((t) => {
+      if (t.name !== "figura.position") return t;
+      // só o pulinho: o boneco já está sentado no lugar certo da cadeira do jogo
+      const d = t.clone();
+      for (let i = 0; i < d.values.length; i++) d.values[i] = (t.values[i] - t.values[i % 3]) / CELEBRATE_FIGURE_SCALE;
+      return d;
+    });
+  const seat = clip.tracks
+    .filter((t) => node(t) === "assento_giratorio")
+    .map((t) => {
+      const s = t.clone();
+      s.name = s.name.replace("assento_giratorio", "Assento_Giratorio");
+      return s;
+    });
+  const confetti = file.getObjectByName("confete");
+  const bits = clip.tracks.filter((t) => node(t).startsWith("confete_"));
+  return {
+    body: new THREE.AnimationClip("comemorar", clip.duration, body),
+    seat: seat.length ? new THREE.AnimationClip("comemorar_assento", clip.duration, seat) : null,
+    confetti: confetti && bits.length ? { scene: confetti, clip: new THREE.AnimationClip("comemorar_confete", clip.duration, bits) } : null,
+  };
+}
+
+export function celebrationExtras(): Celebration | null {
+  return loaded?.celebration ?? null;
+}
+
+/** Malhas da peça (cabelo, roupa, um tênis por pé): um GLB exportado do mesmo esqueleto do boneco. */
+function loadWearable(loader: GLTFLoader, url: string): Promise<THREE.SkinnedMesh[]> {
+  return loader
+    .loadAsync(url)
+    .then((gltf) => {
+      const meshes: THREE.SkinnedMesh[] = [];
+      gltf.scene.traverse((o) => {
+        if ((o as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(o as THREE.SkinnedMesh);
+      });
+      if (!meshes.length) console.warn(`${url}: peça sem malha com pele, ignorada`);
+      return meshes;
+    })
+    .catch((err) => {
+      console.warn(`${url}: peça não carregou`, err);
+      return [];
+    });
+}
+
+/** Cadeias de braço e perna. O boneco tem cotovelo, joelho e dedos no meio delas; peças antigas não. */
+const LIMBS = ["D", "E"].flatMap((s) => [
+  [`ombro_${s}`, `cotovelo_${s}`, `punho_${s}`, `dedos_${s}`, `dedos2_${s}`, `polegar_${s}`],
+  [`perna_${s}`, `joelho_${s}`, `pe_${s}`],
+]);
+/** Quantos pontos do corpo emprestam peso a cada ponto da peça. */
+const NEAREST = 4;
+
+/** Ponto do corpo na pose de amarração, com o peso da cadeia repartido entre os ossos dela. */
+interface LimbSample {
+  pos: THREE.Vector3;
+  share: Map<string, number>;
+}
+
+/** Pesos do vértice v por nome de osso. */
+function weightsOf(mesh: THREE.SkinnedMesh, v: number): Map<string, number> {
+  const idx = mesh.geometry.getAttribute("skinIndex");
+  const wt = mesh.geometry.getAttribute("skinWeight");
+  const out = new Map<string, number>();
+  for (let k = 0; k < 4; k++) {
+    const w = wt.getComponent(v, k);
+    const name = mesh.skeleton.bones[idx.getComponent(v, k)]?.name;
+    if (w > 0 && name) out.set(name, (out.get(name) ?? 0) + w);
+  }
+  return out;
+}
+
+/** Pontos do corpo de cada cadeia de LIMBS. */
+function limbSamples(scene: THREE.Object3D): LimbSample[][] {
+  const out = LIMBS.map((): LimbSample[] => []);
+  scene.traverse((o) => {
+    const mesh = o as THREE.SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const pos = mesh.geometry.getAttribute("position");
+    for (let v = 0; v < pos.count; v++) {
+      const weights = weightsOf(mesh, v);
+      LIMBS.forEach((chain, c) => {
+        const share = new Map([...weights].filter(([n]) => chain.includes(n)));
+        const sum = [...share.values()].reduce((a, b) => a + b, 0);
+        if (sum < 0.01) return;
+        for (const [n, w] of share) share.set(n, w / sum);
+        out[c].push({ pos: new THREE.Vector3().fromBufferAttribute(pos, v).applyMatrix4(mesh.bindMatrix), share });
+      });
+    }
+  });
+  return out;
+}
+
+/** Média dos NEAREST pontos mais próximos de p, pesada pelo inverso da distância. */
+function nearestShare(samples: LimbSample[], p: THREE.Vector3): Map<string, number> {
+  const best: [number, LimbSample][] = [];
+  for (const s of samples) {
+    const d = s.pos.distanceToSquared(p);
+    if (best.length === NEAREST && d >= best[NEAREST - 1][0]) continue;
+    best.push([d, s]);
+    best.sort((a, b) => a[0] - b[0]);
+    if (best.length > NEAREST) best.pop();
+  }
+  const out = new Map<string, number>();
+  let total = 0;
+  for (const [d, s] of best) {
+    const k = 1 / (Math.sqrt(d) + 1e-4);
+    total += k;
+    for (const [n, w] of s.share) out.set(n, (out.get(n) ?? 0) + w * k);
+  }
+  for (const [n, w] of out) out.set(n, w / total);
+  return out;
+}
+
+/**
+ * Peça feita no esqueleto antigo (braço e perna de um osso só) passa a dobrar no cotovelo e no joelho:
+ * o peso que ela põe numa cadeia que não tem inteira é repartido como no corpo, no mesmo ponto.
+ */
+function retargetWearable(src: THREE.SkinnedMesh, samples: LimbSample[][], body: THREE.Skeleton): void {
+  const names = src.skeleton.bones.map((b) => b.name);
+  const todo = LIMBS.map((chain, c) => samples[c].length > 0 && !chain.every((n) => names.includes(n)));
+  if (!todo.some(Boolean)) return;
+  const bones = [...names];
+  const slot = (n: string) => (bones.includes(n) ? bones.indexOf(n) : bones.push(n) - 1);
+  const pos = src.geometry.getAttribute("position");
+  const skinIndex = new Uint16Array(pos.count * 4);
+  const skinWeight = new Float32Array(pos.count * 4);
+  const p = new THREE.Vector3();
+  for (let v = 0; v < pos.count; v++) {
+    const weights = weightsOf(src, v);
+    p.fromBufferAttribute(pos, v).applyMatrix4(src.bindMatrix);
+    LIMBS.forEach((chain, c) => {
+      if (!todo[c]) return;
+      let limb = 0;
+      for (const n of chain) {
+        limb += weights.get(n) ?? 0;
+        weights.delete(n);
+      }
+      if (limb === 0) return;
+      for (const [n, w] of nearestShare(samples[c], p)) weights.set(n, (weights.get(n) ?? 0) + w * limb);
+    });
+    // a pele aceita 4 ossos por vértice
+    const top = [...weights].sort((a, b) => b[1] - a[1]).slice(0, 4);
+    const sum = top.reduce((a, [, w]) => a + w, 0);
+    top.forEach(([n, w], k) => {
+      skinIndex[v * 4 + k] = slot(n);
+      skinWeight[v * 4 + k] = w / sum;
+    });
+  }
+  src.geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(skinIndex, 4));
+  src.geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(skinWeight, 4));
+  // a pose de amarração dos ossos é a do corpo, para a peça casar com ele
+  const inverses = bones.map((n, i) => {
+    const b = body.bones.findIndex((o) => o.name === n);
+    return b >= 0 ? body.boneInverses[b] : src.skeleton.boneInverses[i];
+  });
+  src.skeleton = new THREE.Skeleton(
+    bones.map((n) => Object.assign(new THREE.Bone(), { name: n })),
+    inverses,
+  );
+}
+
+/**
+ * Prende a peça aos ossos do boneco, pelo nome, para ela seguir as animações. Peça sem textura (cabelo e
+ * barba modelados, o desenho vem do relevo) ganha a cor do crachá, num material só deste boneco.
+ */
+function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THREE.SkinnedMesh, color?: string, mats?: THREE.Material[]): void {
+  const bones = src.skeleton.bones.map((b) => inner.getObjectByName(b.name));
+  if (bones.some((b) => !(b as THREE.Bone | undefined)?.isBone)) {
+    console.warn(`peça ${src.name}: esqueleto diferente do boneco, ignorada`);
+    return;
+  }
+  const piece = src.clone();
+  piece.castShadow = true;
+  const own = piece.material as THREE.MeshStandardMaterial;
+  if (color && mats && !Array.isArray(own) && own.isMeshStandardMaterial && !own.map) {
+    const m = own.clone();
+    m.color.set(color);
+    piece.material = m;
+    mats.push(m);
+  }
+  piece.bind(new THREE.Skeleton(bones as THREE.Bone[], src.skeleton.boneInverses), src.bindMatrix);
+  body.parent?.add(piece);
 }
 
 let loaded: Loaded | null = null;
 let loading: Promise<boolean> | null = null;
 
+/** Nós cujo deslocamento move o boneco inteiro. */
+const ROOT_MOTION = ["root.position", "figura.position"];
+
+/** Remove o deslocamento do boneco inteiro, que briga com o jogo (a posição vem do servidor). */
+function cleanClip(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const c = clip.clone();
+  c.tracks = c.tracks.filter((t) => !ROOT_MOTION.includes(t.name));
+  return c;
+}
+
 export function modelReady(): boolean {
   return loaded !== null;
 }
 
-/** Tira a translação do corpo dos clipes (o dash anda 1,2 m sozinho): a posição vem do servidor. */
-function cleanClip(clip: THREE.AnimationClip): THREE.AnimationClip {
-  const c = clip.clone();
-  c.tracks = c.tracks.filter((t) => t.name !== "figura.position" && t.name !== "root.position");
-  return c;
-}
-
-/** Brilho linear (como o shader mede) de uma cor sRGB 0–255. */
-function lum(r: number, g: number, b: number): number {
-  const c = new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
-  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-}
-/** Cor média da pele e da íris na textura do bebê: a referência do tingimento. */
-const SKIN_REF = lum(235, 190, 175);
-const IRIS_REF = lum(117, 55, 39);
-/**
- * A pele em volta dos olhos é mais clara que a média (brilho 0,651 contra 0,584 da referência) e a das
- * peças de expressão é 0,606: a referência delas é ajustada para a peça sair no mesmo tom do rosto.
- */
-const OVERLAY_REF = SKIN_REF * (0.606 / 0.651);
-/** Brilho da testa logo acima dos olhos, relativo à referência (a textura é mais escura no lado direito). */
-const FOREHEAD_D = 0.97;
-const FOREHEAD_E = 1.06;
-/** Brilho da pele em volta da boca, relativo à referência. */
-const MOUTH_SKIN = 1.06;
-
-/**
- * Onde ficam a sobrancelha e a boca do modelo, no espaço do bebê, com borda suave. O rosto que põe as
- * suas tira as do modelo daqui: a pintura vira pele lisa e o relevo do mapa de normais some (o da
- * malha sai em erasedBody).
- */
-const ERASE_GLSL = /* glsl */ `
-uniform vec2 uErase;
-float eraseMask(vec3 p) {
-  if (p.z < 0.2) return 0.0;
-  float ax = abs(p.x);
-  float brow = uErase.x * smoothstep(1.245, 1.262, p.y) * (1.0 - smoothstep(1.35, 1.37, p.y))
-    * smoothstep(0.05, 0.07, ax) * (1.0 - smoothstep(0.33, 0.35, ax));
-  float mouth = uErase.y * smoothstep(0.945, 0.96, p.y) * (1.0 - smoothstep(1.018, 1.03, p.y))
-    * (1.0 - smoothstep(0.115, 0.135, ax));
-  return max(brow, mouth);
-}`;
-
-const HSV_GLSL = /* glsl */ `
-vec3 rgb2hsv(vec3 c) {
-  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.y);
-  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)), d / (q.x + 1e-10), q.x);
-}`;
-
-/**
- * Pele e olhos do crachá sobre a textura do bebê. A sombra vem do brilho do pixel relativo à cor
- * média da região. Ficam como vieram a fralda e os traços do rosto (pupila, cílios, brilho do olho).
- * erase tira do modelo a sobrancelha e a boca quando o rosto escolhido põe as dele.
- */
-function tintBody(material: THREE.MeshStandardMaterial, skin: THREE.Color, iris: THREE.Color, erase: Erase): void {
-  const uniforms = {
-    uSkin: { value: skin },
-    uIris: { value: iris },
-    uRef: { value: new THREE.Vector2(SKIN_REF, IRIS_REF) },
-    uErase: { value: new THREE.Vector2(erase.brows ? 1 : 0, erase.mouth ? 1 : 0) },
-  };
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vBindPos;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvBindPos = position;");
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        "#include <common>",
-        `#include <common>\nuniform vec3 uSkin; uniform vec3 uIris; uniform vec2 uRef;\nvarying vec3 vBindPos;\nconst vec2 FOREHEAD = vec2(${FOREHEAD_D.toFixed(3)}, ${FOREHEAD_E.toFixed(3)});\n${HSV_GLSL}\n${ERASE_GLSL}`,
-      )
-      .replace(
-        "#include <map_fragment>",
-        /* glsl */ `#include <map_fragment>
-{
-  vec3 lin = diffuseColor.rgb;
-  vec3 hsv = rgb2hsv(pow(max(lin, 0.0), vec3(1.0 / 2.2)));
-  vec3 srgb = pow(max(lin, 0.0), vec3(1.0 / 2.2));
-  vec3 p = vBindPos;
-  float l = dot(lin, vec3(0.2126, 0.7152, 0.0722));
-  bool diaper = (srgb.b > srgb.r + 0.08 && srgb.b > srgb.g) || (p.y > 0.25 && p.y < 0.52 && hsv.y < 0.25 && hsv.z < 0.45);
-  bool face = p.y > 1.0 && p.y < 1.36 && p.z > 0.2 && abs(p.x) < 0.34;
-  bool iris = face && hsv.y > 0.45 && hsv.x * 360.0 < 35.0 && hsv.z < 0.62;
-  bool feature = face && (hsv.z < 0.4 || (hsv.y < 0.15 && hsv.z > 0.7));
-  if (iris) diffuseColor.rgb = uIris * (l / uRef.y);
-  else if (!diaper && !feature) diffuseColor.rgb = uSkin * (l / uRef.x);
-  // sobrancelha e boca do modelo tiradas: o traço (mais escuro que a pele em volta) vira o tom dela;
-  // a pele fica com a textura, que traz a sombra em volta do olho e da boca
-  float tone = p.y < 1.1 ? ${MOUTH_SKIN.toFixed(3)} : (p.x < 0.0 ? FOREHEAD.x : FOREHEAD.y);
-  float rel = l / uRef.x;
-  vec3 bare = uSkin * mix(tone, rel, smoothstep(tone * 0.9, tone * 0.98, rel));
-  diffuseColor.rgb = mix(diffuseColor.rgb, bare, eraseMask(p));
-}`,
-      )
-      .replace(
-        "#include <normal_fragment_maps>",
-        "#include <normal_fragment_maps>\nnormal = normalize(mix(normal, nonPerturbedNormal, eraseMask(vBindPos)));",
-      );
-  };
-  material.customProgramCacheKey = () => "bebe-corpo";
-}
-
-/**
- * Pálpebras do piscar, da cara brava e a boca: a parte cor de pele acompanha a pele do crachá.
- * lineOnly deixa só o traço (a boca nova, no lugar da do modelo, que já foi tirada): a pele em volta some.
- */
-function tintOverlay(material: THREE.MeshStandardMaterial, skin: THREE.Color, lineOnly = false): void {
-  const uniforms = { uSkin: { value: skin }, uRef: { value: OVERLAY_REF }, uLineOnly: { value: lineOnly ? 1 : 0 } };
-  // o corpo é fosco (textura de rugosidade); a peça brilhando mais parecia um remendo claro
-  material.roughness = 1;
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>\nuniform vec3 uSkin; uniform float uRef; uniform float uLineOnly;\n${HSV_GLSL}`)
-      .replace(
-        "#include <map_fragment>",
-        /* glsl */ `#include <map_fragment>
-{
-  vec3 hsv = rgb2hsv(pow(max(diffuseColor.rgb, 0.0), vec3(1.0 / 2.2)));
-  bool skinPx = hsv.z >= 0.4 && hsv.x * 360.0 < 40.0 && hsv.y < 0.45;
-  if (skinPx) diffuseColor.rgb = uSkin * (dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)) / uRef);
-  // o traço da boca é escuro e saturado (brilho 0,5, saturação 0,7); a pele é clara (0,9 e 0,3)
-  if (uLineOnly > 0.5) diffuseColor.a *= clamp(smoothstep(0.42, 0.55, hsv.y) + 1.0 - smoothstep(0.62, 0.75, hsv.z), 0.0, 1.0);
-}`,
-      );
-  };
-  material.customProgramCacheKey = () => "bebe-sobreposicao";
-}
-
-/** Peças de expressão que têm pele (as outras, sobrancelha brava e veia, ficam como vieram). */
-const SKIN_OVERLAYS = ["palpebra_D", "palpebra_E", "boca", "piscar_meio_D", "piscar_fechado_D", "piscar_meio_E", "piscar_fechado_E"];
-
-const FACE_CELL = 0.01;
-
-/** Célula da pele do rosto: o z mais à frente e a soma das normais dos vértices dela. */
-type SkinCell = { z: number; n: THREE.Vector3 };
-
-/** Pele do rosto numa grade de 1 cm, no espaço da malha. */
-function faceSkinOf(geo: THREE.BufferGeometry): Map<string, SkinCell> {
-  const pos = geo.getAttribute("position");
-  const nor = geo.getAttribute("normal");
-  const field = new Map<string, SkinCell>();
-  for (let i = 0; i < pos.count; i++) {
-    const z = pos.getZ(i);
-    if (z < 0.1) continue;
-    const k = `${Math.round(pos.getX(i) / FACE_CELL)},${Math.round(pos.getY(i) / FACE_CELL)}`;
-    let cell = field.get(k);
-    if (!cell) field.set(k, (cell = { z, n: new THREE.Vector3() }));
-    cell.z = Math.max(cell.z, z);
-    cell.n.x += nor.getX(i);
-    cell.n.y += nor.getY(i);
-    cell.n.z += nor.getZ(i);
-  }
-  return field;
-}
-
-/**
- * Pele em (x, y): o z mais à frente das células em volta (a peça nunca fica atrás da pele) e a normal
- * média delas (a peça pega a mesma sombra do rosto, sem parecer um remendo).
- */
-function skinAt(field: Map<string, SkinCell>, x: number, y: number, normal: THREE.Vector3): number | null {
-  const cx = Math.round(x / FACE_CELL), cy = Math.round(y / FACE_CELL);
-  let z = -Infinity;
-  normal.set(0, 0, 0);
-  for (let a = -1; a <= 1; a++)
-    for (let b = -1; b <= 1; b++) {
-      const cell = field.get(`${cx + a},${cy + b}`);
-      if (!cell) continue;
-      z = Math.max(z, cell.z);
-      normal.add(cell.n);
-    }
-  if (z === -Infinity) return null;
-  normal.normalize();
-  return z;
-}
-
-/**
- * Peça de expressão do rosto: girada e subida em volta do próprio centro, com a mesma distância da
- * pele de antes, e com as normais da pele embaixo dela.
- */
-function facePieceGeo(model: Loaded, src: THREE.Mesh, p: FacePiece): THREE.BufferGeometry {
-  const key = `${p.node}|${p.turn ?? 0}|${p.up ?? 0}`;
-  const hit = model.faceGeos.get(key);
-  if (hit) return hit;
-  const geo = src.geometry.clone();
-  geo.computeBoundingBox();
-  const c = geo.boundingBox!.getCenter(new THREE.Vector3());
-  const a = THREE.MathUtils.degToRad(p.turn ?? 0);
-  const cos = Math.cos(a), sin = Math.sin(a);
-  // sobrancelha e boca vão para a pele alisada no lugar das do modelo (erasedBody): mesmo paradas,
-  // saem do sulco antigo e encostam por cima da pele
-  const moved = Boolean(p.turn || p.up) || p.node.startsWith("sobrancelha") || p.node === "boca";
-  const pos = geo.getAttribute("position");
-  const nor = geo.getAttribute("normal");
-  const n = new THREE.Vector3();
-  const n0 = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const nx = c.x + cos * (x - c.x) - sin * (y - c.y);
-    const ny = c.y + sin * (x - c.x) + cos * (y - c.y) + (p.up ?? 0);
-    const before = skinAt(model.faceSkin, x, y, n0);
-    const after = skinAt(model.faceSkin, nx, ny, n);
-    // a movida guarda a distância que tinha da pele, mas nunca fica atrás da pele mais alta em volta
-    // (o degrau da órbita do olho), e vai um pouco mais longe para não sumir nela
-    const nz = moved && before !== null && after !== null ? Math.max(z + after - before, after + 0.003) + 0.004 : z;
-    pos.setXYZ(i, nx, ny, nz);
-    if (after !== null && nor) nor.setXYZ(i, n.x, n.y, n.z);
-  }
-  geo.computeBoundingBox();
-  geo.computeBoundingSphere();
-  model.faceGeos.set(key, geo);
-  return geo;
-}
-
-type Erase = { brows: boolean; mouth: boolean };
-/** Forma do corpo para um rosto: o que sai do modelo e quanto cada olho aperta (1 = como veio). */
-type BodyShape = Erase & { squint: [d: number, e: number] };
-
-/** Centro do desenho de cada olho (D com x negativo) e o tamanho da área que aperta junto. */
-const EYE_CENTER = { x: 0.19, y: 1.14 };
-const EYE_RADIUS = { x: 0.14, y: 0.11 };
-
-/** Altura da pele (z) numa grade de 1 cm, média 5×5: a superfície do rosto sem os detalhes. */
-function smoothFaceZ(pos: THREE.BufferAttribute): (x: number, y: number) => number {
-  const sum = new Map<string, [number, number]>();
-  for (let i = 0; i < pos.count; i++) {
-    const z = pos.getZ(i);
-    if (z < 0.1) continue;
-    const k = `${Math.round(pos.getX(i) / 0.01)},${Math.round(pos.getY(i) / 0.01)}`;
-    const c = sum.get(k) ?? [0, 0];
-    c[0] += z;
-    c[1]++;
-    sum.set(k, c);
-  }
-  return (x, y) => {
-    const cx = Math.round(x / 0.01), cy = Math.round(y / 0.01);
-    let s = 0, n = 0;
-    for (let a = -2; a <= 2; a++)
-      for (let b = -2; b <= 2; b++) {
-        const c = sum.get(`${cx + a},${cy + b}`);
-        if (c) {
-          s += c[0] / c[1];
-          n++;
-        }
-      }
-    return n ? s / n : 0;
-  };
-}
-
-/**
- * Olho apertado: a pele em volta do olho vai para a linha do meio dele, e o desenho da textura vai
- * junto (os cílios de cima e de baixo se aproximam). Fora da área a pele fica como é.
- */
-function squintEyes(pos: THREE.BufferAttribute, src: THREE.BufferAttribute, squint: [number, number]): void {
-  const faceZ = smoothFaceZ(src);
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    if (z < 0.15) continue;
-    const s = squint[x < 0 ? 0 : 1];
-    if (s === 1) continue;
-    const r = Math.hypot((Math.abs(x) - EYE_CENTER.x) / EYE_RADIUS.x, (y - EYE_CENTER.y) / EYE_RADIUS.y);
-    const w = 1 - THREE.MathUtils.smoothstep(r, 0.9, 1.5);
-    if (w <= 0) continue;
-    const ny = EYE_CENTER.y + (y - EYE_CENTER.y) * (1 - (1 - s) * w);
-    // segue a superfície do rosto na altura nova, para a pele não sair dela
-    pos.setXYZ(i, x, ny, z + faceZ(x, ny) - faceZ(x, y));
-  }
-}
-
-/** A mesma conta do eraseMask do ERASE_GLSL, para a malha. */
-function eraseMask(x: number, y: number, z: number, e: Erase): number {
-  if (z < 0.2) return 0;
-  const ss = THREE.MathUtils.smoothstep;
-  const ax = Math.abs(x);
-  const brow = e.brows ? ss(y, 1.245, 1.262) * (1 - ss(y, 1.35, 1.37)) * ss(ax, 0.05, 0.07) * (1 - ss(ax, 0.33, 0.35)) : 0;
-  const mouth = e.mouth ? ss(y, 0.945, 0.96) * (1 - ss(y, 1.018, 1.03)) * (1 - ss(ax, 0.115, 0.135)) : 0;
-  return Math.max(brow, mouth);
-}
-
-/**
- * Pele lisa no lugar de um traço esculpido: z = f(|x|, y), polinômio de grau 3 ajustado à pele em
- * volta. O sulco (o que fica bem abaixo da superfície) sai do ajuste a cada volta.
- */
-class SmoothPatch {
-  private coef: number[] = [];
-  constructor(
-    private cx: number,
-    private cy: number,
-    private sx: number,
-    private sy: number,
-  ) {}
-  private terms(ax: number, y: number): number[] {
-    const u = (ax - this.cx) / this.sx, v = (y - this.cy) / this.sy;
-    return [1, u, v, u * u, u * v, v * v, u * u * u, u * u * v, u * v * v, v * v * v];
-  }
-  z(ax: number, y: number): number {
-    return this.terms(ax, y).reduce((s, t, i) => s + t * this.coef[i], 0);
-  }
-  /** Normal da superfície em (x, y), com o lado do x. */
-  normal(x: number, y: number, out: THREE.Vector3): THREE.Vector3 {
-    const ax = Math.abs(x), h = 1e-4;
-    const dx = (this.z(ax + h, y) - this.z(ax - h, y)) / (2 * h);
-    const dy = (this.z(ax, y + h) - this.z(ax, y - h)) / (2 * h);
-    return out.set(-dx * Math.sign(x || 1), -dy, 1).normalize();
-  }
-  fit(pos: THREE.BufferAttribute, inside: (ax: number, y: number, z: number) => boolean): this {
-    for (let round = 0; round < 6; round++) {
-      const A = Array.from({ length: 10 }, () => new Array<number>(11).fill(0));
-      for (let i = 0; i < pos.count; i++) {
-        const ax = Math.abs(pos.getX(i)), y = pos.getY(i), z = pos.getZ(i);
-        if (!inside(ax, y, z)) continue;
-        if (round > 0 && z < this.z(ax, y) - 0.002) continue;
-        const t = this.terms(ax, y);
-        for (let a = 0; a < 10; a++) {
-          A[a][10] += t[a] * z;
-          for (let b = 0; b < 10; b++) A[a][b] += t[a] * t[b];
-        }
-      }
-      for (let c = 0; c < 10; c++) {
-        let p = c;
-        for (let r = c + 1; r < 10; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
-        [A[c], A[p]] = [A[p], A[c]];
-        for (let r = 0; r < 10; r++) {
-          if (r === c) continue;
-          const f = A[r][c] / A[c][c];
-          for (let k = c; k <= 10; k++) A[r][k] -= f * A[c][k];
-        }
-      }
-      this.coef = A.map((r, i) => r[10] / r[i]);
-    }
-    return this;
-  }
-}
-
-/**
- * Corpo sem a sobrancelha e/ou a boca esculpidas (o traço vai para a superfície lisa da pele em volta,
- * com a normal dela) e com os olhos apertados do rosto. Uma malha por combinação, dividindo com o corpo
- * tudo o que não muda.
- */
-function erasedBody(model: Loaded, src: THREE.BufferGeometry, e: BodyShape): THREE.BufferGeometry {
-  const key = `${e.brows}|${e.mouth}|${e.squint.join(",")}`;
-  const hit = model.bodyGeos.get(key);
-  if (hit) return hit;
-  const srcPos = src.getAttribute("position") as THREE.BufferAttribute;
-  const brow = new SmoothPatch(0.2, 1.3, 0.15, 0.08).fit(srcPos, (ax, y, z) => ax > 0.03 && ax < 0.37 && y > 1.24 && y < 1.4 && z > 0.15);
-  const mouth = new SmoothPatch(0, 0.99, 0.15, 0.06).fit(srcPos, (ax, y, z) => ax < 0.18 && y > 0.92 && y < 1.06 && z > 0.3);
-  const geo = new THREE.BufferGeometry();
-  for (const [name, attr] of Object.entries(src.attributes)) geo.setAttribute(name, attr);
-  geo.setIndex(src.getIndex());
-  geo.groups = src.groups;
-  const pos = srcPos.clone();
-  const nor = (src.getAttribute("normal") as THREE.BufferAttribute).clone();
-  const n = new THREE.Vector3();
-  const flat = new THREE.Vector3();
-  // quanto de cada vértice vai para a superfície lisa: só o traço esculpido (sulco ou lábio a mais de
-  // 1–2 mm dela), alargado alguns anéis para pegar a borda do sulco. A pele que só difere pelo erro do
-  // ajuste fica como é, para não aparecer emenda.
-  const amount = new Map<number, number>();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const w = eraseMask(x, y, z, e);
-    if (w <= 0) continue;
-    const d = (y < 1.1 ? mouth : brow).z(Math.abs(x), y) - z;
-    amount.set(i, THREE.MathUtils.smoothstep(Math.abs(d), 0.0008, 0.002));
-  }
-  const near = new Map<number, number[]>();
-  const index = src.getIndex()!;
-  for (let t = 0; t < index.count; t += 3) {
-    const tri = [index.getX(t), index.getX(t + 1), index.getX(t + 2)];
-    if (!tri.some((v) => amount.has(v))) continue;
-    for (const a of tri) for (const b of tri) if (a !== b && amount.has(a) && amount.has(b)) near.set(a, [...(near.get(a) ?? []), b]);
-  }
-  // vértices repetidos na costura da textura andam juntos
-  const twins = new Map<string, number[]>();
-  for (const i of amount.keys()) {
-    const k = `${pos.getX(i).toFixed(5)},${pos.getY(i).toFixed(5)},${pos.getZ(i).toFixed(5)}`;
-    twins.set(k, [...(twins.get(k) ?? []), i]);
-  }
-  const spread = (pick: (own: number, around: number[]) => number) => {
-    const next = new Map<number, number>();
-    for (const [i, v] of amount) next.set(i, pick(v, (near.get(i) ?? []).map((j) => amount.get(j)!)));
-    for (const group of twins.values()) {
-      const v = Math.max(...group.map((i) => next.get(i)!));
-      for (const i of group) next.set(i, v);
-    }
-    for (const [i, v] of next) amount.set(i, v);
-  };
-  for (let r = 0; r < 3; r++) spread((v, around) => Math.max(v, ...around));
-  for (let r = 0; r < 2; r++) spread((v, around) => (v + around.reduce((s, a) => s + a, 0)) / (1 + around.length));
-  for (const [i, a] of amount) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const k = a * eraseMask(x, y, z, e);
-    if (k <= 0) continue;
-    const patch = y < 1.1 ? mouth : brow;
-    const d = patch.z(Math.abs(x), y) - z;
-    pos.setZ(i, z + k * d);
-    patch.normal(x, y, flat);
-    n.fromBufferAttribute(nor, i).lerp(flat, k).normalize();
-    nor.setXYZ(i, n.x, n.y, n.z);
-  }
-  squintEyes(pos, srcPos, e.squint);
-  geo.setAttribute("position", pos);
-  geo.setAttribute("normal", nor);
-  geo.boundingBox = src.boundingBox;
-  geo.boundingSphere = src.boundingSphere;
-  model.bodyGeos.set(key, geo);
-  return geo;
-}
-
-/**
- * Carrega o boneco, os cabelos e as barbas uma vez, todos ao mesmo tempo. Resolve false se o boneco falhar
- * (o jogo segue com o provisório). onProgress soma os bytes de todos os arquivos.
- */
+/** Carrega o GLB e as peças uma vez. Resolve false se o boneco falhar (o jogo segue com o procedural). */
 export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promise<boolean> {
-  loading ??= loadAll(onProgress);
-  return loading;
-}
-
-type Progress = (url: string) => ((e: ProgressEvent) => void) | undefined;
-
-/** Carrega as peças de um registro (cabelos ou barbas). A que falhar só some da lista. */
-function loadPieces(loader: GLTFLoader, urls: Record<number, string>, progress: Progress) {
-  return Promise.all(
-    Object.entries(urls).map(([key, url]) =>
-      loader
-        .loadAsync(url, progress(url))
-        .then((g) => [Number(key), (g.scene.getObjectByProperty("isMesh", true) as THREE.Mesh).geometry] as const)
-        .catch((err) => {
-          console.warn(`${url} não carregou`, err);
-          return null;
-        }),
-    ),
-  );
-}
-const urlsOf = (defs: Record<number, PieceDef>) => Object.fromEntries(Object.entries(defs).map(([k, d]) => [k, d.url]));
-
-/** Junta cada peça carregada à matriz que a leva do espaço do osso cabeca para o lugar dela no bebê. */
-function pieceMap(list: (readonly [number, THREE.BufferGeometry] | null)[], defs: Record<number, PieceDef>, toHead: THREE.Matrix4): Map<number, Piece> {
-  return new Map(
-    list.flatMap((h) => {
-      if (!h) return [];
-      const def = defs[h[0]];
-      const fit = new THREE.Matrix4().compose(new THREE.Vector3(...def.offset), new THREE.Quaternion(), new THREE.Vector3().setScalar(def.scale));
-      return [[h[0], { geo: h[1], frame: toHead.clone().multiply(fit) }] as const];
-    }),
-  );
-}
-
-function loadAll(onProgress?: (e: ProgressEvent) => void): Promise<boolean> {
   const loader = createGltfLoader();
-  const hairUrls = urlsOf(CABELOS);
-  const urls = [MODEL_URL, ...Object.values(hairUrls), ...Object.values(BARBAS)];
-  const files = new Map(urls.map((u) => [u, { loaded: 0, total: 0 }]));
-  const progress: Progress = (url) =>
-    onProgress &&
-    ((e) => {
-      if (!e.lengthComputable) return;
-      Object.assign(files.get(url)!, { loaded: e.loaded, total: e.total });
-      const all = [...files.values()];
-      if (all.every((f) => f.total > 0)) {
-        const sum = (k: "loaded" | "total") => all.reduce((n, f) => n + f[k], 0);
-        onProgress(new ProgressEvent("progress", { lengthComputable: true, loaded: sum("loaded"), total: sum("total") }));
+  const load = (list: Wearable[]) => Promise.all(list.map((w) => loadWearable(loader, w.url)));
+  const cheer = loader.loadAsync(CELEBRATE_URL).catch((err) => {
+    console.warn("boneco_comemora.glb não carregou, sem comemoração", err);
+    return null;
+  });
+  loading ??= Promise.all([loader.loadAsync(MODEL_URL, onProgress), load(HAIRS), load(BEARDS_3D), load(SHIRTS_3D), load(PANTS_3D), load(SHOES_3D), cheer])
+    .then(([gltf, hairs, beards, shirts, pants, shoes, party]) => {
+      const scene = gltf.scene;
+      let skeleton: THREE.Skeleton | null = null;
+      scene.traverse((o) => {
+        if ((o as THREE.SkinnedMesh).isSkinnedMesh) skeleton ??= (o as THREE.SkinnedMesh).skeleton;
+      });
+      if (skeleton) {
+        const samples = limbSamples(scene);
+        for (const piece of [hairs, beards, shirts, pants, shoes].flat(2)) retargetWearable(piece, samples, skeleton);
       }
-    });
-  return Promise.all([loader.loadAsync(MODEL_URL, progress(MODEL_URL)), loadPieces(loader, hairUrls, progress), loadPieces(loader, BARBAS, progress)])
-    .then(([gltf, hairs, beards]) => {
-      const mesh = gltf.scene.getObjectByName("boneco") as THREE.SkinnedMesh;
-      // do espaço da malha (pose de origem) para o espaço do osso cabeca
-      const headIdx = mesh.skeleton.bones.findIndex((b) => b.name === "cabeca");
-      const toHead = mesh.skeleton.boneInverses[headIdx].clone().multiply(mesh.bindMatrix);
+      const h = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
       loaded = {
-        scene: gltf.scene,
+        scene,
         clips: new Map(gltf.animations.map((a) => [a.name, cleanClip(a)])),
-        modelHairs: pieceMap(hairs, CABELOS, toHead),
-        beards: new Map(beards.flatMap((b) => (b ? [b] : []))),
-        faceSkin: new Map(),
-        faceGeos: new Map(),
-        bodyGeos: new Map(),
+        scale: TARGET_HEIGHT / h,
+        hairs,
+        beards,
+        shirts,
+        pants,
+        shoes,
+        celebration: party ? splitCelebration(party.animations[0], party.scene, scene) : null,
       };
-      // as peças de expressão encostam na pele sem a sobrancelha e a boca do modelo, que é onde elas
-      // ficam quando o rosto traz as suas
-      loaded.faceSkin = faceSkinOf(erasedBody(loaded, mesh.geometry, { brows: true, mouth: true, squint: [1, 1] }));
       return true;
     })
     .catch((err) => {
-      console.warn("boneco_bebe.glb não carregou, usando o boneco provisório", err);
+      console.warn("boneco_completo.glb não carregou, usando boneco procedural", err);
       return false;
     });
+  return loading;
 }
 
-/**
- * Aplica o crachá: pele e olhos no corpo e nas pálpebras, o rosto, cabelo e barba presos ao osso da
- * cabeça. Devolve o acerto do rosto a fazer depois de cada quadro das animações.
- */
-function dress(inner: THREE.Object3D, model: Loaded, dna: AvatarDNA, mats: THREE.Material[]): () => void {
-  const skin = new THREE.Color(SKINS[dna.skin] ?? SKINS[0]);
-  const iris = new THREE.Color(EYE_COLORS[dna.eyes] ?? EYE_COLORS[0]);
-  const face = ROSTOS[dna.face] ?? ROSTOS[0];
-  // o rosto que traz sobrancelha ou boca tira as do modelo do lugar
-  const erase: BodyShape = {
-    brows: face.pieces.some((p) => p.node.startsWith("sobrancelha")),
-    mouth: face.pieces.some((p) => p.node === "boca"),
-    squint: [face.squint?.D ?? 1, face.squint?.E ?? 1],
-  };
-  const reshaped = erase.brows || erase.mouth || erase.squint.some((s) => s !== 1);
+function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
+  const root = new THREE.Group();
+  // a malha tem pele: o clone comum continuaria preso aos ossos do original
+  const inner = cloneSkinned(model.scene);
+  inner.scale.setScalar(model.scale * (HEIGHT_SCALE[dna.height] ?? 1));
+  root.add(inner);
+  let body: THREE.SkinnedMesh | null = null;
   inner.traverse((o) => {
-    const mesh = o as THREE.Mesh;
+    const mesh = o as THREE.SkinnedMesh;
     if (!mesh.isMesh) return;
     mesh.castShadow = true;
-    const isBody = mesh.name === "boneco";
-    if (!isBody && !SKIN_OVERLAYS.includes(mesh.name)) return;
-    if (isBody && reshaped) mesh.geometry = erasedBody(model, mesh.geometry, erase);
-    const m = (mesh.material as THREE.MeshStandardMaterial).clone();
-    if (isBody) tintBody(m, skin, iris, erase);
-    else tintOverlay(m, skin);
-    mesh.material = m;
-    mats.push(m);
+    if (mesh.isSkinnedMesh) body = mesh;
   });
-  const cabeca = inner.getObjectByName("cabeca");
-  if (!cabeca) return () => {};
-  // sem textura: o desenho dos fios vem do relevo da malha
-  const wear = (piece: Piece | undefined, color: number, roughness: number) => {
-    if (!piece) return;
-    const mat = new THREE.MeshStandardMaterial({ color: HAIR_COLORS[color] ?? HAIR_COLORS[0], roughness, side: THREE.DoubleSide });
-    mats.push(mat);
-    const mesh = new THREE.Mesh(piece.geo, mat);
-    mesh.matrixAutoUpdate = false;
-    mesh.matrix.copy(piece.frame);
-    mesh.castShadow = true;
-    cabeca.add(mesh);
-  };
-  wear(model.modelHairs.get(dna.hair), dna.hairColor, 0.8);
-  const beardGeo = model.beards.get(dna.beard);
-  const body = inner.getObjectByName("boneco") as THREE.SkinnedMesh | undefined;
-  if (beardGeo && body?.parent) {
-    // mesma skin do corpo no GLB do designer: os índices de osso são os do esqueleto do boneco
-    const mat = new THREE.MeshStandardMaterial({ color: HAIR_COLORS[dna.beardColor] ?? HAIR_COLORS[0], roughness: 0.9, side: THREE.DoubleSide });
-    mats.push(mat);
-    const beard = new THREE.SkinnedMesh(beardGeo, mat);
-    beard.castShadow = true;
-    body.parent.add(beard);
-    beard.bind(body.skeleton, body.bindMatrix);
-  }
-  const lineOnly = (src: THREE.Mesh) => {
-    const m = (src.material as THREE.MeshStandardMaterial).clone();
-    tintOverlay(m, skin, true);
-    mats.push(m);
-    return m;
-  };
-  return wearFace(inner, cabeca, model, face.pieces, lineOnly, erase.squint.some((s) => s !== 1));
-}
-
-/**
- * Rosto do crachá: cópias das peças de expressão, fora dos grupos que as animações ligam e desligam.
- * Quando o clipe faz a cara brava (no arremesso), ela vale; quando um olho pisca, as pálpebras do
- * rosto daquele lado saem e fica o piscar do clipe.
- */
-function wearFace(
-  inner: THREE.Object3D,
-  cabeca: THREE.Object3D,
-  model: Loaded,
-  pieces: FacePiece[],
-  lineOnly: (src: THREE.Mesh) => THREE.Material,
-  squinting: boolean,
-): () => void {
-  const parts: { mesh: THREE.Mesh; side: "D" | "E" | null }[] = [];
-  for (const p of pieces) {
-    const src = inner.getObjectByName(p.node) as THREE.Mesh | undefined;
-    if (!src?.isMesh || !src.parent) continue;
-    // o grupo de origem (cara_brava, piscar) só tem deslocamento: a cópia vai no mesmo lugar
-    const holder = new THREE.Group();
-    holder.position.copy(src.parent.position);
-    // a boca nova entra só com o traço, no lugar da do modelo
-    const mesh = new THREE.Mesh(facePieceGeo(model, src, p), p.node === "boca" ? lineOnly(src) : src.material);
-    mesh.name = `rosto_${p.node}`;
-    holder.add(mesh);
-    cabeca.add(holder);
-    const lid = p.node.startsWith("palpebra") || p.node.startsWith("piscar");
-    parts.push({ mesh, side: lid ? (p.node.endsWith("_D") ? "D" : "E") : null });
-  }
-  const brava = inner.getObjectByName("cara_brava");
-  const blink = (side: "D" | "E") => ["piscar_meio_", "piscar_fechado_"].flatMap((n) => inner.getObjectByName(n + side) ?? []);
-  const blinks = { D: blink("D"), E: blink("E") };
-  // rosto com olho fechado, meio fechado ou apertado não pisca: as pálpebras do piscar das animações
-  // são do tamanho do olho aberto
-  const noBlink = squinting || pieces.some((p) => p.node.startsWith("piscar"));
-  if (parts.length === 0 && !noBlink) return () => {};
-  return () => {
-    if (noBlink) for (const o of [...blinks.D, ...blinks.E]) o.scale.setScalar(0);
-    const angry = (brava?.scale.x ?? 0) > 0.5;
-    for (const { mesh, side } of parts) mesh.visible = !angry && !(side && blinks[side].some((o) => o.scale.x > 0.5));
-  };
-}
-
-function glbCharacter(model: Loaded, dna: AvatarDNA): Character {
-  const root = new THREE.Group();
-  const inner = cloneSkinned(model.scene) as THREE.Group;
-  inner.scale.setScalar(SCALE);
-  root.add(inner);
+  // pele, olhos e rosto do crachá; os materiais tingidos são só deste boneco
   const mats: THREE.Material[] = [];
-  const syncFace = dress(inner, model, dna, mats);
+  const syncFace = dressFace(inner, dna, mats);
+  const hairColor = HAIR_COLORS[dna.hairColor] ?? HAIR_COLORS[0];
+  const beardColor = HAIR_COLORS[dna.beardColor] ?? hairColor;
+  const pieces: [THREE.SkinnedMesh[] | undefined, string?][] = [
+    [model.hairs[dna.hair - 1], hairColor],
+    [model.beards[dna.beard - 1], beardColor],
+    [model.shirts[dna.shirt - 1]],
+    [model.pants[dna.pants - 1]],
+    [model.shoes[dna.shoes - 1]],
+  ];
+  for (const [list, color] of pieces) {
+    for (const piece of list ?? []) if (body) attachWearable(inner, body, piece, color, mats);
+  }
 
-  // parado por baixo, andar por cima conforme a velocidade; ações tocam uma vez
   const mixer = new THREE.AnimationMixer(inner);
   const loop = (name: string) => {
-    const c = model.clips.get(name);
-    return c ? mixer.clipAction(c).play() : null;
+    const clip = model.clips.get(name);
+    const a = clip ? mixer.clipAction(clip) : null;
+    a?.play();
+    return a;
   };
   const idle = loop("parado");
   const walk = loop("andar");
+  const run = loop("correr");
   const actions = new Map<CharacterAction, THREE.AnimationAction>();
   for (const k of Object.keys(CLIP_OF) as CharacterAction[]) {
     const full = model.clips.get(CLIP_OF[k]);
@@ -710,60 +374,57 @@ function glbCharacter(model: Loaded, dna: AvatarDNA): Character {
     a.timeScale = clip.duration / ACTION_SECONDS[k];
     actions.set(k, a);
   }
-  const shoulders: [THREE.Object3D, THREE.Quaternion][] = [];
-  for (const [n, side] of [["ombro_D", -1], ["ombro_E", 1]] as const) {
-    const bone = inner.getObjectByName(n);
-    if (bone) shoulders.push([bone, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), side * ARM_OPEN)]);
-  }
-  const openArms = () => {
-    for (const [bone, open] of shoulders) bone.quaternion.premultiply(open);
-  };
-  const busy = () => [...actions.values()].some((a) => a.isRunning());
-  const step = (dt: number) => {
-    mixer.update(dt);
-    if (!busy()) openArms();
-    syncFace();
-  };
-  walk?.setEffectiveWeight(0);
-  step(0);
 
-  const body = inner.getObjectByName("boneco") as THREE.SkinnedMesh | undefined;
+  const cheer = model.celebration ? mixer.clipAction(model.celebration.body) : null;
+  cheer?.setLoop(THREE.LoopOnce, 1);
+  /** Pose sentada guardada ao começar a comemoração, para voltar a ela no fim. */
+  let pose: [THREE.Object3D, THREE.Vector3, THREE.Quaternion, THREE.Vector3][] = [];
+  const pernaD = inner.getObjectByName("perna_D");
+  const pernaE = inner.getObjectByName("perna_E");
+
   let seated = false;
-  // pose dinâmica na cadeira: desvios em cima da pose sentada parada de cada osso
-  const pose = new SeatedPose();
-  const seatBones = (["cabeca", "tronco", "ombro_D", "ombro_E", "perna_D", "perna_E"] as const).flatMap((n) => {
-    const bone = inner.getObjectByName(n);
-    return bone ? [{ name: n, bone, rest: new THREE.Quaternion() }] : [];
-  });
-  const turn = new THREE.Quaternion();
-  const euler = new THREE.Euler();
   return {
     root,
     update(dt, speed01) {
-      if (seated) return;
-      const acting = busy();
-      const w = acting ? 0 : speed01;
+      if (seated) {
+        if (!cheer?.isRunning()) return;
+        mixer.update(dt);
+        syncFace();
+        if (cheer.isRunning()) return;
+        for (const [o, p, q, s] of pose) {
+          o.position.copy(p);
+          o.quaternion.copy(q);
+          o.scale.copy(s);
+        }
+        return;
+      }
+      const busy = [...actions.values()].some((a) => a.isRunning());
+      // até a metade da velocidade o boneco anda; dali em diante passa a correr
+      const s = busy ? 0 : speed01;
+      const r = run ? THREE.MathUtils.clamp(s * 2 - 1, 0, 1) : 0;
+      const w = Math.min(1, s * (run ? 2 : 1)) - r;
+      idle?.setEffectiveWeight(busy ? 0 : 1 - w - r);
       walk?.setEffectiveWeight(w);
-      idle?.setEffectiveWeight(acting ? 0 : 1 - w);
-      if (walk) walk.timeScale = 0.6 + speed01 * 0.8;
-      step(dt);
+      run?.setEffectiveWeight(r);
+      if (walk) walk.timeScale = 0.6 + speed01 * (run ? 1.6 : 0.8);
+      mixer.update(dt);
+      syncFace();
     },
-    playItemGesture(item) {
-      pose.playItemGesture(item);
-    },
-    updateSeated(dt, speed, steer, driftDir, boosting) {
-      if (!seated) return;
-      const a = pose.step(dt, speed, steer, driftDir, boosting);
-      const angles: Record<(typeof seatBones)[number]["name"], [number, number, number]> = {
-        cabeca: a.head,
-        tronco: a.body,
-        ombro_D: a.armD,
-        ombro_E: a.armE,
-        perna_D: [a.legD, 0, 0],
-        perna_E: [a.legE, 0, 0],
-      };
-      // no espaço do pai, como a pose sentada é feita
-      for (const { name, bone, rest } of seatBones) bone.quaternion.copy(rest).premultiply(turn.setFromEuler(euler.set(...angles[name])));
+    updateSeated(dt, speed, _steer, driftDir) {
+      if (!seated || cheer?.isRunning()) return;
+      // pé no chão no drift para apoio e remadas na arrancada lenta; os braços ficam no apoio
+      let legD = -Math.PI / 2;
+      let legE = -Math.PI / 2;
+      if (driftDir > 0) legD += 0.38;
+      else if (driftDir < 0) legE += 0.38;
+      else if (speed > 0.1 && speed < 3.2) {
+        const push = Math.sin(performance.now() * 0.012);
+        legD += Math.max(0, push) * 0.32;
+        legE += Math.max(0, -push) * 0.32;
+      }
+      const k = Math.min(1, dt * 10);
+      if (pernaD) pernaD.rotation.x += (legD - pernaD.rotation.x) * k;
+      if (pernaE) pernaE.rotation.x += (legE - pernaE.rotation.x) * k;
     },
     play(action) {
       const a = actions.get(action);
@@ -771,59 +432,241 @@ function glbCharacter(model: Loaded, dna: AvatarDNA): Character {
       a.reset().play();
     },
     sit() {
-      // pose parada, depois pernas para a frente e braços no apoio
       seated = true;
-      walk?.stop();
-      for (const a of actions.values()) a.stop();
-      idle?.setEffectiveWeight(1);
-      mixer.setTime(0);
-      openArms();
+      mixer.stopAllAction();
+      for (const [n, x] of [
+        ["perna_D", -Math.PI / 2],
+        ["perna_E", -Math.PI / 2],
+        ["ombro_D", -0.75],
+        ["ombro_E", -0.75],
+      ] as const) {
+        const o = inner.getObjectByName(n);
+        if (o) o.rotation.x = x;
+      }
       syncFace();
-      const forward = (n: string, angle: number) =>
-        inner.getObjectByName(n)?.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), angle));
-      forward("perna_D", -Math.PI / 2);
-      forward("perna_E", -Math.PI / 2);
-      forward("ombro_D", -0.75);
-      forward("ombro_E", -0.75);
-      for (const b of seatBones) b.rest.copy(b.bone.quaternion);
       if (!body) return 0;
       // a caixa da malha com pele é calculada na pose atual dos ossos
       inner.updateMatrixWorld(true);
-      body.computeBoundingBox();
+      (body as THREE.SkinnedMesh).computeBoundingBox();
       return bottomOf(root, [body]);
     },
+    restHands(left, right) {
+      root.updateMatrixWorld(true);
+      for (const [side, target] of [
+        ["E", left],
+        ["D", right],
+      ] as const) {
+        const shoulder = inner.getObjectByName(`ombro_${side}`);
+        const wrist = inner.getObjectByName(`punho_${side}`);
+        if (!shoulder?.parent || !wrist) continue;
+        const s = shoulder.getWorldPosition(new THREE.Vector3());
+        const from = wrist.getWorldPosition(new THREE.Vector3()).sub(s).normalize();
+        const to = root.localToWorld(target.clone()).sub(s).normalize();
+        // gira o ombro no espaço do mundo e devolve a rotação para o espaço do pai
+        const world = shoulder.getWorldQuaternion(new THREE.Quaternion()).premultiply(new THREE.Quaternion().setFromUnitVectors(from, to));
+        shoulder.quaternion.copy(shoulder.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(world));
+        shoulder.updateMatrixWorld(true);
+      }
+    },
+    celebrate() {
+      if (!seated || !cheer || cheer.isRunning()) return;
+      pose = [];
+      inner.traverse((o) => pose.push([o, o.position.clone(), o.quaternion.clone(), o.scale.clone()]));
+      cheer.reset().play();
+    },
     dispose() {
-      // malhas, texturas, penteados e barbas são compartilhados; os materiais tingidos são deste boneco
+      // malha, materiais e texturas do GLB são compartilhados entre clones; os tingidos são deste boneco
       mixer.stopAllAction();
       for (const m of mats) m.dispose();
     },
   };
 }
 
-/** Enquanto o GLB carrega: uma cápsula na altura do boneco, para a cena não ficar vazia. */
-function placeholderCharacter(): Character {
-  const root = new THREE.Group();
-  const geo = new THREE.CapsuleGeometry(0.32, TARGET_HEIGHT - 0.64, 6, 16);
-  const mat = new THREE.MeshStandardMaterial({ color: "#f3c3ad", roughness: 0.7 });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.y = TARGET_HEIGHT / 2;
-  mesh.castShadow = true;
-  root.add(mesh);
+function proceduralCharacter(dna: AvatarDNA): Character {
+  const rig = buildAvatar(dna);
+  let t = 0;
+  let aimUntil = 0;
+  let seated = false;
   return {
-    root,
-    update() {},
-    play() {},
-    // a cápsula não dobra: apoia a base no assento
-    sit: () => 0,
+    root: rig.root,
+    update(dt, speed01) {
+      if (seated) return;
+      t += dt * Math.max(0.05, speed01);
+      aimUntil -= dt;
+      animateAvatar(rig, speed01, t, aimUntil > 0);
+    },
+    play(action) {
+      if (action === "throw") aimUntil = ACTION_SECONDS.throw;
+    },
+    sit() {
+      seated = true;
+      rig.legL.rotation.x = rig.legR.rotation.x = -Math.PI / 2;
+      rig.armL.rotation.x = rig.armR.rotation.x = -0.75;
+      return bottomOf(rig.root, [rig.legL, rig.legR]);
+    },
+    restHands() {
+      // o boneco procedural já sai de sit() com os braços no apoio
+    },
+    celebrate() {
+      // sem animação de comemoração no boneco procedural
+    },
     dispose() {
-      geo.dispose();
-      mat.dispose();
+      disposeAvatar(rig);
     },
   };
 }
 
 export function createCharacter(dna: AvatarDNA): Character {
-  return loaded ? glbCharacter(loaded, dna) : placeholderCharacter();
+  return loaded ? glbCharacter(dna, loaded) : proceduralCharacter(dna);
+}
+
+// ---------- zumbi (modo Sobrevivência) ----------
+const ZOMBIE_URL = "/assets/characters/Zombie.fbx";
+const ZOMBIE_TEXTURE_URL = "/assets/characters/zombie_texture.png";
+
+interface LoadedZombie {
+  scene: THREE.Group;
+  clip: THREE.AnimationClip | null;
+  scale: number;
+}
+
+let loadedZombie: LoadedZombie | null = null;
+let loadingZombie: Promise<boolean> | null = null;
+let zombieTexture: THREE.Texture | null = null;
+
+/**
+ * Zera o deslocamento lateral/frontal (root motion X e Z) dos ossos na animação do zumbi,
+ * mantendo o balanço vertical Y e todas as rotações das articulações da caminhada.
+ */
+function cleanZombieClip(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const c = clip.clone();
+  for (const track of c.tracks) {
+    if (track.name.endsWith(".position") && track instanceof THREE.VectorKeyframeTrack) {
+      const vals = track.values;
+      for (let i = 0; i < vals.length; i += 3) {
+        vals[i] = 0; // zera deslocamento X
+        vals[i + 2] = 0; // zera deslocamento Z
+      }
+    }
+  }
+  return c;
+}
+
+export function zombieReady(): boolean {
+  return loadedZombie !== null;
+}
+
+/** Carrega o Zombie.fbx com sua animação embutida de zumbi em movimento. */
+/** Só baixa quando aparece o primeiro zumbi: são cerca de 5 MB que quem não joga o modo não precisa. */
+export function preloadZombie(): Promise<boolean> {
+  if (loadingZombie) return loadingZombie;
+  // a textura chega junto com o modelo, porque é aplicada quando o zumbi é criado
+  const texture = new THREE.TextureLoader().loadAsync(ZOMBIE_TEXTURE_URL).then(
+    (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      zombieTexture = tex;
+    },
+    (err) => console.warn("Falha ao carregar zombie_texture.png, usando fallback procedural ou de cor", err),
+  );
+  loadingZombie = Promise.all([new FBXLoader().loadAsync(ZOMBIE_URL), texture])
+    .then(([fbx]) => {
+      const bbox = new THREE.Box3().setFromObject(fbx);
+      const size = new THREE.Vector3();
+      bbox.getSize(size);
+      const h = size.y > 0 ? size.y : 1.0;
+      const rawClip = fbx.animations && fbx.animations.length > 0 ? fbx.animations[0] : null;
+      const clip = rawClip ? cleanZombieClip(rawClip) : null;
+      loadedZombie = {
+        scene: fbx,
+        clip,
+        scale: TARGET_HEIGHT / h,
+      };
+      return true;
+    })
+    .catch((err) => {
+      console.warn("Zombie.fbx não carregou, usando fallback procedural", err);
+      return false;
+    });
+  return loadingZombie;
+}
+
+export function createZombieCharacter(): Character {
+  if (!loadedZombie) {
+    const zombieDna: AvatarDNA = {
+      name: "Zumbi",
+      model: 0,
+      face: 0,
+      skin: 5,
+      hair: 0,
+      hairColor: 0,
+      eyes: 0,
+      beard: 0,
+      beardColor: 0,
+      glasses: 0,
+      top: 0,
+      bottom: 0,
+      shirt: 0,
+      pants: 0,
+      shoes: 0,
+      accessory: 0,
+      height: 1,
+    };
+    return proceduralCharacter(zombieDna);
+  }
+
+  const root = new THREE.Group();
+  // Usa SkeletonUtils.clone para preservar as ligações dos ossos do SkinnedMesh
+  const inner = cloneSkinned(loadedZombie.scene) as THREE.Group;
+  inner.scale.setScalar(loadedZombie.scale);
+  const mats: THREE.Material[] = [];
+
+  inner.traverse((o) => {
+    const mesh = o as THREE.SkinnedMesh;
+    if (mesh.isMesh) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      const orig = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const origMap = (orig as { map?: THREE.Texture })?.map ?? null;
+      const map = zombieTexture ?? origMap;
+      const standardMat = new THREE.MeshStandardMaterial({
+        map,
+        color: map ? 0xffffff : 0x5a7d52,
+        roughness: 0.75,
+        metalness: 0.1,
+      });
+      mesh.material = standardMat;
+      mats.push(standardMat);
+    }
+  });
+  root.add(inner);
+
+  const mixer = new THREE.AnimationMixer(inner);
+  if (loadedZombie.clip) {
+    const action = mixer.clipAction(loadedZombie.clip);
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.play();
+  }
+
+  return {
+    root,
+    update(dt, speed01) {
+      // Como o zumbi já está em movimento contínuo na animação, escala proporcionalmente à velocidade
+      const rate = 0.6 + Math.max(0.2, speed01) * 0.8;
+      mixer.update(dt * rate);
+    },
+    play() {},
+    // zumbi nunca senta numa cadeira
+    sit() {
+      return 0;
+    },
+    restHands() {},
+    celebrate() {},
+    dispose() {
+      mixer.stopAllAction();
+      for (const m of mats) m.dispose();
+    },
+  };
 }
 
 let thumbRenderer: THREE.WebGLRenderer | null = null;
@@ -847,8 +690,8 @@ export function avatarThumbnail(dna: AvatarDNA, size = 160): string {
   char.root.rotation.y = 0.35;
   scene.add(char.root);
   const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
-  cam.position.set(0, 1.4, 3.6);
-  cam.lookAt(0, 0.95, 0);
+  cam.position.set(0, 1.75, 3.1);
+  cam.lookAt(0, 1.45, 0);
   thumbRenderer.render(scene, cam);
   const url = thumbRenderer.domElement.toDataURL("image/png");
   char.dispose();

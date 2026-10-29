@@ -4,23 +4,30 @@ export type Vec2 = { x: number; z: number };
 export type AbilityId = "A1" | "A2" | "A3" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "D1" | "D2" | "D3";
 export type Spec = "A" | "B";
 
-/** Crachá do jogador: índices das listas de data/avatar.ts. Roupas e acessórios entram aqui depois. */
 export interface AvatarDNA {
   name: string;
-  /** Índice de SKINS. */
+  /** Índice de MODELS: 0 monta o boneco pelo crachá, os demais são skins prontas. */
+  model: number;
   skin: number;
-  /** Índice de EYE_COLORS. */
-  eyes: number;
-  /** Índice de FACES (0 = feliz, o rosto do bebê como veio). */
-  face: number;
-  /** Índice de HAIR_STYLES (0 = careca). */
   hair: number;
-  /** Índice de HAIR_COLORS. */
   hairColor: number;
-  /** Índice de BEARDS (0 = sem barba). */
+  eyes: number;
+  /** Índice de FACES (0 = feliz, o rosto do boneco como veio). */
+  face: number;
+  /** Peça da pasta de barbas (0 = sem barba), como o cabelo. */
   beard: number;
-  /** Índice de HAIR_COLORS para a barba. */
+  /** Índice de HAIR_COLORS para a barba; crachá antigo sem o campo herda a cor do cabelo. */
   beardColor: number;
+  glasses: number;
+  /** Índice de TOPS: modelo da parte de cima, na cor de shirt. */
+  top: number;
+  /** Índice de BOTTOMS: modelo da parte de baixo, na cor de pants. O Vestido de TOPS dispensa. */
+  bottom: number;
+  shirt: number;
+  pants: number;
+  shoes: number;
+  accessory: number;
+  height: number;
 }
 
 export type StatusKind = "stun" | "blind" | "slow" | "haste";

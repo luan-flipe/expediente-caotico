@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  BEARDS,
   CHAIR_BACKS,
   CHAIR_BASES,
   CHAIR_SEATS,
@@ -10,19 +9,20 @@ import {
   EYE_COLORS,
   FACES,
   HAIR_COLORS,
-  HAIR_STYLES,
+  HEIGHTS,
   PRESETS,
   SKINS,
+  randomAvatar,
   randomChair,
   type AvatarDNA,
   type ChairDNA,
 } from "@ec/shared";
-import { AvatarPreview } from "../game/AvatarPreview";
+import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail } from "../game/character";
+import { BEARD_LABELS, HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
 import { saveAvatar, saveChair, setState, useStore } from "../store";
 
-type NumKey = "skin" | "eyes" | "face" | "hair" | "hairColor" | "beard" | "beardColor";
-type Step = "start" | "body" | "hair";
+type Step = "start" | "body" | "hair" | "clothes";
 type Start = "preset" | "custom";
 
 /** Abas do boneco, na ordem do crachá. Cada item novo entra numa delas. */
@@ -30,11 +30,12 @@ const STEPS: { id: Step; label: string }[] = [
   { id: "start", label: "Começo" },
   { id: "body", label: "Pele e olhos" },
   { id: "hair", label: "Cabelo e barba" },
+  { id: "clothes", label: "Roupas" },
 ];
 
 const STARTS: { id: Start; title: string; text: string }[] = [
   { id: "preset", title: "Funcionário pronto", text: "Comece de um modelo e ajuste o que quiser nas próximas abas." },
-  { id: "custom", title: "Do zero", text: "Comece do bebê careca e escolha cada detalhe." },
+  { id: "custom", title: "Do zero", text: "Comece do boneco padrão e escolha cada detalhe." },
 ];
 
 function Swatches({ colors, value, onPick }: { colors: string[]; value: number; onPick: (i: number) => void }) {
@@ -71,32 +72,18 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 export function Creator() {
   const saved = useStore((s) => s.avatar);
   const [dna, setDna] = useState<AvatarDNA>(saved);
-  const [step, setStep] = useState<Step>("start");
-  const [start, setStart] = useState<Start>("custom");
-  const [preset, setPreset] = useState(-1);
-  const [spin, setSpin] = useState(() => {
-    try {
-      return localStorage.getItem("ec.creatorSpin") !== "0";
-    } catch {
-      return true;
-    }
-  });
-  const toggleSpin = () => {
-    const next = !spin;
-    setSpin(next);
-    try {
-      localStorage.setItem("ec.creatorSpin", next ? "1" : "0");
-    } catch {
-      // sem storage a escolha vale só nesta sessão
-    }
-  };
   const savedChair = useStore((s) => s.chair);
   const [chair, setChair] = useState<ChairDNA>(savedChair);
   const [tab, setTab] = useState(useStore((s) => s.lobby?.mode) === "race" ? 1 : 0);
-  const set = (k: NumKey) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
   const setC = (k: keyof ChairDNA) => (i: number) => setChair((c) => ({ ...c, [k]: i }));
+  const [cheer, setCheer] = useState<PreviewAction>();
+  const [step, setStep] = useState<Step>("start");
+  const [start, setStart] = useState<Start>("custom");
+  const [preset, setPreset] = useState(-1);
+  const set = (k: keyof AvatarDNA) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
   const ready = useStore((s) => s.modelReady);
   // ready refaz as miniaturas quando o boneco termina de carregar
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const thumbs = useMemo(() => PRESETS.map((p) => avatarThumbnail(p.dna, 120)), [ready]);
 
   const at = STEPS.findIndex((s) => s.id === step);
@@ -166,19 +153,43 @@ export function Creator() {
     hair: (
       <>
         <Field label="Cabelo">
-          <Seg items={HAIR_STYLES} value={dna.hair} onPick={set("hair")} />
+          <Seg items={HAIR_LABELS} value={dna.hair} onPick={set("hair")} />
         </Field>
         {dna.hair !== 0 && (
           <Field label="Cor do cabelo">
             <Swatches colors={HAIR_COLORS} value={dna.hairColor} onPick={set("hairColor")} />
           </Field>
         )}
-        <Field label="Barba">
-          <Seg items={BEARDS} value={dna.beard} onPick={set("beard")} />
-        </Field>
+        {BEARD_LABELS.length > 1 && (
+          <Field label="Barba">
+            <Seg items={BEARD_LABELS} value={dna.beard} onPick={set("beard")} />
+          </Field>
+        )}
         {dna.beard !== 0 && (
           <Field label="Cor da barba">
             <Swatches colors={HAIR_COLORS} value={dna.beardColor} onPick={set("beardColor")} />
+          </Field>
+        )}
+      </>
+    ),
+    clothes: (
+      <>
+        <Field label="Altura">
+          <Seg items={HEIGHTS} value={dna.height} onPick={set("height")} />
+        </Field>
+        {SHIRT_LABELS.length > 1 && (
+          <Field label="Camiseta">
+            <Seg items={SHIRT_LABELS} value={dna.shirt} onPick={set("shirt")} />
+          </Field>
+        )}
+        {PANTS_LABELS.length > 1 && (
+          <Field label="Calça">
+            <Seg items={PANTS_LABELS} value={dna.pants} onPick={set("pants")} />
+          </Field>
+        )}
+        {SHOE_LABELS.length > 1 && (
+          <Field label="Tênis">
+            <Seg items={SHOE_LABELS} value={dna.shoes} onPick={set("shoes")} />
           </Field>
         )}
       </>
@@ -205,22 +216,32 @@ export function Creator() {
             <div className="badge">
               <div className="badge-top">
                 <span>CRACHÁ</span>
-                <button type="button" className="badge-spin" aria-pressed={spin} onClick={toggleSpin}>
-                  {spin ? "■ PAUSAR GIRO" : "▶ GIRO AUTOMÁTICO"}
-                </button>
+                <span>ARRASTE PARA GIRAR</span>
               </div>
-              <AvatarPreview dna={dna} chair={tab === 1 ? chair : undefined} className="badge-preview" autoRotate={spin} />
+              <AvatarPreview dna={dna} chair={tab === 1 ? chair : undefined} action={tab === 1 ? cheer : undefined} className="badge-preview" />
               <div className="badge-name">{dna.name}</div>
             </div>
             <div className="row">
               <button className="btn primary" onClick={done}>
                 Salvar
               </button>
-              {tab === 1 && (
-                <button className="btn" onClick={() => setChair(randomChair(Math.random))}>
-                  Aleatório
-                </button>
-              )}
+              <button
+                className="btn"
+                onClick={() => {
+                  const pick = (n: number) => Math.floor(Math.random() * n);
+                  setDna((d) => ({
+                    ...randomAvatar(Math.random, d.name),
+                    hair: pick(HAIR_LABELS.length),
+                    beard: Math.random() < 0.3 ? pick(BEARD_LABELS.length) : 0,
+                    shirt: pick(SHIRT_LABELS.length),
+                    pants: pick(PANTS_LABELS.length),
+                    shoes: pick(SHOE_LABELS.length),
+                  }));
+                  setChair(randomChair(Math.random));
+                }}
+              >
+                Aleatório
+              </button>
               <button className="btn" onClick={() => setState({ editing: false })}>
                 Cancelar
               </button>
@@ -255,6 +276,9 @@ export function Creator() {
                 <p className="muted" style={{ margin: 0 }}>
                   Todas as cadeiras andam igual. Aqui é só estilo: quem ganha é quem pilota melhor.
                 </p>
+                <button className="btn" style={{ marginTop: 12 }} onClick={() => setCheer((a) => ({ name: "comemorar", seq: (a?.seq ?? 0) + 1 }))}>
+                  Comemorar
+                </button>
               </div>
             </div>
           ) : (

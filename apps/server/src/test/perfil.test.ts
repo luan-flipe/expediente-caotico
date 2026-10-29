@@ -22,7 +22,7 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "ec-perfil-"));
   store = new Store(dir);
   store.data.accounts = {
-    "g-ana": { email: "ana@firma.com", name: "Ana", since: 1, avatar: { ...DEFAULT_AVATAR, name: "Ana", hair: 4 }, chair: { ...DEFAULT_CHAIR, back: 2 } },
+    "g-ana": { email: "ana@firma.com", name: "Ana", since: 1, avatar: { ...DEFAULT_AVATAR, name: "Ana", hair: 5 }, chair: { ...DEFAULT_CHAIR, back: 2 } },
     "g-beto": { email: "beto@firma.com", name: "Beto", since: 1 },
   };
   const ghost = [[0, 0, 0, 0]] as [number, number, number, number][];
@@ -45,7 +45,7 @@ describe("GET /api/perfil", () => {
     const p = (await r.json()) as PlayerProfile;
     expect(p.id).toBe(ANA);
     expect(p.name).toBe("Ana");
-    expect(p.avatar.hair).toBe(4);
+    expect(p.avatar.hair).toBe(5);
     expect(p.chair.back).toBe(2);
     expect(p.stats).toMatchObject({ shooterWins: 1, shooterMatches: 1, shooterKills: 6 });
     expect(p.laps).toEqual([{ track: MAIN_TRACK_ID, trackName: expect.any(String), ms: 29000, rank: 2 }]);
