@@ -13,7 +13,7 @@ export interface Character {
   root: THREE.Group;
   update(dt: number, speed01: number): void;
   /** Atualização dinâmica na cadeira de corrida (inclinação do corpo, cabeça na curva, braços esterçando). */
-  updateSeated?(dt: number, speed: number, steer: number, driftDir: number, boosting: boolean): void;
+  updateSeated?(dt: number, speed: number, steer: number, driftDir: number, boosting: boolean, rivalDir?: THREE.Vector3): void;
   play(action: CharacterAction): void;
   /** Executa um gesto animado ao usar um item/power-up na corrida de cadeiras. */
   playItemGesture?(item: ItemId): void;
@@ -1235,7 +1235,7 @@ function glbCharacter(dna: AvatarDNA, base: Loaded): Character {
     playItemGesture(item) {
       activeGesture = { item, time: 0, duration: 0.45 };
     },
-    updateSeated(dt, speed, steer, driftDir, boosting) {
+    updateSeated(dt, speed, steer, driftDir, boosting, rivalDir) {
       if (!seated) return;
       // Proporção de velocidade para a postura aerodinâmica de vácuo (a partir de 4 m/s até a velocidade máxima)
       const speedRatio = Math.min(1, Math.max(0, (speed - 4) / 12));
@@ -1349,16 +1349,34 @@ function glbCharacter(dna: AvatarDNA, base: Loaded): Character {
 
       // 2. Elevação da cabeça:
       // Com o tronco inclinado para a frente (+X), a cabeça ergue o queixo (-X) para mirar a pista à frente
-      const targetHeadX = (boosting
+      let targetHeadX = (boosting
         ? -0.24
         : speed > 2
           ? -0.15 * speedRatio
           : 0) + gHead_x;
 
       // 3. Olhar e inclinação na curva e no drift
-      const targetHeadY = -steer * 0.38 - driftDir * 0.42 + gHead_y;
-      const targetHeadZ = steer * 0.08 + driftDir * 0.12;
+      let targetHeadY = -steer * 0.38 - driftDir * 0.42 + gHead_y;
+      let targetHeadZ = steer * 0.08 + driftDir * 0.12;
       const targetBodyZ = (driftDir !== 0 ? driftDir * 0.18 : -steer * 0.12) + gBody_z;
+
+      // Olhar para o Rival / "Luigi Death Stare": quando um rival estiver ultrapassando ou ao lado (< 4.5m)
+      let stareWeight = 0;
+      if (rivalDir) {
+        const rivalDist = Math.hypot(rivalDir.x, rivalDir.z);
+        if (rivalDist > 0.1 && rivalDist < 4.5) {
+          const rivalAngle = Math.atan2(rivalDir.x, rivalDir.z);
+          // Vira a cabeça na direção do rival (limitado a ~55° para manter naturalidade)
+          const stareYaw = Math.max(-0.95, Math.min(0.95, -rivalAngle * 0.8));
+          // Inclinação desafiadora da cabeça e queixo apontado para baixo
+          const stareRoll = (rivalDir.x > 0 ? -0.12 : 0.12) * Math.sin(Math.abs(rivalAngle));
+          stareWeight = Math.max(0, Math.min(1, (4.5 - rivalDist) / 1.8));
+
+          targetHeadY = (1 - stareWeight) * targetHeadY + stareWeight * (stareYaw + gHead_y);
+          targetHeadZ = (1 - stareWeight) * targetHeadZ + stareWeight * stareRoll;
+          targetHeadX += stareWeight * 0.08;
+        }
+      }
 
       // 4. Braços firmes esticados nos apoios
       const armForward = boosting ? -0.20 : -speedRatio * 0.10;
@@ -1386,6 +1404,16 @@ function glbCharacter(dna: AvatarDNA, base: Loaded): Character {
         head.rotation.x = seatedHeadX + jitterHeadX;
         head.rotation.y = seatedHeadY;
         head.rotation.z = seatedHeadZ + jitterHeadZ;
+        const browL = head.getObjectByName("Sobrancelha_E");
+        const browR = head.getObjectByName("Sobrancelha_D");
+        if (browL) {
+          browL.rotation.z = -0.26 * stareWeight;
+          browL.position.y = 0.41 - 0.015 * stareWeight;
+        }
+        if (browR) {
+          browR.rotation.z = 0.26 * stareWeight;
+          browR.position.y = 0.41 - 0.015 * stareWeight;
+        }
       }
       if (body) {
         body.rotation.x = Math.max(0, seatedBodyX + jitterTorsoX);
@@ -1454,6 +1482,8 @@ function glbCharacter(dna: AvatarDNA, base: Loaded): Character {
 
 function proceduralCharacter(dna: AvatarDNA): Character {
   const rig = buildAvatar(dna);
+  const browL = rig.head.getObjectByName("Sobrancelha_E");
+  const browR = rig.head.getObjectByName("Sobrancelha_D");
   let t = 0;
   let aimUntil = 0;
   let seated = false;
@@ -1478,7 +1508,7 @@ function proceduralCharacter(dna: AvatarDNA): Character {
     playItemGesture(item) {
       activeGesture = { item, time: 0, duration: 0.45 };
     },
-    updateSeated(dt, speed, steer, driftDir, boosting) {
+    updateSeated(dt, speed, steer, driftDir, boosting, rivalDir) {
       if (!seated) return;
       // Proporção de velocidade para a postura aerodinâmica de vácuo (a partir de 4 m/s até a velocidade máxima)
       const speedRatio = Math.min(1, Math.max(0, (speed - 4) / 12));
@@ -1592,16 +1622,34 @@ function proceduralCharacter(dna: AvatarDNA): Character {
 
       // 2. Elevação da cabeça:
       // Com o tronco inclinado para a frente (+X), a cabeça ergue o queixo (-X) para mirar a pista à frente
-      const targetHeadX = (boosting
+      let targetHeadX = (boosting
         ? -0.24
         : speed > 2
           ? -0.15 * speedRatio
           : 0) + gHead_x;
 
       // 3. Olhar e inclinação na curva e no drift
-      const targetHeadY = -steer * 0.38 - driftDir * 0.42 + gHead_y;
-      const targetHeadZ = steer * 0.08 + driftDir * 0.12;
+      let targetHeadY = -steer * 0.38 - driftDir * 0.42 + gHead_y;
+      let targetHeadZ = steer * 0.08 + driftDir * 0.12;
       const targetBodyZ = (driftDir !== 0 ? driftDir * 0.18 : -steer * 0.12) + gBody_z;
+
+      // Olhar para o Rival / "Luigi Death Stare": quando um rival estiver ultrapassando ou ao lado (< 4.5m)
+      let stareWeight = 0;
+      if (rivalDir) {
+        const rivalDist = Math.hypot(rivalDir.x, rivalDir.z);
+        if (rivalDist > 0.1 && rivalDist < 4.5) {
+          const rivalAngle = Math.atan2(rivalDir.x, rivalDir.z);
+          // Vira a cabeça na direção do rival (limitado a ~55° para manter naturalidade)
+          const stareYaw = Math.max(-0.95, Math.min(0.95, -rivalAngle * 0.8));
+          // Inclinação desafiadora da cabeça e queixo apontado para baixo
+          const stareRoll = (rivalDir.x > 0 ? -0.12 : 0.12) * Math.sin(Math.abs(rivalAngle));
+          stareWeight = Math.max(0, Math.min(1, (4.5 - rivalDist) / 1.8));
+
+          targetHeadY = (1 - stareWeight) * targetHeadY + stareWeight * (stareYaw + gHead_y);
+          targetHeadZ = (1 - stareWeight) * targetHeadZ + stareWeight * stareRoll;
+          targetHeadX += stareWeight * 0.08;
+        }
+      }
 
       // 4. Braços firmes esticados nos apoios
       const armForward = boosting ? -0.20 : -speedRatio * 0.10;
@@ -1628,6 +1676,14 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       rig.head.rotation.x = seatedHeadX + jitterHeadX;
       rig.head.rotation.y = seatedHeadY;
       rig.head.rotation.z = seatedHeadZ + jitterHeadZ;
+      if (browL) {
+        browL.rotation.z = -0.26 * stareWeight;
+        browL.position.y = 0.41 - 0.015 * stareWeight;
+      }
+      if (browR) {
+        browR.rotation.z = 0.26 * stareWeight;
+        browR.position.y = 0.41 - 0.015 * stareWeight;
+      }
       rig.body.rotation.x = Math.max(0, seatedBodyX + jitterTorsoX);
       rig.body.rotation.y = (boosting ? jitterTorsoY : 0) + gBody_y;
       rig.body.rotation.z = seatedBodyZ;

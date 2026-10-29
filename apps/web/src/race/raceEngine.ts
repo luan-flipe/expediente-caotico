@@ -35,6 +35,8 @@ import type { Ghosts } from "../store";
 import { buildTrack } from "./trackScene";
 import { buildParachute, parachuteFor } from "./parachute";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
+import { applyFresnelRimToHierarchy, RaceVfxManager, type DriftLevel } from "./vfxJuice";
+import { TrackInteractiveManager, type KartInteractiveInfo } from "./trackInteractive";
 
 interface Sample {
   t: number;
@@ -113,6 +115,7 @@ const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f", "#bd34fe"];
 /** Treino: os outros pilotos aparecem assim (sem colisão entre cadeiras). */
 const TRIAL_OTHERS_OPACITY = 0.4;
 const DEFAULT_CHAIR: ChairDNA = { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 };
+const TMP_RIVAL_DIR = new THREE.Vector3();
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -222,6 +225,8 @@ export class RaceEngine {
   private raf = 0;
   private lastFrame = performance.now();
   private cleanup: (() => void)[] = [];
+  private vfx: RaceVfxManager;
+  private interactive: TrackInteractiveManager;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -244,6 +249,9 @@ export class RaceEngine {
     Object.assign(this.sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 2, far: 120 });
     this.scene.add(this.sun.target);
     this.disposeTrack = buildTrack(this.scene, track);
+    this.vfx = new RaceVfxManager(this.scene, this.camera);
+    this.interactive = new TrackInteractiveManager({ track });
+    this.interactive.init(this.scene);
 
     const skidGeo = new THREE.PlaneGeometry(0.18, 0.4);
     skidGeo.rotateX(-Math.PI / 2);
@@ -567,6 +575,7 @@ export class RaceEngine {
   }
 
   private spawnPaperImpact(x: number, z: number): void {
+    this.vfx?.spawnImpactShockwave(x, z, 0.02, "paper");
     if (this.quality === "leve") return;
     let count = 0;
     for (const pt of this.itemParticles) {
@@ -631,6 +640,7 @@ export class RaceEngine {
         m.position.set(b.x, 0.9, b.z);
         this.scene.add(m);
         this.boxes.set(b.id, m);
+        this.interactive.registerItemBox(m, 0.9);
       }
       m.visible = b.ready;
     }
@@ -645,6 +655,7 @@ export class RaceEngine {
           m.position.set(c.x, 0.38, c.z);
           this.scene.add(m);
           this.cups.set(c.id, m);
+          this.interactive.registerCup(m, 0.38);
         }
         m.visible = c.ready;
       }
@@ -652,6 +663,7 @@ export class RaceEngine {
         if (!liveCups.has(id)) {
           this.scene.remove(m);
           this.cups.delete(id);
+          this.interactive.removeCup(id);
         }
       }
     }
@@ -785,6 +797,7 @@ export class RaceEngine {
     const r3d = seatedRacer(person?.avatar ?? { ...DEFAULT_AVATAR, name: k.name }, person?.chair ?? DEFAULT_CHAIR);
     const faded = !!this.snap?.timeTrial && k.id !== this.myId;
     const restore = faded ? fadeMaterials(r3d.root, { opacity: TRIAL_OTHERS_OPACITY }) : null;
+    if (!faded) applyFresnelRimToHierarchy(r3d.root, "#ffffff", 0.65, 2.5);
     // r3d.root fica no chão; body inclina e gira por cima dele
     const body = new THREE.Group();
     while (r3d.root.children.length) body.add(r3d.root.children[0]);
@@ -1054,6 +1067,18 @@ export class RaceEngine {
         steer = dt > 0.001 ? Math.max(-1, Math.min(1, dHeading / (dt * 2.5))) : 0;
       }
       this.updateView(v, x, z, heading, y, dt, mine ? this.pred! : null, steer);
+
+    const kartsForInteractive: KartInteractiveInfo[] = [];
+    for (const vk of this.views.values()) {
+      kartsForInteractive.push({
+        pos: { x: vk.r3d.root.position.x, z: vk.r3d.root.position.z },
+        speed: vk.last.speed,
+      });
+    }
+    this.interactive?.update(dt, kartsForInteractive);
+    this.vfx?.update(dt, now);
+
+
     }
 
     for (const b of this.boxes.values()) {
@@ -1142,6 +1167,10 @@ export class RaceEngine {
         }
 
         case "poca": {
+          if (!h.impacted) {
+            h.impacted = true;
+            this.vfx?.spawnImpactShockwave(h.obj.position.x, h.obj.position.z, 0.02, "coffee");
+          }
           // Poça de café: expande do centro ao se formar no piso
           const expand = Math.min(1, age / 0.18);
           h.obj.scale.set(expand, 1, expand);
@@ -1254,16 +1283,50 @@ export class RaceEngine {
     // 5. Rotações finais no corpo da cadeira
     v.spin = spinning ? v.spin + dt * 12 : 0;
     v.body.rotation.y = v.spin + v.slideYaw;
-    v.body.rotation.z = v.roll;
+    v.body.rotation.z = v.roll * 0.25;
     v.body.rotation.x = v.pitch;
 
     // 6. Atualização do boneco e rodas
-    v.r3d.update(dt, speed, steerInput, driftDir, boosting);
+    // Voo da rampa ou pulo de drift
+    const air = own ? !!own.air : flags.has("air");
+    const inAir = air || v.hopY > 0;
+
+    // Detecção do rival mais próximo para o "Luigi Death Stare" (< 4.5m)
+    let nearestDistSq = 4.5 * 4.5;
+    let foundRival = false;
+    let rivalLocalX = 0;
+    let rivalLocalY = 0;
+    let rivalLocalZ = 0;
+
+    for (const [otherId, otherView] of this.views) {
+      if (otherId === v.last.id) continue;
+      const ox = otherView.r3d.root.position.x;
+      const oy = otherView.r3d.root.position.y;
+      const oz = otherView.r3d.root.position.z;
+      const dx = ox - x;
+      const dy = oy - y;
+      const dz = oz - z;
+      const dSq = dx * dx + dz * dz;
+      if (dSq < nearestDistSq) {
+        nearestDistSq = dSq;
+        foundRival = true;
+        rivalLocalX = dx * Math.cos(heading) - dz * Math.sin(heading);
+        rivalLocalY = dy;
+        rivalLocalZ = dx * Math.sin(heading) + dz * Math.cos(heading);
+      }
+    }
+
+    let rivalDir: THREE.Vector3 | undefined;
+    if (foundRival) {
+      TMP_RIVAL_DIR.set(rivalLocalX, rivalLocalY, rivalLocalZ);
+      rivalDir = TMP_RIVAL_DIR;
+    }
+
+    v.r3d.update(dt, speed, steerInput, driftDir, boosting, rivalDir, inAir);
     v.r3d.root.position.set(x, y, z);
     v.r3d.root.rotation.y = heading;
 
     // Voo da rampa: paraquedas abre depois do pico e some ao pousar; a sombra fica no chão
-    const air = own ? !!own.air : flags.has("air");
     const chuteOn = own ? air && (own.vy ?? 0) < 0 : flags.has("chute");
     v.chuteOpen = chuteOn ? Math.min(1, v.chuteOpen + dt * 5) : Math.max(0, v.chuteOpen - dt * 8);
     v.chute.visible = v.chuteOpen > 0.01;
@@ -1337,6 +1400,12 @@ export class RaceEngine {
       boosting;
     if (!lite && shouldSmoke && v.smokeTimer >= (boosting ? 0.03 : 0.045)) {
       v.smokeTimer = 0;
+      const fwdX = Math.sin(heading);
+      const fwdZ = Math.cos(heading);
+      this.vfx?.spawnDriftSmoke(x, y + 0.08, z, fwdX, fwdZ, speed, boosting);
+      if (drift >= 1) {
+        this.vfx?.spawnDriftSparks(x, y + 0.08, z, heading, drift as DriftLevel, driftDir);
+      }
       const puff = v.smokePuffs.find((p) => !p.mesh.visible);
       if (puff) {
         puff.mesh.visible = true;
@@ -1401,6 +1470,11 @@ export class RaceEngine {
         this.skidIdx = (this.skidIdx + 1) % 200;
       }
       this.skidMesh.instanceMatrix.needsUpdate = true;
+    }
+    if (own) {
+      const slipstreaming = flags.has("slipstream");
+      const activeStreaks = (boosting || slipstreaming) && !lite;
+      this.vfx?.setSpeedStreaks(activeStreaks, boosting ? 1.0 : 0.65, x, y, z, heading, speed);
     }
   }
 
@@ -1572,6 +1646,8 @@ export class RaceEngine {
     this.boxMat.map?.dispose();
     this.boxMat.dispose();
     for (const m of this.hazardMats.values()) m.dispose();
+    this.vfx?.dispose();
+    this.interactive?.dispose();
     this.disposeTrack?.();
     this.disposeTrack = null;
     this.renderer.dispose();

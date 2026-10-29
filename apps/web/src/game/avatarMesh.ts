@@ -108,13 +108,18 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
   body.add(armL, armR);
 
   const head = at(new THREE.Group(), 0, 1.44, 0);
+  head.name = "Cabeca";
   body.add(head);
   head.add(at(box(0.12, 0.1, 0.12, skin), 0, 0.03, 0));
   head.add(at(box(0.52, 0.5, 0.48, skin, 0.08), 0, 0.31, 0));
   head.add(at(box(0.07, 0.08, 0.02, dark), -0.11, 0.33, 0.245));
   head.add(at(box(0.07, 0.08, 0.02, dark), 0.11, 0.33, 0.245));
-  head.add(at(box(0.1, 0.025, 0.02, hair), -0.11, 0.41, 0.245));
-  head.add(at(box(0.1, 0.025, 0.02, hair), 0.11, 0.41, 0.245));
+  const browL = at(box(0.1, 0.025, 0.02, hair), -0.11, 0.41, 0.245);
+  browL.name = "Sobrancelha_E";
+  head.add(browL);
+  const browR = at(box(0.1, 0.025, 0.02, hair), 0.11, 0.41, 0.245);
+  browR.name = "Sobrancelha_D";
+  head.add(browR);
   head.add(at(box(0.14, 0.03, 0.02, mat("#8a3b2e")), 0, 0.19, 0.245));
   addHair(head, dna.hair, hair);
 
