@@ -22,6 +22,8 @@ export const SHOES = ["Descalço", "Meia", "Tênis", "Sapato", "Salto alto", "Bo
 export const GLASSES = ["Sem óculos", "Redondo", "Quadrado"];
 export const ACCESSORIES = ["Nenhum", "Fone", "Boné", "Gravata", "Crachá"];
 export const HEIGHTS = ["Baixo", "Médio", "Alto"];
+/** Teto do índice de cabelo, camiseta, calça e tênis: 0 é nenhum, os demais vêm das pastas de peças do cliente. */
+export const MAX_WEARABLES = 32;
 
 export const DEFAULT_AVATAR: AvatarDNA = {
   name: "Funcionário",
@@ -37,7 +39,7 @@ export const DEFAULT_AVATAR: AvatarDNA = {
   bottom: 0,
   shirt: 0,
   pants: 0,
-  shoes: 2,
+  shoes: 0,
   accessory: 4,
   height: 1,
 };
@@ -70,7 +72,8 @@ export function sanitizeAvatar(raw: unknown): AvatarDNA {
     name: sanitizeName(r.name),
     model: idx(r.model, MODELS.length, d.model),
     skin: idx(r.skin, SKINS.length, d.skin),
-    hair: idx(r.hair, HAIR_STYLES.length, d.hair),
+    // cabelo, camiseta, calça e tênis indexam as pastas de peças do cliente
+    hair: idx(r.hair, MAX_WEARABLES, d.hair),
     hairColor,
     eyes: idx(r.eyes, EYE_COLORS.length, d.eyes),
     beard: beardIdx(r.beard),
@@ -79,9 +82,9 @@ export function sanitizeAvatar(raw: unknown): AvatarDNA {
     glasses: idx(r.glasses, GLASSES.length, d.glasses),
     top: idx(r.top, TOPS.length, d.top),
     bottom: idx(r.bottom, BOTTOMS.length, d.bottom),
-    shirt: idx(r.shirt, SHIRTS.length, d.shirt),
-    pants: idx(r.pants, PANTS.length, d.pants),
-    shoes: idx(r.shoes, SHOES.length, d.shoes),
+    shirt: idx(r.shirt, MAX_WEARABLES, d.shirt),
+    pants: idx(r.pants, MAX_WEARABLES, d.pants),
+    shoes: idx(r.shoes, MAX_WEARABLES, d.shoes),
     accessory: idx(r.accessory, ACCESSORIES.length, d.accessory),
     height: idx(r.height, HEIGHTS.length, d.height),
   };
@@ -105,7 +108,7 @@ export function randomAvatar(rng: () => number, name = DEFAULT_AVATAR.name): Ava
     bottom: r(BOTTOMS.length),
     shirt: r(SHIRTS.length),
     pants: r(PANTS.length),
-    shoes: r(SHOES.length),
+    shoes: 0,
     accessory: r(ACCESSORIES.length),
     height: r(HEIGHTS.length),
   };
@@ -117,7 +120,7 @@ type PresetDNA = Omit<AvatarDNA, "name" | "model" | "eyes" | "shoes" | "top" | "
 /** Sem beardColor, a barba do funcionário pronto é da cor do cabelo. */
 const p = (n: number, dna: PresetDNA) => ({
   id: `funcionario_${String(n).padStart(2, "0")}`,
-  dna: { name: `Funcionário ${String(n).padStart(2, "0")}`, model: 0, eyes: 0, shoes: 2, top: 0, bottom: 0, beardColor: dna.hairColor, ...dna },
+  dna: { name: `Funcionário ${String(n).padStart(2, "0")}`, model: 0, eyes: 0, shoes: 0, top: 0, bottom: 0, beardColor: dna.hairColor, ...dna },
 });
 
 /** Pontos de partida editáveis. Os nomes reais entram depois. */

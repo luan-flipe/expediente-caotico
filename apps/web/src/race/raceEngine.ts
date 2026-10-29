@@ -613,6 +613,7 @@ export class RaceEngine {
     for (const k of s.karts) {
       seen.add(k.id);
       const v = this.viewFor(k);
+      if (k.finished && !v.last.finished) v.r3d.celebrate();
       v.buf.push({ t: now, x: k.x, z: k.z, heading: k.heading, y: k.y ?? 0 });
       if (v.buf.length > 20) v.buf.shift();
       v.last = k;

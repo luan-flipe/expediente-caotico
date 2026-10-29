@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
 import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN, RACE, TRACK_IDS, TRACKS } from "@ec/shared";
-import { avatarThumbnail } from "../game/character";
+import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
+import { avatarThumbnail, type CharacterAction } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
 import { canNativeShare, inviteText } from "../invite";
 import { getLobbyMusicEnabled, getLobbyMusicVolume, setLobbyMusicEnabled, setLobbyMusicVolume, startLobbyMusic, stopLobbyMusic, subscribeLobbyMusic } from "../sound";
 import { leaveRoom, net, setState, useStore } from "../store";
 
+const ACTIONS: [CharacterAction, string][] = [
+  ["throw", "Arremessar"],
+  ["cafe", "Café"],
+  ["dash", "Dash"],
+  ["tchau", "Tchau"],
+];
 const LAP_CHOICES = Array.from({ length: LAPS_MAX - LAPS_MIN + 1 }, (_, i) => LAPS_MIN + i);
 
 export function Lobby() {
@@ -13,8 +20,13 @@ export function Lobby() {
   const myId = useStore((s) => s.myId);
   const error = useStore((s) => s.error);
   const online = useStore((s) => s.online);
+  const avatar = useStore((s) => s.avatar);
   useStore((s) => s.modelReady);
   const [copied, setCopied] = useState(false);
+  const [move, setMove] = useState<"walk" | "run">();
+  const [spin, setSpin] = useState(true);
+  const [action, setAction] = useState<PreviewAction>();
+  const play = (name: CharacterAction) => setAction((a) => ({ name, seq: (a?.seq ?? 0) + 1 }));
   const [lobbyMusicOn, setLobbyMusicOn] = useState(() => getLobbyMusicEnabled());
   const [lobbyVolume, setLobbyVolume] = useState(() => getLobbyMusicVolume());
 
@@ -141,6 +153,27 @@ export function Lobby() {
             <p className="label" style={{ margin: 0 }}>
               Você
             </p>
+            <AvatarPreview dna={avatar} move={move} action={action} spin={spin} className="badge-preview" />
+            <div className="seg">
+              <button className={spin ? "on" : ""} onClick={() => setSpin((s) => !s)}>
+                Girar
+              </button>
+              {(
+                [
+                  ["walk", "Andar"],
+                  ["run", "Correr"],
+                ] as const
+              ).map(([m, label]) => (
+                <button key={m} className={move === m ? "on" : ""} onClick={() => setMove((cur) => (cur === m ? undefined : m))}>
+                  {label}
+                </button>
+              ))}
+              {ACTIONS.map(([name, label]) => (
+                <button key={name} onClick={() => play(name)}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="row">
               {!isHost && (
                 <button className={`btn ${me?.ready ? "" : "primary"}`} onClick={() => net.send({ t: "ready", ready: !me?.ready })}>
