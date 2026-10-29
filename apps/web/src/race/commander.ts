@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { pointAt, RACE, TRACK } from "@ec/shared";
+import { pointAt, RACE, type Track } from "@ec/shared";
+import { createGltfLoader } from "../game/gltfLoader";
 
 /** Comandante: o narrador da corrida, sobrevoando a pista de helicóptero. */
 const MODEL_URL = "/assets/characters/comandante_helicoptero.glb";
@@ -33,7 +33,7 @@ function loadSound(): Promise<AudioBuffer | null> {
 }
 
 export function preloadCommander(): Promise<boolean> {
-  loading ??= new GLTFLoader()
+  loading ??= createGltfLoader()
     .loadAsync(MODEL_URL)
     .then((gltf) => {
       loaded = { scene: gltf.scene, rotor: gltf.animations.find((a) => a.name === ROTOR_CLIP) ?? null };
@@ -89,8 +89,11 @@ export interface Commander {
   dispose(): void;
 }
 
-/** null se o GLB não carregou: a corrida funciona sem o Comandante. Com listener, o helicóptero faz barulho. */
-export function createCommander(listener?: THREE.AudioListener): Commander | null {
+/**
+ * null se o GLB não carregou: a corrida funciona sem o Comandante. Com listener, o helicóptero faz barulho;
+ * `effectsBus` (se vier) é o canal de volume dos efeitos, por onde o som passa antes do volume geral.
+ */
+export function createCommander(track: Track, listener?: THREE.AudioListener, effectsBus?: AudioNode): Commander | null {
   if (!loaded) return null;
   const root = new THREE.Group();
   let disposed = false;
@@ -101,6 +104,7 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
     root.add(audio);
     void loadSound().then((buffer) => {
       if (!buffer || disposed) return;
+      if (effectsBus) audio.setFilter(effectsBus);
       audio.setBuffer(buffer);
       audio.setLoop(true);
       audio.setLoopStart(SOUND_LOOP[0]);
@@ -141,7 +145,9 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
     { ry: -Math.PI / 2, attach: 1, side: -1 },
   ].map(({ ry, attach, side }) => {
     const geo = new THREE.PlaneGeometry(BANNER_W, BANNER_H, 28, 4);
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 5);
     const face = new THREE.Mesh(geo, bannerMat);
+    face.frustumCulled = false;
     face.rotation.y = ry;
     face.castShadow = true;
     banner.add(face);
@@ -165,7 +171,8 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
       for (let i = 0; i < pos.count; i++) {
         const x = f.base[i * 3];
         const y = f.base[i * 3 + 1];
-        const e = (BANNER_W / 2 - f.attach * x) / BANNER_W; // 0 na corda, 1 na ponta solta
+        // 0 na corda, 1 na ponta solta; o arredondamento pode passar de [0, 1] e pow de negativo dá NaN
+        const e = Math.min(1, Math.max(0, (BANNER_W / 2 - f.attach * x) / BANNER_W));
         const amp = 0.08 + 0.42 * Math.pow(e, 1.4);
         const wave = Math.sin(e * Math.PI * 2.6 - time * 7.5) * amp;
         const ripple = Math.sin(e * Math.PI * 5 - time * 11 + y * 2) * 0.06 * e;
@@ -198,7 +205,7 @@ export function createCommander(listener?: THREE.AudioListener): Commander | nul
         y = HOVER_HEIGHT + 4 * (1 - ease);
         faceGrid = u > 0.45;
       }
-      const at = pointAt(TRACK, s);
+      const at = pointAt(track, s);
       root.position.set(at.pos.x, y + Math.sin(t * 1.8) * 0.2, at.pos.z);
       const facing = faceGrid ? at.heading + Math.PI : at.heading;
       root.rotation.y = placed ? angleTo(root.rotation.y, facing, dt * 2) : facing;

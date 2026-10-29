@@ -1,16 +1,6 @@
 import * as THREE from "three";
-import { OFFICE_MAP, type Box } from "@ec/shared";
-
-const COLORS: Record<Box["kind"], string> = {
-  wall: "#ece6da",
-  glass: "#a9d4f0",
-  desk: "#c9a27a",
-  cabinet: "#8b939e",
-  counter: "#d8d2c4",
-  plant: "#7a5236",
-  partition: "#6d86a6",
-  sofa: "#3f6b8a",
-};
+import { OFFICE_MAP } from "@ec/shared";
+import { createOutdoorGroundMaterial } from "./floorTextures";
 
 function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, shadow = true): THREE.Mesh {
   const m = new THREE.Mesh(geo, mat);
@@ -20,88 +10,113 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: numb
   return m;
 }
 
-/** Monta o escritório a partir da mesma lista de caixas usada pela colisão do servidor. */
+/** Monta o mapa como um campo gramado aberto, sem paredes nem móveis de escritório, com relevos e escadas. */
 export function buildOffice(scene: THREE.Scene): void {
   const W = OFFICE_MAP.width;
   const D = OFFICE_MAP.depth;
 
-  const ground = mesh(new THREE.PlaneGeometry(W + 40, D + 40), new THREE.MeshStandardMaterial({ color: "#7d8a6a", roughness: 1 }), 0, -0.02, 0, false);
+  // Gramado contínuo cobrindo toda a arena e o horizonte visível
+  const groundMat = createOutdoorGroundMaterial();
+  const ground = mesh(new THREE.PlaneGeometry(W + 60, D + 50), groundMat, 0, 0, 0, false);
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  for (const r of OFFICE_MAP.rooms) {
-    const floor = mesh(new THREE.PlaneGeometry(r.w, r.d), new THREE.MeshStandardMaterial({ color: r.floor, roughness: 0.95 }), r.x, 0, r.z, false);
-    floor.rotation.x = -Math.PI / 2;
-    scene.add(floor);
-    const lines = new THREE.GridHelper(Math.max(r.w, r.d), Math.max(r.w, r.d) / 2, "#000000", "#000000");
-    (lines.material as THREE.Material).opacity = 0.05;
-    (lines.material as THREE.Material).transparent = true;
-    lines.position.set(r.x, 0.01, r.z);
-    lines.scale.set(r.w / Math.max(r.w, r.d), 1, r.d / Math.max(r.w, r.d));
-    scene.add(lines);
+  // Materiais orgânicos para os relevos e escadas campestres
+  const earthBase = new THREE.MeshStandardMaterial({ color: "#54463a", roughness: 0.95, flatShading: true });
+  const plateauGrass = new THREE.MeshStandardMaterial({ color: "#4f7d3d", roughness: 0.9, flatShading: true });
+  const rusticWood = new THREE.MeshStandardMaterial({ color: "#7a5c3e", roughness: 0.85, flatShading: true });
+  const stoneMat = new THREE.MeshStandardMaterial({ color: "#757c82", roughness: 0.9, flatShading: true });
+  const flowerWhite = new THREE.MeshStandardMaterial({ color: "#fefefe", roughness: 0.8 });
+  const flowerYellow = new THREE.MeshStandardMaterial({ color: "#f7d038", roughness: 0.8 });
+  const bushMat = new THREE.MeshStandardMaterial({ color: "#3d6e32", roughness: 0.95, flatShading: true });
+
+  // =========================================================================
+  // RELEVOS E PLATAFORMAS ELEVADAS (COLINAS / PLATÔS DO CAMPO GRAMADO)
+  // =========================================================================
+  if (OFFICE_MAP.elevations) {
+    for (const elev of OFFICE_MAP.elevations) {
+      const baseH = elev.h;
+      // Base sólida de terra / rocha da colina
+      scene.add(mesh(new THREE.BoxGeometry(elev.w, baseH, elev.d), earthBase, elev.x, baseH / 2, elev.z));
+      // Topo gramado do platô elevado
+      scene.add(mesh(new THREE.BoxGeometry(elev.w + 0.1, 0.08, elev.d + 0.1), plateauGrass, elev.x, elev.h + 0.04, elev.z));
+
+      // Pequenas pedras ao redor da base da colina
+      const rockGeo = new THREE.DodecahedronGeometry(0.35, 0);
+      scene.add(mesh(rockGeo, stoneMat, elev.x - elev.w / 2 - 0.2, 0.2, elev.z + elev.d / 2 - 0.4));
+      scene.add(mesh(rockGeo, stoneMat, elev.x + elev.w / 2 + 0.2, 0.2, elev.z - elev.d / 2 + 0.4));
+    }
   }
 
-  const mats = new Map<string, THREE.Material>();
-  const matOf = (kind: Box["kind"]) => {
-    let m = mats.get(kind);
-    if (!m) {
-      m =
-        kind === "glass"
-          ? new THREE.MeshStandardMaterial({ color: COLORS.glass, transparent: true, opacity: 0.32, roughness: 0.1, metalness: 0.1 })
-          : new THREE.MeshStandardMaterial({ color: COLORS[kind], roughness: 0.85, flatShading: true });
-      mats.set(kind, m);
-    }
-    return m;
-  };
+  // =========================================================================
+  // ESCADAS RÚSTICAS DE MADEIRA / PEDRA PARA SUBIR E DESCER
+  // =========================================================================
+  if (OFFICE_MAP.stairs) {
+    for (const stair of OFFICE_MAP.stairs) {
+      const n = stair.steps;
+      const stepThick = 0.08;
 
-  const top = new THREE.MeshStandardMaterial({ color: "#f3efe6", roughness: 0.7 });
-  const screen = new THREE.MeshStandardMaterial({ color: "#1b2433", emissive: "#2a4f8a", emissiveIntensity: 0.6 });
-  const leaf = new THREE.MeshStandardMaterial({ color: "#3e9b52", roughness: 0.9, flatShading: true });
-  const wallTop = new THREE.MeshStandardMaterial({ color: "#5a554c" });
-  const chair = new THREE.MeshStandardMaterial({ color: "#2b2f36", roughness: 0.8 });
-
-  for (const b of OFFICE_MAP.boxes) {
-    if (b.kind === "plant") {
-      scene.add(mesh(new THREE.CylinderGeometry(0.32, 0.26, 0.55, 8), matOf("plant"), b.x, 0.275, b.z));
-      scene.add(mesh(new THREE.IcosahedronGeometry(0.6, 0), leaf, b.x, 1.1, b.z));
-      continue;
-    }
-    if (b.kind === "desk") {
-      scene.add(mesh(new THREE.BoxGeometry(b.w, 0.08, b.d), top, b.x, b.h - 0.04, b.z));
-      scene.add(mesh(new THREE.BoxGeometry(b.w * 0.96, b.h - 0.08, b.d * 0.9), matOf("desk"), b.x, (b.h - 0.08) / 2, b.z));
-      if (b.w >= 3.5 && b.d < 2) {
-        for (const off of [-b.w / 4, b.w / 4]) {
-          const facing = b.z > 0 ? 1 : -1;
-          scene.add(mesh(new THREE.BoxGeometry(0.7, 0.45, 0.05), screen, b.x + off, b.h + 0.3, b.z));
-          const c = mesh(new THREE.BoxGeometry(0.55, 0.9, 0.55), chair, b.x + off, 0.45, b.z + facing * 1.05, true);
-          scene.add(c);
+      if (stair.axis === "x") {
+        const stepW = stair.w / n;
+        const xStart = stair.x - stair.w / 2 + stepW / 2;
+        for (let i = 0; i < n; i++) {
+          const progress = (i + 1) / n;
+          const curY = stair.h0 + (stair.direction > 0 ? progress : 1 - i / n) * (stair.h1 - stair.h0);
+          const curX = xStart + (stair.direction > 0 ? i : n - 1 - i) * stepW;
+          // Bloco rústico do degrau
+          scene.add(mesh(new THREE.BoxGeometry(stepW * 1.02, curY, stair.d), earthBase, curX, curY / 2, stair.z));
+          // Pisada de madeira rústica do degrau
+          scene.add(mesh(new THREE.BoxGeometry(stepW * 1.06, stepThick, stair.d + 0.06), rusticWood, curX, curY + stepThick / 2, stair.z));
+        }
+      } else {
+        const stepD = stair.d / n;
+        const zStart = stair.z - stair.d / 2 + stepD / 2;
+        for (let i = 0; i < n; i++) {
+          const progress = (i + 1) / n;
+          const curY = stair.h0 + (stair.direction > 0 ? progress : 1 - i / n) * (stair.h1 - stair.h0);
+          const curZ = zStart + (stair.direction > 0 ? i : n - 1 - i) * stepD;
+          scene.add(mesh(new THREE.BoxGeometry(stair.w, curY, stepD * 1.02), earthBase, stair.x, curY / 2, curZ));
+          scene.add(mesh(new THREE.BoxGeometry(stair.w + 0.06, stepThick, stepD * 1.06), rusticWood, stair.x, curY + stepThick / 2, curZ));
         }
       }
-      continue;
-    }
-    const m = mesh(new THREE.BoxGeometry(b.w, b.h, b.d), matOf(b.kind), b.x, b.h / 2, b.z, b.kind !== "glass");
-    scene.add(m);
-    if (b.kind === "wall") scene.add(mesh(new THREE.BoxGeometry(b.w + 0.02, 0.08, b.d + 0.02), wallTop, b.x, b.h + 0.04, b.z, false));
-    if (b.kind === "glass") {
-      const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w, b.h, b.d)), new THREE.LineBasicMaterial({ color: "#5a6f80" }));
-      frame.position.copy(m.position);
-      scene.add(frame);
     }
   }
 
-  for (const r of OFFICE_MAP.rooms) {
-    const c = document.createElement("canvas");
-    c.width = 512;
-    c.height = 96;
-    const g = c.getContext("2d")!;
-    g.fillStyle = "rgba(29,27,23,0.08)";
-    g.font = "800 64px 'Bricolage Grotesque', sans-serif";
-    g.textAlign = "center";
-    g.textBaseline = "middle";
-    g.fillText(r.name.toUpperCase(), 256, 50);
-    const label = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
-    label.rotation.x = -Math.PI / 2;
-    label.position.set(r.x, 0.02, r.z + r.d / 2 - 1.4);
-    scene.add(label);
+  // =========================================================================
+  // DETALHES NATURAIS DO CAMPO ABERTO (FLORES E PEQUENAS PEDRAS DECORATIVAS)
+  // Sem colisores físicos, campo 100% desobstruído para tiros e movimentação.
+  // =========================================================================
+  const flowerGeo = new THREE.DodecahedronGeometry(0.12, 0);
+  const rockSmallGeo = new THREE.DodecahedronGeometry(0.28, 0);
+
+  // Espalha pequenas flores e detalhes decorativos pelo gramado
+  const decorPoints: [number, number][] = [
+    [-22, -8], [-12, -14], [8, -16], [24, -6],
+    [-24, 6], [-10, 15], [10, 8], [22, 12],
+    [-5, -10], [6, -4], [-8, 4], [4, 12],
+  ];
+
+  for (let i = 0; i < decorPoints.length; i++) {
+    const [dx, dz] = decorPoints[i];
+    const isFlower = i % 2 === 0;
+    if (isFlower) {
+      const fMat = i % 4 === 0 ? flowerYellow : flowerWhite;
+      scene.add(mesh(flowerGeo, fMat, dx, 0.12, dz, false));
+      scene.add(mesh(flowerGeo, fMat, dx + 0.25, 0.14, dz - 0.2, false));
+    } else {
+      scene.add(mesh(rockSmallGeo, stoneMat, dx, 0.18, dz, true));
+    }
+  }
+
+  // Arbustos decorativos suaves nos limites externos do campo gramado
+  const bushGeo = new THREE.IcosahedronGeometry(0.9, 1);
+  const edgeBushes: [number, number][] = [
+    [-34, -20], [-34, 0], [-34, 20],
+    [34, -20], [34, 0], [34, 20],
+    [-18, -21], [0, -21], [18, -21],
+    [-18, 21], [0, 21], [18, 21],
+  ];
+  for (const [bx, bz] of edgeBushes) {
+    scene.add(mesh(bushGeo, bushMat, bx, 0.65, bz, true));
   }
 }

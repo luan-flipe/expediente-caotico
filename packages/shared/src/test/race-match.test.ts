@@ -3,7 +3,11 @@ import { DEFAULT_AVATAR } from "../data/avatar";
 import { RACE } from "../race/balance";
 import { DEFAULT_CHAIR } from "../race/chair";
 import { buildRacePrivate, buildRaceSnapshot, createRace, getRaceResults, respawnRequest, setKartInput, stepRace } from "../race/match";
-import { progressOf, TRACK } from "../race/track";
+import { respawnAt } from "../race/kart";
+import { deltaS, pointAt, progressOf, rampStart, TRACK, TRACKS } from "../race/track";
+import { stepRaceBot } from "../race/bots";
+import { collideKarts, newKart as newKartAt } from "../race/kart";
+import { pilot } from "./race-pilot";
 
 const DT = 1000 / 30;
 
@@ -81,6 +85,53 @@ describe("partida de corrida", () => {
     expect(p.kart.pos).not.toEqual(pos);
   });
 
+  it("dentro do atalho: andar certo não é contramão e R volta no atalho", () => {
+    const r = race(2, false);
+    for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
+    const p = r.racers.get("p0")!;
+    const b = TRACK.branches[0];
+    // percorre o atalho até a metade, passando pelos checkpoints da principal
+    const span = deltaS(TRACK, b.sFrom, b.sTo);
+    p.kart = { ...p.kart, ...respawnAt(TRACK, b.sFrom - 4, -1), path: -1, speed: 0 };
+    p.lap = { ...p.lap, lastS: b.sFrom - 4 };
+    for (let i = 0; i < 90 && deltaS(TRACK, b.sFrom + span * 0.6, progressOf(TRACK, p.kart.pos, p.kart.path).s) < 0; i++) {
+      setKartInput(r, "p0", pilot(TRACK, p.kart, 0));
+      stepRace(r, DT);
+      expect(p.wrongMs).toBe(0);
+    }
+    expect(p.kart.path).toBe(0);
+    respawnRequest(r, "p0");
+    stepRace(r, DT);
+    expect(p.kart.path).toBe(0);
+    expect(progressOf(TRACK, p.kart.pos, 0).path).toBe(0);
+  });
+
+  it("bots pegam o atalho conforme o nível e não ficam presos nele", () => {
+    const b = TRACK.branches[0];
+    const share = (botLevel: "easy" | "hard") => {
+      let used = 0;
+      for (let seed = 1; seed <= 200; seed++) {
+        const r = createRace({ seed, botLevel, players: [{ id: "b", name: "B", avatar: DEFAULT_AVATAR, chair: DEFAULT_CHAIR, isBot: true }] });
+        const bot = r.racers.get("b")!;
+        let took = false;
+        for (let i = 0; i < 1200 && bot.lap.cpCount < 1 + Math.ceil((b.sTo + 10) / RACE.checkpointEvery); i++) {
+          stepRace(r, DT);
+          if (bot.kart.path === 0) {
+            // no miolo do atalho (as bocas se confundem com a curva da principal)
+            if (deltaS(TRACK, b.sFrom, bot.lap.lastS) > deltaS(TRACK, b.sFrom, b.sTo) / 2) took = true;
+            expect(bot.kart.frozenUntil, `semente ${seed}`).toBeLessThanOrEqual(r.countdownEndsAt);
+          }
+        }
+        if (took) used++;
+      }
+      return used / 200;
+    };
+    const hard = share("hard");
+    expect(hard).toBeGreaterThan(0.6);
+    expect(hard).toBeLessThan(0.9);
+    expect(share("easy")).toBeLessThan(0.25);
+  });
+
   it("comandos numerados: um por tick, na ordem, e o privado confirma o último aplicado", () => {
     const r = race(2, false);
     for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
@@ -147,5 +198,113 @@ describe("partida de corrida", () => {
     expect(s).not.toContain("grampeador");
     expect(buildRacePrivate(r, "p1")!.item).toBe("grampeador");
     expect(buildRacePrivate(r, "ninguem")).toBeNull();
+  });
+
+  it("coleta de xícaras de café na pista incrementa o contador e entra em recarga", () => {
+    const r = race(2, false);
+    for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
+    const p = r.racers.get("p0")!;
+    expect(r.cups.length).toBeGreaterThan(0);
+    // Coloca a cadeira exatamente sobre a primeira xícara
+    p.kart.pos = { ...r.cups[0].pos };
+    stepRace(r, DT);
+    expect(p.kart.cups).toBe(1);
+    expect(r.cups[0].readyAt).toBeGreaterThan(r.now);
+    expect(r.events.some((e) => e.type === "cup" && e.id === "p0")).toBe(true);
+  });
+
+  it("vácuo dinâmico (slipstream) atrás de outro kart por tempo suficiente aciona turbo de vácuo", () => {
+    const r = race(2, false);
+    for (let t = 0; t < RACE.countdownMs + DT; t += DT) stepRace(r, DT);
+    const lead = r.racers.get("p1")!;
+    const follow = r.racers.get("p0")!;
+    const at = pointAt(TRACK, 10);
+    lead.kart.pos = { ...at.pos };
+    lead.kart.heading = at.heading;
+    lead.kart.speed = 10;
+
+    // Follower fica 4 metros logo atrás do líder na mesma direção
+    follow.kart.pos = {
+      x: at.pos.x - Math.sin(at.heading) * 4,
+      z: at.pos.z - Math.cos(at.heading) * 4,
+    };
+    follow.kart.heading = at.heading;
+    follow.kart.speed = 10;
+
+    // Simula tempo de vácuo até carregar
+    setKartInput(r, "p0", { steer: 0, throttle: 1, drift: false });
+    setKartInput(r, "p1", { steer: 0, throttle: 1, drift: false });
+    for (let t = 0; t < RACE.slipstreamChargeMs + 200; t += DT) {
+      follow.kart.pos = {
+        x: lead.kart.pos.x - Math.sin(lead.kart.heading) * 4,
+        z: lead.kart.pos.z - Math.cos(lead.kart.heading) * 4,
+      };
+      follow.kart.heading = lead.kart.heading;
+      lead.kart.speed = 10;
+      follow.kart.speed = 10;
+      stepRace(r, DT);
+    }
+    expect(r.events.some((e) => e.type === "draft" && e.id === "p0")).toBe(true);
+    expect(r.events.some((e) => e.type === "boost" && e.id === "p0" && e.level === "draft")).toBe(true);
+    expect(follow.kart.boostUntil).toBeGreaterThan(r.now);
+  });
+});
+
+describe("rampas na partida", () => {
+  function estac(isBot = false) {
+    const r = createRace({ seed: 3, track: "estacionamento", timeTrial: !isBot, players: [{ id: "a", name: "A", avatar: DEFAULT_AVATAR, chair: DEFAULT_CHAIR, isBot }] });
+    r.now = RACE.countdownMs;
+    r.phase = "active";
+    return r;
+  }
+
+  it("queda no vão volta antes da rampa, com espaço para embalar, parada como na reposição, e suja a volta", () => {
+    const r = estac();
+    const a = r.racers.get("a")!;
+    const T = r.track;
+    const ramp = T.ramps[0];
+    const b = T.branches[0];
+    const k = b.points[Math.round((ramp.gap!.sFrom + ramp.gap!.sTo) / 2 / b.spacing)];
+    a.kart = { ...newKartAt(k, 0), path: 0, fell: true, y: RACE.fallDepth + 0.01, vy: -5 };
+    a.rec.startedAt = r.now - 1000;
+    stepRace(r, DT);
+    const start = rampStart(T, ramp);
+    expect(a.kart.pos).toEqual(start.pos);
+    expect(a.kart.path ?? -1).toBe(start.path);
+    // dá para chegar de novo na rampa acima da velocidade mínima
+    expect(deltaS(T, progressOf(T, start.pos, start.path).s, T.branches[0].sFrom)).toBeGreaterThan(10);
+    expect(a.kart.fell).toBeFalsy();
+    expect(a.kart.y ?? 0).toBe(0);
+    expect(a.kart.frozenUntil).toBe(r.now + RACE.respawnPenaltyMs);
+    expect(a.rec.dirty).toBe(true);
+    expect(r.events.some((e) => e.type === "fall" && e.id === "a")).toBe(true);
+  });
+
+  it("duas cadeiras com mais de 1 m de altura de diferença não colidem", () => {
+    const a = { ...newKartAt({ x: 0, z: 0 }, 0), y: 2, air: true };
+    const b = newKartAt({ x: 0.3, z: 0 }, 0);
+    expect(collideKarts(a, b)).toBe(false);
+    expect(collideKarts({ ...a, y: 0.5 }, b)).toBe(true);
+  });
+
+  it("bot só toma o atalho com vão se estiver rápido para atravessar", () => {
+    const route = (speed: number) => {
+      const r = estac(true);
+      r.botLevel = "hard";
+      r.rng = () => 0;
+      const a = r.racers.get("a")!;
+      const at = pointAt(r.track, r.track.branches[0].sFrom - 15);
+      a.kart = { ...newKartAt(at.pos, at.heading), speed };
+      a.lap = { ...a.lap, lastS: progressOf(r.track, at.pos).s };
+      stepRaceBot(r, a, DT);
+      return a.bot!.route;
+    };
+    expect(route(RACE.minLaunchSpeed + 3)).toBe(-1);
+    expect(route(RACE.minLaunchSpeed + 6)).toBe(0);
+  });
+
+  it("Corporativo: a rampa fica na principal, longe da boca do atalho", () => {
+    const T = TRACKS.corporativo;
+    expect(deltaS(T, T.ramps[0].sTo, T.branches[0].sFrom)).toBeGreaterThan(20);
   });
 });

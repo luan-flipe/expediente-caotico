@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { CHAIR_BASES, CHAIR_SEATS, type AvatarDNA, type ChairDNA } from "@ec/shared";
 import { celebrationExtras, createCharacter, modelReady, type Character } from "../game/character";
+import { createGltfLoader } from "../game/gltfLoader";
 
 const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
 
@@ -29,7 +29,7 @@ export interface ChairModel {
   anchors: Anchors;
   /** Saída do turbo (bocal do extintor no GLB). */
   exhaust: THREE.Vector3;
-  update(dt: number, speed: number): void;
+  update(dt: number, speed: number, steer?: number, driftDir?: number): void;
   dispose(): void;
 }
 
@@ -42,9 +42,9 @@ export function chairModelReady(): boolean {
 }
 
 /** Carrega o GLB da cadeira uma vez. Resolve false se falhar (a corrida segue com a cadeira procedural). */
-export function preloadChair(): Promise<boolean> {
-  loading ??= new GLTFLoader()
-    .loadAsync(MODEL_URL)
+export function preloadChair(onProgress?: (e: ProgressEvent) => void): Promise<boolean> {
+  loading ??= createGltfLoader()
+    .loadAsync(MODEL_URL, onProgress)
     .then((gltf) => {
       loaded = gltf.scene;
       return true;
@@ -200,8 +200,21 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
     group,
     anchors,
     exhaust,
-    update(dt, speed) {
-      for (const w of wheelNodes) w.rotation.x += (speed * dt) / 0.04;
+    update(dt, speed, steer = 0, driftDir = 0) {
+      const now = performance.now();
+      const casterYawTarget = driftDir !== 0
+        ? -driftDir * 0.48
+        : steer !== 0
+          ? -steer * 0.3
+          : 0;
+      for (let i = 0; i < wheelNodes.length; i++) {
+        const w = wheelNodes[i];
+        w.rotation.x += (speed * dt) / 0.04;
+        // Rodinhas caster 360° chicoteando e alinhando com a inércia do deslocamento
+        const casterJitter = driftDir !== 0 ? Math.sin(now * 0.03 + i * 1.3) * 0.12 : 0;
+        const target = casterYawTarget + casterJitter;
+        w.rotation.y += (target - w.rotation.y) * Math.min(1, dt * 14);
+      }
     },
     dispose() {
       // geometrias do GLB são compartilhadas entre clones; só as peças extras são desta cadeira
@@ -242,11 +255,13 @@ function proceduralChair(chair: ChairDNA): ChairModel {
       : chair.wheels === 2
         ? new THREE.MeshStandardMaterial({ color: "#ff4fa3", roughness: 0.4 })
         : plastic;
+  const wheelMeshes: THREE.Mesh[] = [];
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2;
     add(new THREE.BoxGeometry(0.06, 0.05, 0.36), metal, Math.sin(a) * 0.18, wheelR * 2 + 0.03, Math.cos(a) * 0.18, 0, a);
     const w = add(new THREE.CylinderGeometry(wheelR, wheelR, chair.wheels === 2 ? 0.07 : 0.05, 14), wheelMat, Math.sin(a) * 0.35, wheelR, Math.cos(a) * 0.35, 0, a, Math.PI / 2);
     w.castShadow = false;
+    wheelMeshes.push(w);
   }
   add(new THREE.CylinderGeometry(0.045, 0.06, 0.32, 10), metal, 0, wheelR * 2 + 0.2, 0);
   add(new THREE.CylinderGeometry(0.06, 0.06, 0.08, 10), plastic, 0, SEAT_TOP - 0.16, 0);
@@ -275,7 +290,21 @@ function proceduralChair(chair: ChairDNA): ChairModel {
     group: g,
     anchors,
     exhaust: new THREE.Vector3(0, 0.35, -0.75),
-    update() {},
+    update(dt, speed, steer = 0, driftDir = 0) {
+      const now = performance.now();
+      const casterYawTarget = driftDir !== 0
+        ? -driftDir * 0.48
+        : steer !== 0
+          ? -steer * 0.3
+          : 0;
+      for (let i = 0; i < wheelMeshes.length; i++) {
+        const w = wheelMeshes[i];
+        w.rotation.x += (speed * dt) / wheelR;
+        const casterJitter = driftDir !== 0 ? Math.sin(now * 0.03 + i * 1.3) * 0.12 : 0;
+        const target = casterYawTarget + casterJitter;
+        w.rotation.y += (target - w.rotation.y) * Math.min(1, dt * 14);
+      }
+    },
     dispose() {
       g.traverse((o) => {
         const m = o as THREE.Mesh;
@@ -349,7 +378,7 @@ export interface Racer3D {
   root: THREE.Group;
   char: Character;
   exhaust: THREE.Vector3;
-  update(dt: number, speed: number): void;
+  update(dt: number, speed: number, steer?: number, driftDir?: number, boosting?: boolean): void;
   /** Comemoração da chegada: o boneco festeja, o assento gira e cai confete. */
   celebrate(): void;
   dispose(): void;
@@ -393,8 +422,9 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
     root,
     char,
     exhaust: seat.exhaust,
-    update(dt, speed) {
-      seat.update(dt, speed);
+    update(dt, speed, steer = 0, driftDir = 0, boosting = false) {
+      seat.update(dt, speed, steer, driftDir);
+      char.updateSeated?.(dt, speed, steer, driftDir, boosting);
       char.update(dt, 0);
       mixer.update(dt);
     },

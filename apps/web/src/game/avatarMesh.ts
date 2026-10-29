@@ -88,7 +88,8 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
   const dark = mat("#1d1b17", 0.6);
   const shoe = mat("#2a2622");
   const white = mat("#f7f5f0");
-  const materials = [skin, shirt, pants, hair, dark, shoe, white];
+  const beard = mat(HAIR_COLORS[dna.beardColor] ?? HAIR_COLORS[dna.hairColor], 0.95);
+  const materials = [skin, shirt, pants, hair, beard, dark, shoe, white];
 
   const root = new THREE.Group();
   const body = new THREE.Group();
@@ -119,9 +120,9 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
   addHair(head, dna.hair, hair);
 
   if (dna.beard) {
-    head.add(at(box(0.5, 0.16, 0.08, hair, 0.03), 0, 0.12, 0.22));
-    head.add(at(box(0.08, 0.2, 0.36, hair, 0.02), -0.25, 0.17, 0.06));
-    head.add(at(box(0.08, 0.2, 0.36, hair, 0.02), 0.25, 0.17, 0.06));
+    head.add(at(box(0.5, 0.16, 0.08, beard, 0.03), 0, 0.12, 0.22));
+    head.add(at(box(0.08, 0.2, 0.36, beard, 0.02), -0.25, 0.17, 0.06));
+    head.add(at(box(0.08, 0.2, 0.36, beard, 0.02), 0.25, 0.17, 0.06));
   }
   if (dna.glasses > 0) {
     const frame = mat(dna.glasses === 1 ? "#6b4226" : "#151515", 0.4);

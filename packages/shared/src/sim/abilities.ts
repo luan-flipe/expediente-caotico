@@ -76,6 +76,7 @@ export function fireBall(m: Match, p: PlayerSim, yaw: number): boolean {
   const haste = p.statuses.find((s) => s.kind === "haste" && s.until > m.now)?.mag ?? 1;
   if (m.now - p.lastShotAt < BALANCE.ballIntervalMs / haste) return false;
   p.lastShotAt = m.now;
+  p.shots++;
   spawnProjectile(m, p, "ball", yaw, {}, BALANCE.ballDamage * (1 + p.stats.ball * BALANCE.statBall));
   return true;
 }
@@ -259,6 +260,7 @@ export function stepProjectiles(m: Match, dtMs: number): void {
       .sort((p1, p2) => dist(a, p1.pos) - dist(a, p2.pos));
     for (const t of hits) {
       pr.hit.push(t.id);
+      if (pr.kind === "ball" && owner) owner.shotHits++;
       if (owner) applyHitEffects(m, owner, t, { ...pr.params, damage: pr.damage }, { x: pr.vx, z: pr.vz });
       else applyDamage(m, t, pr.damage, null);
       m.events.push({ type: "fx", kind: "impact", x: t.pos.x, z: t.pos.z });
