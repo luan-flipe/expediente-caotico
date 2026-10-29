@@ -15,3 +15,5 @@ As regras são as mesmas da pasta de cabelos (veja `../cabelos/README.md`):
 - Malha leve: até uns 5 mil vértices.
 - Nome e ordem seguem o nome do arquivo: use prefixo numérico (`01_jeans.glb`,
   `02_bermuda.glb`) e acrescente sempre no fim. O boneco salvo guarda a posição na lista.
+- Saia: ponha `saia` no nome do arquivo (`02_saia.glb`, `03_saia_longa.glb`). Com ela, o jogo
+  põe a camiseta para dentro do cós, medindo o contorno do topo da própria saia.

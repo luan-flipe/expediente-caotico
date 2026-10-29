@@ -15,3 +15,7 @@ As regras são as mesmas da pasta de cabelos (veja `../cabelos/README.md`):
 - Malha leve: até uns 5 mil vértices no par.
 - Nome e ordem seguem o nome do arquivo: use prefixo numérico (`01_tenis.glb`,
   `02_sapato.glb`) e acrescente sempre no fim. O boneco salvo guarda a posição na lista.
+- Salto alto: ponha `salto` no nome do arquivo (`03_salto_alto.glb`). Com ele, o jogo inclina
+  o pé em volta do tornozelo (`HEEL_TILT`, calcanhar para cima) e sobe o boneco (`HEEL_LIFT`)
+  para a ponta do sapato tocar o chão; os dois ficam em `game/character.ts`. Modele o salto já
+  pensando nessa pose: o pé fica reto no arquivo e só inclina no jogo.
