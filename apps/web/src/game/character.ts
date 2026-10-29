@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
-import { HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shared";
+import { CLOTH_COLORS, HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
 import { dressFace } from "./rosto";
@@ -243,11 +243,40 @@ function retargetWearable(src: THREE.SkinnedMesh, samples: LimbSample[][], body:
   );
 }
 
+/** Detalhe de roupa que fica na cor dele quando a peça muda de cor (pelo nome do material). */
+const FIXED_PART = /botao|cadarco|sola|ilhos|fivela|ziper/i;
+const luminance = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+/**
+ * Cor de cada malha de uma roupa tingida. A principal (a de mais vértices) fica na cor escolhida e as outras
+ * (gola, punho, forro) guardam o quanto eram mais claras ou escuras que ela; botão, cadarço e sola não mudam.
+ */
+function clothTints(list: THREE.SkinnedMesh[], hex: string): Map<THREE.SkinnedMesh, THREE.Color> {
+  const size = (m: THREE.SkinnedMesh) => m.geometry.getAttribute("position").count;
+  const main = list.reduce((a, b) => (size(b) > size(a) ? b : a));
+  const base = Math.max(luminance((main.material as THREE.MeshStandardMaterial).color), 1e-3);
+  const tints = new Map<THREE.SkinnedMesh, THREE.Color>();
+  for (const m of list) {
+    const mat = m.material as THREE.MeshStandardMaterial;
+    if (Array.isArray(m.material) || !mat.isMeshStandardMaterial || FIXED_PART.test(mat.name)) continue;
+    tints.set(m, new THREE.Color(hex).multiplyScalar(Math.min(luminance(mat.color) / base, 1.5)));
+  }
+  return tints;
+}
+
 /**
  * Prende a peça aos ossos do boneco, pelo nome, para ela seguir as animações. Peça sem textura (cabelo e
- * barba modelados, o desenho vem do relevo) ganha a cor do crachá, num material só deste boneco.
+ * barba modelados, o desenho vem do relevo) ganha a cor do crachá, num material só deste boneco. Com
+ * `overMap`, a cor também tinge peça com textura (roupa: a textura clara multiplica a cor escolhida).
  */
-function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THREE.SkinnedMesh, color?: string, mats?: THREE.Material[]): void {
+function attachWearable(
+  inner: THREE.Object3D,
+  body: THREE.SkinnedMesh,
+  src: THREE.SkinnedMesh,
+  color?: THREE.ColorRepresentation,
+  mats?: THREE.Material[],
+  overMap = false,
+): void {
   const bones = src.skeleton.bones.map((b) => inner.getObjectByName(b.name));
   if (bones.some((b) => !(b as THREE.Bone | undefined)?.isBone)) {
     console.warn(`peça ${src.name}: esqueleto diferente do boneco, ignorada`);
@@ -256,7 +285,7 @@ function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THR
   const piece = src.clone();
   piece.castShadow = true;
   const own = piece.material as THREE.MeshStandardMaterial;
-  if (color && mats && !Array.isArray(own) && own.isMeshStandardMaterial && !own.map) {
+  if (color && mats && !Array.isArray(own) && own.isMeshStandardMaterial && (overMap || !own.map)) {
     const m = own.clone();
     m.color.set(color);
     piece.material = m;
@@ -417,15 +446,18 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const pants = model.pants[dna.pants - 1];
   const skirt = PANTS_3D[dna.pants - 1]?.tuck && pants?.length ? pants : null;
   const shirt = model.shirts[dna.shirt - 1];
-  const pieces: [THREE.SkinnedMesh[] | undefined, string?][] = [
+  // cabelo e barba vêm com a cor; roupa vem com o índice de CLOTH_COLORS (0 deixa a cor original da peça)
+  const pieces: [THREE.SkinnedMesh[] | undefined, string | undefined, number?][] = [
     [model.hairs[dna.hair - 1], hairColor],
     [model.beards[dna.beard - 1], beardColor],
-    [skirt && shirt ? shirt.map((m) => tuckShirt(m, skirt)) : shirt],
-    [pants],
-    [model.shoes[dna.shoes - 1]],
+    [skirt && shirt ? shirt.map((m) => tuckShirt(m, skirt)) : shirt, undefined, dna.shirtColor],
+    [pants, undefined, dna.pantsColor],
+    [model.shoes[dna.shoes - 1], undefined, dna.shoesColor],
   ];
-  for (const [list, color] of pieces) {
-    for (const piece of list ?? []) if (body) attachWearable(inner, body, piece, color, mats);
+  for (const [list, color, cloth] of pieces) {
+    const hex = cloth ? CLOTH_COLORS[cloth - 1] : undefined;
+    const tints = list?.length && hex ? clothTints(list, hex) : undefined;
+    for (const piece of list ?? []) if (body) attachWearable(inner, body, piece, tints ? tints.get(piece) : color, mats, !!tints);
   }
 
   // salto alto: o pé fica inclinado e o boneco sobe para a ponta do sapato tocar o chão
@@ -711,6 +743,9 @@ export function createZombieCharacter(): Character {
       shirt: 0,
       pants: 0,
       shoes: 0,
+      shirtColor: 0,
+      pantsColor: 0,
+      shoesColor: 0,
       accessory: 0,
       height: 1,
     };

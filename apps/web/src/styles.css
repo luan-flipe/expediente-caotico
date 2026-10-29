@@ -282,6 +282,11 @@ input {
   padding: 0;
 }
 
+/* Cor original da roupa: papel cortado por um risco, como "sem tinta". */
+.swatch-original {
+  background: linear-gradient(135deg, var(--paper) 44%, var(--red) 44% 56%, var(--paper) 56%);
+}
+
 .swatch.on {
   outline: 3px solid var(--postit);
   outline-offset: 1px;

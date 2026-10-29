@@ -5,6 +5,7 @@ import {
   CHAIR_SEATS,
   CHAIR_TRINKETS,
   CHAIR_WHEELS,
+  CLOTH_COLORS,
   DEFAULT_AVATAR,
   EYE_COLORS,
   FACES,
@@ -43,6 +44,18 @@ function Swatches({ colors, value, onPick }: { colors: string[]; value: number; 
     <div className="swatches">
       {colors.map((c, i) => (
         <button key={c} className={`swatch ${i === value ? "on" : ""}`} style={{ background: c }} onClick={() => onPick(i)} aria-label={c} />
+      ))}
+    </div>
+  );
+}
+
+/** Cores de roupa: a primeira bolinha deixa a peça na cor original dela (0 no crachá). */
+function ClothSwatches({ value, onPick }: { value: number; onPick: (i: number) => void }) {
+  return (
+    <div className="swatches">
+      <button className={`swatch swatch-original ${value === 0 ? "on" : ""}`} onClick={() => onPick(0)} aria-label="Cor original" title="Cor original" />
+      {CLOTH_COLORS.map((c, i) => (
+        <button key={c} className={`swatch ${i + 1 === value ? "on" : ""}`} style={{ background: c }} onClick={() => onPick(i + 1)} aria-label={c} />
       ))}
     </div>
   );
@@ -182,14 +195,29 @@ export function Creator() {
             <Seg items={SHIRT_LABELS} value={dna.shirt} onPick={set("shirt")} />
           </Field>
         )}
+        {dna.shirt > 0 && dna.shirt < SHIRT_LABELS.length && (
+          <Field label="Cor da camiseta">
+            <ClothSwatches value={dna.shirtColor} onPick={set("shirtColor")} />
+          </Field>
+        )}
         {PANTS_LABELS.length > 1 && (
           <Field label="Calça">
             <Seg items={PANTS_LABELS} value={dna.pants} onPick={set("pants")} />
           </Field>
         )}
+        {dna.pants > 0 && dna.pants < PANTS_LABELS.length && (
+          <Field label="Cor da calça">
+            <ClothSwatches value={dna.pantsColor} onPick={set("pantsColor")} />
+          </Field>
+        )}
         {SHOE_LABELS.length > 1 && (
           <Field label="Tênis">
             <Seg items={SHOE_LABELS} value={dna.shoes} onPick={set("shoes")} />
+          </Field>
+        )}
+        {dna.shoes > 0 && dna.shoes < SHOE_LABELS.length && (
+          <Field label="Cor do tênis">
+            <ClothSwatches value={dna.shoesColor} onPick={set("shoesColor")} />
           </Field>
         )}
       </>
