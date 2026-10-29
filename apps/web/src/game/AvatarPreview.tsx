@@ -6,8 +6,10 @@ import { useStore } from "../store";
 import { createCharacter, type Character } from "./character";
 
 /** Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira. */
-export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair?: ChairDNA; className?: string }) {
+export function AvatarPreview({ dna, chair, className, autoRotate = true }: { dna: AvatarDNA; chair?: ChairDNA; className?: string; autoRotate?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const autoRef = useRef(autoRotate);
+  autoRef.current = autoRotate;
   const rigRef = useRef<Character | null>(null);
   const ready = useStore((s) => s.modelReady);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -56,7 +58,7 @@ export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair
         cam.aspect = w / h;
         cam.updateProjectionMatrix();
       }
-      if (!dragging) yaw += 0.004;
+      if (!dragging && autoRef.current) yaw += 0.004;
       const rig = rigRef.current;
       if (rig) {
         rig.root.rotation.y = yaw;
@@ -82,7 +84,7 @@ export function AvatarPreview({ dna, chair, className }: { dna: AvatarDNA; chair
     const scene = sceneRef.current;
     if (!scene) return;
     const old = rigRef.current;
-    const rig: Character = chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit() {} } : createCharacter(dna);
+    const rig: Character = chair ? { ...seatedRacer(dna, chair), update() {}, play() {}, sit: () => 0 } : createCharacter(dna);
     if (old) {
       rig.root.rotation.y = old.root.rotation.y;
       scene.remove(old.root);

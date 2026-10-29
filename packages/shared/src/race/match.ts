@@ -1,12 +1,15 @@
+import { pickAwards, raceCandidates, type Award } from "../awards";
 import type { AvatarDNA } from "../types";
 import { mulberry32 } from "../rng";
+import type { BotLevel } from "../botLevels";
 import { RACE } from "./balance";
 import { stepRaceBot } from "./bots";
 import type { ChairDNA } from "./chair";
 import { pickBoxes, stepHazards, useItem } from "./items";
 import { collideKarts, NO_INPUT, newKart, respawnAt, stepKart, type KartInput } from "./kart";
 import { lapsDone, newLapState, raceProgress, ranking, updateProgress } from "./laps";
-import { boxSpots, checkpoints, clampToTrack, cupSpots, gridSlots, pointAt, progressOf, TRACK } from "./track";
+import { boxSpots, checkpoints, clampToTrack, cupSpots, deltaS, getTrack, gridSlots, progressOf, rampStart, type TrackId } from "./track";
+import type { GhostSample } from "../ranking/types";
 import type { ItemId, RaceMatch, Racer, RacePrivate, RaceResultRow, RaceSnapshot } from "./types";
 
 export interface RacePlayerInfo {
@@ -17,29 +20,39 @@ export interface RacePlayerInfo {
   isBot: boolean;
 }
 
-export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps?: number; graceMs?: number }): RaceMatch {
+export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps?: number; graceMs?: number; timeTrial?: boolean; itemsOff?: boolean; botLevel?: BotLevel; track?: TrackId }): RaceMatch {
+  const track = getTrack(opts.track);
+  const itemsOff = opts.itemsOff === true;
+  const timeTrial = opts.timeTrial === true;
   const rng = mulberry32(opts.seed);
-  const order = [...opts.players].sort(() => rng() - 0.5);
-  const slots = gridSlots(TRACK, order.length);
+  const order = opts.players.filter((p) => !timeTrial || !p.isBot).sort(() => rng() - 0.5);
+  const slots = gridSlots(track, order.length);
   const race: RaceMatch = {
     now: 0,
     phase: "countdown",
     countdownEndsAt: RACE.countdownMs,
     graceEndsAt: null,
-    laps: opts.laps ?? RACE.laps,
+    laps: timeTrial ? RACE.trainingLaps : (opts.laps ?? RACE.laps),
     graceMs: opts.graceMs ?? RACE.finishGraceMs,
     racers: new Map(),
     hazards: [],
-    boxes: boxSpots(TRACK).map((pos, i) => ({ id: i, pos, readyAt: 0 })),
-    cups: cupSpots(TRACK).map((pos, i) => ({ id: i, pos, readyAt: 0 })),
+    boxes: timeTrial || itemsOff ? [] : boxSpots(track).map((pos, i) => ({ id: i, pos, readyAt: 0 })),
+    // xícaras não são item: ficam mesmo com itens desligados; no contra-relógio somem para os tempos seguirem comparáveis
+    cups: timeTrial ? [] : cupSpots(track).map((pos, i) => ({ id: i, pos, readyAt: 0 })),
     events: [],
-    cps: checkpoints(TRACK),
+    itemsOff,
+    botLevel: opts.botLevel ?? "normal",
+    timeTrial,
+    completedLaps: [],
+    cps: checkpoints(track),
     rng,
     nextId: 1,
+    seed: opts.seed,
+    track,
   };
   order.forEach((info, i) => {
     const slot = slots[i];
-    const s = progressOf(TRACK, slot.pos).s;
+    const s = progressOf(track, slot.pos).s;
     const r: Racer = {
       ...info,
       connected: true,
@@ -60,8 +73,13 @@ export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps
       idleTicks: 0,
       stepCredit: 0,
       itemsUsed: {},
+      itemHits: 0,
+      wallHits: 0,
+      stoppedMs: 0,
+      wrongTotalMs: 0,
+      rec: { startedAt: null, samples: [], ticks: 0, dirty: false, lastMs: null, bestMs: null },
     };
-    r.progress = raceProgress(r.lap, s, race.cps, TRACK);
+    r.progress = raceProgress(r.lap, s, race.cps, race.track);
     race.racers.set(r.id, r);
   });
   return race;
@@ -91,7 +109,14 @@ export function setKartInput(race: RaceMatch, id: string, input: KartInput, seq?
 
 export function queueItemUse(race: RaceMatch, id: string): void {
   const r = race.racers.get(id);
-  if (r) r.useQueued = true;
+  if (r && !race.timeTrial && !race.itemsOff) r.useQueued = true;
+}
+
+/** Contra o relógio: o anfitrião encerra o treino. Depois disso a sala monta os resultados. */
+export function endTraining(race: RaceMatch): void {
+  if (!race.timeTrial || race.phase === "finished") return;
+  race.phase = "finished";
+  race.hazards = [];
 }
 
 export function respawnRequest(race: RaceMatch, id: string): void {
@@ -99,12 +124,75 @@ export function respawnRequest(race: RaceMatch, id: string): void {
   if (r && race.phase === "active" && race.now >= r.kart.frozenUntil) r.respawnQueued = true;
 }
 
-/** Volta para o último checkpoint passado, parado por alguns segundos. */
+/** Volta para o último checkpoint passado, parado por alguns segundos; no atalho, volta no atalho. */
 function respawn(race: RaceMatch, r: Racer): void {
-  const s = r.lap.cpCount === 0 ? TRACK.length - 5 : race.cps[(r.lap.cpCount - 1) % race.cps.length] + 0.5;
-  const at = respawnAt(TRACK, s);
+  let s = r.lap.cpCount === 0 ? race.track.length - 5 : race.cps[(r.lap.cpCount - 1) % race.cps.length] + 0.5;
+  const path = r.kart.path ?? -1;
+  const b = race.track.branches[path];
+  // checkpoint antes da boca: reaparece logo no começo do atalho
+  if (b && deltaS(race.track, b.sFrom, s) < 1) s = b.sFrom + 1;
+  const at = respawnAt(race.track, s, path);
   r.kart = { ...newKart(at.pos, at.heading), frozenUntil: race.now + RACE.respawnPenaltyMs };
-  r.lap = { ...r.lap, lastS: progressOf(TRACK, at.pos).s };
+  if (at.path !== -1) r.kart.path = at.path;
+  r.lap = { ...r.lap, lastS: progressOf(race.track, at.pos, at.path).s };
+  r.rec.dirty = true;
+}
+
+/** Caiu no vão: volta um trecho antes da rampa em que caiu, parado como na reposição (R). */
+function respawnAfterFall(race: RaceMatch, r: Racer): void {
+  const ramp = race.track.ramps.find((x) => x.gap && x.path === (r.kart.path ?? -1)) ?? race.track.ramps.find((x) => x.gap);
+  if (!ramp) return respawn(race, r);
+  const at = rampStart(race.track, ramp);
+  r.kart = { ...newKart(at.pos, at.heading), frozenUntil: race.now + RACE.respawnPenaltyMs };
+  if (at.path !== -1) r.kart.path = at.path;
+  r.lap = { ...r.lap, lastS: progressOf(race.track, at.pos, at.path).s };
+  r.rec.dirty = true;
+  race.events.push({ type: "fall", id: r.id });
+}
+
+const r2 = (v: number) => Math.round(v * 100) / 100;
+
+const sampleOf = (r: Racer, t: number): GhostSample => {
+  const s: GhostSample = [Math.round(t), r2(r.kart.pos.x), r2(r.kart.pos.z), r2(r.kart.heading)];
+  // altura só no voo: no chão a amostra fica com 4 números, como antes das rampas
+  const y = r2(r.kart.y ?? 0);
+  if (y !== 0) s.push(y);
+  return s;
+};
+
+/**
+ * Cronometra e grava o fantasma da volta, a partir da linha de chegada. Volta válida (sem reposição)
+ * vai para race.completedLaps; a volta da largada (do grid até a linha) nunca entra.
+ */
+function trackLap(race: RaceMatch, r: Racer, cpBefore: number, lapDone: boolean, finished: boolean): void {
+  if (r.isBot) return;
+  const rec = r.rec;
+  const now = race.now;
+  if (lapDone && rec.startedAt !== null) {
+    const ms = Math.round(now - rec.startedAt);
+    rec.lastMs = ms;
+    if (!rec.dirty && ms > 0) {
+      rec.samples.push(sampleOf(r, ms));
+      rec.bestMs = rec.bestMs === null ? ms : Math.min(rec.bestMs, ms);
+      race.completedLaps.push({ id: r.id, ms, ghost: rec.samples });
+    }
+  }
+  if (finished) {
+    rec.startedAt = null;
+    rec.samples = [];
+    return;
+  }
+  if (lapDone || (cpBefore === 0 && r.lap.cpCount === 1)) {
+    rec.startedAt = now;
+    rec.samples = [sampleOf(r, 0)];
+    rec.ticks = 0;
+    rec.dirty = false;
+    return;
+  }
+  if (rec.startedAt === null || r.lap.finishedAt !== null) return;
+  if (++rec.ticks % RACE.ghostEveryTicks !== 0) return;
+  if (rec.samples.length >= RACE.ghostMaxSamples) rec.dirty = true;
+  else rec.samples.push(sampleOf(r, now - rec.startedAt));
 }
 
 function updatePlaces(race: RaceMatch): void {
@@ -174,22 +262,33 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
   for (const r of racers) {
     for (const input of steps.get(r.id)!) {
       if (input.itemHold !== undefined) r.holdingItem = !!input.itemHold;
-      const res = stepKart(r.kart, input, dtMs, now, TRACK);
+      const res = stepKart(r.kart, input, dtMs, now, race.track);
       r.kart = res.state;
+      if (res.fell) {
+        respawnAfterFall(race, r);
+        break;
+      }
+      if (res.stunt) {
+        race.events.push({ type: "stunt", id: r.id });
+        race.events.push({ type: "boost", id: r.id, level: "stunt" });
+      }
       if (res.boost) race.events.push({ type: "boost", id: r.id, level: res.boost });
-      if (res.wall && Math.abs(r.kart.speed) > 4) race.events.push({ type: "wall", id: r.id });
+      if (res.wall && Math.abs(r.kart.speed) > 4) {
+        race.events.push({ type: "wall", id: r.id });
+        r.wallHits++;
+      }
     }
   }
-  for (let i = 0; i < racers.length; i++) {
+  for (let i = 0; !race.timeTrial && i < racers.length; i++) {
     for (let j = i + 1; j < racers.length; j++) {
       if (!collideKarts(racers[i].kart, racers[j].kart)) continue;
-      racers[i].kart.pos = clampToTrack(TRACK, racers[i].kart.pos, RACE.kartRadius).pos;
-      racers[j].kart.pos = clampToTrack(TRACK, racers[j].kart.pos, RACE.kartRadius).pos;
+      racers[i].kart.pos = clampToTrack(race.track, racers[i].kart.pos, RACE.kartRadius, racers[i].kart.path).pos;
+      racers[j].kart.pos = clampToTrack(race.track, racers[j].kart.pos, RACE.kartRadius, racers[j].kart.path).pos;
     }
   }
 
-  // Vácuo dinâmico (Slipstream / Drafting estilo Mario Kart)
-  for (const a of racers) {
+  // Vácuo dinâmico (Slipstream / Drafting estilo Mario Kart); no contra-relógio não há outro corredor
+  for (const a of race.timeTrial ? [] : racers) {
     if (a.lap.finishedAt !== null || a.kart.speed < 7) {
       a.kart.draftMs = Math.max(0, (a.kart.draftMs ?? 0) - dtMs * 2);
       continue;
@@ -225,15 +324,19 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
   }
 
   for (const r of racers) {
-    const pr = progressOf(TRACK, r.kart.pos);
-    const u = updateProgress(r.lap, pr.s, now, race.cps, TRACK, race.laps);
+    const pr = progressOf(race.track, r.kart.pos, r.kart.path);
+    const cpBefore = r.lap.cpCount;
+    const u = updateProgress(r.lap, pr.s, now, race.cps, race.track, race.laps);
     r.lap = u.state;
-    r.progress = raceProgress(r.lap, pr.s, race.cps, TRACK);
+    trackLap(race, r, cpBefore, u.lapDone, u.finished);
+    r.progress = raceProgress(r.lap, pr.s, race.cps, race.track);
     if (u.lapDone && !u.finished) race.events.push({ type: "lap", id: r.id, lap: lapsDone(r.lap, race.cps) + 1, ms: Math.round(r.lap.lastLapMs ?? 0) });
     const k = r.kart;
     const moveDir = k.heading + (k.speed < 0 ? Math.PI : 0);
-    const along = Math.cos(moveDir - pointAt(TRACK, pr.s).heading);
+    const along = Math.cos(moveDir - pr.heading);
     r.wrongMs = Math.abs(k.speed) > 2 && along < -0.3 && r.lap.finishedAt === null ? r.wrongMs + dtMs : 0;
+    if (r.wrongMs > 0) r.wrongTotalMs += dtMs;
+    if (r.lap.finishedAt === null && Math.abs(k.speed) < 0.5 && now >= k.frozenUntil) r.stoppedMs += dtMs;
   }
   updatePlaces(race);
   for (const r of racers) {
@@ -243,20 +346,21 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
     }
   }
 
-  pickBoxes(race);
-  pickCups(race);
-  stepHazards(race, dtMs);
+  if (!race.timeTrial) {
+    pickBoxes(race);
+    pickCups(race);
+    stepHazards(race, dtMs);
+  }
 
   const racing = racers.filter((r) => r.connected || r.isBot);
   const allDone = racing.length > 0 && racing.every((r) => r.lap.finishedAt !== null);
   const graceOver = race.graceEndsAt !== null && now >= race.graceEndsAt;
-  if (allDone || graceOver || now - race.countdownEndsAt >= RACE.maxRaceMs) {
+  const maxMs = race.timeTrial ? RACE.trainingMaxMs : RACE.maxRaceMs;
+  if (allDone || graceOver || now - race.countdownEndsAt >= maxMs) {
     race.phase = "finished";
     race.hazards = [];
   }
 }
-
-const r2 = (v: number) => Math.round(v * 100) / 100;
 
 function flagsOf(r: Racer, now: number): string[] {
   const f: string[] = [];
@@ -266,6 +370,9 @@ function flagsOf(r: Racer, now: number): string[] {
   if (now < r.kart.frozenUntil) f.push("frozen");
   if (now < r.shieldUntil) f.push("pasta");
   if (now < r.blindUntil) f.push("blind");
+  if (r.kart.air) f.push("air");
+  // paraquedas aberto depois do pico do salto
+  if (r.kart.air && (r.kart.vy ?? 0) < 0) f.push("chute");
   return f;
 }
 
@@ -299,6 +406,8 @@ export function buildRaceSnapshot(race: RaceMatch): RaceSnapshot {
     elapsedMs: Math.max(0, now - race.countdownEndsAt),
     graceMs: race.graceEndsAt === null ? null : Math.max(0, race.graceEndsAt - now),
     laps: race.laps,
+    timeTrial: race.timeTrial,
+    itemsOff: race.itemsOff,
     karts: [...race.racers.values()].map((r) => {
       const k = r.kart;
       const drift = !k.drifting ? -1 : k.driftMs >= RACE.driftLevel3Ms ? 3 : k.driftMs >= RACE.driftLevel2Ms ? 2 : k.driftMs >= RACE.driftLevel1Ms ? 1 : 0;
@@ -319,6 +428,7 @@ export function buildRaceSnapshot(race: RaceMatch): RaceSnapshot {
         connected: r.connected,
         cups: k.cups ?? 0,
         holdingItem: !!r.holdingItem,
+        ...(k.y ? { y: r2(k.y) } : {}),
       };
     }),
     boxes: race.boxes.map((b) => ({ id: b.id, x: r2(b.pos.x), z: r2(b.pos.z), ready: b.readyAt <= now })),
@@ -340,9 +450,11 @@ export function buildRacePrivate(race: RaceMatch, id: string): RacePrivate | nul
     lap: currentLap(race, r),
     place: r.place,
     total: race.racers.size,
-    lapMs: race.phase === "countdown" ? 0 : (r.lap.finishedAt ?? now) - r.lap.lapStartedAt,
-    lastLapMs: r.lap.lastLapMs,
-    bestLapMs: r.lap.bestLapMs,
+    // no treino os tempos contam da linha de chegada (a volta da largada não entra)
+    lapMs: race.timeTrial ? (r.rec.startedAt === null ? 0 : now - r.rec.startedAt) : race.phase === "countdown" ? 0 : (r.lap.finishedAt ?? now) - r.lap.lapStartedAt,
+    lastLapMs: race.timeTrial ? r.rec.lastMs : r.lap.lastLapMs,
+    bestLapMs: race.timeTrial ? r.rec.bestMs : r.lap.bestLapMs,
+    sessionBestMs: r.rec.bestMs,
     raceMs: Math.max(0, (r.lap.finishedAt ?? now) - race.countdownEndsAt),
     blindMs: left(r.blindUntil),
     shieldMs: left(r.shieldUntil),
@@ -363,13 +475,24 @@ export function buildRacePrivate(race: RaceMatch, id: string): RacePrivate | nul
       spinMs: left(k.spinUntil),
       slipMs: left(k.slipUntil),
       frozenMs: left(k.frozenUntil),
+      // a previsão local precisa do teto do turbo e das xícaras, senão a própria cadeira dá tranco
+      boostSpeed: k.boostSpeed,
+      cups: k.cups ?? 0,
+      path: k.path ?? -1,
+      y: k.y,
+      vy: k.vy,
+      air: k.air,
+      trick: k.trick,
+      fell: k.fell,
     },
   };
 }
 
 export function getRaceResults(race: RaceMatch): RaceResultRow[] {
   const all = [...race.racers.values()].sort((a, b) => a.place - b.place);
-  return all.map((r) => {
+  // treino: ordem pela melhor volta da sessão; quem não fechou volta vai para o fim
+  if (race.timeTrial) all.sort((a, b) => (a.rec.bestMs ?? Infinity) - (b.rec.bestMs ?? Infinity) || a.place - b.place);
+  return all.map((r, i) => {
     const used = Object.entries(r.itemsUsed) as [ItemId, number][];
     const fav = used.sort((a, b) => b[1] - a[1])[0];
     return {
@@ -378,12 +501,27 @@ export function getRaceResults(race: RaceMatch): RaceResultRow[] {
       avatar: r.avatar,
       chair: r.chair,
       isBot: r.isBot,
-      place: r.place,
+      place: race.timeTrial ? i + 1 : r.place,
       totalMs: r.lap.finishedAt === null ? null : Math.round(r.lap.finishedAt - race.countdownEndsAt),
-      bestLapMs: r.lap.bestLapMs === null ? null : Math.round(r.lap.bestLapMs),
+      bestLapMs: race.timeTrial ? r.rec.bestMs : r.lap.bestLapMs === null ? null : Math.round(r.lap.bestLapMs),
       lapsDone: lapsDone(r.lap, race.cps),
       favItem: fav ? fav[0] : null,
       itemsUsed: used.reduce((a, [, n]) => a + n, 0),
     };
   });
+}
+
+/** Prêmios bobos da corrida. Contra o relógio não tem. */
+export function getRaceAwards(race: RaceMatch): Award[] {
+  if (race.timeTrial) return [];
+  const stats = [...race.racers.values()].map((r) => ({
+    id: r.id,
+    name: r.name,
+    wrongMs: r.wrongTotalMs,
+    itemHits: r.itemHits,
+    wallHits: r.wallHits,
+    stoppedMs: r.stoppedMs,
+    bestLapMs: r.lap.bestLapMs === null ? null : Math.round(r.lap.bestLapMs),
+  }));
+  return pickAwards(raceCandidates(stats), race.seed);
 }

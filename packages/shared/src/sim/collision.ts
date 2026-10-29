@@ -2,25 +2,55 @@ import { BALANCE } from "../data/balance";
 import type { Box } from "../data/map";
 import type { Vec2 } from "../types";
 
+/**
+ * Move o jogador em um único eixo ("x" ou "z"), deslizando nas caixas.
+ * Garante que:
+ * 1. O jogador nunca atravesse uma caixa.
+ * 2. Se o jogador estiver encostado ou ligeiramente penetrado, recuar afasta-o suavemente
+ *    sem jamais teleportá-lo para o lado oposto da caixa.
+ * 3. O deslizamento no eixo perpendicular ocorra com velocidade total.
+ */
 function pushAxis(pos: Vec2, axis: "x" | "z", delta: number, r: number, boxes: Box[]): void {
   if (delta === 0) return;
+  const otherAxis = axis === "x" ? "z" : "x";
   let next = pos[axis] + delta;
+
   for (const b of boxes) {
     const half = axis === "x" ? b.w / 2 : b.d / 2;
     const otherHalf = axis === "x" ? b.d / 2 : b.w / 2;
     const center = axis === "x" ? b.x : b.z;
-    const other = axis === "x" ? pos.z - b.z : pos.x - b.x;
-    if (Math.abs(other) >= otherHalf + r) continue;
-    if (Math.abs(next - center) >= half + r) continue;
-    next = delta > 0 ? Math.min(next, center - half - r) : Math.max(next, center + half + r);
+    const otherCenter = axis === "x" ? b.z : b.x;
+
+    // Se no outro eixo não há sobreposição, a caixa não interfere neste movimento
+    if (Math.abs(pos[otherAxis] - otherCenter) >= otherHalf + r) continue;
+
+    const minBound = center - half - r;
+    const maxBound = center + half + r;
+
+    if (delta > 0) {
+      // Movendo no sentido positivo: só bloqueia se o jogador estava do lado menor (face minBound)
+      if (pos[axis] <= center) {
+        if (next > minBound) {
+          next = Math.min(next, minBound);
+        }
+      }
+    } else {
+      // Movendo no sentido negativo: só bloqueia se o jogador estava do lado maior (face maxBound)
+      if (pos[axis] >= center) {
+        if (next < maxBound) {
+          next = Math.max(next, maxBound);
+        }
+      }
+    }
   }
+
   pos[axis] = next;
 }
 
 /**
- * Move um círculo pelo plano XZ deslizando nas caixas (eixos separados) e
- * preso aos limites do mapa. Divide o movimento em passos menores que o raio
- * para não atravessar paredes finas.
+ * Move um círculo pelo plano XZ deslizando suavemente nas caixas (eixos separados)
+ * e preso aos limites do mapa. Divide o movimento em passos menores que o raio
+ * para impedir tunelamento através de paredes finas.
  */
 export function moveCircle(
   from: Vec2,
@@ -32,11 +62,13 @@ export function moveCircle(
 ): Vec2 {
   const pos = { x: from.x, z: from.z };
   const len = Math.hypot(dx, dz);
-  const steps = Math.max(1, Math.ceil(len / (r * 0.8)));
+  const steps = Math.max(1, Math.ceil(len / (r * 0.7)));
+
   for (let i = 0; i < steps; i++) {
     pushAxis(pos, "x", dx / steps, r, boxes);
     pushAxis(pos, "z", dz / steps, r, boxes);
   }
+
   const mx = bounds.w / 2 - r;
   const mz = bounds.d / 2 - r;
   pos.x = Math.max(-mx, Math.min(mx, pos.x));

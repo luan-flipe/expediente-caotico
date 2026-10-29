@@ -55,6 +55,15 @@ export function knockback(p: PlayerSim, dirX: number, dirZ: number, force: numbe
 export function applyDamage(m: Match, target: PlayerSim, amount: number, sourceId: string | null): number {
   if (m.phase !== "active" || !target.alive || amount <= 0 || sourceId === target.id) return 0;
   if (isInvulnerable(target, m.now)) return 0;
+
+  const src = sourceId ? m.players.get(sourceId) : undefined;
+  // No modo cooperativo de zumbis: fogo amigo desativado (humanos não ferem humanos, zumbis não ferem zumbis)
+  if (m.submode === "zombies" && src) {
+    const srcIsZombie = !!src.isZombie;
+    const tgtIsZombie = !!target.isZombie;
+    if (srcIsZombie === tgtIsZombie) return 0;
+  }
+
   let dmg = amount;
   let absorbed = 0;
   if (target.shield > 0 && m.now < target.shieldUntil) {
@@ -67,9 +76,9 @@ export function applyDamage(m: Match, target: PlayerSim, amount: number, sourceI
   const effective = absorbed + hpDmg;
   if (effective <= 0) return 0;
   m.events.push({ type: "hit", target: target.id, from: sourceId, amount: Math.round(effective), x: target.pos.x, z: target.pos.z });
-  const src = sourceId ? m.players.get(sourceId) : undefined;
   if (src) {
     target.damageLog.push({ from: src.id, amount: effective, at: m.now });
+    src.damageDealt += effective;
     grantXp(m, src, effective);
   }
   if (target.hp <= 0) handleDeath(m, target, sourceId);

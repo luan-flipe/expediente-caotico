@@ -88,6 +88,18 @@ input {
   max-width: 560px;
 }
 
+.pair {
+  display: grid;
+  /* lado a lado só quando cada card tem espaço; senão empilha (coluna estreita ao lado do crachá, celular) */
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.grid-2.even {
+  grid-template-columns: 1fr 1fr;
+}
+
 .grid-2 {
   display: grid;
   grid-template-columns: minmax(280px, 380px) 1fr;
@@ -96,8 +108,14 @@ input {
 }
 
 @media (max-width: 760px) {
-  .grid-2 {
+  .grid-2,
+  .grid-2.even {
     grid-template-columns: 1fr;
+  }
+
+  /* coluna única não pode crescer além da tela por causa de uma faixa larga (abas do crachá) */
+  .grid-2 > * {
+    min-width: 0;
   }
 }
 
@@ -124,6 +142,20 @@ input {
   padding: 8px 14px;
   display: flex;
   justify-content: space-between;
+}
+
+.badge-spin {
+  background: none;
+  border: 1px solid currentColor;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.badge-spin:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .badge-preview {
@@ -288,16 +320,125 @@ input {
   aspect-ratio: 1;
 }
 
+.presets button.on {
+  outline: 3px solid var(--postit);
+  outline-offset: 1px;
+}
+
 .presets img {
   width: 100%;
   height: 100%;
   display: block;
 }
 
-.editor-grid {
+/* prévia e ações ficam na tela enquanto as opções rolam */
+.creator-side {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* uma linha só; se faltar espaço, rola de lado (padding deixa a sombra da aba ativa aparecer) */
+.tabs {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 0 4px 5px 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  border: 2px solid var(--line);
+  background: #fff;
+  padding: 7px 9px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.tab.on {
+  background: var(--postit);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.tab-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  width: 18px;
+  height: 18px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 18px 22px;
+  place-items: center;
+  border: 1.5px solid var(--line);
+  border-radius: 50%;
+}
+
+.step-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.step-title {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  border: 2px solid var(--line);
+  background: #fff;
+  padding: 14px;
+}
+
+.choice strong {
+  font-size: 17px;
+}
+
+.choice span {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.choice.on {
+  background: var(--postit);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.step-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-top: 2px dashed var(--ink-2);
+  padding-top: 16px;
+}
+
+/* no celular a prévia fixa encolhe para sobrar espaço às opções */
+@media (max-width: 760px) {
+  .creator-side {
+    background: var(--paper);
+    padding-bottom: 10px;
+  }
+
+  .creator-side .badge-preview {
+    height: 180px;
+  }
+
+  .creator-side .badge-name {
+    display: none;
+  }
 }
 
 /* lobby */
@@ -501,6 +642,52 @@ input {
   font-size: 28px;
   font-weight: 700;
   padding: 6px 16px;
+}
+
+/* replay do recorde */
+.replay-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px;
+  color: var(--hud-ink);
+  font-family: var(--display);
+}
+
+.replay-hud .panel,
+.replay-hud button {
+  pointer-events: auto;
+}
+
+.replay-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.replay-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.replay-bar {
+  align-self: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  max-width: 100%;
+}
+
+.replay-hint {
+  font-size: 13px;
+  opacity: 0.8;
 }
 
 .zone-pill {
@@ -1140,4 +1327,757 @@ input {
   font-size: 14px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* ---------- contra o relógio ---------- */
+.race-place.trial .now {
+  font-family: var(--mono);
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--postit);
+}
+
+.race-place.trial .times .record {
+  color: #ffd23f;
+}
+
+.hud .end-training {
+  display: block;
+  margin: 8px auto 0;
+  pointer-events: auto;
+}
+
+/* ---------- ranking da firma ---------- */
+.tag.seal {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.tag.seal.ranked {
+  background: var(--blue);
+  color: #fff;
+}
+
+.rank-tabs button {
+  font-size: 15px;
+  padding: 8px 14px;
+}
+
+.rank-table tr.lead td {
+  font-weight: 800;
+}
+
+.rank-table tr.me td {
+  background: #fff6c2;
+}
+
+.rank-table tr.gap td {
+  text-align: center;
+  color: var(--ink-2);
+  font-family: var(--mono);
+}
+
+.rank-leader {
+  transform: rotate(-1deg);
+  display: block;
+}
+
+.rank-leader .who,
+.rank-past {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- carregamento ---------- */
+.screen.loading {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* só aparece se a espera passar de um instante: carga rápida (arquivos em cache) não pisca */
+  opacity: 0;
+  animation: loading-in 0.25s ease-out 0.3s forwards;
+  /* fundo escuro do ícone do app */
+  background: #1d1b17;
+}
+
+.loading-box {
+  width: min(720px, 100%);
+  text-align: center;
+}
+
+.loading-mascot {
+  display: block;
+  margin: 0 auto 8px;
+  width: clamp(120px, 28vw, 192px);
+  height: auto;
+  animation: mascot-wobble 1.6s ease-in-out infinite;
+  transform-origin: 50% 90%;
+}
+
+.loading-box .brand {
+  margin-bottom: 24px;
+}
+
+.loading-box .brand h1 {
+  font-size: clamp(36px, 9vw, 64px);
+  color: var(--hud-ink);
+}
+
+.loading-box .brand h1 span {
+  color: var(--ink);
+}
+
+.loading-bar {
+  border-color: var(--hud-ink);
+  box-shadow: 4px 4px 0 #000;
+  text-align: left;
+}
+
+.loading-bar {
+  height: 22px;
+  border: 2px solid var(--line);
+  background: #fff;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.loading-fill {
+  height: 100%;
+  background: var(--postit);
+  border-right: 2px solid var(--line);
+  transition: width 0.2s ease-out;
+}
+
+.loading-label {
+  margin: 14px 0 0;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--paper-2);
+}
+
+@keyframes loading-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes mascot-wobble {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(3deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-mascot {
+    animation: none;
+  }
+  .screen.loading {
+    animation-duration: 0.01s;
+  }
+  .loading-fill {
+    transition: none;
+  }
+}
+
+/* ---------- configurações ---------- */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  overflow: auto;
+  padding: 24px;
+  background: rgba(20, 18, 15, 0.62);
+}
+
+.settings-panel {
+  max-width: 980px;
+  margin: 0 auto;
+  background: var(--paper);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.settings-panel .brand h1 {
+  font-size: clamp(32px, 5vw, 52px);
+}
+
+.set-slider {
+  display: grid;
+  grid-template-columns: 110px 1fr 64px;
+  gap: 12px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.set-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--ink);
+}
+
+.set-slider .val {
+  font-family: var(--mono);
+  font-size: 14px;
+  text-align: right;
+}
+
+.set-check {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.set-check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--ink);
+}
+
+.set-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.set-key {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px dashed var(--ink-2);
+  padding-bottom: 6px;
+}
+
+.btn.keycap {
+  min-width: 78px;
+  font-family: var(--mono);
+}
+
+.btn.keycap.waiting {
+  background: var(--postit);
+}
+
+.set-warn {
+  color: var(--red);
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .set-slider {
+    grid-template-columns: 90px 1fr 56px;
+  }
+}
+
+.awards {
+  margin-top: 16px;
+}
+
+.awards-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.award {
+  background: var(--postit);
+  border: 2px solid var(--line);
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 10px 12px;
+}
+
+.award-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.award-name {
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  margin-top: 4px;
+}
+
+.award-detail {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* chat rápido: painel central, botão e canto de mensagens */
+.qc-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 18, 15, 0.25);
+}
+
+.qc-panel {
+  width: min(460px, calc(100vw - 32px));
+  background: var(--paper);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.qc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.qc-grid.emotes {
+  grid-template-columns: repeat(6, 1fr);
+}
+
+.qc-grid .btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.qc-grid.emotes .btn {
+  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 22px;
+}
+
+.qc-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  padding: 0 5px;
+  background: var(--postit);
+}
+
+.qc-open {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 80;
+}
+
+.qc-feed {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 80;
+  display: grid;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.qc-feed div {
+  background: var(--paper);
+  border: 2px solid var(--line);
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 4px 10px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.qc-feed b {
+  color: var(--blue);
+  margin-right: 6px;
+}
+
+/* ---------- desafio da semana ---------- */
+.challenge-text {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+
+.challenge-bar {
+  height: 16px;
+  border: 2px solid var(--line);
+  background: var(--paper-2);
+}
+
+.challenge-bar > div {
+  height: 100%;
+  background: var(--green);
+}
+
+.toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(92vw, 420px);
+  background: var(--postit);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 12px 18px;
+  pointer-events: none;
+}
+
+/* ---------- celular e tablet (controles na tela) ---------- */
+.game {
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.touch-ui {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+.tc-zone {
+  position: absolute;
+  top: 64px;
+  bottom: 0;
+  touch-action: none;
+}
+
+.tc-zone.left {
+  left: 0;
+  width: 45%;
+}
+
+.tc-zone.right {
+  right: 0;
+  width: 55%;
+}
+
+.tc-zone-hint {
+  position: absolute;
+  left: 50%;
+  top: 35%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 700;
+  text-shadow: 0 1px 3px #000;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tc-zone.right .tc-zone-hint {
+  left: 30%;
+}
+
+.tc-stick {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  background: rgba(0, 0, 0, 0.18);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.tc-stick i {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(255, 253, 247, 0.85);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.tc-wheel {
+  position: absolute;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  border: 10px solid rgba(255, 253, 247, 0.75);
+  background:
+    linear-gradient(rgba(255, 253, 247, 0.75), rgba(255, 253, 247, 0.75)) center / 100% 10px no-repeat,
+    linear-gradient(rgba(255, 253, 247, 0.75), rgba(255, 253, 247, 0.75)) center bottom / 10px 50% no-repeat;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.tc-top {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  display: flex;
+  gap: 8px;
+  z-index: 3;
+}
+
+.tc-cluster {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  z-index: 2;
+}
+
+.tc-abilities,
+.tc-main {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.tc-btn {
+  position: relative;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  background: rgba(20, 18, 15, 0.55);
+  color: #fffdf7;
+  font-weight: 800;
+  font-size: 14px;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.tc-btn.on,
+.tc-btn:active {
+  background: rgba(255, 225, 77, 0.7);
+  color: var(--ink);
+}
+
+.tc-btn.small {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+
+.tc-btn.icon {
+  font-size: 22px;
+  padding: 0;
+}
+
+.tc-btn.mid {
+  min-width: 68px;
+  min-height: 60px;
+}
+
+.tc-btn.big {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  font-size: 16px;
+}
+
+.tc-btn.fire {
+  background: rgba(255, 90, 61, 0.6);
+}
+
+.tc-btn.go {
+  background: rgba(31, 174, 107, 0.6);
+}
+
+.tc-btn.ready {
+  border-color: var(--postit);
+}
+
+.tc-btn.ab span {
+  display: block;
+  border-bottom: 3px solid transparent;
+}
+
+.tc-btn.empty {
+  opacity: 0.4;
+}
+
+.tc-btn em {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, 0.6);
+  font-style: normal;
+  font-size: 20px;
+}
+
+.rotate-hint {
+  display: none;
+}
+
+@media (orientation: portrait) {
+  .rotate-hint {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 18px;
+    background: #14120f;
+    color: #fffdf7;
+    text-align: center;
+    padding: 24px;
+    font-weight: 800;
+    font-size: 20px;
+  }
+
+  .rotate-phone {
+    width: 56px;
+    height: 96px;
+    border: 4px solid #fffdf7;
+    border-radius: 10px;
+    animation: rotate-phone 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes rotate-phone {
+  0%,
+  30% {
+    transform: rotate(0deg);
+  }
+  70%,
+  100% {
+    transform: rotate(-90deg);
+  }
+}
+
+/* no toque as habilidades aparecem nos botões da tela */
+.touch .abilities {
+  display: none;
+}
+
+/* alvos de toque com pelo menos 44 px nos menus */
+.touch .btn,
+.touch .seg button {
+  min-height: 44px;
+}
+
+/* cartas de evolução no meio da tela, longe dos polegares */
+.touch .evolution {
+  bottom: auto;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+}
+
+/* links de rodapé (privacidade, termos) com área de toque maior */
+.touch p.muted a {
+  display: inline-block;
+  padding: 13px 4px;
+}
+
+/* no toque o placar resumido sai (tem botão) e o canto direito fica para os botões de cima */
+.touch .mini-board {
+  display: none;
+}
+
+/* celular deitado tem pouca altura: HUD um pouco menor */
+@media (max-height: 500px) {
+  .touch .hud-top,
+  .touch .status-panel,
+  .touch .race-place,
+  .touch .race-item,
+  .touch .minimap-wrap,
+  .touch .feed {
+    zoom: 0.8;
+  }
+}
+
+/* sem teclado, as teclas do chat rápido não ajudam */
+.touch .qc-key {
+  display: none;
+}
+
+/* posição da corrida desce para dar lugar aos botões de cima */
+.touch .race-place {
+  top: 64px;
+}
+
+.touch .tabs .tab,
+.touch .badge-spin {
+  min-height: 44px;
+}
+
+/* perfil do jogador */
+.name-link {
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.name-link:hover {
+  text-decoration-style: solid;
+}
+
+.perfil-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.perfil-num {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.perfil-stat .label {
+  font-size: 10px;
+}
+
+.perfil-awards {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.perfil-hist {
+  overflow-x: auto;
+}
+
+.pause-panel {
+  max-width: 420px;
+  margin: 8vh auto 0;
+}
+
+.pause-panel .btn {
+  width: 100%;
+}
+
+@media (max-height: 500px) {
+  .pause-panel {
+    margin-top: 0;
+    padding: 16px;
+  }
 }

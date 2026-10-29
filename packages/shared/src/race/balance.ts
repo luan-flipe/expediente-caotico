@@ -21,6 +21,16 @@ export const RACE = {
   boost3Speed: 25.5,
   stuntBoostMs: 450,
   stuntBoostSpeed: 21,
+  /** Voo da rampa: gravidade (m/s²), queda máxima de paraquedas aberto (m/s), esterço no ar. */
+  gravity: 30,
+  glideFall: 4,
+  airSteer: 0.35,
+  /** Abaixo disso a cadeira não decola: desce a rampa rente ao chão. */
+  minLaunchSpeed: 8,
+  /** Quem cai no vão some ao chegar nesta altura e volta na rampa. */
+  fallDepth: -3,
+  /** Acima desta altura, poça e resma (no chão) passam por baixo da cadeira. */
+  airHitHeight: 1.2,
   slipstreamDist: 8.5,
   slipstreamAngleRad: 0.35,
   slipstreamChargeMs: 1400,
@@ -41,6 +51,13 @@ export const RACE = {
   introMs: 5000,
   finishGraceMs: 30000,
   maxRaceMs: 6 * 60000,
+  /** Contra o relógio: sessão encerrada sozinha depois de tanto tempo de fase ativa. */
+  trainingMaxMs: 20 * 60000,
+  /** Contra o relógio não tem número de voltas: um valor que ninguém alcança. */
+  trainingLaps: 1_000_000,
+  /** Fantasma: uma amostra a cada tantos ticks; volta acima do limite de amostras não vira fantasma. */
+  ghostEveryTicks: 3,
+  ghostMaxSamples: 3000,
   respawnPenaltyMs: 2000,
   boxRespawnMs: 4000,
   boxRadius: 0.5,

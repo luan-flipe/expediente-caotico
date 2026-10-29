@@ -1,9 +1,12 @@
 import type { Vec2 } from "../types";
 import { ITEM_FX, RACE } from "./balance";
-import { pointAt, progressOf, sideNormal, TRACK } from "./track";
+import { pointAt, progressOf, sideNormal } from "./track";
 import type { Hazard, ItemId, RaceMatch, Racer } from "./types";
 
 export const ITEM_IDS: ItemId[] = ["expresso", "triplo", "grampeador", "poca", "resma", "aviao", "pasta", "postit"];
+
+/** Itens que dá para segurar atrás da cadeira como escudo (segura a tecla, solta para usar). */
+export const HOLDABLE_ITEMS: ReadonlySet<ItemId> = new Set<ItemId>(["resma", "poca", "grampeador"]);
 
 export const ITEM_NAMES: Record<ItemId, string> = {
   expresso: "Café Expresso",
@@ -124,6 +127,8 @@ export function hitRacer(race: RaceMatch, t: Racer, kind: "spin" | "slip" | "res
     race.events.push({ type: "hit", id: t.id, by, kind: "blocked" });
     return;
   }
+  const attacker = by ? race.racers.get(by) : undefined;
+  if (attacker && attacker !== t) attacker.itemHits++;
   if (kind === "spin") k.spinUntil = race.now + ITEM_FX.spinMs;
   if (kind === "slip") k.slipUntil = race.now + ITEM_FX.pocaSlipMs;
   if (kind === "resma") k.speed *= ITEM_FX.resmaSpeedKeep;
@@ -150,9 +155,9 @@ function steerAviao(race: RaceMatch, h: Hazard, dt: number): void {
     aim = t.kart.pos;
   } else {
     // segue a pista até chegar perto do alvo, sem atravessar paredes
-    const pr = progressOf(TRACK, h.pos);
-    const ahead = pointAt(TRACK, pr.s + 6);
-    const lateral = t ? progressOf(TRACK, t.kart.pos).lateral * 0.5 : 0;
+    const pr = progressOf(race.track, h.pos);
+    const ahead = pointAt(race.track, pr.s + 6);
+    const lateral = t ? progressOf(race.track, t.kart.pos).lateral * 0.5 : 0;
     const n = sideNormal(Math.sin(ahead.heading), Math.cos(ahead.heading));
     aim = { x: ahead.pos.x + n.x * lateral, z: ahead.pos.z + n.z * lateral };
   }
@@ -178,7 +183,7 @@ export function stepHazards(race: RaceMatch, dtMs: number): void {
     if (moving) {
       if (h.kind === "aviao") steerAviao(race, h, dt);
       h.pos = { x: h.pos.x + h.vel.x * dt, z: h.pos.z + h.vel.z * dt };
-      const pr = progressOf(TRACK, h.pos);
+      const pr = progressOf(race.track, h.pos);
       if (pr.dist > pr.halfWidth) {
         gone.add(h.id);
         continue;
@@ -197,8 +202,10 @@ export function stepHazards(race: RaceMatch, dtMs: number): void {
       if (r.id === h.owner && now - h.bornAt < ITEM_FX.ownerGraceMs) continue;
       if (h.kind === "aviao" && h.targetId && r.id !== h.targetId) continue;
       if (Math.hypot(r.kart.pos.x - h.pos.x, r.kart.pos.z - h.pos.z) >= RADIUS[h.kind] + RACE.kartRadius) continue;
+      // poça e resma ficam no chão: quem voa passa por cima
+      if ((h.kind === "poca" || h.kind === "resma") && (r.kart.y ?? 0) > RACE.airHitHeight) continue;
       // Escudo protetor traseiro: segurar item na traseira absorve projéteis que vêm de trás
-      if (r.holdingItem && r.item) {
+      if (r.holdingItem && r.item && HOLDABLE_ITEMS.has(r.item)) {
         const fx = Math.sin(r.kart.heading);
         const fz = Math.cos(r.kart.heading);
         const hx = h.pos.x - r.kart.pos.x;
