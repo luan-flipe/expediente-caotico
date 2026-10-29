@@ -3,6 +3,8 @@ import * as THREE from "three";
 import {
   applyFresnelRimLight,
   applyFresnelRimToHierarchy,
+  calculateDynamicFov,
+  CasterBlobShadows,
   DRIFT_COLORS,
   RaceVfxManager,
 } from "./vfxJuice";
@@ -122,5 +124,101 @@ describe("vfxJuice - RaceVfxManager Lifecycle & Pools", () => {
     }
 
     vfx.dispose();
+  });
+});
+
+describe("vfxJuice - Dynamic FOV & Camera Squash", () => {
+  it("maintains base 60° FOV when idle/stopped", () => {
+    const fov = calculateDynamicFov({ speed: 0, isBoosting: false, isBraking: false });
+    expect(fov).toBe(60.0);
+  });
+
+  it("opens FOV up to 74° during turbo, vácuo and café boost", () => {
+    // Turbo boost
+    const fovTurbo = calculateDynamicFov({ speed: 18, isBoosting: true });
+    expect(fovTurbo).toBe(74.0);
+
+    // Slipstream (vácuo) boost
+    const fovDraft = calculateDynamicFov({ speed: 18, isDrafting: true });
+    expect(fovDraft).toBe(74.0);
+
+    // Slipstream charging
+    const fovDraftCharging = calculateDynamicFov({ speed: 12, draftRatio: 0.8 });
+    expect(fovDraftCharging).toBeGreaterThan(68.0);
+    expect(fovDraftCharging).toBeLessThanOrEqual(74.0);
+
+    // Café boost
+    const fovCoffee = calculateDynamicFov({ speed: 15, hasCoffee: true });
+    expect(fovCoffee).toBeGreaterThanOrEqual(71.0);
+    expect(fovCoffee).toBeLessThanOrEqual(74.0);
+  });
+
+  it("compresses FOV down to 56° during hard braking", () => {
+    const fovBraking = calculateDynamicFov({ speed: 10, isBraking: true });
+    expect(fovBraking).toBe(56.0);
+
+    const fovMildBraking = calculateDynamicFov({ speed: 3.5, isBraking: true });
+    expect(fovMildBraking).toBe(58.0);
+  });
+});
+
+describe("vfxJuice - Cartoon Contact Shadows (Blob Shadows)", () => {
+  it("creates a central AO shadow and 5 caster wheel decals", () => {
+    const root = new THREE.Group();
+    const blobs = new CasterBlobShadows(root);
+
+    expect(root.children.length).toBe(1);
+    expect(blobs.casterMeshes.length).toBe(5);
+    expect(blobs.centralMesh).toBeDefined();
+
+    // Verify 5 caster wheels form radial 72° star distribution
+    const firstCaster = blobs.casterMeshes[0];
+    expect(firstCaster.position.z).toBeCloseTo(0.35, 2);
+
+    blobs.dispose();
+    expect(root.children.length).toBe(0);
+  });
+
+  it("scales and deepens opacity with suspension compression", () => {
+    const blobs = new CasterBlobShadows();
+
+    // Uncompressed (rest)
+    blobs.update(0, 0, false);
+    const restScale = blobs.casterMeshes[0].scale.x;
+    const restOpacity = blobs.material.opacity;
+
+    // Compressed suspension (-0.06m)
+    blobs.update(-0.06, 0, false);
+    const compressedScale = blobs.casterMeshes[0].scale.x;
+    const compressedOpacity = blobs.material.opacity;
+
+    // Contact blobs should swell outwards and darken under load
+    expect(compressedScale).toBeGreaterThan(restScale);
+    expect(compressedOpacity).toBeGreaterThan(restOpacity);
+
+    blobs.dispose();
+  });
+
+  it("spreads and fades smoothly when airborne", () => {
+    const blobs = new CasterBlobShadows();
+
+    // On ground
+    blobs.update(0, 0, false);
+    const groundScale = blobs.centralMesh.scale.x;
+    const groundOpacity = blobs.material.opacity;
+
+    // Airborne at height 1.8m
+    blobs.update(0, 1.8, true);
+    const airScale = blobs.centralMesh.scale.x;
+    const airOpacity = blobs.material.opacity;
+
+    // Shadow decal should pin to floor relative height (0.015 - y)
+    expect(blobs.group.position.y).toBeCloseTo(0.015 - 1.8, 2);
+    // Shadow expands into softer diffuse disc
+    expect(airScale).toBeGreaterThan(groundScale);
+    // Shadow fades out with altitude
+    expect(airOpacity).toBeLessThan(groundOpacity);
+
+    blobs.dispose();
   });
 });

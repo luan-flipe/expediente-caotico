@@ -2087,3 +2087,261 @@ input {
   opacity: 0.6;
   white-space: nowrap;
 }
+
+
+/* ==========================================================================
+   VFX & JUICE ADDITIONS (EXPEDIENTE CAÓTICO)
+   ========================================================================== */
+
+/* 1. Pop & Squash na Posição do HUD + Mini Estrelas */
+.pos-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+@keyframes pos-pop-squash-anim {
+  0% {
+    transform: scale(1, 1);
+  }
+  24% {
+    transform: scale(1.42, 0.65) translateY(4px);
+    color: #ffd700;
+  }
+  48% {
+    transform: scale(0.82, 1.35) translateY(-8px);
+    color: #fffb8f;
+  }
+  74% {
+    transform: scale(1.14, 0.92) translateY(1px);
+  }
+  88% {
+    transform: scale(0.96, 1.04);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+.race-place .pos.pop-squash {
+  display: inline-block;
+  animation: pos-pop-squash-anim 0.65s cubic-bezier(0.34, 1.56, 0.64, 1);
+  text-shadow: 0 0 18px rgba(255, 230, 0, 0.9), 3px 3px 0 var(--ink);
+}
+
+.mini-star {
+  position: absolute;
+  top: 40%;
+  left: 45%;
+  pointer-events: none;
+  font-size: 22px;
+  color: #ffd700;
+  text-shadow: 0 0 10px #ff9900, 1px 1px 0 #000;
+  animation: mini-star-fade 0.85s forwards ease-out;
+  z-index: 10;
+}
+
+@keyframes mini-star-fade {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: var(--star-target, translate(0, 0)) scale(1.35);
+  }
+  100% {
+    opacity: 0;
+    transform: var(--star-target, translate(0, 0)) scale(0.2);
+  }
+}
+
+/* 2. Vinheta de Vácuo (Slipstream) ao Redor da Tela & Medidor */
+.draft-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  box-shadow: inset 0 0 140px rgba(56, 189, 248, 0.55);
+  background:
+    radial-gradient(ellipse at center, transparent 48%, rgba(56, 189, 248, 0.22) 100%),
+    repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg 8deg, rgba(56, 189, 248, 0.12) 9deg 12deg, transparent 13deg 20deg);
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.draft-vignette.active {
+  animation: draft-vignette-pulse 0.12s infinite alternate ease-in-out;
+}
+
+@keyframes draft-vignette-pulse {
+  from {
+    filter: brightness(1) saturate(1.1);
+  }
+  to {
+    filter: brightness(1.25) saturate(1.4);
+  }
+}
+
+.draft-meter-pill {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 2px solid #38bdf8;
+  border-radius: 24px;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.45), var(--shadow);
+  z-index: 8;
+  font-family: var(--display);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  animation: draft-meter-pop 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes draft-meter-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+.draft-meter-title {
+  color: #38bdf8;
+  font-size: 14px;
+  text-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
+.draft-meter-track {
+  width: 140px;
+  height: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.draft-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0284c7, #38bdf8, #bae6fd);
+  border-radius: 6px;
+  box-shadow: 0 0 10px #38bdf8;
+  transition: width 0.06s linear;
+}
+
+.draft-meter-pct {
+  font-size: 13px;
+  color: #fff;
+  min-width: 38px;
+  text-align: right;
+  font-family: var(--mono);
+}
+
+/* 3. Vinheta / Banner Animado de Última Volta (Final Lap) + Confetes */
+.final-lap-modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 50;
+  overflow: hidden;
+}
+
+.final-lap-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 48px;
+  background: linear-gradient(135deg, #e11d48, #be123c, #9f1239);
+  border: 4px solid #fff;
+  border-radius: 16px;
+  box-shadow: 0 0 45px rgba(225, 29, 72, 0.8), 0 12px 0 rgba(0, 0, 0, 0.4);
+  animation: final-lap-pop 2.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transform-origin: center center;
+}
+
+@keyframes final-lap-pop {
+  0% {
+    transform: scale(0.2) rotate(-8deg);
+    opacity: 0;
+  }
+  14% {
+    transform: scale(1.18) rotate(3deg);
+    opacity: 1;
+  }
+  24% {
+    transform: scale(0.96) rotate(-1deg);
+    opacity: 1;
+  }
+  32% {
+    transform: scale(1.02) rotate(0deg);
+    opacity: 1;
+  }
+  75% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4) translateY(-40px);
+    opacity: 0;
+  }
+}
+
+.final-lap-text {
+  font-family: var(--display);
+  font-size: 58px;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 3px 3px 0 #000, 0 0 24px rgba(255, 255, 255, 0.6);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.final-lap-sub {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 800;
+  color: #fef08a;
+  letter-spacing: 0.28em;
+  text-shadow: 2px 2px 0 #000;
+  margin-top: -4px;
+}
+
+.confetti-field {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.confetti-dot {
+  position: absolute;
+  top: -20px;
+  width: 12px;
+  height: 18px;
+  border-radius: 2px;
+  animation: confetti-fall linear forwards;
+}
+
+@keyframes confetti-fall {
+  0% {
+    opacity: 1;
+    top: -20px;
+    transform: rotate(0deg) scale(1);
+  }
+  100% {
+    opacity: 0.9;
+    top: 105vh;
+    transform: rotate(720deg) scale(0.8);
+  }
+}

@@ -10,7 +10,19 @@ export interface AvatarRig {
   armL: THREE.Group;
   armR: THREE.Group;
   head: THREE.Group;
+  eyeL?: THREE.Mesh;
+  eyeR?: THREE.Mesh;
+  browL?: THREE.Mesh;
+  browR?: THREE.Mesh;
+  mouth?: THREE.Mesh;
   materials: THREE.MeshStandardMaterial[];
+}
+
+export interface EmotionWeights {
+  adrenaline: number;
+  panic: number;
+  victory: number;
+  yawn: number;
 }
 
 const HEIGHT_SCALE = [0.9, 1, 1.1];
@@ -113,15 +125,27 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
   body.add(head);
   head.add(at(box(0.12, 0.1, 0.12, skin), 0, 0.03, 0));
   head.add(at(box(0.52, 0.5, 0.48, skin, 0.08), 0, 0.31, 0));
-  head.add(at(box(0.07, 0.08, 0.02, dark), -0.11, 0.33, 0.245));
-  head.add(at(box(0.07, 0.08, 0.02, dark), 0.11, 0.33, 0.245));
+
+  const eyeL = at(box(0.07, 0.08, 0.02, dark), -0.11, 0.33, 0.245);
+  eyeL.name = "Olho_E";
+  head.add(eyeL);
+
+  const eyeR = at(box(0.07, 0.08, 0.02, dark), 0.11, 0.33, 0.245);
+  eyeR.name = "Olho_D";
+  head.add(eyeR);
+
   const browL = at(box(0.1, 0.025, 0.02, hair), -0.11, 0.41, 0.245);
   browL.name = "Sobrancelha_E";
   head.add(browL);
+
   const browR = at(box(0.1, 0.025, 0.02, hair), 0.11, 0.41, 0.245);
   browR.name = "Sobrancelha_D";
   head.add(browR);
-  head.add(at(box(0.14, 0.03, 0.02, mat("#8a3b2e")), 0, 0.19, 0.245));
+
+  const mouth = at(box(0.14, 0.03, 0.02, mat("#8a3b2e")), 0, 0.19, 0.245);
+  mouth.name = "Boca";
+  head.add(mouth);
+
   addHair(head, dna.hair, hair);
 
   if (dna.beard) {
@@ -180,7 +204,156 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
       break;
   }
 
-  return { root, body, legL, legR, armL, armR, head, materials };
+  return { root, body, legL, legR, armL, armR, head, eyeL, eyeR, browL, browR, mouth, materials };
+}
+
+/** Aplica os pesos das expressões e estados emocionais no rig procedural (zero allocations). */
+export function applyAvatarEmotion(
+  rig: AvatarRig,
+  weights: EmotionWeights,
+  panicArmTimer: number,
+  time: number,
+  stareWeight = 0,
+): void {
+  const { adrenaline, panic, victory, yawn } = weights;
+
+  // 1. Sobrancelhas (Brows)
+  const browL = rig.browL ?? (rig.head.getObjectByName("Sobrancelha_E") as THREE.Mesh | undefined);
+  const browR = rig.browR ?? (rig.head.getObjectByName("Sobrancelha_D") as THREE.Mesh | undefined);
+
+  if (browL) {
+    let rotZ = -0.26 * stareWeight;
+    let posY = 0.41 - 0.015 * stareWeight;
+
+    // Adrenalina: inclinadas para baixo em determinação agressiva (V-shape)
+    rotZ += -0.32 * adrenaline;
+    posY += -0.02 * adrenaline;
+
+    // Pânico: sobrancelhas levantadas e invertidas (centro alto)
+    rotZ += 0.28 * panic;
+    posY += 0.035 * panic;
+
+    // Vitória: sobrancelha esquerda arqueada com deboche
+    rotZ += 0.15 * victory;
+    posY += 0.03 * victory;
+
+    // Bocejo: sobrancelhas caídas e relaxadas
+    rotZ += 0.05 * yawn;
+    posY += -0.018 * yawn;
+
+    browL.rotation.z = rotZ;
+    browL.position.y = posY;
+  }
+
+  if (browR) {
+    let rotZ = 0.26 * stareWeight;
+    let posY = 0.41 - 0.015 * stareWeight;
+
+    // Adrenalina: inclinada para baixo
+    rotZ += 0.32 * adrenaline;
+    posY += -0.02 * adrenaline;
+
+    // Pânico: sobrancelha levantada
+    rotZ += -0.28 * panic;
+    posY += 0.035 * panic;
+
+    // Vitória: sobrancelha direita abaixada no piscar de olho
+    rotZ += 0.18 * victory;
+    posY += -0.015 * victory;
+
+    // Bocejo
+    rotZ += -0.05 * yawn;
+    posY += -0.018 * yawn;
+
+    browR.rotation.z = rotZ;
+    browR.position.y = posY;
+  }
+
+  // 2. Olhos (Eyes)
+  const eyeL = rig.eyeL ?? (rig.head.getObjectByName("Olho_E") as THREE.Mesh | undefined);
+  const eyeR = rig.eyeR ?? (rig.head.getObjectByName("Olho_D") as THREE.Mesh | undefined);
+
+  if (eyeL) {
+    let scaleX = 1.0;
+    let scaleY = 1.0;
+    let posZ = 0.245;
+
+    // Adrenalina: foco
+    scaleY -= 0.2 * adrenaline;
+
+    // Pânico: olhos arregalados cartoon
+    scaleX += 0.45 * panic;
+    scaleY += 0.55 * panic;
+    posZ += 0.015 * panic;
+
+    // Vitória: olho esquerdo aberto e confiante
+    scaleX += 0.1 * victory;
+    scaleY += 0.05 * victory;
+
+    // Bocejo: pálpebra caída
+    scaleY -= 0.65 * yawn;
+
+    eyeL.scale.set(scaleX, scaleY, 1.0);
+    eyeL.position.z = posZ;
+  }
+
+  if (eyeR) {
+    let scaleX = 1.0;
+    let scaleY = 1.0;
+    let posZ = 0.245;
+
+    // Adrenalina: foco
+    scaleY -= 0.2 * adrenaline;
+
+    // Pânico: olhos arregalados cartoon
+    scaleX += 0.45 * panic;
+    scaleY += 0.55 * panic;
+    posZ += 0.015 * panic;
+
+    // Vitória: piscadela (olho direito espremido fechado!)
+    scaleY -= 0.88 * victory;
+
+    // Bocejo: pálpebra caída
+    scaleY -= 0.65 * yawn;
+
+    eyeR.scale.set(scaleX, scaleY, 1.0);
+    eyeR.position.z = posZ;
+  }
+
+  // 3. Boca (Mouth)
+  const mouth = rig.mouth ?? (rig.head.getObjectByName("Boca") as THREE.Mesh | undefined);
+  if (mouth) {
+    let scaleX = 1.0;
+    let scaleY = 1.0;
+    let posX = 0;
+    let posY = 0.19;
+    let rotZ = 0;
+
+    // Adrenalina: dentes cerrados / grito de esforço (larga e achatada)
+    scaleX += 0.38 * adrenaline;
+    scaleY -= 0.45 * adrenaline;
+
+    // Pânico: boca aberta em 'O' de susto
+    scaleX -= 0.32 * panic;
+    scaleY += 1.85 * panic;
+    posY -= 0.03 * panic;
+
+    // Vitória: sorriso de canto / deboche
+    scaleX += 0.22 * victory;
+    scaleY += 0.18 * victory;
+    rotZ += 0.22 * victory;
+    posX += 0.02 * victory;
+    posY += 0.012 * victory;
+
+    // Bocejo: boca abre em bocejo preguiçoso
+    scaleX += 0.45 * yawn;
+    scaleY += 2.1 * yawn;
+    posY -= 0.038 * yawn;
+
+    mouth.scale.set(scaleX, scaleY, 1.0);
+    mouth.position.set(posX, posY, 0.245);
+    mouth.rotation.z = rotZ;
+  }
 }
 
 /** Animação procedural: passo, balanço e braço de mira. */

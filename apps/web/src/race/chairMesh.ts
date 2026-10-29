@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { CHAIR_BASES, CHAIR_SEATS, type AvatarDNA, type ChairDNA } from "@ec/shared";
-import { celebrationExtras, createCharacter, modelReady, type Character } from "../game/character";
+import { celebrationExtras, createCharacter, modelReady, type Character, type CharacterSeatedOptions } from "../game/character";
 import { createGltfLoader } from "../game/gltfLoader";
 
 const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
@@ -755,6 +755,7 @@ export function buildChair(chair: ChairDNA): ChairModel {
 export interface Racer3D {
   root: THREE.Group;
   char: Character;
+  chair: ChairModel;
   exhaust: THREE.Vector3;
   update(
     dt: number,
@@ -764,6 +765,7 @@ export interface Racer3D {
     boosting?: boolean,
     rivalDir?: THREE.Vector3,
     air?: boolean,
+    options?: CharacterSeatedOptions,
   ): void;
   /** Comemoração da chegada: o boneco festeja, o assento gira e cai confete. */
   celebrate(): void;
@@ -809,14 +811,15 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
   return {
     root,
     char,
+    chair: seat,
     exhaust: seat.exhaust,
-    update(dt, speed, steer = 0, driftDir = 0, boosting = false, rivalDir, air = false) {
+    update(dt, speed, steer = 0, driftDir = 0, boosting = false, rivalDir, air = false, options) {
       seat.update(dt, speed, steer, driftDir, boosting, air, rivalDir);
       if (!pivot) {
         char.root.position.y = baseCharY + (seat.pistonOffset ?? 0);
         char.root.rotation.z = seat.rollAngle ?? 0;
       }
-      char.updateSeated?.(dt, speed, steer, driftDir, boosting, rivalDir);
+      char.updateSeated?.(dt, speed, steer, driftDir, boosting, rivalDir, options);
       char.update(dt, 0);
       mixer.update(dt);
     },

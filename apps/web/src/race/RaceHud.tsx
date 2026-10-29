@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getTrack, ITEM_NAMES, RACE, type ItemId } from "@ec/shared";
 import { keyLabel, useSettings } from "../settings";
 import { net, useStore } from "../store";
@@ -40,6 +40,106 @@ export function RaceHud({ myId }: { myId: string }) {
     return () => clearInterval(t);
   }, []);
 
+  // Pop & squash ao subir de posição + mini estrelas
+  const prevPlaceRef = useRef<number | null>(null);
+  const [placeSquash, setPlaceSquash] = useState(false);
+  const [miniStars, setMiniStars] = useState<Array<{ id: number; dx: number; dy: number; rot: number; delay: number }>>([]);
+
+  useEffect(() => {
+    if (me?.place != null) {
+      if (prevPlaceRef.current !== null && me.place < prevPlaceRef.current) {
+        setPlaceSquash(true);
+        const stars = Array.from({ length: 8 }, (_, i) => {
+          const angle = (i / 8) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
+          const dist = 32 + Math.random() * 26;
+          return {
+            id: Date.now() + i,
+            dx: Math.cos(angle) * dist,
+            dy: Math.sin(angle) * dist,
+            rot: Math.random() * 360,
+            delay: Math.random() * 0.08,
+          };
+        });
+        setMiniStars(stars);
+        const t1 = setTimeout(() => setPlaceSquash(false), 650);
+        const t2 = setTimeout(() => setMiniStars([]), 900);
+        return () => {
+          clearTimeout(t1);
+          clearTimeout(t2);
+        };
+      }
+      prevPlaceRef.current = me.place;
+    }
+  }, [me?.place]);
+
+  // Medidor de vácuo (slipstream)
+  const [draftPct, setDraftPct] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    const updateDraft = () => {
+      if (typeof document !== "undefined") {
+        const raw = document.documentElement.style.getPropertyValue("--draft-progress");
+        const v = parseFloat(raw);
+        if (!isNaN(v)) {
+          setDraftPct((prev) => (Math.abs(prev - v) > 0.02 ? v : prev));
+        }
+      }
+      raf = requestAnimationFrame(updateDraft);
+    };
+    raf = requestAnimationFrame(updateDraft);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Vinheta animada de Última Volta (Final Lap) com confetes
+  const [finalLapBanner, setFinalLapBanner] = useState(false);
+  const [confetti, setConfetti] = useState<Array<{ id: number; x: number; r: number; color: string; scale: number; dur: number; delay: number }>>([]);
+  const finalLapSeenRef = useRef(false);
+
+  useEffect(() => {
+    if (!snap) return;
+    if (snap.phase === "countdown") {
+      finalLapSeenRef.current = false;
+      setFinalLapBanner(false);
+    }
+  }, [snap?.phase]);
+
+  useEffect(() => {
+    const triggerBanner = () => {
+      setFinalLapBanner(true);
+      const colors = ["#ffd23f", "#ff4d4d", "#38bdf8", "#a855f7", "#4ade80", "#ffffff"];
+      const pieces = Array.from({ length: 42 }, (_, i) => ({
+        id: i,
+        x: Math.random() * 100,
+        r: Math.random() * 360,
+        color: colors[i % colors.length],
+        scale: 0.6 + Math.random() * 0.8,
+        dur: 1.8 + Math.random() * 1.2,
+        delay: Math.random() * 0.4,
+      }));
+      setConfetti(pieces);
+      setTimeout(() => {
+        setFinalLapBanner(false);
+        setConfetti([]);
+      }, 2800);
+    };
+
+    const handleEvent = () => {
+      if (!finalLapSeenRef.current) {
+        finalLapSeenRef.current = true;
+        triggerBanner();
+      }
+    };
+
+    window.addEventListener("ec:finallap", handleEvent);
+
+    if (me && snap && snap.phase === "active" && !snap.timeTrial && snap.laps > 1 && me.lap === snap.laps && !finalLapSeenRef.current) {
+      finalLapSeenRef.current = true;
+      triggerBanner();
+    }
+
+    return () => window.removeEventListener("ec:finallap", handleEvent);
+  }, [me?.lap, snap?.laps, snap?.phase, snap?.timeTrial]);
+
   if (!snap) return <div className="hud center-msg">Ajustando a cadeira...</div>;
   const now = performance.now();
   const order = [...snap.karts].sort((a, b) => a.place - b.place);
@@ -70,6 +170,19 @@ export function RaceHud({ myId }: { myId: string }) {
         </div>
       )}
       <div className={`turbo-fx ${(me?.kart?.boostMs ?? 0) > 0 ? "on" : ""}`} />
+      {/* Vinheta de Vácuo (Slipstream) ao redor da tela */}
+      <div className={`draft-vignette ${draftPct > 0.05 ? "active" : ""}`} style={{ opacity: draftPct }} />
+
+      {/* Medidor visual de vácuo acumulando */}
+      {draftPct > 0.05 && (
+        <div className="draft-meter-pill">
+          <div className="draft-meter-title">VÁCUO</div>
+          <div className="draft-meter-track">
+            <div className="draft-meter-fill" style={{ width: `${Math.round(draftPct * 100)}%` }} />
+          </div>
+          <span className="draft-meter-pct">{Math.round(draftPct * 100)}%</span>
+        </div>
+      )}
 
       <div className="hud-top">
         <div className="panel timer">{fmtRace(me?.raceMs ?? snap.elapsedMs)}</div>
@@ -96,10 +209,24 @@ export function RaceHud({ myId }: { myId: string }) {
 
       {me && !trial && (
         <div className="race-place">
-          <span className="pos">
-            {me.place}
-            <small>º</small>
-          </span>
+          <div className="pos-wrap">
+            <span className={`pos ${placeSquash ? "pop-squash" : ""}`}>
+              {me.place}
+              <small>º</small>
+            </span>
+            {miniStars.map((s) => (
+              <span
+                key={s.id}
+                className="mini-star"
+                style={{
+                  transform: `translate(${s.dx}px, ${s.dy}px) rotate(${s.rot}deg)`,
+                  animationDelay: `${s.delay}s`,
+                }}
+              >
+                ★
+              </span>
+            ))}
+          </div>
           <span className="of">/{me.total}</span>
           <div className="lap">
             Volta {me.lap}/{snap.laps}
@@ -192,6 +319,30 @@ export function RaceHud({ myId }: { myId: string }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {/* Banner Animado de Última Volta com Confetes */}
+      {finalLapBanner && (
+        <div className="final-lap-modal">
+          <div className="final-lap-card">
+            <div className="final-lap-text">ÚLTIMA VOLTA!</div>
+            <div className="final-lap-sub">FINAL LAP</div>
+          </div>
+          <div className="confetti-field">
+            {confetti.map((c) => (
+              <div
+                key={c.id}
+                className="confetti-dot"
+                style={{
+                  left: `${c.x}%`,
+                  backgroundColor: c.color,
+                  transform: `rotate(${c.r}deg) scale(${c.scale})`,
+                  animationDuration: `${c.dur}s`,
+                  animationDelay: `${c.delay}s`,
+                }}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>

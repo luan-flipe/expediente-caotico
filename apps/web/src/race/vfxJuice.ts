@@ -158,6 +158,212 @@ export function applyFresnelRimToHierarchy(
   });
 }
 
+
+// ----------------------------------------------------------------------------
+// 3.5. DYNAMIC FOV & CAMERA SQUASH (JUICE)
+// ----------------------------------------------------------------------------
+
+export interface DynamicFovOptions {
+  speed: number;
+  maxSpeed?: number;
+  isBoosting?: boolean;
+  isDrafting?: boolean;
+  draftRatio?: number;
+  isBraking?: boolean;
+  hasCoffee?: boolean;
+  baseFov?: number;
+  minFov?: number;
+  maxFov?: number;
+}
+
+/**
+ * Interpolação elástica e dinâmica do FOV da câmera:
+ * - Base: 60°
+ * - Aceleração / velocidade de cruzeiro: 60° -> ~64°
+ * - Turbo, Vácuo (Slipstream) e Café: abre suavemente até 74° (com fitas radiais nas bordas)
+ * - Freadas bruscas: comprime com squash de câmera para 56°
+ */
+export function calculateDynamicFov(options: DynamicFovOptions): number {
+  const baseFov = options.baseFov ?? 60.0;
+  const minFov = options.minFov ?? 56.0;
+  const maxFov = options.maxFov ?? 74.0;
+  const maxSpeed = options.maxSpeed ?? 18.0;
+
+  // 1. Freada brusca: comprime o FOV para 56°
+  if (options.isBraking && options.speed > 1.5) {
+    const brakeIntensity = Math.min(1.0, options.speed / 7.0);
+    return baseFov - (baseFov - minFov) * brakeIntensity;
+  }
+
+  // 2. Velocidade normal de cruzeiro
+  const speedRatio = Math.min(1.0, Math.max(0, (options.speed - 4.0) / (maxSpeed - 4.0)));
+  let fov = baseFov + speedRatio * 4.0;
+
+  // 3. Fatores estimulantes: Turbo, Vácuo e Café abrem até 74°
+  let boostFactor = 0;
+  if (options.isBoosting) {
+    boostFactor = Math.max(boostFactor, 1.0);
+  }
+  if (options.isDrafting) {
+    boostFactor = Math.max(boostFactor, 1.0);
+  } else if (options.draftRatio && options.draftRatio > 0) {
+    boostFactor = Math.max(boostFactor, options.draftRatio * 0.85);
+  }
+  if (options.hasCoffee) {
+    boostFactor = Math.max(boostFactor, 0.75);
+  }
+
+  if (boostFactor > 0) {
+    fov = Math.max(fov, 64.0 + (maxFov - 64.0) * boostFactor);
+  }
+
+  return Math.min(maxFov, Math.max(minFov, fov));
+}
+
+// ----------------------------------------------------------------------------
+// 3.6. SOMBRAS DE CONTATO CARTOON (BLOB SHADOWS)
+// ----------------------------------------------------------------------------
+
+let _blobShadowTexture: THREE.Texture | null = null;
+
+export function createBlobShadowTexture(): THREE.Texture {
+  if (_blobShadowTexture) return _blobShadowTexture;
+  if (typeof document === "undefined") {
+    // Node / test fallback: 2x2 data texture
+    const data = new Uint8Array([10, 12, 18, 220]);
+    const tex = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    _blobShadowTexture = tex;
+    return tex;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    // Velvety soft ambient occlusion falloff
+    grad.addColorStop(0.0, "rgba(8, 10, 16, 0.92)");
+    grad.addColorStop(0.4, "rgba(8, 10, 16, 0.72)");
+    grad.addColorStop(0.72, "rgba(8, 10, 16, 0.22)");
+    grad.addColorStop(1.0, "rgba(8, 10, 16, 0.0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  _blobShadowTexture = tex;
+  return tex;
+}
+
+export class CasterBlobShadows {
+  public group: THREE.Group;
+  public centralMesh: THREE.Mesh;
+  public casterMeshes: THREE.Mesh[] = [];
+  public material: THREE.MeshBasicMaterial;
+  public geometry: THREE.BufferGeometry;
+
+  constructor(parent?: THREE.Object3D) {
+    this.group = new THREE.Group();
+    this.group.name = "blobShadows";
+    this.geometry = new THREE.PlaneGeometry(1, 1);
+    this.material = new THREE.MeshBasicMaterial({
+      map: createBlobShadowTexture(),
+      color: 0x080a10,
+      transparent: true,
+      opacity: 0.58,
+      depthWrite: false,
+    });
+
+    // 1. Central Ambient Occlusion Core Decal (under seat & piston)
+    this.centralMesh = new THREE.Mesh(this.geometry, this.material);
+    this.centralMesh.rotation.x = -Math.PI / 2;
+    this.centralMesh.position.set(0, 0, 0);
+    this.centralMesh.scale.set(0.68, 0.68, 1);
+    this.group.add(this.centralMesh);
+
+    // 2. 5 Caster Wheel Blobs (placed at the star base caster wheels)
+    const wheelDist = 0.35;
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * Math.PI * 2;
+      const offsetX = Math.sin(angle) * wheelDist;
+      const offsetZ = Math.cos(angle) * wheelDist;
+
+      const casterMesh = new THREE.Mesh(this.geometry, this.material);
+      casterMesh.rotation.x = -Math.PI / 2;
+      casterMesh.position.set(offsetX, 0, offsetZ);
+      casterMesh.scale.set(0.24, 0.24, 1);
+      this.group.add(casterMesh);
+      this.casterMeshes.push(casterMesh);
+    }
+
+    if (parent) {
+      parent.add(this.group);
+    }
+  }
+
+  /**
+   * Updates blob shadow scales and opacity according to suspension compression and height.
+   * Zero GC allocations.
+   *
+   * @param pistonOffset suspension piston offset in meters (negative = compressed)
+   * @param kartY world or relative height of kart above floor
+   * @param inAir whether kart is airborne / jumping
+   */
+  public update(pistonOffset: number, kartY: number, inAir: boolean): void {
+    if (kartY < -0.3) {
+      this.group.visible = false;
+      return;
+    }
+    this.group.visible = true;
+
+    // Pin shadow to the track floor
+    this.group.position.y = inAir || kartY > 0.02 ? 0.015 - kartY : 0.015;
+
+    // Suspension compression: pistonOffset < 0
+    const compression = Math.max(0, -pistonOffset);
+    const airHeight = Math.max(0, kartY);
+
+    if (inAir || airHeight > 0.06) {
+      // Airborne: shadows spread out softly and fade
+      const spread = 1.0 + airHeight * 0.75;
+      const fade = Math.max(0.06, 0.58 - airHeight * 0.16);
+      this.material.opacity = fade;
+
+      const centralScale = 0.68 * spread;
+      this.centralMesh.scale.set(centralScale, centralScale, 1);
+
+      const casterScale = 0.24 * spread;
+      for (let i = 0; i < 5; i++) {
+        this.casterMeshes[i].scale.set(casterScale, casterScale, 1);
+      }
+    } else {
+      // Grounded: compression squash & stretch
+      // Under heavy load (landing, boosting), blobs swell outward and deepen darkness
+      const squashScale = 1.0 + compression * 4.2;
+      const groundOpacity = Math.min(0.88, 0.58 + compression * 2.8);
+      this.material.opacity = groundOpacity;
+
+      const centralScale = 0.68 * (1.0 + compression * 1.8);
+      this.centralMesh.scale.set(centralScale, centralScale, 1);
+
+      const casterScale = 0.24 * squashScale;
+      for (let i = 0; i < 5; i++) {
+        this.casterMeshes[i].scale.set(casterScale, casterScale, 1);
+      }
+    }
+  }
+
+  public dispose(): void {
+    if (this.group.parent) {
+      this.group.parent.remove(this.group);
+    }
+    this.geometry.dispose();
+    this.material.dispose();
+  }
+}
+
 // ----------------------------------------------------------------------------
 // 4. PROCEDURAL GEOMETRIES
 // ----------------------------------------------------------------------------

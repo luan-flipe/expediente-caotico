@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
+import { getTrack } from "@ec/shared";
 import { TrackInteractiveManager } from "./trackInteractive";
 
 describe("TrackInteractiveManager", () => {
@@ -9,7 +10,6 @@ describe("TrackInteractiveManager", () => {
 
     manager.init(scene);
 
-    // Deve ter adicionado InstancedMeshes à cena
     const instancedMeshes = scene.children.filter((c) => c instanceof THREE.InstancedMesh);
     expect(instancedMeshes.length).toBeGreaterThanOrEqual(3);
 
@@ -30,8 +30,6 @@ describe("TrackInteractiveManager", () => {
         speed: 8.0,
       },
     ]);
-
-    // O método update executa sem erros e nenhum papel foi lançado
   });
 
   it("não dispara deslocamento de ar se o kart estiver longe (>= 3.8m)", () => {
@@ -65,12 +63,10 @@ describe("TrackInteractiveManager", () => {
       },
     ]);
 
-    // Executa múltiplos passos de física para simular voo e sustentação
     for (let f = 0; f < 30; f++) {
       manager.update(0.016, []);
     }
 
-    // Com o tempo decorrido, os papéis descem e acomodam de volta
     for (let f = 0; f < 180; f++) {
       manager.update(0.016, []);
     }
@@ -91,13 +87,10 @@ describe("TrackInteractiveManager", () => {
     const initialY = boxGroup.position.y;
     const initialRot = boxGroup.children[0]?.rotation.clone();
 
-    // Simula tempo passando
     manager.update(0.25, []);
 
-    // Bobbing vertical senoidal deve ter alterado o Y
     expect(boxGroup.position.y).not.toBe(initialY);
 
-    // Giro giroscópico e halo pulsante
     const box = activeBoxes[0];
     expect(box.halo).toBeDefined();
     expect(box.haloMat?.opacity).toBeGreaterThan(0);
@@ -121,15 +114,250 @@ describe("TrackInteractiveManager", () => {
 
     const initialY = cupGroup.position.y;
 
-    // Atualiza simulação
     manager.update(0.2, []);
 
-    // Bobbing e rotação da xícara
     expect(cupGroup.position.y).not.toBe(initialY);
     expect(cupGroup.rotation.y).toBeGreaterThan(0);
-
-    // Pulso de aroma com opacidade ativa
     expect(managedCup.aromaMat?.opacity).toBeGreaterThanOrEqual(0);
+  });
+
+  describe("Café Coado na Calcinha (Dona Neide)", () => {
+    it("posiciona o Café Coado na Calcinha logo no início da corrida quando fornecida uma pista", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("corporativo");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      const items = manager.coffeeCalcinhas;
+      expect(items.length).toBeGreaterThanOrEqual(1);
+
+      const item = items[0];
+      expect(item.group.parent).toBe(scene);
+      expect(item.calcinhaPivot).toBeDefined();
+      expect(item.calcinhaMesh).toBeDefined();
+      expect(item.streamMesh).toBeDefined();
+      expect(item.thermosMesh).toBeDefined();
+      expect(item.mugGroup).toBeDefined();
+      expect(item.bowMesh).toBeDefined();
+    });
+
+    it("balança a calcinha no vórtex de ar quando o kart passa veloz (>10 m/s)", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const item = manager.coffeeCalcinhas[0];
+      expect(item).toBeDefined();
+
+      // Kart passa a 16 m/s a 3.0m de distância
+      manager.update(0.016, [
+        {
+          pos: { x: item.pos.x + 2.5, z: item.pos.z },
+          speed: 16.0,
+        },
+      ]);
+
+      expect(item.swingVelocity).toBeGreaterThan(0);
+
+      // Simula quadros para a física pendular oscilar a rotação
+      manager.update(0.05, []);
+      expect(item.calcinhaPivot.rotation.z).not.toBe(0);
+    });
+
+    it("ao raspar muito perto (< 2.2m), dispara estilingada elástica e concede mini boost turbo com aroma", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const item = manager.coffeeCalcinhas[0];
+
+      // Kart raspando a 1.2m
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: item.pos.x + 1.0, z: item.pos.z },
+          speed: 14.0,
+        },
+      ]);
+
+      // Estilingada disparada
+      expect(item.elasticVelocity).toBeGreaterThan(0);
+      expect(item.boostCooldown).toBeGreaterThan(0);
+
+      // Concede mini turbo com aroma de café
+      const out = outputs[0];
+      expect(out.boost).toBe(true);
+      expect(out.aromaBoost).toBe(true);
+      expect(out.boostSpeed).toBeGreaterThanOrEqual(24);
+      expect(out.soundCue).toBe("coffee_slingshot");
+
+      // No frame seguinte, com cooldown ativo, não deve disparar boost novamente
+      const nextOutputs = manager.update(0.016, [
+        {
+          pos: { x: item.pos.x + 1.0, z: item.pos.z },
+          speed: 14.0,
+        },
+      ]);
+      expect(nextOutputs[0].boost).toBe(false);
+    });
+  });
+
+  describe("Aspirador Robô (Roomba da Firma)", () => {
+    it("patrulha corredor em movimento de vai-e-vem", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const roombas = manager.roombas;
+      expect(roombas.length).toBeGreaterThanOrEqual(1);
+
+      const r = roombas[0];
+      const initialT = r.patrolT;
+      const initialPos = { x: r.pos.x, z: r.pos.z };
+
+      manager.update(0.5, []);
+
+      expect(r.patrolT).not.toBe(initialT);
+      expect(r.pos.x !== initialPos.x || r.pos.z !== initialPos.z).toBe(true);
+      expect(r.group.position.x).toBe(r.pos.x);
+    });
+
+    it("quica a cadeira em colisão pinball, apita indignado, squasha e inverte rota", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const r = manager.roombas[0];
+      const initialDir = r.patrolDir;
+
+      // Colisão direta de frente com a cadeira (distância < 1.0m)
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: r.pos.x + 0.3, z: r.pos.z },
+          speed: 12.0,
+        },
+      ]);
+
+      const out = outputs[0];
+      expect(out.bonk).toBe(true);
+      expect(out.spin).toBe(true);
+      expect(out.bonkImpulse).toBeDefined();
+      expect(out.soundCue).toBe("roomba_honk");
+
+      // Roomba indignado: squasha, entra em bonked state e inverte rota
+      expect(r.bonkTimer).toBeGreaterThan(0);
+      expect(r.squashFactor).toBeGreaterThan(1.0);
+      expect(r.patrolDir).toBe(-initialDir);
+    });
+  });
+
+  describe("Portas Automáticas de Vidro", () => {
+    it("inicializa com folhas de vidro, batente e LEDs", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const doors = manager.automaticDoors;
+      expect(doors.length).toBeGreaterThanOrEqual(1);
+
+      const door = doors[0];
+      expect(door.leftDoor).toBeDefined();
+      expect(door.rightDoor).toBeDefined();
+      expect(door.sensorLed).toBeDefined();
+      expect(door.sensorLedMat).toBeDefined();
+    });
+
+    it("cicla periodicamente entre estados aberto e fechado alterando os LEDs", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const door = manager.automaticDoors[0];
+      expect(door.state).toBe("open");
+      expect(door.currentOpen).toBe(1.0);
+
+      // Avança além do tempo de abertura (2.8s) para entrar em closing
+      manager.update(3.0, []);
+      expect(door.state).toBe("closing");
+      expect(door.currentOpen).toBeLessThan(1.0);
+
+      // Avança além do tempo de fechamento (0.8s) para ficar totalmente fechado
+      manager.update(1.0, []);
+      expect(door.state).toBe("closed");
+      expect(door.currentOpen).toBe(0.0);
+    });
+
+    it("bloqueia e causa ricochete quando kart colide com a porta fechada", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const door = manager.automaticDoors[0];
+
+      // Força estado fechado
+      door.state = "closed";
+      door.currentOpen = 0.0;
+      door.stateTimer = 0.5;
+
+      // Kart tenta passar colidindo contra o vidro fechado
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: door.pos.x, z: door.pos.z + 0.2 },
+          speed: 15.0,
+        },
+      ]);
+
+      const out = outputs[0];
+      expect(out.bonk).toBe(true);
+      expect(out.bonkImpulse).toBeDefined();
+      expect(out.soundCue).toBe("door_bonk");
+      expect(door.shudder).toBeGreaterThan(0);
+    });
+
+    it("permite passagem livre quando a porta está aberta", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const door = manager.automaticDoors[0];
+      door.state = "open";
+      door.currentOpen = 1.0;
+
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: door.pos.x, z: door.pos.z },
+          speed: 15.0,
+        },
+      ]);
+
+      expect(outputs[0].bonk).toBe(false);
+    });
+  });
+
+  describe("Grelhas de Ventilação no Chão (Air Cushion Boost Vents)", () => {
+    it("concede sustentação (almofada de ar) e leve aumento de velocidade", () => {
+      const scene = new THREE.Scene();
+      const manager = new TrackInteractiveManager();
+      manager.init(scene);
+
+      const vents = manager.airVents;
+      expect(vents.length).toBeGreaterThanOrEqual(1);
+
+      const vent = vents[0];
+
+      // Kart passa diretamente sobre a grelha
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: vent.pos.x, z: vent.pos.z },
+          speed: 12.0,
+        },
+      ]);
+
+      const out = outputs[0];
+      expect(out.boost).toBe(true);
+      expect(out.airCushionLift).toBeGreaterThan(0);
+      expect(out.boostSpeed).toBeGreaterThanOrEqual(20);
+      expect(out.soundCue).toBe("vent_woosh");
+    });
   });
 
   it("executa 120 quadros contínuos sem erros (Zero GC test)", () => {
@@ -169,6 +397,10 @@ describe("TrackInteractiveManager", () => {
     expect(manager.activeBoxes.length).toBe(0);
     expect(manager.activeCups.length).toBe(0);
     expect(manager.monitoredDesks.length).toBe(0);
+    expect(manager.coffeeCalcinhas.length).toBe(0);
+    expect(manager.roombas.length).toBe(0);
+    expect(manager.automaticDoors.length).toBe(0);
+    expect(manager.airVents.length).toBe(0);
   });
 
   it("permite remover caixas e xícaras dinamicamente com removeBox e removeCup", () => {

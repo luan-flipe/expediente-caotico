@@ -90,4 +90,165 @@ describe("Dinâmica da Cadeira de Escritório e Piloto (Mario Kart 8 style)", ()
 
     char.dispose();
   });
+  it("Adrenalina / Dentes Cerrados: boosting, vácuo alto ou drift nível 3 inclinam sobrancelhas e cerram boca", () => {
+    const char = createCharacter(DEFAULT_AVATAR);
+    char.sit();
+
+    const browL = char.root.getObjectByName("Sobrancelha_E") as THREE.Mesh;
+    const browR = char.root.getObjectByName("Sobrancelha_D") as THREE.Mesh;
+    const mouth = char.root.getObjectByName("Boca") as THREE.Mesh;
+
+    expect(browL).toBeDefined();
+    expect(browR).toBeDefined();
+    expect(mouth).toBeDefined();
+
+    // Estado normal inicial
+    for (let i = 0; i < 10; i++) char.updateSeated?.(0.016, 8, 0, 0, false);
+    const initialRotL = browL.rotation.z;
+    const initialRotR = browR.rotation.z;
+    const initialMouthScaleY = mouth.scale.y;
+
+    // Ativa adrenalina via boosting
+    for (let i = 0; i < 20; i++) char.updateSeated?.(0.016, 12, 0, 0, true);
+
+    expect(char.getEmotion?.()).toBe("adrenaline");
+    // Sobrancelhas inclinadas em V agressivo
+    expect(browL.rotation.z).toBeLessThan(initialRotL);
+    expect(browR.rotation.z).toBeGreaterThan(initialRotR);
+    // Boca cerrada / dentes cerrados
+    expect(mouth.scale.y).toBeLessThan(initialMouthScaleY);
+
+    // Também ativa com drift nível 3 (roxo)
+    char.setEmotion?.("normal");
+    for (let i = 0; i < 20; i++) char.updateSeated?.(0.016, 10, 1, 1, false, undefined, { driftLevel: 3 });
+    expect(char.getEmotion?.()).toBe("adrenaline");
+
+    char.dispose();
+  });
+
+  it("Pânico / Susto: olhos arregalados, boca em 'O', sobrancelhas levantadas e braços soltam apoios por 0.4s", () => {
+    const char = createCharacter(DEFAULT_AVATAR);
+    char.sit();
+
+    const eyeL = char.root.getObjectByName("Olho_E") as THREE.Mesh;
+    const eyeR = char.root.getObjectByName("Olho_D") as THREE.Mesh;
+    const mouth = char.root.getObjectByName("Boca") as THREE.Mesh;
+    const browL = char.root.getObjectByName("Sobrancelha_E") as THREE.Mesh;
+    const armL = char.root.getObjectByName("Braco_E") ?? char.root.children[0].children.find((c) => c.position.x < -0.3);
+
+    // Normal inicial
+    for (let i = 0; i < 10; i++) char.updateSeated?.(0.016, 5, 0, 0, false);
+    const normalEyeScaleY = eyeL.scale.y;
+    const normalBrowY = browL.position.y;
+    const normalMouthScaleY = mouth.scale.y;
+
+    // Susto / Pânico temporário de 0.6s
+    char.setEmotion?.("panic", 0.6);
+    expect(char.getEmotion?.()).toBe("panic");
+
+    for (let i = 0; i < 10; i++) char.updateSeated?.(0.016, 5, 0, 0, false);
+
+    // Olhos arregalados cartoon
+    expect(eyeL.scale.y).toBeGreaterThan(normalEyeScaleY);
+    expect(eyeR.scale.y).toBeGreaterThan(normalEyeScaleY);
+    // Sobrancelhas levantadas no susto
+    expect(browL.position.y).toBeGreaterThan(normalBrowY);
+    // Boca em 'O' aberta
+    expect(mouth.scale.y).toBeGreaterThan(normalMouthScaleY * 1.5);
+
+    // Braços soltam apoios brevemente (rotação X levanta de -0.75 em direção a -1.55)
+    if (armL) {
+      expect(armL.rotation.x).toBeLessThan(-0.9);
+    }
+
+    // Após passar a duração de susto (0.6s)
+    for (let i = 0; i < 50; i++) char.updateSeated?.(0.016, 5, 0, 0, false);
+    expect(char.getEmotion?.()).toBe("normal");
+
+    char.dispose();
+  });
+
+  it("Piscadela / Deboche do Líder: olho direito pisca, sorriso de canto e braço esquerdo faz tchauzinho", () => {
+    const char = createCharacter(DEFAULT_AVATAR);
+    char.sit();
+
+    const eyeL = char.root.getObjectByName("Olho_E") as THREE.Mesh;
+    const eyeR = char.root.getObjectByName("Olho_D") as THREE.Mesh;
+    const mouth = char.root.getObjectByName("Boca") as THREE.Mesh;
+    const armL = char.root.children[0].children.find((c) => c.position.x < -0.3);
+
+    char.setEmotion?.("victory", 1.5);
+    for (let i = 0; i < 20; i++) char.updateSeated?.(0.016, 8, 0, 0, false);
+
+    expect(char.getEmotion?.()).toBe("victory");
+    // Olho direito espremido na piscadela
+    expect(eyeR.scale.y).toBeLessThan(0.4);
+    // Olho esquerdo aberto
+    expect(eyeL.scale.y).toBeGreaterThan(0.9);
+    // Sorriso de canto (rotação Z da boca inclinada)
+    expect(mouth.rotation.z).toBeGreaterThan(0.05);
+
+    // Braço esquerdo levanta para tchauzinho/vitória
+    if (armL) {
+      expect(armL.rotation.x).toBeLessThan(-1.0);
+      expect(armL.rotation.z).toBeGreaterThan(0.2);
+    }
+
+    char.dispose();
+  });
+
+  it("Bocejo de Segunda-Feira: contagem regressiva ou parado > 3s gera pálpebras caídas e boca aberta", () => {
+    const char = createCharacter(DEFAULT_AVATAR);
+    char.sit();
+
+    const eyeL = char.root.getObjectByName("Olho_E") as THREE.Mesh;
+    const mouth = char.root.getObjectByName("Boca") as THREE.Mesh;
+
+    // Normal em movimento
+    for (let i = 0; i < 10; i++) char.updateSeated?.(0.016, 5, 0, 0, false);
+    const normalMouthY = mouth.scale.y;
+
+    // Parado por > 3s (simula 3.5 segundos em passos de dt = 0.1)
+    for (let i = 0; i < 35; i++) char.updateSeated?.(0.1, 0, 0, 0, false);
+
+    expect(char.getEmotion?.()).toBe("yawn");
+    // Pálpebras caídas
+    expect(eyeL.scale.y).toBeLessThan(0.7);
+    // Boca aberta em bocejo preguiçoso
+    expect(mouth.scale.y).toBeGreaterThan(normalMouthY * 1.8);
+
+    // Também é ativado pelo flag countdown
+    char.setEmotion?.("normal");
+    char.updateSeated?.(0.016, 0, 0, 0, false, undefined, { countdown: true });
+    expect(char.getEmotion?.()).toBe("yawn");
+
+    char.dispose();
+  });
+
+  it("seatedRacer propaga estados emocionais reativos e mantém 60 FPS com zero NaN", () => {
+    const racer = seatedRacer(DEFAULT_AVATAR, DEFAULT_CHAIR);
+
+    // Dispara pânico
+    racer.char.setEmotion?.("panic", 0.5);
+    racer.update(0.016, 8, 0, 0, false);
+    expect(racer.char.getEmotion?.()).toBe("panic");
+
+    // Passa options com drift nível 3 e vácuo
+    racer.update(0.016, 12, 0, 0, false, undefined, false, { driftLevel: 3, draft: true });
+
+    // Nenhum valor NaN em todo o rig
+    racer.root.traverse((o) => {
+      expect(Number.isNaN(o.position.x)).toBe(false);
+      expect(Number.isNaN(o.position.y)).toBe(false);
+      expect(Number.isNaN(o.position.z)).toBe(false);
+      expect(Number.isNaN(o.rotation.x)).toBe(false);
+      expect(Number.isNaN(o.rotation.y)).toBe(false);
+      expect(Number.isNaN(o.rotation.z)).toBe(false);
+      expect(Number.isNaN(o.scale.x)).toBe(false);
+      expect(Number.isNaN(o.scale.y)).toBe(false);
+      expect(Number.isNaN(o.scale.z)).toBe(false);
+    });
+
+    racer.dispose();
+  });
 });

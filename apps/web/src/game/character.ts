@@ -3,19 +3,39 @@ import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shared";
-import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
+import { animateAvatar, applyAvatarEmotion, buildAvatar, disposeAvatar } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
 import { dressFace } from "./rosto";
 import { BEARDS_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
 export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
 
+export type CharacterEmotion = "normal" | "adrenaline" | "panic" | "victory" | "yawn";
+
+export interface CharacterSeatedOptions {
+  driftLevel?: number;
+  draft?: boolean;
+  spinning?: boolean;
+  countdown?: boolean;
+  stoppedSeconds?: number;
+}
+
 /** Boneco renderizado: GLB do romulo-h quando carregado, boneco procedural enquanto isso. */
 export interface Character {
   root: THREE.Group;
   update(dt: number, speed01: number): void;
   /** Atualização dinâmica na cadeira de corrida (inclinação do corpo, cabeça na curva, braços esterçando). */
-  updateSeated?(dt: number, speed: number, steer: number, driftDir: number, boosting: boolean, rivalDir?: THREE.Vector3): void;
+  updateSeated?(
+    dt: number,
+    speed: number,
+    steer: number,
+    driftDir: number,
+    boosting: boolean,
+    rivalDir?: THREE.Vector3,
+    options?: CharacterSeatedOptions,
+  ): void;
+  setEmotion?(state: CharacterEmotion, duration?: number): void;
+  getEmotion?(): CharacterEmotion;
   play(action: CharacterAction): void;
   /** Executa um gesto animado ao usar um item/power-up na corrida de cadeiras. */
   playItemGesture?(item: ItemId): void;
@@ -29,6 +49,200 @@ export interface Character {
   /** Já sentado, toca a comemoração e volta à pose sentada. Só o corpo: assento e confete ficam com a cadeira. */
   celebrate(): void;
   dispose(): void;
+}
+
+// Objetos matemáticos reutilizáveis pré-alocados para Zero GC no render/tick loop
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _q1 = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
+const _qArmTemp = new THREE.Quaternion();
+const _eArmTemp = new THREE.Euler();
+
+export class CharacterEmotionManager {
+  current: CharacterEmotion = "normal";
+  timer = 0;
+  stoppedTimer = 0;
+  panicArmTimer = 0;
+  time = 0;
+
+  // Pesos amortecidos para transição suave (harmônica / lerp)
+  wAdrenaline = 0;
+  wPanic = 0;
+  wVictory = 0;
+  wYawn = 0;
+
+  setEmotion(state: CharacterEmotion, duration?: number): void {
+    this.current = state;
+    if (duration !== undefined && duration > 0) {
+      this.timer = duration;
+    } else {
+      this.timer = 0;
+    }
+    if (state === "panic") {
+      this.panicArmTimer = duration !== undefined ? Math.min(0.4, duration) : 0.4;
+    }
+  }
+
+  getEmotion(): CharacterEmotion {
+    return this.current;
+  }
+
+  update(dt: number, speed: number, options?: CharacterSeatedOptions, boosting = false): void {
+    this.time += dt;
+
+    if (this.panicArmTimer > 0) {
+      this.panicArmTimer = Math.max(0, this.panicArmTimer - dt);
+    }
+
+    if (this.timer > 0) {
+      this.timer = Math.max(0, this.timer - dt);
+      if (this.timer === 0 && this.current !== "normal") {
+        this.current = "normal";
+      }
+    } else {
+      // Estado dinâmico do jogo
+      if (Math.abs(speed) < 0.05) {
+        this.stoppedTimer += dt;
+      } else {
+        this.stoppedTimer = 0;
+      }
+
+      if (options?.spinning) {
+        this.current = "panic";
+        this.panicArmTimer = 0.4;
+      } else if (boosting || options?.draft || options?.driftLevel === 3) {
+        this.current = "adrenaline";
+      } else if (options?.countdown || this.stoppedTimer >= 3.0) {
+        this.current = "yawn";
+      } else {
+        this.current = "normal";
+      }
+    }
+
+    // Amortecimento harmônico suave / lerp contínuo
+    const targetAdrenaline = this.current === "adrenaline" ? 1 : 0;
+    const targetPanic = this.current === "panic" ? 1 : 0;
+    const targetVictory = this.current === "victory" ? 1 : 0;
+    const targetYawn = this.current === "yawn" ? 1 : 0;
+
+    const k = Math.min(1, dt * 10);
+    this.wAdrenaline += (targetAdrenaline - this.wAdrenaline) * k;
+    this.wPanic += (targetPanic - this.wPanic) * k;
+    this.wVictory += (targetVictory - this.wVictory) * k;
+    this.wYawn += (targetYawn - this.wYawn) * k;
+  }
+}
+
+interface GlbFaceParts {
+  browD?: THREE.Object3D;
+  browE?: THREE.Object3D;
+  mouth?: THREE.Object3D;
+  blinkHalfD?: THREE.Object3D;
+  blinkFullD?: THREE.Object3D;
+  blinkHalfE?: THREE.Object3D;
+  blinkFullE?: THREE.Object3D;
+  caraBrava?: THREE.Object3D;
+}
+
+interface GlbBaseTransforms {
+  browD_pos: THREE.Vector3;
+  browD_rot: THREE.Euler;
+  browE_pos: THREE.Vector3;
+  browE_rot: THREE.Euler;
+  mouth_pos: THREE.Vector3;
+  mouth_rot: THREE.Euler;
+  mouth_scale: THREE.Vector3;
+}
+
+function applyGlbEmotion(
+  face: GlbFaceParts,
+  base: GlbBaseTransforms,
+  weights: { wAdrenaline: number; wPanic: number; wVictory: number; wYawn: number },
+  stareWeight = 0,
+): void {
+  const { wAdrenaline, wPanic, wVictory, wYawn } = weights;
+
+  // 1. Sobrancelhas (Brows)
+  if (face.browE) {
+    let rotZ = base.browE_rot.z - 0.26 * stareWeight;
+    let posY = base.browE_pos.y - 0.015 * stareWeight;
+
+    rotZ += -0.32 * wAdrenaline;
+    posY += -0.02 * wAdrenaline;
+
+    rotZ += 0.28 * wPanic;
+    posY += 0.035 * wPanic;
+
+    rotZ += 0.15 * wVictory;
+    posY += 0.03 * wVictory;
+
+    rotZ += 0.05 * wYawn;
+    posY += -0.018 * wYawn;
+
+    face.browE.rotation.z = rotZ;
+    face.browE.position.y = posY;
+  }
+
+  if (face.browD) {
+    let rotZ = base.browD_rot.z + 0.26 * stareWeight;
+    let posY = base.browD_pos.y - 0.015 * stareWeight;
+
+    rotZ += 0.32 * wAdrenaline;
+    posY += -0.02 * wAdrenaline;
+
+    rotZ += -0.28 * wPanic;
+    posY += 0.035 * wPanic;
+
+    rotZ += 0.18 * wVictory;
+    posY += -0.015 * wVictory;
+
+    rotZ += -0.05 * wYawn;
+    posY += -0.018 * wYawn;
+
+    face.browD.rotation.z = rotZ;
+    face.browD.position.y = posY;
+  }
+
+  // 2. Boca (Mouth)
+  if (face.mouth) {
+    let scaleX = base.mouth_scale.x;
+    let scaleY = base.mouth_scale.y;
+    let posX = base.mouth_pos.x;
+    let posY = base.mouth_pos.y;
+    let rotZ = base.mouth_rot.z;
+
+    scaleX += base.mouth_scale.x * (0.38 * wAdrenaline - 0.32 * wPanic + 0.22 * wVictory + 0.45 * wYawn);
+    scaleY += base.mouth_scale.y * (-0.45 * wAdrenaline + 1.85 * wPanic + 0.18 * wVictory + 2.1 * wYawn);
+    posY += -0.03 * wPanic + 0.012 * wVictory - 0.038 * wYawn;
+    posX += 0.02 * wVictory;
+    rotZ += 0.22 * wVictory;
+
+    face.mouth.scale.set(scaleX, scaleY, base.mouth_scale.z);
+    face.mouth.position.set(posX, posY, base.mouth_pos.z);
+    face.mouth.rotation.z = rotZ;
+  }
+
+  // 3. Olhos e Pálpebras
+  // Piscadela no olho direito (Victory)
+  if (face.blinkFullD) {
+    face.blinkFullD.scale.setScalar(wVictory);
+  } else if (face.blinkHalfD) {
+    face.blinkHalfD.scale.setScalar(Math.max(wVictory, wYawn));
+  }
+
+  // Pálpebra esquerda (Yawn)
+  if (face.blinkHalfE) {
+    face.blinkHalfE.scale.setScalar(wYawn);
+  }
+  if (face.blinkHalfD && wVictory < 0.1) {
+    face.blinkHalfD.scale.setScalar(wYawn);
+  }
+
+  // Cara brava (veia de esforço na adrenalina intensa)
+  if (face.caraBrava) {
+    face.caraBrava.scale.setScalar(wAdrenaline > 0.6 ? 1 : 0);
+  }
 }
 
 /** Altura (no espaço do boneco) da parte mais baixa das peças, já na pose sentada. */
@@ -325,7 +539,6 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
 
 function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const root = new THREE.Group();
-  // a malha tem pele: o clone comum continuaria preso aos ossos do original
   const inner = cloneSkinned(model.scene);
   inner.scale.setScalar(model.scale * (HEIGHT_SCALE[dna.height] ?? 1));
   root.add(inner);
@@ -336,7 +549,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     mesh.castShadow = true;
     if (mesh.isSkinnedMesh) body = mesh;
   });
-  // pele, olhos e rosto do crachá; os materiais tingidos são só deste boneco
+
   const mats: THREE.Material[] = [];
   const syncFace = dressFace(inner, dna, mats);
   const hairColor = HAIR_COLORS[dna.hairColor] ?? HAIR_COLORS[0];
@@ -351,6 +564,36 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   for (const [list, color] of pieces) {
     for (const piece of list ?? []) if (body) attachWearable(inner, body, piece, color, mats);
   }
+
+  // Peças de expressão facial do GLB e suas transformações base
+  const faceParts: GlbFaceParts = {
+    browD: inner.getObjectByName("rosto_sobrancelha_D") || inner.getObjectByName("sobrancelha_D"),
+    browE: inner.getObjectByName("rosto_sobrancelha_E") || inner.getObjectByName("sobrancelha_E"),
+    mouth: inner.getObjectByName("rosto_boca") || inner.getObjectByName("boca"),
+    blinkHalfD: inner.getObjectByName("piscar_meio_D"),
+    blinkFullD: inner.getObjectByName("piscar_fechado_D"),
+    blinkHalfE: inner.getObjectByName("piscar_meio_E"),
+    blinkFullE: inner.getObjectByName("piscar_fechado_E"),
+    caraBrava: inner.getObjectByName("cara_brava"),
+  };
+
+  const baseTransforms: GlbBaseTransforms = {
+    browD_pos: faceParts.browD ? faceParts.browD.position.clone() : new THREE.Vector3(),
+    browD_rot: faceParts.browD ? faceParts.browD.rotation.clone() : new THREE.Euler(),
+    browE_pos: faceParts.browE ? faceParts.browE.position.clone() : new THREE.Vector3(),
+    browE_rot: faceParts.browE ? faceParts.browE.rotation.clone() : new THREE.Euler(),
+    mouth_pos: faceParts.mouth ? faceParts.mouth.position.clone() : new THREE.Vector3(),
+    mouth_rot: faceParts.mouth ? faceParts.mouth.rotation.clone() : new THREE.Euler(),
+    mouth_scale: faceParts.mouth ? faceParts.mouth.scale.clone() : new THREE.Vector3(1, 1, 1),
+  };
+
+  const ombroD = inner.getObjectByName("ombro_D");
+  const ombroE = inner.getObjectByName("ombro_E");
+  const restQuatD = new THREE.Quaternion();
+  const restQuatE = new THREE.Quaternion();
+  let handsRested = false;
+
+  const emotion = new CharacterEmotionManager();
 
   const mixer = new THREE.AnimationMixer(inner);
   const loop = (name: string) => {
@@ -386,6 +629,12 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   let seated = false;
   return {
     root,
+    setEmotion(state, duration) {
+      emotion.setEmotion(state, duration);
+    },
+    getEmotion() {
+      return emotion.getEmotion();
+    },
     update(dt, speed01) {
       if (seated) {
         if (!cheer?.isRunning()) return;
@@ -399,6 +648,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         }
         return;
       }
+      emotion.update(dt, speed01);
       const busy = [...actions.values()].some((a) => a.isRunning());
       // até a metade da velocidade o boneco anda; dali em diante passa a correr
       const s = busy ? 0 : speed01;
@@ -410,9 +660,12 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (walk) walk.timeScale = 0.6 + speed01 * (run ? 1.6 : 0.8);
       mixer.update(dt);
       syncFace();
+      applyGlbEmotion(faceParts, baseTransforms, emotion, 0);
     },
-    updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir) {
+    updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
       if (!seated || cheer?.isRunning()) return;
+      emotion.update(dt, speed, options, boosting);
+
       // pé no chão no drift para apoio e remadas na arrancada lenta; os braços ficam no apoio
       let legD = -Math.PI / 2;
       let legE = -Math.PI / 2;
@@ -427,6 +680,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (pernaD) pernaD.rotation.x += (legD - pernaD.rotation.x) * k;
       if (pernaE) pernaE.rotation.x += (legE - pernaE.rotation.x) * k;
 
+      let stareWeight = 0;
       if (cabeca) {
         let targetHeadY = -steer * 0.38 - driftDir * 0.42;
         let targetHeadZ = steer * 0.08 + driftDir * 0.12;
@@ -438,7 +692,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
             const rivalAngle = Math.atan2(rivalDir.x, rivalDir.z);
             const stareYaw = Math.max(-0.95, Math.min(0.95, -rivalAngle * 0.8));
             const stareRoll = (rivalDir.x > 0 ? -0.12 : 0.12) * Math.sin(Math.abs(rivalAngle));
-            const stareWeight = Math.max(0, Math.min(1, (4.5 - rivalDist) / 1.8));
+            stareWeight = Math.max(0, Math.min(1, (4.5 - rivalDist) / 1.8));
 
             targetHeadY = (1 - stareWeight) * targetHeadY + stareWeight * stareYaw;
             targetHeadZ = (1 - stareWeight) * targetHeadZ + stareWeight * stareRoll;
@@ -446,11 +700,54 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
           }
         }
 
+        // Efeitos de postura e tremor da emoção
+        if (emotion.wAdrenaline > 0.01) {
+          const tremor = Math.sin(emotion.time * 44) * 0.014 * emotion.wAdrenaline;
+          targetHeadX += -0.15 * emotion.wAdrenaline + tremor;
+          targetHeadY += Math.cos(emotion.time * 56) * 0.01 * emotion.wAdrenaline;
+        }
+        if (emotion.wPanic > 0.01) {
+          targetHeadX += 0.22 * emotion.wPanic;
+          targetHeadY += Math.sin(emotion.time * 30) * 0.04 * emotion.wPanic;
+        }
+        if (emotion.wVictory > 0.01) {
+          targetHeadX += -0.05 * emotion.wVictory;
+          targetHeadZ += -0.08 * emotion.wVictory;
+        }
+        if (emotion.wYawn > 0.01) {
+          targetHeadX += 0.18 * emotion.wYawn;
+          targetHeadZ += Math.sin(emotion.time * 1.5) * 0.06 * emotion.wYawn;
+        }
+
         const headK = Math.min(1, dt * 12);
         cabeca.rotation.x += (targetHeadX - cabeca.rotation.x) * headK;
         cabeca.rotation.y += (targetHeadY - cabeca.rotation.y) * headK;
         cabeca.rotation.z += (targetHeadZ - cabeca.rotation.z) * headK;
       }
+
+      // Braços: reação de pânico (solta apoios por 0.4s) ou gesto de vitória / tchauzinho
+      const pArm = emotion.panicArmTimer > 0 ? Math.min(1, emotion.panicArmTimer / 0.4) : 0;
+      if (pArm > 0 && ombroD && ombroE) {
+        const flail = Math.sin(emotion.time * 34) * 0.12;
+        _eArmTemp.set(-1.55 + flail, 0, -0.32);
+        _qArmTemp.setFromEuler(_eArmTemp);
+        ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, pArm);
+
+        _eArmTemp.set(-1.55 - flail, 0, 0.32);
+        _qArmTemp.setFromEuler(_eArmTemp);
+        ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, pArm);
+      } else if (emotion.wVictory > 0.01 && ombroE) {
+        const wave = Math.sin(emotion.time * 14) * 0.3;
+        _eArmTemp.set(-1.65 + wave * 0.2, -0.25, 0.45 + wave * 0.35);
+        _qArmTemp.setFromEuler(_eArmTemp);
+        ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, emotion.wVictory);
+        if (ombroD && handsRested) ombroD.quaternion.copy(restQuatD);
+      } else if (handsRested) {
+        if (ombroD) ombroD.quaternion.copy(restQuatD);
+        if (ombroE) ombroE.quaternion.copy(restQuatE);
+      }
+
+      applyGlbEmotion(faceParts, baseTransforms, emotion, stareWeight);
     },
     play(action) {
       const a = actions.get(action);
@@ -485,14 +782,18 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         const shoulder = inner.getObjectByName(`ombro_${side}`);
         const wrist = inner.getObjectByName(`punho_${side}`);
         if (!shoulder?.parent || !wrist) continue;
-        const s = shoulder.getWorldPosition(new THREE.Vector3());
-        const from = wrist.getWorldPosition(new THREE.Vector3()).sub(s).normalize();
-        const to = root.localToWorld(target.clone()).sub(s).normalize();
+        const s = shoulder.getWorldPosition(_v1);
+        const from = wrist.getWorldPosition(_v2).sub(s).normalize();
+        _v2.copy(target);
+        const to = root.localToWorld(_v2).sub(s).normalize();
         // gira o ombro no espaço do mundo e devolve a rotação para o espaço do pai
-        const world = shoulder.getWorldQuaternion(new THREE.Quaternion()).premultiply(new THREE.Quaternion().setFromUnitVectors(from, to));
-        shoulder.quaternion.copy(shoulder.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(world));
+        const world = shoulder.getWorldQuaternion(_q1).premultiply(_q2.setFromUnitVectors(from, to));
+        shoulder.quaternion.copy(shoulder.parent.getWorldQuaternion(_q2).invert().multiply(world));
         shoulder.updateMatrixWorld(true);
       }
+      if (ombroD) restQuatD.copy(ombroD.quaternion);
+      if (ombroE) restQuatE.copy(ombroE.quaternion);
+      handsRested = true;
     },
     celebrate() {
       if (!seated || !cheer || cheer.isRunning()) return;
@@ -510,22 +811,44 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
 
 function proceduralCharacter(dna: AvatarDNA): Character {
   const rig = buildAvatar(dna);
+  const emotion = new CharacterEmotionManager();
   let t = 0;
   let aimUntil = 0;
   let seated = false;
   return {
     root: rig.root,
+    setEmotion(state, duration) {
+      emotion.setEmotion(state, duration);
+    },
+    getEmotion() {
+      return emotion.getEmotion();
+    },
     update(dt, speed01) {
       if (seated) return;
       t += dt * Math.max(0.05, speed01);
       aimUntil -= dt;
       animateAvatar(rig, speed01, t, aimUntil > 0);
+      emotion.update(dt, speed01);
+      applyAvatarEmotion(
+        rig,
+        {
+          adrenaline: emotion.wAdrenaline,
+          panic: emotion.wPanic,
+          victory: emotion.wVictory,
+          yawn: emotion.wYawn,
+        },
+        emotion.panicArmTimer,
+        emotion.time,
+        0,
+      );
     },
     play(action) {
       if (action === "throw") aimUntil = ACTION_SECONDS.throw;
     },
-    updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir) {
+    updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
       if (!seated) return;
+      emotion.update(dt, speed, options, boosting);
+
       let legD = -Math.PI / 2;
       let legE = -Math.PI / 2;
       if (driftDir > 0) legD += 0.38;
@@ -558,34 +881,82 @@ function proceduralCharacter(dna: AvatarDNA): Character {
         }
       }
 
+      // Efeitos de postura e tremor da emoção
+      if (emotion.wAdrenaline > 0.01) {
+        const tremor = Math.sin(emotion.time * 44) * 0.014 * emotion.wAdrenaline;
+        targetHeadX += -0.15 * emotion.wAdrenaline + tremor;
+        targetHeadY += Math.cos(emotion.time * 56) * 0.01 * emotion.wAdrenaline;
+      }
+      if (emotion.wPanic > 0.01) {
+        targetHeadX += 0.22 * emotion.wPanic;
+        targetHeadY += Math.sin(emotion.time * 30) * 0.04 * emotion.wPanic;
+      }
+      if (emotion.wVictory > 0.01) {
+        targetHeadX += -0.05 * emotion.wVictory;
+        targetHeadZ += -0.08 * emotion.wVictory;
+      }
+      if (emotion.wYawn > 0.01) {
+        targetHeadX += 0.18 * emotion.wYawn;
+        targetHeadZ += Math.sin(emotion.time * 1.5) * 0.06 * emotion.wYawn;
+      }
+
       const headK = Math.min(1, dt * 12);
       rig.head.rotation.x += (targetHeadX - rig.head.rotation.x) * headK;
       rig.head.rotation.y += (targetHeadY - rig.head.rotation.y) * headK;
       rig.head.rotation.z += (targetHeadZ - rig.head.rotation.z) * headK;
 
-      const browL = rig.head.getObjectByName("Sobrancelha_E");
-      const browR = rig.head.getObjectByName("Sobrancelha_D");
-      if (browL) {
-        browL.rotation.z = -0.26 * stareWeight;
-        browL.position.y = 0.41 - 0.015 * stareWeight;
+      // Braços no rig procedural
+      const pArm = emotion.panicArmTimer > 0 ? Math.min(1, emotion.panicArmTimer / 0.4) : 0;
+      if (pArm > 0) {
+        const flail = Math.sin(emotion.time * 34) * 0.12;
+        rig.armL.rotation.x = -0.75 * (1 - pArm) + (-1.55 + flail) * pArm;
+        rig.armR.rotation.x = -0.75 * (1 - pArm) + (-1.55 - flail) * pArm;
+        rig.armL.rotation.z = -0.32 * pArm;
+        rig.armR.rotation.z = 0.32 * pArm;
+        rig.armL.rotation.y = 0;
+        rig.armR.rotation.y = 0;
+      } else if (emotion.wVictory > 0.01) {
+        const wave = Math.sin(emotion.time * 14) * 0.3;
+        rig.armL.rotation.x = -0.75 * (1 - emotion.wVictory) + (-1.65 + wave * 0.2) * emotion.wVictory;
+        rig.armL.rotation.z = (0.45 + wave * 0.35) * emotion.wVictory;
+        rig.armL.rotation.y = -0.25 * emotion.wVictory;
+        rig.armR.rotation.x = -0.75;
+        rig.armR.rotation.z = 0;
+        rig.armR.rotation.y = 0;
+      } else {
+        rig.armL.rotation.x = -0.75;
+        rig.armL.rotation.z = 0;
+        rig.armL.rotation.y = 0;
+        rig.armR.rotation.x = -0.75;
+        rig.armR.rotation.z = 0;
+        rig.armR.rotation.y = 0;
       }
-      if (browR) {
-        browR.rotation.z = 0.26 * stareWeight;
-        browR.position.y = 0.41 - 0.015 * stareWeight;
-      }
+
+      applyAvatarEmotion(
+        rig,
+        {
+          adrenaline: emotion.wAdrenaline,
+          panic: emotion.wPanic,
+          victory: emotion.wVictory,
+          yawn: emotion.wYawn,
+        },
+        emotion.panicArmTimer,
+        emotion.time,
+        stareWeight,
+      );
     },
     sit() {
       seated = true;
       rig.legL.rotation.x = rig.legR.rotation.x = -Math.PI / 2;
       rig.armL.rotation.x = rig.armR.rotation.x = -0.75;
+      rig.armL.rotation.y = rig.armR.rotation.y = 0;
+      rig.armL.rotation.z = rig.armR.rotation.z = 0;
       return bottomOf(rig.root, [rig.legL, rig.legR]);
     },
     restHands() {
-      // o boneco procedural já sai de sit() com os braços no apoio
+      // O boneco procedural já sai de sit() com os braços no apoio
     },
-    celebrate() {
-      // sem animação de comemoração no boneco procedural
-    },
+    celebrate() {},
     dispose() {
       disposeAvatar(rig);
     },
@@ -636,7 +1007,6 @@ export function zombieReady(): boolean {
 /** Só baixa quando aparece o primeiro zumbi: são cerca de 5 MB que quem não joga o modo não precisa. */
 export function preloadZombie(): Promise<boolean> {
   if (loadingZombie) return loadingZombie;
-  // a textura chega junto com o modelo, porque é aplicada quando o zumbi é criado
   const texture = new THREE.TextureLoader().loadAsync(ZOMBIE_TEXTURE_URL).then(
     (tex) => {
       tex.colorSpace = THREE.SRGBColorSpace;
@@ -691,7 +1061,6 @@ export function createZombieCharacter(): Character {
   }
 
   const root = new THREE.Group();
-  // Usa SkeletonUtils.clone para preservar as ligações dos ossos do SkinnedMesh
   const inner = cloneSkinned(loadedZombie.scene) as THREE.Group;
   inner.scale.setScalar(loadedZombie.scale);
   const mats: THREE.Material[] = [];
@@ -727,12 +1096,14 @@ export function createZombieCharacter(): Character {
   return {
     root,
     update(dt, speed01) {
-      // Como o zumbi já está em movimento contínuo na animação, escala proporcionalmente à velocidade
       const rate = 0.6 + Math.max(0.2, speed01) * 0.8;
       mixer.update(dt * rate);
     },
+    setEmotion() {},
+    getEmotion() {
+      return "normal" as const;
+    },
     play() {},
-    // zumbi nunca senta numa cadeira
     sit() {
       return 0;
     },

@@ -20,7 +20,7 @@ import {
   type Track,
 } from "@ec/shared";
 import { loadMusic } from "../assets";
-import { nextRaceTrack, RaceMusic } from "../sound";
+import { nextRaceTrack, playFinalLapChime, RaceMusic } from "../sound";
 import { modelReady } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
@@ -29,13 +29,14 @@ import { inputBlocked } from "../pause";
 import { resetTouchInput, touchInput } from "../touch";
 import { ChatBubbles, chatText } from "../chatBubbles";
 import { chairModelReady, seatedRacer, type Racer3D } from "./chairMesh";
+import type { CharacterSeatedOptions } from "../game/character";
 import { createCommander, type Commander } from "./commander";
 import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, nameTag } from "./ghosts";
 import type { Ghosts } from "../store";
 import { buildTrack } from "./trackScene";
 import { buildParachute, parachuteFor } from "./parachute";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
-import { applyFresnelRimToHierarchy, RaceVfxManager, type DriftLevel } from "./vfxJuice";
+import { applyFresnelRimToHierarchy, calculateDynamicFov, CasterBlobShadows, RaceVfxManager, type DriftLevel } from "./vfxJuice";
 import { TrackInteractiveManager, type KartInteractiveInfo } from "./trackInteractive";
 
 interface Sample {
@@ -88,13 +89,15 @@ interface KartView {
   bubbleScale: number;
   wasAirborne?: boolean;
   heldItem: THREE.Group;
-  shadowDisc: THREE.Mesh;
+  blobShadows: CasterBlobShadows;
   /** Paraquedas de escritório (aparece com o flag chute). */
   chute: THREE.Group;
   chuteOpen: number;
   heldItemKind?: ItemId | null;
   /** Treino: devolve os materiais originais da cadeira semitransparente. */
   restore: (() => void) | null;
+  lastPlace?: number;
+  lastLap?: number;
 }
 
 interface HazardView {
@@ -116,6 +119,11 @@ const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f", "#bd34fe"];
 const TRIAL_OTHERS_OPACITY = 0.4;
 const DEFAULT_CHAIR: ChairDNA = { seat: 0, base: 0, wheels: 0, back: 1, trinket: 0 };
 const TMP_RIVAL_DIR = new THREE.Vector3();
+const _camWant = new THREE.Vector3();
+const _camLook = new THREE.Vector3();
+const _cutWant = new THREE.Vector3();
+const _cutLook = new THREE.Vector3();
+const TMP_SEATED_OPTIONS: CharacterSeatedOptions = {};
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -204,6 +212,11 @@ export class RaceEngine {
   private itemMatFlash = new THREE.MeshBasicMaterial({ color: "#eef6ff", transparent: true, opacity: 0.9 });
   private cups = new Map<number, THREE.Object3D>();
   private holdingRear = false;
+  private lookBackActive = false;
+  private lookBackSnap = false;
+  private localDraftMs = 0;
+  private localDraftRatio = 0;
+  private finalLapTriggered = false;
   private cupGeo = {
     body: new THREE.CylinderGeometry(0.18, 0.14, 0.28, 12),
     coffee: new THREE.CircleGeometry(0.16, 12),
@@ -227,6 +240,7 @@ export class RaceEngine {
   private cleanup: (() => void)[] = [];
   private vfx: RaceVfxManager;
   private interactive: TrackInteractiveManager;
+  private kartsForInteractive: KartInteractiveInfo[] = [];
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -391,7 +405,10 @@ export class RaceEngine {
       window.addEventListener(t, fn as EventListener);
       this.cleanup.push(() => window.removeEventListener(t, fn as EventListener));
     };
-    on("blur", () => this.keys.clear());
+    on("blur", () => {
+      this.keys.clear();
+      this.lookBackActive = false;
+    });
     // o navegador só libera som depois de um gesto do jogador
     const unlock = () => {
       void this.listener.context.resume();
@@ -402,9 +419,18 @@ export class RaceEngine {
     on("pointerdown", unlock);
     on<MouseEvent>("mousedown", (e) => {
       if (e.button === 0 && e.target === this.canvas) this.startItemUse();
+      if (e.button === 1) {
+        e.preventDefault();
+        this.lookBackActive = true;
+        this.lookBackSnap = true;
+      }
     });
     on<MouseEvent>("mouseup", (e) => {
       if (e.button === 0) this.releaseItemUse();
+      if (e.button === 1) {
+        this.lookBackActive = false;
+        this.lookBackSnap = true;
+      }
     });
     on<KeyboardEvent>("keydown", (e) => {
       // com as configurações ou o chat rápido abertos o teclado é deles, não do jogo
@@ -415,6 +441,12 @@ export class RaceEngine {
       if (k === map.placar) setState({ scoreboard: true });
       this.keys.add(k);
       if (e.repeat) return;
+      if (k === "KeyC") {
+        if (!this.lookBackActive) {
+          this.lookBackActive = true;
+          this.lookBackSnap = true;
+        }
+      }
       if (k === map.item) this.startItemUse();
       if (k === map.voltar && this.snap?.phase === "active") net.send({ t: "krespawn" });
       if (k === map.mudo) {
@@ -425,6 +457,10 @@ export class RaceEngine {
     });
     on<KeyboardEvent>("keyup", (e) => {
       this.keys.delete(e.code);
+      if (e.code === "KeyC") {
+        this.lookBackActive = false;
+        this.lookBackSnap = true;
+      }
       if (e.code === getSettings().keys.race.placar) setState({ scoreboard: false });
       if (e.code === getSettings().keys.race.item) this.releaseItemUse();
     });
@@ -618,6 +654,17 @@ export class RaceEngine {
     this.snap = s;
     this.snapAt = now;
     this.me = me;
+
+    if (s.phase === "countdown" && this.finalLapTriggered) {
+      this.finalLapTriggered = false;
+      this.music.setFinalLap(false);
+    }
+    if (s.phase === "active" && !s.timeTrial && s.laps > 1 && me && me.lap === s.laps && !me.finished && !this.finalLapTriggered) {
+      this.finalLapTriggered = true;
+      this.music.setFinalLap(true);
+      playFinalLapChime();
+      window.dispatchEvent(new CustomEvent("ec:finallap"));
+    }
     const seen = new Set<string>();
     for (const k of s.karts) {
       seen.add(k.id);
@@ -705,21 +752,33 @@ export class RaceEngine {
     }
 
     for (const e of s.events) {
-      if (e.type === "wall" && e.id === this.myId) this.shake = Math.min(1, this.shake + 0.4);
+      if (e.type === "wall" && e.id === this.myId) {
+        this.shake = Math.min(1, this.shake + 0.4);
+        const v = this.views.get(this.myId);
+        v?.r3d.char.setEmotion?.("panic", 0.6);
+      }
       if (e.type === "hit" && e.id === this.myId) {
         if (e.kind === "blocked") {
           this.shake = Math.min(0.5, this.shake + 0.25);
           this.holdingRear = false;
         } else {
           this.shake = Math.min(1, this.shake + 0.5);
+          const v = this.views.get(this.myId);
+          v?.r3d.char.setEmotion?.("panic", 0.8);
         }
       }
-      if (e.type === "boost" && e.id === this.myId) this.shake = Math.min(0.4, this.shake + 0.15);
+      if (e.type === "boost" && e.id === this.myId) {
+        this.shake = Math.min(0.4, this.shake + 0.15);
+        const v = this.views.get(this.myId);
+        v?.r3d.char.setEmotion?.("adrenaline", 1.2);
+      }
       if (e.type === "cup" && e.id === this.myId) this.shake = Math.min(0.25, this.shake + 0.08);
       if (e.type === "stunt" && e.id === this.myId) this.shake = Math.min(0.5, this.shake + 0.25);
       if (e.type === "draft" && e.id === this.myId) {
         this.shake = Math.min(0.5, this.shake + 0.3);
         this.camera.fov = 76;
+        const v = this.views.get(this.myId);
+        v?.r3d.char.setEmotion?.("adrenaline", 1.5);
       }
       if (e.type === "item") {
         if (e.id !== this.myId) {
@@ -823,14 +882,14 @@ export class RaceEngine {
     bubble.visible = false;
     r3d.root.add(bubble);
     // Sombra de contato suave sob as 5 rodinhas para pregar a cadeira no chão
-    const shadowMat = new THREE.MeshBasicMaterial({ color: "#050608", transparent: true, opacity: 0.38, depthWrite: false });
-    const shadowDisc = new THREE.Mesh(new THREE.CircleGeometry(0.52, 16), shadowMat);
-    shadowDisc.rotation.x = -Math.PI / 2;
-    shadowDisc.position.y = 0.015;
-    r3d.root.add(shadowDisc);
+    const blobShadows = new CasterBlobShadows(r3d.root);
+
+
+
+
     const tag = k.id === this.myId ? null : nameTag(k.name);
     if (tag) r3d.root.add(tag);
-    r3d.root.traverse((o) => (o.castShadow = !faded && o instanceof THREE.Mesh && o !== bubble && o !== shadowDisc));
+    r3d.root.traverse((o) => (o.castShadow = !faded && o instanceof THREE.Mesh && o !== bubble && o.name !== "blobShadows" && !o.parent?.name?.includes("blobShadows")));
     const chute = buildParachute(parachuteFor(person?.chair ?? DEFAULT_CHAIR));
     r3d.root.add(chute);
     const heldItem = new THREE.Group();
@@ -870,7 +929,7 @@ export class RaceEngine {
       lastSteer: 0,
       bubbleScale: 0.2,
       heldItem,
-      shadowDisc,
+      blobShadows,
       chute,
       chuteOpen: 0,
     };
@@ -913,8 +972,7 @@ export class RaceEngine {
     // fumaça fica solta na cena; a geometria é da corrida, o material é desta cadeira
     for (const p of v.smokePuffs) this.scene.remove(p.mesh);
     (v.smokePuffs[0]?.mesh.material as THREE.Material | undefined)?.dispose();
-    v.shadowDisc.geometry.dispose();
-    (v.shadowDisc.material as THREE.Material).dispose();
+    v.blobShadows.dispose();
     v.restore?.();
     // geometria da faísca, da chama e da bolha é própria; a do sprite do nome é compartilhada pelo three
     for (const m of [...v.sparks, v.flame, v.bubble]) {
@@ -1068,19 +1126,53 @@ export class RaceEngine {
         steer = dt > 0.001 ? Math.max(-1, Math.min(1, dHeading / (dt * 2.5))) : 0;
       }
       this.updateView(v, x, z, heading, y, dt, mine ? this.pred! : null, steer);
+    }
 
-    const kartsForInteractive: KartInteractiveInfo[] = [];
+    this.kartsForInteractive.length = 0;
     for (const vk of this.views.values()) {
-      kartsForInteractive.push({
+      this.kartsForInteractive.push({
         pos: { x: vk.r3d.root.position.x, z: vk.r3d.root.position.z },
         speed: vk.last.speed,
+        id: vk.key,
+        isLocalPlayer: vk.key === this.myId,
+        heading: vk.last.heading,
       });
     }
-    this.interactive?.update(dt, kartsForInteractive);
-    this.vfx?.update(dt, now);
+    const interactionOutputs = this.interactive?.update(dt, this.kartsForInteractive);
 
-
+    if (this.pred && interactionOutputs) {
+      for (let i = 0; i < this.kartsForInteractive.length; i++) {
+        if (this.kartsForInteractive[i].isLocalPlayer) {
+          const out = interactionOutputs[i];
+          if (out) {
+            if (out.boost) {
+              const bSpeed = out.boostSpeed ?? 24;
+              const bDur = (out.boostDuration ?? 1.25) * 1000;
+              this.pred.boostUntil = Math.max(this.pred.boostUntil, now + bDur);
+              this.pred.boostSpeed = Math.max(this.pred.boostSpeed ?? 0, bSpeed);
+              this.shake = Math.min(0.4, this.shake + 0.12);
+            }
+            if (out.bonk) {
+              if (out.bonkImpulse) {
+                this.pred.pos.x += out.bonkImpulse.x * dt;
+                this.pred.pos.z += out.bonkImpulse.z * dt;
+              }
+              this.pred.speed *= 0.5;
+              this.shake = Math.min(0.5, this.shake + 0.25);
+            }
+            if (out.spin) {
+              this.pred.spinUntil = Math.max(this.pred.spinUntil, now + 800);
+            }
+            if (out.airCushionLift !== undefined && out.airCushionLift > 0) {
+              this.pred.y = Math.max(this.pred.y ?? 0, out.airCushionLift);
+            }
+          }
+          break;
+        }
+      }
     }
+
+    this.vfx?.update(dt, now);
 
     for (const b of this.boxes.values()) {
       b.rotation.y += dt * 1.6;
@@ -1323,7 +1415,20 @@ export class RaceEngine {
       rivalDir = TMP_RIVAL_DIR;
     }
 
-    v.r3d.update(dt, speed, steerInput, driftDir, boosting, rivalDir, inAir);
+    TMP_SEATED_OPTIONS.driftLevel = drift;
+    TMP_SEATED_OPTIONS.draft = flags.has("slipstream");
+    TMP_SEATED_OPTIONS.spinning = spinning;
+    TMP_SEATED_OPTIONS.countdown = this.snap?.phase === "countdown" || (this.snap?.countdownMs ?? 0) > 0;
+    if (v.lastPlace !== undefined) {
+      if (k.place <= 2 && v.lastPlace > 2) {
+        v.r3d.char.setEmotion?.("victory", 1.8);
+      } else if (k.lap > (v.lastLap ?? 0) && k.place <= 2) {
+        v.r3d.char.setEmotion?.("victory", 1.8);
+      }
+    }
+    v.lastPlace = k.place;
+    v.lastLap = k.lap;
+    v.r3d.update(dt, speed, steerInput, driftDir, boosting, rivalDir, inAir, TMP_SEATED_OPTIONS);
     v.r3d.root.position.set(x, y, z);
     v.r3d.root.rotation.y = heading;
 
@@ -1335,8 +1440,7 @@ export class RaceEngine {
       v.chute.scale.set(v.chuteOpen, 0.4 + 0.6 * v.chuteOpen, v.chuteOpen);
       v.chute.rotation.z = Math.sin(this.clock * 0.004) * 0.08;
     }
-    v.shadowDisc.position.y = air ? 0.015 - y : 0.015;
-    v.shadowDisc.visible = y > -0.2;
+    v.blobShadows.update(v.r3d.chair?.pistonOffset ?? 0, y, inAir);
 
     // Áudio procedural para o jogador local (rolamento e drift screech)
     if (v.last.id === this.myId) {
@@ -1474,6 +1578,13 @@ export class RaceEngine {
     }
     if (own) {
       const slipstreaming = flags.has("slipstream");
+      if (slipstreaming) {
+        this.localDraftMs += dt * 1000;
+        this.localDraftRatio = Math.min(1, this.localDraftRatio + dt * 3);
+      } else {
+        this.localDraftMs = Math.max(0, this.localDraftMs - dt * 2000);
+        this.localDraftRatio = Math.max(0, this.localDraftRatio - dt * 2);
+      }
       const activeStreaks = (boosting || slipstreaming) && !lite;
       this.vfx?.setSpeedStreaks(activeStreaks, boosting ? 1.0 : 0.65, x, y, z, heading, speed);
     }
@@ -1483,22 +1594,20 @@ export class RaceEngine {
   private cutsceneCamera(u: number, dt: number): void {
     const start = pointAt(this.track, 0).pos;
     const c = this.commander?.root.position ?? new THREE.Vector3(start.x, 5.5, start.z);
-    let want: THREE.Vector3;
-    let look: THREE.Vector3;
     if (u < 0.55) {
       const h = pointAt(this.track, -40).heading;
-      want = new THREE.Vector3(c.x - Math.sin(h) * 11 + Math.cos(h) * 4, c.y + 3, c.z - Math.cos(h) * 11 - Math.sin(h) * 4);
-      look = new THREE.Vector3(c.x, c.y + 1.6, c.z);
+      _cutWant.set(c.x - Math.sin(h) * 11 + Math.cos(h) * 4, c.y + 3, c.z - Math.cos(h) * 11 - Math.sin(h) * 4);
+      _cutLook.set(c.x, c.y + 1.6, c.z);
     } else {
       // atrás do grid: as cadeiras de costas e o Comandante sobre o pórtico, de frente para elas
       const back = pointAt(this.track, this.track.length - 17);
-      want = new THREE.Vector3(back.pos.x, 2.4, back.pos.z);
-      look = new THREE.Vector3(c.x, c.y - 1.2, c.z);
+      _cutWant.set(back.pos.x, 2.4, back.pos.z);
+      _cutLook.set(c.x, c.y - 1.2, c.z);
     }
     const snap = !this.camReady || u < 0.02 || Math.abs(u - 0.55) < 0.02;
     const k = snap ? 1 : 1 - Math.exp(-dt * 4);
-    this.camPos.lerp(want, k);
-    this.camLook.lerp(look, k);
+    this.camPos.lerp(_cutWant, k);
+    this.camLook.lerp(_cutLook, k);
     this.camReady = true;
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
@@ -1536,18 +1645,26 @@ export class RaceEngine {
     this.camDriftOffset += (targetCamSwing - this.camDriftOffset) * Math.min(1, dt * 5);
     this.camLookOffset += (targetLookSwing - this.camLookOffset) * Math.min(1, dt * 5);
 
-    const want = new THREE.Vector3(p.x - fx * camDist + rx * this.camDriftOffset, camHeight + this.camY, p.z - fz * camDist + rz * this.camDriftOffset);
-    const look = new THREE.Vector3(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY * 0.6, p.z + fz * 10 + rz * this.camLookOffset);
-    // saindo da cena de abertura, a câmera vai direto para trás do kart em vez de deslizar de onde estava
-    if (!this.camReady || this.wasInCutscene) {
-      this.camPos.copy(want);
-      this.camLook.copy(look);
+    if (this.lookBackActive) {
+      // Câmera retrovisor (KeyC ou botão do meio do mouse): olha para trás 180°
+      _camWant.set(p.x + fx * camDist, camHeight + this.camY, p.z + fz * camDist);
+      _camLook.set(p.x - fx * 10, 0.6 + this.camY * 0.6, p.z - fz * 10);
+    } else {
+      _camWant.set(p.x - fx * camDist + rx * this.camDriftOffset, camHeight + this.camY, p.z - fz * camDist + rz * this.camDriftOffset);
+      _camLook.set(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY * 0.6, p.z + fz * 10 + rz * this.camLookOffset);
+    }
+
+    // saindo da cena de abertura ou ao alternar retrovisor instantaneamente
+    if (!this.camReady || this.wasInCutscene || this.lookBackSnap) {
+      this.camPos.copy(_camWant);
+      this.camLook.copy(_camLook);
       this.camReady = true;
       this.wasInCutscene = false;
+      this.lookBackSnap = false;
     }
-    const k = 1 - Math.exp(-dt * 7.5);
-    this.camPos.lerp(want, k);
-    this.camLook.lerp(look, k);
+    const k = this.lookBackActive ? 1 - Math.exp(-dt * 15) : 1 - Math.exp(-dt * 7.5);
+    this.camPos.lerp(_camWant, k);
+    this.camLook.lerp(_camLook, k);
 
     this.shake = Math.max(0, this.shake - dt * 4);
     let sx = 0;
@@ -1575,10 +1692,20 @@ export class RaceEngine {
     this.sun.target.position.set(p.x, 0.5, p.z);
     this.sun.target.updateMatrixWorld();
 
-    // FOV dinâmico elástico que abre suavemente de 66° a 82° com a velocidade e o turbo
-    const fov = 66 + speedRatio * 7 + (boosting ? 9 : 0);
-    if (Math.abs(this.camera.fov - fov) > 0.05) {
-      this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 6);
+    // FOV dinâmico elástico que abre suavemente de 60° a 74° com velocidade, boost, vácuo e café (e 56° ao frear)
+    const isBraking = this.keys.has("ArrowDown") || this.keys.has("KeyS");
+    const isDrafting = v.last.flags?.includes("slipstream") ?? false;
+    const hasCoffee = boosting && (this.pred?.boostSpeed ?? 0) > 23;
+    const targetFov = calculateDynamicFov({
+      speed,
+      isBoosting: boosting,
+      isBraking,
+      isDrafting,
+      draftRatio: this.localDraftRatio,
+      hasCoffee,
+    });
+    if (Math.abs(this.camera.fov - targetFov) > 0.05) {
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 6);
       this.camera.updateProjectionMatrix();
     }
   }
