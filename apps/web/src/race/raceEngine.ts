@@ -180,6 +180,7 @@ export class RaceEngine {
   private camPos = new THREE.Vector3();
   private camLook = new THREE.Vector3();
   private camReady = false;
+  private wasInCutscene = false;
   private camDriftOffset = 0;
   private camLookOffset = 0;
   private camY = 0;
@@ -239,7 +240,9 @@ export class RaceEngine {
       groundY: 0.03,
     });
     this.sun = this.sky.sunLight;
-    Object.assign(this.sun.shadow.camera, { left: -65, right: 65, top: 50, bottom: -50, near: 1, far: 120 });
+    // caixa de sombra menor que acompanha o kart do jogador (ver updateCamera): sombra mais nítida
+    Object.assign(this.sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 2, far: 120 });
+    this.scene.add(this.sun.target);
     this.disposeTrack = buildTrack(this.scene, track);
 
     const skidGeo = new THREE.PlaneGeometry(0.18, 0.4);
@@ -1168,8 +1171,12 @@ export class RaceEngine {
     const intro = this.snap?.phase === "countdown" ? RACE.countdownMs - this.snap.countdownMs + since : RACE.introMs;
     const raceMs = this.snap && this.snap.phase !== "countdown" ? this.snap.elapsedMs + since : null;
     this.commander?.update(dt, intro, raceMs);
-    if (intro < RACE.introMs) this.cutsceneCamera(intro / RACE.introMs, dt);
-    else this.updateCamera(dt);
+    if (intro < RACE.introMs) {
+      this.wasInCutscene = true;
+      this.cutsceneCamera(intro / RACE.introMs, dt);
+    } else {
+      this.updateCamera(dt);
+    }
     this.sky.update(dt, this.camera.position);
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
@@ -1456,10 +1463,12 @@ export class RaceEngine {
 
     const want = new THREE.Vector3(p.x - fx * camDist + rx * this.camDriftOffset, camHeight + this.camY, p.z - fz * camDist + rz * this.camDriftOffset);
     const look = new THREE.Vector3(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY * 0.6, p.z + fz * 10 + rz * this.camLookOffset);
-    if (!this.camReady) {
+    // saindo da cena de abertura, a câmera vai direto para trás do kart em vez de deslizar de onde estava
+    if (!this.camReady || this.wasInCutscene) {
       this.camPos.copy(want);
       this.camLook.copy(look);
       this.camReady = true;
+      this.wasInCutscene = false;
     }
     const k = 1 - Math.exp(-dt * 7.5);
     this.camPos.lerp(want, k);
@@ -1485,6 +1494,11 @@ export class RaceEngine {
     }
     this.camera.position.set(this.camPos.x + sx, this.camPos.y + sy, this.camPos.z + sz);
     this.camera.lookAt(this.camLook);
+
+    // a luz do sol e a caixa de sombra acompanham o kart do jogador
+    this.sun.position.set(p.x + 25, 45, p.z + 18);
+    this.sun.target.position.set(p.x, 0.5, p.z);
+    this.sun.target.updateMatrixWorld();
 
     // FOV dinâmico elástico que abre suavemente de 66° a 82° com a velocidade e o turbo
     const fov = 66 + speedRatio * 7 + (boosting ? 9 : 0);
