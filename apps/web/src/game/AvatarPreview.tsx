@@ -13,27 +13,28 @@ export interface PreviewAction {
 
 /**
  * Prévia 3D girando. Arraste para girar. Com chair, mostra o boneco sentado na cadeira.
- * walking anda no lugar, action toca uma ação do jogo e spin=false para o giro automático.
+ * move anda ou corre no lugar, action toca uma ação do jogo e spin=false para o giro automático.
  */
 export function AvatarPreview({
   dna,
   chair,
   className,
-  walking = false,
+  move,
   action,
   spin = true,
 }: {
   dna: AvatarDNA;
   chair?: ChairDNA;
   className?: string;
-  walking?: boolean;
+  move?: "walk" | "run";
   action?: PreviewAction;
   spin?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const rigRef = useRef<Character | null>(null);
-  const walkingRef = useRef(walking);
-  walkingRef.current = walking;
+  /** Velocidade passada ao boneco: metade anda, inteira corre. */
+  const speedRef = useRef(0);
+  speedRef.current = move === "run" ? 1 : move === "walk" ? 0.5 : 0;
   const spinRef = useRef(spin);
   spinRef.current = spin;
   const ready = useStore((s) => s.modelReady);
@@ -87,7 +88,7 @@ export function AvatarPreview({
       const rig = rigRef.current;
       if (rig) {
         rig.root.rotation.y = yaw;
-        rig.update(Math.min(0.05, (ms - last) / 1000), walkingRef.current ? 1 : 0);
+        rig.update(Math.min(0.05, (ms - last) / 1000), speedRef.current);
       }
       renderer.render(scene, cam);
       last = ms;

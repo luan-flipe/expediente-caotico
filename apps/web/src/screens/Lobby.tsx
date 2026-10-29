@@ -23,7 +23,7 @@ export function Lobby() {
   const avatar = useStore((s) => s.avatar);
   useStore((s) => s.modelReady);
   const [copied, setCopied] = useState(false);
-  const [walking, setWalking] = useState(false);
+  const [move, setMove] = useState<"walk" | "run">();
   const [spin, setSpin] = useState(true);
   const [action, setAction] = useState<PreviewAction>();
   const play = (name: CharacterAction) => setAction((a) => ({ name, seq: (a?.seq ?? 0) + 1 }));
@@ -153,14 +153,21 @@ export function Lobby() {
             <p className="label" style={{ margin: 0 }}>
               Você
             </p>
-            <AvatarPreview dna={avatar} walking={walking} action={action} spin={spin} className="badge-preview" />
+            <AvatarPreview dna={avatar} move={move} action={action} spin={spin} className="badge-preview" />
             <div className="seg">
               <button className={spin ? "on" : ""} onClick={() => setSpin((s) => !s)}>
                 Girar
               </button>
-              <button className={walking ? "on" : ""} onClick={() => setWalking((w) => !w)}>
-                Andar
-              </button>
+              {(
+                [
+                  ["walk", "Andar"],
+                  ["run", "Correr"],
+                ] as const
+              ).map(([m, label]) => (
+                <button key={m} className={move === m ? "on" : ""} onClick={() => setMove((cur) => (cur === m ? undefined : m))}>
+                  {label}
+                </button>
+              ))}
               {ACTIONS.map(([name, label]) => (
                 <button key={name} onClick={() => play(name)}>
                   {label}

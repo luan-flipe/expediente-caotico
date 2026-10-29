@@ -124,6 +124,123 @@ function loadWearable(loader: GLTFLoader, url: string): Promise<THREE.SkinnedMes
     });
 }
 
+/** Cadeias de braço e perna. O boneco tem cotovelo, joelho e dedos no meio delas; peças antigas não. */
+const LIMBS = ["D", "E"].flatMap((s) => [
+  [`ombro_${s}`, `cotovelo_${s}`, `punho_${s}`, `dedos_${s}`, `dedos2_${s}`, `polegar_${s}`],
+  [`perna_${s}`, `joelho_${s}`, `pe_${s}`],
+]);
+/** Quantos pontos do corpo emprestam peso a cada ponto da peça. */
+const NEAREST = 4;
+
+/** Ponto do corpo na pose de amarração, com o peso da cadeia repartido entre os ossos dela. */
+interface LimbSample {
+  pos: THREE.Vector3;
+  share: Map<string, number>;
+}
+
+/** Pesos do vértice v por nome de osso. */
+function weightsOf(mesh: THREE.SkinnedMesh, v: number): Map<string, number> {
+  const idx = mesh.geometry.getAttribute("skinIndex");
+  const wt = mesh.geometry.getAttribute("skinWeight");
+  const out = new Map<string, number>();
+  for (let k = 0; k < 4; k++) {
+    const w = wt.getComponent(v, k);
+    const name = mesh.skeleton.bones[idx.getComponent(v, k)]?.name;
+    if (w > 0 && name) out.set(name, (out.get(name) ?? 0) + w);
+  }
+  return out;
+}
+
+/** Pontos do corpo de cada cadeia de LIMBS. */
+function limbSamples(scene: THREE.Object3D): LimbSample[][] {
+  const out = LIMBS.map((): LimbSample[] => []);
+  scene.traverse((o) => {
+    const mesh = o as THREE.SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const pos = mesh.geometry.getAttribute("position");
+    for (let v = 0; v < pos.count; v++) {
+      const weights = weightsOf(mesh, v);
+      LIMBS.forEach((chain, c) => {
+        const share = new Map([...weights].filter(([n]) => chain.includes(n)));
+        const sum = [...share.values()].reduce((a, b) => a + b, 0);
+        if (sum < 0.01) return;
+        for (const [n, w] of share) share.set(n, w / sum);
+        out[c].push({ pos: new THREE.Vector3().fromBufferAttribute(pos, v).applyMatrix4(mesh.bindMatrix), share });
+      });
+    }
+  });
+  return out;
+}
+
+/** Média dos NEAREST pontos mais próximos de p, pesada pelo inverso da distância. */
+function nearestShare(samples: LimbSample[], p: THREE.Vector3): Map<string, number> {
+  const best: [number, LimbSample][] = [];
+  for (const s of samples) {
+    const d = s.pos.distanceToSquared(p);
+    if (best.length === NEAREST && d >= best[NEAREST - 1][0]) continue;
+    best.push([d, s]);
+    best.sort((a, b) => a[0] - b[0]);
+    if (best.length > NEAREST) best.pop();
+  }
+  const out = new Map<string, number>();
+  let total = 0;
+  for (const [d, s] of best) {
+    const k = 1 / (Math.sqrt(d) + 1e-4);
+    total += k;
+    for (const [n, w] of s.share) out.set(n, (out.get(n) ?? 0) + w * k);
+  }
+  for (const [n, w] of out) out.set(n, w / total);
+  return out;
+}
+
+/**
+ * Peça feita no esqueleto antigo (braço e perna de um osso só) passa a dobrar no cotovelo e no joelho:
+ * o peso que ela põe numa cadeia que não tem inteira é repartido como no corpo, no mesmo ponto.
+ */
+function retargetWearable(src: THREE.SkinnedMesh, samples: LimbSample[][], body: THREE.Skeleton): void {
+  const names = src.skeleton.bones.map((b) => b.name);
+  const todo = LIMBS.map((chain, c) => samples[c].length > 0 && !chain.every((n) => names.includes(n)));
+  if (!todo.some(Boolean)) return;
+  const bones = [...names];
+  const slot = (n: string) => (bones.includes(n) ? bones.indexOf(n) : bones.push(n) - 1);
+  const pos = src.geometry.getAttribute("position");
+  const skinIndex = new Uint16Array(pos.count * 4);
+  const skinWeight = new Float32Array(pos.count * 4);
+  const p = new THREE.Vector3();
+  for (let v = 0; v < pos.count; v++) {
+    const weights = weightsOf(src, v);
+    p.fromBufferAttribute(pos, v).applyMatrix4(src.bindMatrix);
+    LIMBS.forEach((chain, c) => {
+      if (!todo[c]) return;
+      let limb = 0;
+      for (const n of chain) {
+        limb += weights.get(n) ?? 0;
+        weights.delete(n);
+      }
+      if (limb === 0) return;
+      for (const [n, w] of nearestShare(samples[c], p)) weights.set(n, (weights.get(n) ?? 0) + w * limb);
+    });
+    // a pele aceita 4 ossos por vértice
+    const top = [...weights].sort((a, b) => b[1] - a[1]).slice(0, 4);
+    const sum = top.reduce((a, [, w]) => a + w, 0);
+    top.forEach(([n, w], k) => {
+      skinIndex[v * 4 + k] = slot(n);
+      skinWeight[v * 4 + k] = w / sum;
+    });
+  }
+  src.geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(skinIndex, 4));
+  src.geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(skinWeight, 4));
+  // a pose de amarração dos ossos é a do corpo, para a peça casar com ele
+  const inverses = bones.map((n, i) => {
+    const b = body.bones.findIndex((o) => o.name === n);
+    return b >= 0 ? body.boneInverses[b] : src.skeleton.boneInverses[i];
+  });
+  src.skeleton = new THREE.Skeleton(
+    bones.map((n) => Object.assign(new THREE.Bone(), { name: n })),
+    inverses,
+  );
+}
+
 /** Prende a peça aos ossos do boneco, pelo nome, para ela seguir as animações. */
 function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THREE.SkinnedMesh): void {
   const bones = src.skeleton.bones.map((b) => inner.getObjectByName(b.name));
@@ -165,6 +282,14 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
   loading ??= Promise.all([loader.loadAsync(MODEL_URL, onProgress), load(HAIRS), load(SHIRTS_3D), load(PANTS_3D), load(SHOES_3D), cheer])
     .then(([gltf, hairs, shirts, pants, shoes, party]) => {
       const scene = gltf.scene;
+      let skeleton: THREE.Skeleton | null = null;
+      scene.traverse((o) => {
+        if ((o as THREE.SkinnedMesh).isSkinnedMesh) skeleton ??= (o as THREE.SkinnedMesh).skeleton;
+      });
+      if (skeleton) {
+        const samples = limbSamples(scene);
+        for (const piece of [hairs, shirts, pants, shoes].flat(2)) retargetWearable(piece, samples, skeleton);
+      }
       const h = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
       loaded = {
         scene,
@@ -212,6 +337,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   };
   const idle = loop("parado");
   const walk = loop("andar");
+  const run = loop("correr");
   const actions = new Map<CharacterAction, THREE.AnimationAction>();
   for (const k of Object.keys(CLIP_OF) as CharacterAction[]) {
     const full = model.clips.get(CLIP_OF[k]);
@@ -248,10 +374,14 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         return;
       }
       const busy = [...actions.values()].some((a) => a.isRunning());
-      const w = busy ? 0 : speed01;
+      // até a metade da velocidade o boneco anda; dali em diante passa a correr
+      const s = busy ? 0 : speed01;
+      const r = run ? THREE.MathUtils.clamp(s * 2 - 1, 0, 1) : 0;
+      const w = Math.min(1, s * (run ? 2 : 1)) - r;
+      idle?.setEffectiveWeight(busy ? 0 : 1 - w - r);
       walk?.setEffectiveWeight(w);
-      idle?.setEffectiveWeight(busy ? 0 : 1 - w);
-      if (walk) walk.timeScale = 0.6 + speed01 * 0.8;
+      run?.setEffectiveWeight(r);
+      if (walk) walk.timeScale = 0.6 + speed01 * (run ? 1.6 : 0.8);
       mixer.update(dt);
     },
     updateSeated(dt, speed, _steer, driftDir) {
