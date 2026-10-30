@@ -119,6 +119,87 @@ input {
   }
 }
 
+/* ---------- tela inicial: largura toda e cabe na janela do computador sem rolar ---------- */
+.screen.home {
+  padding: clamp(12px, 3vh, 32px) clamp(12px, 2.5vw, 40px);
+}
+
+.screen.home .wrap {
+  max-width: none;
+}
+
+.home-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: clamp(16px, 3vw, 48px);
+  row-gap: 8px;
+  margin-bottom: clamp(12px, 2.5vh, 28px);
+}
+
+.home-head .brand {
+  margin: 0;
+}
+
+.home-head .brand h1 {
+  font-size: clamp(36px, min(6vw, 8.5vh), 84px);
+}
+
+.home-head .tagline {
+  margin: 0;
+  font-size: clamp(15px, 2vh, 18px);
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: clamp(12px, 2vw, 28px);
+  align-items: start;
+}
+
+.screen.home .stack {
+  gap: clamp(10px, 1.8vh, 16px);
+}
+
+.screen.home .card {
+  padding: clamp(12px, 2vh, 20px);
+}
+
+.screen.home .badge-preview {
+  height: clamp(180px, calc(100dvh - 330px), 420px);
+}
+
+.screen.home .btn {
+  padding: clamp(8px, 1.3vh, 12px) 16px;
+}
+
+.screen.home .field {
+  padding: clamp(8px, 1.3vh, 12px) 14px;
+}
+
+@media (max-width: 1100px) {
+  .home-grid {
+    grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .home-side {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .home-grid,
+  .home-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .screen.home .badge-preview {
+    height: 260px;
+  }
+}
+
 .card {
   background: #fffdf7;
   border: 2px solid var(--line);
@@ -1401,16 +1482,16 @@ input {
   display: grid;
   place-items: center;
   padding: 24px;
-  /* só aparece se a espera passar de um instante: carga rápida (arquivos em cache) não pisca */
-  opacity: 0;
-  animation: loading-in 0.25s ease-out 0.3s forwards;
-  /* fundo escuro do ícone do app */
+  /* fundo escuro do ícone do app, o mesmo que o index.html pinta antes do JS: entra sem piscar */
   background: #1d1b17;
 }
 
 .loading-box {
   width: min(720px, 100%);
   text-align: center;
+  /* o conteúdo só aparece se a espera passar de um instante: carga rápida (arquivos em cache) não pisca */
+  opacity: 0;
+  animation: loading-in 0.25s ease-out 0.3s forwards;
 }
 
 .loading-mascot {
@@ -1484,7 +1565,7 @@ input {
   .loading-mascot {
     animation: none;
   }
-  .screen.loading {
+  .loading-box {
     animation-duration: 0.01s;
   }
   .loading-fill {
@@ -1497,18 +1578,37 @@ input {
   position: fixed;
   inset: 0;
   z-index: 100;
-  overflow: auto;
-  padding: 24px;
+  overflow: hidden;
+  padding: clamp(8px, 3vmin, 24px);
   background: rgba(20, 18, 15, 0.62);
 }
 
+/* nunca passa da janela: rola por dentro e o título com o botão de fechar ficam presos no topo */
 .settings-panel {
-  max-width: 980px;
+  max-width: min(980px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 0 auto;
   background: var(--paper);
   border: 2px solid var(--line);
   box-shadow: var(--shadow);
-  padding: 24px;
+  padding: 0 clamp(14px, 3vmin, 24px) clamp(14px, 3vmin, 24px);
+}
+
+.settings-panel > :first-child {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  background: var(--paper);
+  padding-top: clamp(14px, 3vmin, 24px);
+  padding-bottom: 8px;
+  border-bottom: 2px dashed var(--paper-2);
+}
+
+.settings-panel > * {
+  flex-shrink: 0;
 }
 
 .settings-panel .brand h1 {
@@ -2073,6 +2173,7 @@ input {
 
 .pause-panel {
   max-width: 420px;
+  max-height: calc(100% - 8vh);
   margin: 8vh auto 0;
 }
 
@@ -2083,7 +2184,8 @@ input {
 @media (max-height: 500px) {
   .pause-panel {
     margin-top: 0;
-    padding: 16px;
+    max-height: 100%;
+    padding: 0 16px 16px;
   }
 }
 
