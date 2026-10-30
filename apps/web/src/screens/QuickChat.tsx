@@ -39,7 +39,7 @@ export function QuickChat() {
   const chat = useStore((s) => s.chat);
   const editing = useStore((s) => s.editing);
   const settings = useSettings();
-  const mode = lobby?.mode === "shooter" ? "shooter" : "race";
+  const mode = lobby?.mode === "shooter" ? "shooter" : lobby?.mode === "futebol" ? "futebol" : "race";
   const chatKey = settings.keys[mode].chat;
   const inRoom = !!lobby && !!myId;
   const [, tick] = useState(0);

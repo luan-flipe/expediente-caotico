@@ -12,6 +12,10 @@ import {
   type PrivateState,
   type RacePrivate,
   type Award,
+  type FutPrivate,
+  type FutResultRow,
+  type FutSnapshot,
+  type TeamSide,
   type RaceResultRow,
   type RaceSnapshot,
   type ResultRow,
@@ -54,6 +58,10 @@ export interface State {
   me: PrivateState | null;
   rsnap: RaceSnapshot | null;
   rme: RacePrivate | null;
+  fsnap: FutSnapshot | null;
+  fme: FutPrivate | null;
+  /** Resultado final do Futebol da Firma (a tela é da Tarefa 15). */
+  futResults: FutResults | null;
   feed: FeedItem[];
   scoreboard: boolean;
   /** boneco_completo.glb carregado; telas refazem miniaturas e prévias. */
@@ -82,6 +90,12 @@ export interface State {
   chatOpen: boolean;
   /** Aviso de desafio da semana cumprido (some sozinho depois de alguns segundos). */
   toast: { id: number; text: string; points: number } | null;
+}
+
+export interface FutResults {
+  rows: FutResultRow[];
+  score: { score: [number, number]; pens: [number, number] | null; winner: TeamSide | null };
+  awards: Award[];
 }
 
 export interface Ghosts {
@@ -130,6 +144,9 @@ let state: State = {
   me: null,
   rsnap: null,
   rme: null,
+  fsnap: null,
+  fme: null,
+  futResults: null,
   feed: [],
   scoreboard: false,
   modelReady: false,
@@ -220,7 +237,7 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, feed: [], ghosts: null, chat: [], chatOpen: false, pauseOpen: false, settingsOpen: false });
+  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, fsnap: null, fme: null, futResults: null, feed: [], ghosts: null, chat: [], chatOpen: false, pauseOpen: false, settingsOpen: false });
 }
 
 let feedId = 0;
@@ -266,17 +283,23 @@ function onMessage(msg: ServerMsg): void {
       setState({ myId: msg.id, code: msg.code, error: null });
       return;
     case "lobby":
-      setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null } : {}) });
+      setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null, futResults: null } : {}) });
       return;
     case "results":
-      setState({ results: msg.rows, awards: msg.awards, raceResults: null, snap: null, me: null, feed: [] });
+      setState({ results: msg.rows, awards: msg.awards, raceResults: null, futResults: null, snap: null, me: null, feed: [] });
       return;
     case "rresults":
-      setState({ raceResults: msg.rows, awards: msg.awards, results: null, rsnap: null, rme: null, feed: [] });
+      setState({ raceResults: msg.rows, awards: msg.awards, results: null, futResults: null, rsnap: null, rme: null, feed: [] });
       return;
     case "rsnap":
       setState({ rsnap: msg.s, rme: msg.me });
       raceFeed(msg.s);
+      return;
+    case "fsnap":
+      setState({ fsnap: msg.s, fme: msg.me });
+      return;
+    case "fresults":
+      setState({ futResults: { rows: msg.rows, score: msg.score, awards: msg.awards }, awards: msg.awards, results: null, raceResults: null, fsnap: null, fme: null, feed: [] });
       return;
     case "chat":
       setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });

@@ -17,6 +17,8 @@ import { getState, setState, useStore } from "./store";
 // o código de cada modo só baixa quando a partida começa
 const GameView = lazy(() => import("./game/GameView").then((m) => ({ default: m.GameView })));
 const RaceView = lazy(() => import("./race/RaceView").then((m) => ({ default: m.RaceView })));
+const FutebolView = lazy(() => import("./futebol/FutebolView").then((m) => ({ default: m.FutebolView })));
+const FutResultsStub = lazy(() => import("./futebol/FutResultsStub").then((m) => ({ default: m.FutResultsStub })));
 const ReplayView = lazy(() => import("./race/ReplayView").then((m) => ({ default: m.ReplayView })));
 const RaceResults = lazy(() => import("./race/RaceResults").then((m) => ({ default: m.RaceResults })));
 
@@ -29,6 +31,7 @@ export function App() {
   const lobby = useStore((s) => s.lobby);
   const results = useStore((s) => s.results);
   const raceResults = useStore((s) => s.raceResults);
+  const futResults = useStore((s) => s.futResults);
   const myId = useStore((s) => s.myId);
   const settingsOpen = useStore((s) => s.settingsOpen);
 
@@ -50,7 +53,7 @@ export function App() {
   }, []);
 
   // a música da sala toca na tela inicial e na sala, sem recomeçar quando uma vira a outra
-  const showsLobby = !!lobby && !inMatch && !(lobby.phase === "results" && (raceResults || results));
+  const showsLobby = !!lobby && !inMatch && !(lobby.phase === "results" && (raceResults || results || futResults));
   const menuMusic = assetsReady && !editing && !ranking && !perfil && (!lobby || showsLobby);
   useEffect(() => {
     if (!menuMusic) return;
@@ -64,13 +67,17 @@ export function App() {
   }, [inMatch]);
 
   const screen = () => {
-    if (lobby?.phase === "match" && myId) return lobby.mode === "shooter" ? <GameView myId={myId} /> : <RaceView myId={myId} />;
+    if (lobby?.phase === "match" && myId) {
+      if (lobby.mode === "futebol") return <FutebolView myId={myId} />;
+      return lobby.mode === "shooter" ? <GameView myId={myId} /> : <RaceView myId={myId} />;
+    }
     if (editing) return <Creator />;
     if ((ranking || perfil) && replay) return <ReplayView />;
     if (perfil) return <Perfil id={perfil} />;
     if (ranking) return <Ranking />;
     if (!lobby) return <Home />;
     if (lobby.phase === "results" && raceResults) return <RaceResults />;
+    if (lobby.phase === "results" && futResults) return <FutResultsStub />;
     if (lobby.phase === "results" && results) return <Results />;
     return <Lobby />;
   };

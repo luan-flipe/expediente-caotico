@@ -90,7 +90,7 @@ describe("sanitizeSettings", () => {
   });
 
   it("o padrão não tem tecla repetida dentro de um modo", () => {
-    for (const mode of ["shooter", "race"] as const) {
+    for (const mode of ["shooter", "race", "futebol"] as const) {
       const codes = Object.values(DEFAULT_SETTINGS.keys[mode]);
       expect(new Set(codes).size).toBe(codes.length);
     }

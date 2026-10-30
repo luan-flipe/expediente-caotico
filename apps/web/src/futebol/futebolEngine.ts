@@ -1,0 +1,842 @@
+import * as THREE from "three";
+import {
+  FUT,
+  FUT_COLORS,
+  PRESETS,
+  fieldFor,
+  stepPlayer,
+  type AvatarDNA,
+  type Field,
+  type FutInput,
+  type FutPlayer,
+  type FutPrivate,
+  type FutSnapshot,
+  type FutTeamConfig,
+  type TeamSide,
+} from "@ec/shared";
+import { ChatBubbles, chatText } from "../chatBubbles";
+import { createCharacter, modelReady, type Character } from "../game/character";
+import { createGltfLoader } from "../game/gltfLoader";
+import { createDynamicSky, type DynamicSky } from "../game/sky";
+import { inputBlocked } from "../pause";
+import { applyQuality } from "../quality";
+import { getSettings, subscribeSettings, type Quality } from "../settings";
+import { getState, net, setState } from "../store";
+import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
+import ballUrl from "../assets/futebol/bola.glb?url";
+import goalUrl from "../assets/futebol/gol.glb?url";
+import pitchUrl from "../assets/futebol/ipatingao.glb?url";
+import { TOUCH_KICK, TOUCH_PASS, newControlState, newMouse, readFutInput, type FutKeys } from "./controls";
+import { uniformDNA } from "./uniforme";
+
+export type FutUiSignal = "lock" | "unlock";
+
+interface Sample {
+  t: number;
+  x: number;
+  y: number;
+  z: number;
+  f: number;
+}
+
+interface View {
+  char: Character;
+  key: string;
+  tag: THREE.Sprite;
+  tagKey: string;
+  buf: Sample[];
+  last: FutSnapshot["players"][number];
+  ring: THREE.Mesh | null;
+}
+
+/** Passo de envio e de previsão: o mesmo do servidor (30 Hz). */
+const DT = 1000 / 30;
+const INTERP_MS = 120;
+const CAM_DIST = 6.2;
+const CAM_SIDE = 0.9;
+const HEAD_Y = 1.5;
+const PITCH_MIN = -0.6;
+const PITCH_MAX = 0.5;
+const PITCH_START = -0.3;
+
+const angleLerp = (a: number, b: number, t: number) => {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+};
+
+/** Direção de ataque em ângulo (0 = +z): o time 0 ataca +x, o time 1 ataca -x. */
+const attackYaw = (side: TeamSide) => (side === 0 ? Math.PI / 2 : -Math.PI / 2);
+
+function hashOf(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function makeTag(name: string, hex: string): THREE.Sprite {
+  const c = document.createElement("canvas");
+  c.width = 256;
+  c.height = 64;
+  const g = c.getContext("2d")!;
+  g.font = "800 30px 'Bricolage Grotesque', sans-serif";
+  g.textAlign = "center";
+  g.lineWidth = 6;
+  g.strokeStyle = "rgba(20,18,15,0.9)";
+  g.strokeText(name, 128, 32);
+  g.fillStyle = "#fffdf7";
+  g.fillText(name, 128, 32);
+  g.fillStyle = "rgba(20,18,15,0.9)";
+  g.fillRect(58, 42, 140, 12);
+  g.fillStyle = hex;
+  g.fillRect(61, 44, 134, 8);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  s.scale.set(1.9, 0.475, 1);
+  s.renderOrder = 5;
+  return s;
+}
+
+/** Plano fino no chão (linha do campo). */
+function flat(w: number, d: number, x: number, z: number, mat: THREE.Material): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(x, 0.05, z);
+  m.renderOrder = 1;
+  return m;
+}
+
+/** Linhas do campo do formato, centradas na origem, por cima do gramado. */
+function buildLines(f: Field, mat: THREE.Material): THREE.Group {
+  const g = new THREE.Group();
+  const T = 0.14;
+  const L = f.halfL * 2;
+  const W = f.halfW * 2;
+  // contorno
+  g.add(flat(L + T, T, 0, -f.halfW, mat), flat(L + T, T, 0, f.halfW, mat), flat(T, W + T, -f.halfL, 0, mat), flat(T, W + T, f.halfL, 0, mat));
+  // meio de campo e círculo central
+  g.add(flat(T, W, 0, 0, mat));
+  const r = Math.min(f.halfW * 0.3, 5);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(r - T / 2, r + T / 2, 56), mat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(0, 0.05, 0);
+  ring.renderOrder = 1;
+  g.add(ring);
+  const dot = (x: number, z: number) => {
+    const d = new THREE.Mesh(new THREE.CircleGeometry(0.22, 16), mat);
+    d.rotation.x = -Math.PI / 2;
+    d.position.set(x, 0.05, z);
+    d.renderOrder = 1;
+    g.add(d);
+  };
+  dot(0, 0);
+  for (const s of [-1, 1]) {
+    const gx = s * f.halfL;
+    const bx = gx - s * f.boxL;
+    // grande área
+    g.add(flat(T, f.boxHalfW * 2, bx, 0, mat), flat(f.boxL, T, gx - (s * f.boxL) / 2, -f.boxHalfW, mat), flat(f.boxL, T, gx - (s * f.boxL) / 2, f.boxHalfW, mat));
+    // pequena área (metade da profundidade e da largura)
+    const sl = f.boxL * 0.45;
+    const sw = f.boxHalfW * 0.5;
+    g.add(flat(T, sw * 2, gx - s * sl, 0, mat), flat(sl, T, gx - (s * sl) / 2, -sw, mat), flat(sl, T, gx - (s * sl) / 2, sw, mat));
+    dot(gx - s * f.penaltySpot, 0);
+  }
+  return g;
+}
+
+/** Motor do Futebol da Firma: renderiza snapshots, prevê o próprio boneco e manda intenções. */
+export class FutebolEngine {
+  private renderer: THREE.WebGLRenderer;
+  private scene = new THREE.Scene();
+  private camera = new THREE.PerspectiveCamera(65, 1, 0.1, 500);
+  private sky: DynamicSky;
+  private sun: THREE.DirectionalLight;
+  private quality: Quality | null = null;
+  private chat = new ChatBubbles(2.7);
+  private views = new Map<string, View>();
+  private avatars = new Map<string, AvatarDNA>();
+  private snap: FutSnapshot | null = null;
+  private me: FutPrivate | null = null;
+  private field: Field | null = null;
+  private lines: THREE.Group | null = null;
+  private goals: THREE.Object3D[] = [];
+  private lineMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.92 });
+
+  private ball = new THREE.Group();
+  private ballModel: THREE.Object3D | null = null;
+  private ballShadow: THREE.Mesh;
+  private ballBuf: Sample[] = [];
+  private ballPrev: THREE.Vector3 | null = null;
+
+  private aimArrow: THREE.Mesh;
+
+  private yaw = 0;
+  private pitch = PITCH_START;
+  private fixedYaw = false;
+  private aimYaw = 0;
+  private yawReady = false;
+  private penTaker = "";
+  private locked = false;
+  private keys = new Set<string>();
+  private mouse = newMouse();
+  private ctl = newControlState();
+  private raf = 0;
+  private lastFrame = performance.now();
+  private cleanup: (() => void)[] = [];
+  private camPos = new THREE.Vector3();
+  private camLook = new THREE.Vector3();
+  private camReady = false;
+
+  // previsão do próprio boneco
+  private seq = 0;
+  private acc = 0;
+  private pred: FutPlayer | null = null;
+  private prevX = 0;
+  private prevZ = 0;
+  private pending: { seq: number; input: FutInput }[] = [];
+  private vis = { x: 0, z: 0 };
+  private chargeSince = 0;
+  private chargeKind: "kick" | "pass" | null = null;
+  private myPos = new THREE.Vector3();
+
+  /** Barra de força (DOM do HUD): o motor posiciona e preenche a cada quadro. */
+  powerEl: HTMLElement | null = null;
+  powerFill: HTMLElement | null = null;
+
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly myId: string,
+    private readonly onUi: (s: FutUiSignal) => void,
+  ) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.fixedYaw = IS_TOUCH;
+
+    this.sky = createDynamicSky(this.scene, {
+      sunPosition: new THREE.Vector3(30, 50, 20),
+      sunIntensity: 2.2,
+      cloudCoverage: 0.4,
+      cloudSpeed: 0.8,
+      groundSize: 300,
+      groundY: 0.01,
+    });
+    this.sun = this.sky.sunLight;
+    Object.assign(this.sun.shadow.camera, { left: -45, right: 45, top: 35, bottom: -35, near: 1, far: 140 });
+
+    // gramado de apoio: a vista nunca mostra o vazio se o estádio demorar a chegar
+    const base = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: "#3d7a38", roughness: 1 }));
+    base.rotation.x = -Math.PI / 2;
+    base.position.y = -0.03;
+    base.receiveShadow = true;
+    this.scene.add(base);
+
+    this.ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.3, 20), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.35, depthWrite: false }));
+    this.ballShadow.rotation.x = -Math.PI / 2;
+    this.ballShadow.renderOrder = 2;
+    this.scene.add(this.ballShadow);
+    const fallback = new THREE.Mesh(new THREE.SphereGeometry(FUT.ballRadius, 16, 12), new THREE.MeshStandardMaterial({ color: "#f4f1ea", roughness: 0.6 }));
+    fallback.castShadow = true;
+    this.ball.add(fallback);
+    this.scene.add(this.ball);
+
+    const arrowShape = new THREE.Shape();
+    arrowShape.moveTo(0, 1);
+    arrowShape.lineTo(0.28, 0.45);
+    arrowShape.lineTo(0.1, 0.45);
+    arrowShape.lineTo(0.1, 0);
+    arrowShape.lineTo(-0.1, 0);
+    arrowShape.lineTo(-0.1, 0.45);
+    arrowShape.lineTo(-0.28, 0.45);
+    arrowShape.closePath();
+    this.aimArrow = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape), new THREE.MeshBasicMaterial({ color: "#ffe14d", transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }));
+    this.aimArrow.renderOrder = 3;
+    this.aimArrow.visible = false;
+    this.scene.add(this.aimArrow);
+
+    void this.loadAssets();
+    this.applySettings();
+    this.cleanup.push(subscribeSettings(() => this.applySettings()));
+    this.bindInput();
+    this.raf = requestAnimationFrame(this.loop);
+  }
+
+  setAvatars(list: { id: string; avatar: AvatarDNA }[]): void {
+    for (const p of list) this.avatars.set(p.id, p.avatar);
+  }
+
+  private async loadAssets(): Promise<void> {
+    const loader = createGltfLoader();
+    const shadows = (o: THREE.Object3D, cast: boolean) =>
+      o.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (m.isMesh) {
+          m.receiveShadow = true;
+          m.castShadow = cast;
+        }
+      });
+    const [pitch, ball, goal] = await Promise.allSettled([loader.loadAsync(pitchUrl), loader.loadAsync(ballUrl), loader.loadAsync(goalUrl)]);
+    if (this.disposed) return;
+    if (pitch.status === "fulfilled") {
+      shadows(pitch.value.scene, false);
+      this.scene.add(pitch.value.scene);
+    } else {
+      console.warn("ipatingao.glb não carregou", pitch.reason);
+    }
+    if (ball.status === "fulfilled") {
+      shadows(ball.value.scene, true);
+      this.ballModel = ball.value.scene;
+      this.ball.clear();
+      this.ball.add(ball.value.scene);
+    } else {
+      console.warn("bola.glb não carregou", ball.reason);
+    }
+    if (goal.status === "fulfilled") {
+      for (const s of [-1, 1]) {
+        const g = goal.value.scene.clone(true);
+        shadows(g, true);
+        // a boca do gol (+Z no arquivo) aponta para o centro do campo
+        g.rotation.y = s > 0 ? -Math.PI / 2 : Math.PI / 2;
+        this.goals.push(g);
+        this.scene.add(g);
+      }
+      this.placeGoals();
+    } else {
+      console.warn("gol.glb não carregou", goal.reason);
+    }
+  }
+
+  private placeGoals(): void {
+    if (!this.field || this.goals.length < 2) return;
+    this.goals[0].position.set(-this.field.halfL, 0, 0);
+    this.goals[1].position.set(this.field.halfL, 0, 0);
+  }
+
+  private buildField(format: FutSnapshot["format"]): void {
+    this.field = fieldFor(format);
+    this.lines = buildLines(this.field, this.lineMat);
+    this.scene.add(this.lines);
+    this.placeGoals();
+    const f = this.field;
+    Object.assign(this.sun.shadow.camera, { left: -f.halfL - 12, right: f.halfL + 12, top: f.halfW + 12, bottom: -f.halfW - 12 });
+    this.sun.shadow.camera.updateProjectionMatrix();
+  }
+
+  /** Qualidade gráfica ao vivo, como no tiroteio. */
+  private applySettings(): void {
+    const q = getSettings().quality;
+    if (q === this.quality) return;
+    this.quality = q;
+    applyQuality(this.renderer, this.scene, this.sun, q);
+  }
+
+  // ---------- entrada ----------
+  private bindInput(): void {
+    const on = <E extends Event>(t: string, fn: (e: E) => void, target: EventTarget = window) => {
+      target.addEventListener(t, fn as EventListener);
+      this.cleanup.push(() => target.removeEventListener(t, fn as EventListener));
+    };
+    const canvas = this.canvas;
+    const click = () => {
+      if (!this.locked && !IS_TOUCH) canvas.requestPointerLock();
+    };
+    canvas.addEventListener("click", click);
+    this.cleanup.push(() => canvas.removeEventListener("click", click));
+
+    // o botão direito é passe: nada de menu de contexto na tela do jogo
+    on<Event>("contextmenu", (e) => e.preventDefault());
+    on(
+      "pointerlockchange",
+      () => {
+        this.locked = document.pointerLockElement === canvas;
+        if (!this.locked) this.releaseButtons();
+        this.onUi(this.locked ? "lock" : "unlock");
+      },
+      document,
+    );
+    on<MouseEvent>("mousemove", (e) => {
+      if (!this.locked || this.fixedYaw) return;
+      const { mouseSens, invertY } = getSettings();
+      this.yaw -= e.movementX * 0.0025 * mouseSens;
+      this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - e.movementY * 0.0022 * mouseSens * (invertY ? -1 : 1)));
+    });
+    on<MouseEvent>("mousedown", (e) => {
+      if (!this.locked) return;
+      if (e.button === 0) {
+        this.mouse.left = true;
+        this.mouse.leftHit = true;
+      } else if (e.button === 2) {
+        this.mouse.right = true;
+        this.mouse.rightHit = true;
+      }
+    });
+    on<MouseEvent>("mouseup", (e) => {
+      if (e.button === 0) this.mouse.left = false;
+      else if (e.button === 2) this.mouse.right = false;
+    });
+    on("blur", () => {
+      this.keys.clear();
+      this.releaseButtons();
+    });
+    on<KeyboardEvent>("keydown", (e) => {
+      if (inputBlocked(getState())) return;
+      const k = e.code;
+      const map = getSettings().keys.futebol;
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && Object.values(map).includes(k)) e.preventDefault();
+      if (k === map.placar) {
+        setState({ scoreboard: true });
+        return;
+      }
+      // botões da tela: Chute e Passe viram os botões do mouse
+      if (k === TOUCH_KICK) {
+        this.mouse.left = true;
+        this.mouse.leftHit = true;
+        return;
+      }
+      if (k === TOUCH_PASS) {
+        this.mouse.right = true;
+        this.mouse.rightHit = true;
+        return;
+      }
+      this.keys.add(k);
+    });
+    on<KeyboardEvent>("keyup", (e) => {
+      if (e.code === TOUCH_KICK) {
+        this.mouse.left = false;
+        return;
+      }
+      if (e.code === TOUCH_PASS) {
+        this.mouse.right = false;
+        return;
+      }
+      this.keys.delete(e.code);
+      if (e.code === getSettings().keys.futebol.placar) setState({ scoreboard: false });
+    });
+  }
+
+  private releaseButtons(): void {
+    this.mouse.left = false;
+    this.mouse.right = false;
+  }
+
+  // ---------- rede ----------
+  applySnapshot(s: FutSnapshot, me: FutPrivate | null): void {
+    const now = performance.now();
+    this.snap = s;
+    this.me = me;
+    if (!this.field) this.buildField(s.format);
+
+    const seen = new Set<string>();
+    for (const p of s.players) {
+      seen.add(p.id);
+      const v = this.viewFor(p, s.teams);
+      v.buf.push({ t: now, x: p.x, y: 0, z: p.z, f: p.facing });
+      if (v.buf.length > 20) v.buf.shift();
+      v.last = p;
+    }
+    for (const [id, v] of this.views) {
+      if (seen.has(id)) continue;
+      this.dropView(v);
+      this.views.delete(id);
+    }
+    this.ballBuf.push({ t: now, x: s.ball.x, y: s.ball.y, z: s.ball.z, f: 0 });
+    if (this.ballBuf.length > 20) this.ballBuf.shift();
+
+    const mine = s.players.find((p) => p.id === this.myId);
+    if (mine && !this.yawReady) {
+      this.yaw = attackYaw(mine.side);
+      this.aimYaw = this.yaw;
+      this.yawReady = true;
+    }
+    // pênalti cobrado por mim: a câmera olha para o gol
+    const taker = s.phase === "penalties" ? (s.pens?.takerId ?? "") : s.restart?.kind === "penalti" ? s.restart.takerId : "";
+    if (taker && taker !== this.penTaker && taker === this.myId && mine) {
+      this.yaw = attackYaw(mine.side);
+      this.aimYaw = this.yaw;
+    }
+    this.penTaker = taker;
+
+    if (mine) this.reconcile(mine, me);
+  }
+
+  /** O próprio boneco só é previsto onde o servidor também o move (jogo rolando, em pé, sem estar no carrinho). */
+  private canPredict(p: FutSnapshot["players"][number] | undefined): boolean {
+    return !!p && !!this.me && (this.snap?.phase === "play" || this.snap?.phase === "restart") && !p.down && !p.sliding && !p.sentOff && p.role === "linha";
+  }
+
+  private reconcile(p: FutSnapshot["players"][number], me: FutPrivate | null): void {
+    if (!this.field || !me || !this.canPredict(p)) {
+      this.pred = null;
+      this.pending = [];
+      this.vis.x = 0;
+      this.vis.z = 0;
+      return;
+    }
+    while (this.pending.length && this.pending[0].seq <= me.ackSeq) this.pending.shift();
+    const next: FutPlayer = {
+      id: p.id,
+      side: p.side,
+      role: "linha",
+      x: p.x,
+      z: p.z,
+      vx: p.vx,
+      vz: p.vz,
+      facing: p.facing,
+      chargeMs: 0,
+      chargeKind: null,
+      tackleMs: 0,
+      downMs: 0,
+      yellow: p.yellow,
+      sentOff: false,
+      isBot: false,
+    };
+    for (const q of this.pending) stepPlayer(next, q.input, this.field, DT);
+    const old = this.pred;
+    if (old) {
+      const dx = old.x + this.vis.x - next.x;
+      const dz = old.z + this.vis.z - next.z;
+      if (Math.hypot(dx, dz) > 3) {
+        this.vis.x = 0;
+        this.vis.z = 0;
+      } else {
+        // o desvio some devagar em vez de dar tranco
+        this.vis.x = dx;
+        this.vis.z = dz;
+      }
+    }
+    this.pred = next;
+    this.prevX = next.x;
+    this.prevZ = next.z;
+  }
+
+  private teamDna(p: FutSnapshot["players"][number], teams: [FutTeamConfig, FutTeamConfig]): AvatarDNA {
+    const base = this.avatars.get(p.id) ?? PRESETS[hashOf(p.id) % PRESETS.length].dna;
+    let team = teams[p.side];
+    if (p.role === "goleiro") {
+      // goleiro de cor diferente das duas camisas (e do goleiro do outro lado)
+      const taken = new Set<number>([teams[0].color, teams[1].color]);
+      const free = [5, 4, 7, 3, 6, 2].filter((c) => !taken.has(c));
+      team = { name: team.name, kit: 2, color: free[p.side % free.length] ?? 5 };
+    }
+    return uniformDNA(base, team);
+  }
+
+  private viewFor(p: FutSnapshot["players"][number], teams: [FutTeamConfig, FutTeamConfig]): View {
+    const dna = this.teamDna(p, teams);
+    const key = JSON.stringify(dna) + (modelReady() ? "|glb" : "");
+    let v = this.views.get(p.id);
+    if (v && v.key === key) {
+      this.refreshTag(v, p, teams);
+      return v;
+    }
+    const buf = v?.buf ?? [];
+    if (v) this.dropView(v);
+    const char = createCharacter(dna);
+    char.root.rotation.order = "YXZ";
+    char.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) m.castShadow = true;
+    });
+    let ring: THREE.Mesh | null = null;
+    if (p.id === this.myId) {
+      ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.7, 32), new THREE.MeshBasicMaterial({ color: "#ffe14d", transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.06;
+      ring.renderOrder = 3;
+      char.root.add(ring);
+    }
+    const tag = makeTag(p.name, FUT_COLORS[teams[p.side].color]?.hex ?? "#fff");
+    tag.position.y = 2.35;
+    if (p.id !== this.myId) char.root.add(tag);
+    this.scene.add(char.root);
+    v = { char, key, tag, tagKey: `${p.name}|${p.side}|${teams[p.side].color}`, buf, last: p, ring };
+    this.views.set(p.id, v);
+    return v;
+  }
+
+  private refreshTag(v: View, p: FutSnapshot["players"][number], teams: [FutTeamConfig, FutTeamConfig]): void {
+    const tagKey = `${p.name}|${p.side}|${teams[p.side].color}`;
+    if (tagKey === v.tagKey) return;
+    v.char.root.remove(v.tag);
+    v.tag.material.map?.dispose();
+    v.tag.material.dispose();
+    v.tag = makeTag(p.name, FUT_COLORS[teams[p.side].color]?.hex ?? "#fff");
+    v.tag.position.y = 2.35;
+    if (p.id !== this.myId) v.char.root.add(v.tag);
+    v.tagKey = tagKey;
+  }
+
+  private dropView(v: View): void {
+    this.scene.remove(v.char.root);
+    v.ring?.geometry.dispose();
+    (v.ring?.material as THREE.Material | undefined)?.dispose();
+    v.tag.material.map?.dispose();
+    v.tag.material.dispose();
+    v.char.dispose();
+  }
+
+  showChat(id: string, kind: "phrase" | "emote", index: number): void {
+    const text = chatText(kind, index);
+    if (text) this.chat.show(id, text, kind === "emote", performance.now());
+  }
+
+  // ---------- quadro ----------
+  private loop = (ms: number) => {
+    const dt = Math.min(0.05, (ms - this.lastFrame) / 1000);
+    this.lastFrame = ms;
+    this.resize();
+    this.step(dt, performance.now());
+    this.renderer.render(this.scene, this.camera);
+    this.raf = requestAnimationFrame(this.loop);
+  };
+
+  private resize(): void {
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    if (this.canvas.width === Math.floor(w * this.renderer.getPixelRatio()) && this.canvas.height === Math.floor(h * this.renderer.getPixelRatio())) return;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+  }
+
+  private readKeys(): FutKeys {
+    const map = getSettings().keys.futebol;
+    return {
+      frente: this.keys.has(map.frente),
+      tras: this.keys.has(map.tras),
+      esquerda: this.keys.has(map.esquerda),
+      direita: this.keys.has(map.direita),
+      stick: touchInput.move,
+    };
+  }
+
+  /** Um passo de 30 Hz: lê os controles, manda ao servidor e prevê o próprio movimento. */
+  private fixedStep(now: number): void {
+    const s = this.snap;
+    if (!s) return;
+    if (s.phase === "over") {
+      this.chargeKind = null;
+      return;
+    }
+    const me = s.players.find((p) => p.id === this.myId);
+    if (!me || me.role !== "linha") return;
+    let input: FutInput;
+    if (inputBlocked(getState()) || me.sentOff) {
+      // menu ou chat por cima: comando parado e botões soltos
+      this.ctl = newControlState();
+      this.mouse.leftHit = this.mouse.rightHit = false;
+      input = { mx: 0, mz: 0, aim: this.aimYaw, sprint: false, kick: "none", pass: "none" };
+    } else {
+      const keys = this.readKeys();
+      const stick = Math.hypot(keys.stick.x, keys.stick.y);
+      // no toque a mira é a direção do analógico (parado, vale a última)
+      let aim = this.yaw;
+      if (this.fixedYaw) {
+        if (stick > 0) {
+          const wx = keys.stick.y * Math.sin(this.yaw) - keys.stick.x * Math.cos(this.yaw);
+          const wz = keys.stick.y * Math.cos(this.yaw) + keys.stick.x * Math.sin(this.yaw);
+          this.aimYaw = Math.atan2(wx, wz);
+        }
+        aim = this.aimYaw;
+      } else {
+        this.aimYaw = this.yaw;
+      }
+      input = readFutInput(keys, this.mouse, now, this.ctl, { yaw: this.yaw, aim });
+    }
+    const seq = ++this.seq;
+    net.send({ t: "futInput", ...input, seq });
+    if (input.kick === "charge" || input.pass === "charge") {
+      const kind = input.kick === "charge" ? "kick" : "pass";
+      if (this.chargeKind !== kind) {
+        this.chargeKind = kind;
+        this.chargeSince = now;
+      }
+    } else {
+      this.chargeKind = null;
+    }
+    if (this.pred && this.field && this.canPredict(me)) {
+      this.pending.push({ seq, input });
+      if (this.pending.length > 90) this.pending.shift();
+      this.prevX = this.pred.x;
+      this.prevZ = this.pred.z;
+      stepPlayer(this.pred, input, this.field, DT);
+    }
+  }
+
+  private sampleAt(buf: Sample[], rt: number): Sample | null {
+    if (!buf.length) return null;
+    let a = buf[0];
+    let c = buf[buf.length - 1];
+    for (let i = 0; i < buf.length - 1; i++) {
+      if (buf[i].t <= rt && buf[i + 1].t >= rt) {
+        a = buf[i];
+        c = buf[i + 1];
+        break;
+      }
+    }
+    const k = c.t === a.t ? 1 : Math.max(0, Math.min(1, (rt - a.t) / (c.t - a.t)));
+    return { t: rt, x: a.x + (c.x - a.x) * k, y: a.y + (c.y - a.y) * k, z: a.z + (c.z - a.z) * k, f: angleLerp(a.f, c.f, k) };
+  }
+
+  private step(dt: number, now: number): void {
+    this.chat.update(now, (id) => this.views.get(id)?.char.root);
+    if (!this.fixedYaw) {
+      if (this.keys.has("ArrowLeft")) this.yaw += dt * 2.2;
+      if (this.keys.has("ArrowRight")) this.yaw -= dt * 2.2;
+      if (this.keys.has("ArrowUp")) this.pitch = Math.min(PITCH_MAX, this.pitch + dt * 1.2);
+      if (this.keys.has("ArrowDown")) this.pitch = Math.max(PITCH_MIN, this.pitch - dt * 1.2);
+    }
+
+    this.acc += dt * 1000;
+    while (this.acc >= DT) {
+      this.acc -= DT;
+      this.fixedStep(now);
+    }
+    this.vis.x *= Math.exp(-dt * 12);
+    this.vis.z *= Math.exp(-dt * 12);
+
+    const rt = now - INTERP_MS;
+    for (const [id, v] of this.views) {
+      const p = v.last;
+      let x: number;
+      let z: number;
+      let f: number;
+      let speed: number;
+      if (id === this.myId && this.pred) {
+        const k = this.acc / DT;
+        x = this.prevX + (this.pred.x - this.prevX) * k + this.vis.x;
+        z = this.prevZ + (this.pred.z - this.prevZ) * k + this.vis.z;
+        f = this.pred.facing;
+        speed = Math.hypot(this.pred.vx, this.pred.vz);
+      } else {
+        const sm = this.sampleAt(v.buf, rt);
+        x = sm?.x ?? p.x;
+        z = sm?.z ?? p.z;
+        f = sm?.f ?? p.facing;
+        speed = Math.hypot(p.vx, p.vz);
+      }
+      const root = v.char.root;
+      const lying = p.down || p.sliding;
+      root.position.set(x, lying ? 0.18 : 0, z);
+      root.rotation.y = f;
+      root.rotation.x = lying ? -1.35 : 0;
+      root.visible = !p.sentOff;
+      v.char.update(dt, lying ? 0 : Math.min(1, speed / FUT.walkSpeed));
+      if (id === this.myId) this.myPos.set(x, 0, z);
+    }
+
+    // bola
+    const bs = this.sampleAt(this.ballBuf, rt);
+    if (bs) {
+      this.ball.position.set(bs.x, bs.y, bs.z);
+      this.ballShadow.position.set(bs.x, 0.06, bs.z);
+      this.ballShadow.scale.setScalar(Math.max(0.5, 1 - bs.y * 0.25));
+      if (this.ballPrev) {
+        const dx = bs.x - this.ballPrev.x;
+        const dz = bs.z - this.ballPrev.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > 1e-4 && dist < 5) {
+          const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(dz, 0, -dx).normalize(), dist / FUT.ballRadius);
+          this.ball.quaternion.premultiply(q);
+        }
+      }
+      (this.ballPrev ??= new THREE.Vector3()).set(bs.x, bs.y, bs.z);
+    }
+
+    this.updateAim(now);
+    this.updateCamera(dt);
+    this.updatePower(now);
+    this.sky.update(dt, this.camera.position);
+  }
+
+  /** Seta no chão na direção do chute: fraca parada, mais forte e longa carregando. */
+  private updateAim(now: number): void {
+    const me = this.views.get(this.myId)?.last;
+    const live = !!me && !me.sentOff && this.snap?.phase !== "over";
+    this.aimArrow.visible = live && !!this.field;
+    if (!this.aimArrow.visible) return;
+    const power = this.chargeKind ? Math.min(1, (now - this.chargeSince) / FUT.chargeMaxMs) : 0;
+    const len = 1.6 + power * 4;
+    const w = 1.1 + power * 0.5;
+    this.aimArrow.scale.set(w, len, 1);
+    // a forma aponta para +Y; deitada (x = 90 graus) passa a apontar +Z, e o giro em y leva à mira
+    this.aimArrow.rotation.order = "YXZ";
+    this.aimArrow.rotation.set(Math.PI / 2, this.aimYaw, 0);
+    this.aimArrow.position.set(this.myPos.x + Math.sin(this.aimYaw) * 0.8, 0.07, this.myPos.z + Math.cos(this.aimYaw) * 0.8);
+    const mat = this.aimArrow.material as THREE.MeshBasicMaterial;
+    mat.opacity = this.chargeKind ? 0.85 : 0.35;
+    mat.color.set(this.chargeKind === "pass" ? "#5ad1ff" : this.chargeKind === "kick" ? "#ff5a3d" : "#ffe14d");
+  }
+
+  private updatePower(now: number): void {
+    const el = this.powerEl;
+    if (!el) return;
+    if (!this.chargeKind || !this.snap || this.snap.phase === "over") {
+      el.style.display = "none";
+      return;
+    }
+    const power = Math.min(1, (now - this.chargeSince) / FUT.chargeMaxMs);
+    const p = new THREE.Vector3(this.myPos.x, 2.3, this.myPos.z).project(this.camera);
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    el.style.display = "block";
+    el.dataset.kind = this.chargeKind;
+    el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px) translate(-50%, -100%)`;
+    if (this.powerFill) this.powerFill.style.width = `${Math.round(power * 100)}%`;
+  }
+
+  private updateCamera(dt: number): void {
+    const s = this.snap;
+    let base = this.myPos;
+    let yaw = this.yaw;
+    // disputa de pênaltis: quem não cobra assiste da cobrança, olhando para o gol
+    if (s?.phase === "penalties" && s.pens && s.pens.takerId !== this.myId) {
+      const t = this.views.get(s.pens.takerId);
+      if (t) {
+        base = t.char.root.position;
+        yaw = attackYaw(t.last.side);
+      }
+    }
+    const cp = Math.cos(this.pitch);
+    const fwd = new THREE.Vector3(Math.sin(yaw) * cp, Math.sin(this.pitch), Math.cos(yaw) * cp);
+    const right = new THREE.Vector3(-Math.cos(yaw), 0, Math.sin(yaw));
+    const head = new THREE.Vector3(base.x, HEAD_Y, base.z);
+    const want = head.clone().add(fwd.clone().multiplyScalar(-CAM_DIST)).addScaledVector(right, CAM_SIDE).add(new THREE.Vector3(0, 0.6, 0));
+    want.y = Math.max(0.6, want.y);
+    const targetLook = want.clone().add(fwd);
+    if (!this.camReady) {
+      this.camPos.copy(want);
+      this.camLook.copy(targetLook);
+      this.camReady = true;
+    } else {
+      this.camPos.lerp(want, 1 - Math.exp(-dt * 14));
+      this.camLook.lerp(targetLook, 1 - Math.exp(-dt * 20));
+    }
+    this.camera.position.copy(this.camPos);
+    this.camera.lookAt(this.camLook);
+  }
+
+  private disposed = false;
+
+  dispose(): void {
+    this.disposed = true;
+    cancelAnimationFrame(this.raf);
+    for (const c of this.cleanup) c();
+    resetTouchInput();
+    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
+    this.chat.dispose();
+    for (const v of this.views.values()) this.dropView(v);
+    this.views.clear();
+    this.lineMat.dispose();
+    this.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      m.geometry?.dispose();
+      const mat = m.material as (THREE.Material & { map?: THREE.Texture | null }) | (THREE.Material & { map?: THREE.Texture | null })[] | undefined;
+      for (const x of Array.isArray(mat) ? mat : mat ? [mat] : []) {
+        x.map?.dispose();
+        x.dispose();
+      }
+    });
+    this.renderer.dispose();
+  }
+}
