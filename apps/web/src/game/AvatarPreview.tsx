@@ -79,7 +79,7 @@ export function AvatarPreview({
     const loop = (ms: number) => {
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
-      if (canvas.width !== Math.floor(w * renderer.getPixelRatio())) {
+      if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
         renderer.setSize(w, h, false);
         cam.aspect = w / h;
         cam.updateProjectionMatrix();

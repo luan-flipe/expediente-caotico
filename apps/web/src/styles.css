@@ -177,6 +177,44 @@ input {
   padding: clamp(8px, 1.3vh, 12px) 14px;
 }
 
+/* três colunas: a grade ocupa o resto da altura e cada coluna desce até embaixo */
+@media (min-width: 1101px) {
+  .screen.home {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .screen.home .wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .home-grid {
+    flex: 1;
+    align-items: stretch;
+  }
+
+  .home-grid > .badge,
+  .home-grid > .stack,
+  .home-side {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .home-grid > .badge .badge-preview {
+    flex: 1;
+    height: auto;
+    min-height: 180px;
+  }
+
+  .home-grid > .stack > :last-child,
+  .home-side > :last-child {
+    flex: 1;
+  }
+}
+
 @media (max-width: 1100px) {
   .home-grid {
     grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.2fr);
