@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
-import { HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shared";
+import { CLOTH_COLORS, HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shared";
 import {
   animateAvatar,
   applyAvatarEmotion,
@@ -62,9 +62,11 @@ export interface Character {
    * Devolve a altura da parte de baixo das coxas, para apoiá-las no assento.
    */
   sit(): number;
-  /** Já sentado, gira os ombros até os pulsos alcançarem os pontos dados (coordenadas de root). */
+  /** Pose em pé no patinete: pernas retas, um pé à frente, braços para a frente. Para as animações. */
+  stand?(): StandFit;
+  /** Já sentado ou em pé, gira os ombros até os pulsos alcançarem os pontos dados (coordenadas de root). */
   restHands(left: THREE.Vector3, right: THREE.Vector3): void;
-  /** Já sentado, toca a comemoração e volta à pose sentada. Só o corpo: assento e confete ficam com a cadeira. */
+  /** Já sentado ou em pé, toca a comemoração e volta à pose. Só o corpo: assento e confete ficam com o veículo. */
   celebrate(): void;
   dispose(): void;
 }
@@ -480,6 +482,15 @@ function applyGlbEmotion(
   }
 }
 
+/** Medidas do boneco em pé (coordenadas de root), para o patinete pôr o deck sob os pés e o guidão ao alcance. */
+export interface StandFit {
+  sole: number;
+  /** Ombro esquerdo (+x); o direito é o espelho em x. */
+  shoulder: THREE.Vector3;
+  /** Do ombro ao pulso. */
+  reach: number;
+}
+
 /** Altura (no espaço do boneco) da parte mais baixa das peças, já na pose sentada. */
 function bottomOf(root: THREE.Object3D, parts: (THREE.Object3D | undefined)[]): number {
   root.updateMatrixWorld(true);
@@ -496,6 +507,8 @@ const CELEBRATE_URL = "/assets/characters/boneco_comemora.glb";
 const CELEBRATE_FIGURE_SCALE = 1.25;
 const TARGET_HEIGHT = 1.75;
 const HEIGHT_SCALE = [0.9, 1, 1.1];
+/** Pernas em pé no patinete: o pé esquerdo um pouco à frente. */
+const STANCE = 0.14;
 /** Duração em segundos de cada ação no jogo (os clipes originais são mais longos). */
 const ACTION_SECONDS: Record<CharacterAction, number> = { throw: 0.45, cafe: 0.7, dash: 0.3, tchau: 3.2 };
 const CLIP_OF: Record<CharacterAction, string> = { throw: "jogar_bolinha", cafe: "jogar_cafe", dash: "dash", tchau: "tchau" };
@@ -519,6 +532,8 @@ interface Loaded {
 /** Comemoração sentada, separada por quem a toca: o boneco, o assento da cadeira e o confete. */
 export interface Celebration {
   body: THREE.AnimationClip;
+  /** O mesmo sem as pernas, que no arquivo estão sentadas: no patinete os pés ficam no deck. */
+  standing: THREE.AnimationClip;
   /** Giro do assento, já com o nome do nó da cadeira do jogo. */
   seat: THREE.AnimationClip | null;
   confetti: { scene: THREE.Object3D; clip: THREE.AnimationClip } | null;
@@ -546,8 +561,10 @@ function splitCelebration(clip: THREE.AnimationClip | undefined, file: THREE.Obj
     });
   const confetti = file.getObjectByName("confete");
   const bits = clip.tracks.filter((t) => node(t).startsWith("confete_"));
+  const legs = /^(perna|joelho|pe)_/;
   return {
     body: new THREE.AnimationClip("comemorar", clip.duration, body),
+    standing: new THREE.AnimationClip("comemorar_em_pe", clip.duration, body.filter((t) => !legs.test(node(t)))),
     seat: seat.length ? new THREE.AnimationClip("comemorar_assento", clip.duration, seat) : null,
     confetti: confetti && bits.length ? { scene: confetti, clip: new THREE.AnimationClip("comemorar_confete", clip.duration, bits) } : null,
   };
@@ -692,16 +709,42 @@ function retargetWearable(src: THREE.SkinnedMesh, samples: LimbSample[][], body:
   );
 }
 
+/** Parte de roupa que fica na cor dela quando a peça muda de cor (pelo nome do material, "fixo"/"fixa" para qualquer parte). */
+const FIXED_PART = /botao|cadarco|sola|ilhos|fivela|ziper|fix[ao]/i;
+const luminance = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+const fixedPart = (m: THREE.SkinnedMesh) => !Array.isArray(m.material) && FIXED_PART.test(m.material.name);
+
+/**
+ * Cor de cada malha de uma roupa tingida. A principal (a de mais vértices entre as que mudam) fica na cor
+ * escolhida e as outras (gola, punho, forro) guardam o quanto eram mais claras ou escuras que ela; botão,
+ * cadarço, sola e partes fixas não mudam.
+ */
+function clothTints(list: THREE.SkinnedMesh[], hex: string): Map<THREE.SkinnedMesh, THREE.Color> {
+  const size = (m: THREE.SkinnedMesh) => m.geometry.getAttribute("position").count;
+  const dyed = list.filter((m) => !fixedPart(m));
+  const main = (dyed.length ? dyed : list).reduce((a, b) => (size(b) > size(a) ? b : a));
+  const base = Math.max(luminance((main.material as THREE.MeshStandardMaterial).color), 1e-3);
+  const tints = new Map<THREE.SkinnedMesh, THREE.Color>();
+  for (const m of list) {
+    const mat = m.material as THREE.MeshStandardMaterial;
+    if (Array.isArray(m.material) || !mat.isMeshStandardMaterial || fixedPart(m)) continue;
+    tints.set(m, new THREE.Color(hex).multiplyScalar(Math.min(luminance(mat.color) / base, 1.5)));
+  }
+  return tints;
+}
+
 /**
  * Prende a peça aos ossos do boneco, pelo nome, para ela seguir as animações. Peça sem textura (cabelo e
- * barba modelados, o desenho vem do relevo) ganha a cor do crachá, num material só deste boneco.
+ * barba modelados, o desenho vem do relevo) ganha a cor do crachá, num material só deste boneco. Com
+ * `overMap`, a cor também tinge peça com textura (roupa: a textura clara multiplica a cor escolhida).
  */
 function attachWearable(
   inner: THREE.Object3D,
   body: THREE.SkinnedMesh,
   src: THREE.SkinnedMesh,
-  color?: string,
+  color?: THREE.ColorRepresentation,
   mats?: THREE.Material[],
+  overMap = false,
 ): THREE.SkinnedMesh | undefined {
   const bones = src.skeleton.bones.map((b) => inner.getObjectByName(b.name));
   if (bones.some((b) => !(b as THREE.Bone | undefined)?.isBone)) {
@@ -711,7 +754,7 @@ function attachWearable(
   const piece = src.clone();
   piece.castShadow = true;
   const own = piece.material as THREE.MeshStandardMaterial;
-  if (color && mats && !Array.isArray(own) && own.isMeshStandardMaterial && !own.map) {
+  if (color && mats && !Array.isArray(own) && own.isMeshStandardMaterial && (overMap || !own.map)) {
     const m = own.clone();
     m.color.set(color);
     piece.material = m;
@@ -720,6 +763,78 @@ function attachWearable(
   piece.bind(new THREE.Skeleton(bones as THREE.Bone[], src.skeleton.boneInverses), src.bindMatrix);
   body.parent?.add(piece);
   return piece;
+}
+
+/** Salto alto: o pé gira isto em volta do tornozelo, calcanhar para cima e ponta para baixo. */
+const HEEL_TILT = 0.35;
+/**
+ * Quanto o boneco sobe com o pé inclinado, em unidades do modelo, para a ponta do sapato tocar o chão.
+ * Medido no 03_salto_alto.glb, que desenha o salto já nessa pose.
+ */
+const HEEL_LIFT = 0.044;
+
+/** Altura do cós medida a partir do topo da saia. */
+const TUCK_BAND = 0.03;
+/** Folga entre a camiseta apertada e o lado de dentro da saia. */
+const TUCK_GAP = 0.008;
+/** Acima do cós, a camiseta volta ao tamanho dela ao longo desta altura, como tecido preso na cintura. */
+const TUCK_BLEND = 0.05;
+const TUCK_BINS = 48;
+/** Camiseta já posta para dentro, por camiseta e por saia. */
+const tucked = new WeakMap<THREE.SkinnedMesh, WeakMap<THREE.SkinnedMesh, THREE.SkinnedMesh>>();
+
+/** A camiseta com a parte de baixo apertada para dentro do cós da saia (contorno medido na própria saia). */
+function tuckShirt(shirt: THREE.SkinnedMesh, skirt: THREE.SkinnedMesh[]): THREE.SkinnedMesh {
+  const cached = tucked.get(shirt)?.get(skirt[0]);
+  if (cached) return cached;
+  // posições no espaço da amarração, onde camiseta e saia se encontram
+  const pts: THREE.Vector3[] = [];
+  for (const m of skirt) {
+    const pos = m.geometry.getAttribute("position");
+    for (let v = 0; v < pos.count; v++) pts.push(new THREE.Vector3().fromBufferAttribute(pos, v).applyMatrix4(m.bindMatrix));
+  }
+  const top = Math.max(...pts.map((p) => p.y));
+  const band = pts.filter((p) => p.y > top - TUCK_BAND);
+  const cx = band.reduce((s, p) => s + p.x, 0) / band.length;
+  const cz = band.reduce((s, p) => s + p.z, 0) / band.length;
+  const binOf = (x: number, z: number) => {
+    const a = Math.atan2(x - cx, z - cz);
+    return Math.floor(((a / (Math.PI * 2) + 1) % 1) * TUCK_BINS) % TUCK_BINS;
+  };
+  // raio do cós em cada direção: o menor, para a camiseta ficar por dentro dele todo
+  const limit = new Array<number>(TUCK_BINS).fill(Infinity);
+  for (const p of band) {
+    const b = binOf(p.x, p.z);
+    limit[b] = Math.min(limit[b], Math.hypot(p.x - cx, p.z - cz) - TUCK_GAP);
+  }
+  // direção sem ponto do cós: usa a vizinha mais próxima que tem
+  for (let b = 0; b < TUCK_BINS; b++)
+    for (let k = 1; limit[b] === Infinity && k < TUCK_BINS; k++)
+      limit[b] = Math.min(limit[(b + k) % TUCK_BINS], limit[(b - k + TUCK_BINS) % TUCK_BINS]);
+
+  const geometry = shirt.geometry.clone();
+  const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
+  const toBind = shirt.bindMatrix;
+  const fromBind = shirt.bindMatrixInverse;
+  const p = new THREE.Vector3();
+  for (let v = 0; v < pos.count; v++) {
+    p.fromBufferAttribute(pos, v).applyMatrix4(toBind);
+    if (p.y > top + TUCK_BLEND) continue;
+    const r = limit[binOf(p.x, p.z)];
+    const d = Math.hypot(p.x - cx, p.z - cz);
+    if (d <= r) continue;
+    const k = p.y <= top ? 1 : 1 - (p.y - top) / TUCK_BLEND;
+    const s = (d + (r - d) * k) / d;
+    p.set(cx + (p.x - cx) * s, p.y, cz + (p.z - cz) * s).applyMatrix4(fromBind);
+    pos.setXYZ(v, p.x, p.y, p.z);
+  }
+  // as normais ficam as da camiseta: a parte apertada some dentro da saia
+  geometry.computeBoundingSphere();
+  const out = shirt.clone();
+  out.geometry = geometry;
+  if (!tucked.has(shirt)) tucked.set(shirt, new WeakMap());
+  tucked.get(shirt)!.set(skirt[0], out);
+  return out;
 }
 
 let loaded: Loaded | null = null;
@@ -812,13 +927,46 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (att) attachedBeardMeshes.push(att);
     }
   }
-  for (const [list, color] of [
-    [model.shirts[dna.shirt - 1]],
-    [model.pants[dna.pants - 1]],
-    [model.shoes[dna.shoes - 1]],
-  ] as [THREE.SkinnedMesh[] | undefined, string?][]) {
-    for (const piece of list ?? []) if (body) attachWearable(inner, body, piece, color, mats);
+
+  // com saia, a camiseta vai para dentro do cós
+  const pants = model.pants[dna.pants - 1];
+  const skirt = PANTS_3D[dna.pants - 1]?.tuck && pants?.length ? pants : null;
+  const shirt = model.shirts[dna.shirt - 1];
+  // roupa vem com o índice de CLOTH_COLORS (0 deixa a cor original da peça)
+  const pieces: [THREE.SkinnedMesh[] | undefined, string | undefined, number?][] = [
+    [skirt && shirt ? shirt.map((m) => tuckShirt(m, skirt)) : shirt, undefined, dna.shirtColor],
+    [pants, undefined, dna.pantsColor],
+    [model.shoes[dna.shoes - 1], undefined, dna.shoesColor],
+  ];
+  for (const [list, color, cloth] of pieces) {
+    const hex = cloth ? CLOTH_COLORS[cloth - 1] : undefined;
+    const tints = list?.length && hex ? clothTints(list, hex) : undefined;
+    for (const piece of list ?? []) if (body) attachWearable(inner, body, piece, tints ? tints.get(piece) : color, mats, !!tints);
   }
+
+  // salto alto: o pé fica inclinado e o boneco sobe para a ponta do sapato tocar o chão
+  const feet =
+    SHOES_3D[dna.shoes - 1]?.heel && model.shoes[dna.shoes - 1]?.length
+      ? ["pe_D", "pe_E"].map((n) => inner.getObjectByName(n)).filter((o): o is THREE.Object3D => !!o)
+      : [];
+  if (feet.length) inner.position.y = HEEL_LIFT * inner.scale.y;
+  /** Rotação de cada pé logo depois de inclinado: igual a ela, a animação não mexeu no pé desde então. */
+  const tilted = new Map<THREE.Object3D, THREE.Quaternion>();
+  const toParent = new THREE.Quaternion();
+  const tilt = new THREE.Quaternion();
+  const side = new THREE.Vector3();
+  const tiltFeet = () => {
+    for (const foot of feet) {
+      if (tilted.get(foot)?.equals(foot.quaternion)) continue;
+      // eixo lateral do boneco escrito no espaço do pai do pé
+      toParent.identity();
+      for (let o = foot.parent; o && o !== inner; o = o.parent) toParent.premultiply(o.quaternion);
+      side.set(1, 0, 0).applyQuaternion(toParent.invert());
+      foot.quaternion.premultiply(tilt.setFromAxisAngle(side, HEEL_TILT));
+      tilted.set(foot, foot.quaternion.clone());
+    }
+  };
+  tiltFeet();
 
   // Acessórios procedurais no modelo GLB (gravata, crachá, boné)
   const troncoNode = inner.getObjectByName("tronco");
@@ -916,15 +1064,32 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     actions.set(k, a);
   }
 
-  const cheer = model.celebration ? mixer.clipAction(model.celebration.body) : null;
-  cheer?.setLoop(THREE.LoopOnce, 1);
-  /** Pose sentada guardada ao começar a comemoração, para voltar a ela no fim. */
+  const cheerOf = (clip?: THREE.AnimationClip) => (clip ? mixer.clipAction(clip).setLoop(THREE.LoopOnce, 1) : null);
+  let cheer = cheerOf(model.celebration?.body);
+  /** Pose sentada ou em pé guardada ao começar a comemoração, para voltar a ela no fim. */
   let pose: [THREE.Object3D, THREE.Vector3, THREE.Quaternion, THREE.Vector3][] = [];
   const pernaD = inner.getObjectByName("perna_D");
   const pernaE = inner.getObjectByName("perna_E");
   const cabeca = inner.getObjectByName("cabeca");
+  const bend = (list: readonly (readonly [string, number])[]) => {
+    for (const [n, x] of list) {
+      const o = inner.getObjectByName(n);
+      if (o) o.rotation.x = x;
+    }
+    tiltFeet();
+    syncFace();
+  };
+  const sole = () => {
+    if (!body) return 0;
+    // a caixa da malha com pele é calculada na pose atual dos ossos
+    inner.updateMatrixWorld(true);
+    (body as THREE.SkinnedMesh).computeBoundingBox();
+    return bottomOf(root, [body]);
+  };
 
-  let seated = false;
+  let riding = false;
+  /** Rotação das pernas na pose em pé; null sentado. */
+  let stance: [THREE.Euler, THREE.Euler] | null = null;
   return {
     root,
     setEmotion(state, duration) {
@@ -952,9 +1117,10 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       return emotion.getEmotion();
     },
     update(dt, speed01) {
-      if (seated) {
+      if (riding) {
         if (!cheer?.isRunning()) return;
         mixer.update(dt);
+        tiltFeet();
         syncFace();
         if (cheer.isRunning()) return;
         for (const [o, p, q, s] of pose) {
@@ -995,11 +1161,12 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       run?.setEffectiveWeight(r);
       if (walk) walk.timeScale = 0.6 + speed01 * (run ? 1.6 : 0.8);
       mixer.update(dt);
+      tiltFeet();
       syncFace();
       applyGlbEmotion(faceParts, baseTransforms, emotion, 0);
     },
     updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
-      if (!seated || cheer?.isRunning()) return;
+      if (!riding || cheer?.isRunning()) return;
       emotion.update(dt, speed, options, boosting);
       if (activeItemGesture) {
         activeItemGesture.timer += dt;
@@ -1044,29 +1211,42 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       inner.scale.set(baseScale * sXZ, baseScale * sY, baseScale * sXZ);
 
       // 2. Pernas: apoio e plantada de pé no drift, remada lenta ou frenagem
-      let legD = -Math.PI / 2;
-      let legE = -Math.PI / 2;
-      if (options?.isTricking && options.trickType === 3) {
-        // Super Kick-Out: pernas estendidas no ar
-        legD = 0.35;
-        legE = 0.35;
-      } else if (driftDir > 0) {
-        legD += 0.52; // perna interna finca no chão
-        legE -= 0.18; // perna externa encolhe
-      } else if (driftDir < 0) {
-        legE += 0.52; // perna interna finca no chão
-        legD -= 0.18; // perna externa encolhe
-      } else if (options?.isBraking) {
-        legD += 0.24; // pés firmam para frente contendo inércia
-        legE += 0.24;
-      } else if (speed > 0.1 && speed < 3.2) {
-        const push = Math.sin(performance.now() * 0.012);
-        legD += Math.max(0, push) * 0.32;
-        legE += Math.max(0, -push) * 0.32;
-      }
       const k = Math.min(1, dt * 10);
-      if (pernaD) pernaD.rotation.x += (legD - pernaD.rotation.x) * k;
-      if (pernaE) pernaE.rotation.x += (legE - pernaE.rotation.x) * k;
+      if (stance) {
+        // elétrico, sem remada: no drift o pé de dentro da curva sai do deck para o lado
+        for (const [leg, base, dir] of [
+          [pernaD, stance[0], 1],
+          [pernaE, stance[1], -1],
+        ] as const) {
+          if (!leg) continue;
+          const dab = driftDir === dir;
+          leg.rotation.x += ((dab ? -0.35 : base.x) - leg.rotation.x) * k;
+          leg.rotation.z += ((dab ? base.z - dir * 0.55 : base.z) - leg.rotation.z) * k;
+        }
+      } else {
+        let legD = -Math.PI / 2;
+        let legE = -Math.PI / 2;
+        if (options?.isTricking && options.trickType === 3) {
+          // Super Kick-Out: pernas estendidas no ar
+          legD = 0.35;
+          legE = 0.35;
+        } else if (driftDir > 0) {
+          legD += 0.52; // perna interna finca no chão
+          legE -= 0.18; // perna externa encolhe
+        } else if (driftDir < 0) {
+          legE += 0.52; // perna interna finca no chão
+          legD -= 0.18; // perna externa encolhe
+        } else if (options?.isBraking) {
+          legD += 0.24; // pés firmam para frente contendo inércia
+          legE += 0.24;
+        } else if (speed > 0.1 && speed < 3.2) {
+          const push = Math.sin(performance.now() * 0.012);
+          legD += Math.max(0, push) * 0.32;
+          legE += Math.max(0, -push) * 0.32;
+        }
+        if (pernaD) pernaD.rotation.x += (legD - pernaD.rotation.x) * k;
+        if (pernaE) pernaE.rotation.x += (legE - pernaE.rotation.x) * k;
+      }
 
       let stareWeight = 0;
       if (cabeca) {
@@ -1243,6 +1423,8 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       }
 
       applyGlbEmotion(faceParts, baseTransforms, emotion, stareWeight);
+      tiltFeet();
+      syncFace();
     },
     play(action) {
       const a = actions.get(action);
@@ -1250,23 +1432,36 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       a.reset().play();
     },
     sit() {
-      seated = true;
+      riding = true;
       mixer.stopAllAction();
-      for (const [n, x] of [
+      bend([
         ["perna_D", -Math.PI / 2],
         ["perna_E", -Math.PI / 2],
         ["ombro_D", -0.75],
         ["ombro_E", -0.75],
-      ] as const) {
-        const o = inner.getObjectByName(n);
-        if (o) o.rotation.x = x;
-      }
-      syncFace();
-      if (!body) return 0;
-      // a caixa da malha com pele é calculada na pose atual dos ossos
-      inner.updateMatrixWorld(true);
-      (body as THREE.SkinnedMesh).computeBoundingBox();
-      return bottomOf(root, [body]);
+      ]);
+      return sole();
+    },
+    stand() {
+      riding = true;
+      mixer.stopAllAction();
+      cheer = cheerOf(model.celebration?.standing);
+      bend([
+        ["perna_D", STANCE],
+        ["perna_E", -STANCE],
+        ["ombro_D", -0.75],
+        ["ombro_E", -0.75],
+      ]);
+      stance = [pernaD?.rotation.clone() ?? new THREE.Euler(), pernaE?.rotation.clone() ?? new THREE.Euler()];
+      const bottom = sole();
+      const at = (name: string) => inner.getObjectByName(name)?.getWorldPosition(new THREE.Vector3());
+      const shoulder = at("ombro_E");
+      const wrist = at("punho_E");
+      return {
+        sole: bottom,
+        shoulder: shoulder ? root.worldToLocal(shoulder.clone()) : new THREE.Vector3(0.17, 0.7, 0),
+        reach: shoulder && wrist ? shoulder.distanceTo(wrist) : 0.3,
+      };
     },
     restHands(left, right) {
       root.updateMatrixWorld(true);
@@ -1291,7 +1486,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       handsRested = true;
     },
     celebrate() {
-      if (!seated || !cheer || cheer.isRunning()) return;
+      if (!riding || !cheer || cheer.isRunning()) return;
       pose = [];
       inner.traverse((o) => pose.push([o, o.position.clone(), o.quaternion.clone(), o.scale.clone()]));
       cheer.reset().play();
@@ -1311,7 +1506,7 @@ function proceduralCharacter(dna: AvatarDNA): Character {
   const wind = new CharacterWindPhysics();
   let t = 0;
   let aimUntil = 0;
-  let seated = false;
+  let riding = false;
   let activeItemGesture: { item: ItemId; timer: number; duration: number } | null = null;
   let activeTaunt: { kind: TauntKind; timer: number; duration: number } | null = null;
   return {
@@ -1339,7 +1534,7 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       return emotion.getEmotion();
     },
     update(dt, speed01) {
-      if (seated) return;
+      if (riding) return;
       t += dt * Math.max(0.05, speed01);
       aimUntil -= dt;
       animateAvatar(rig, speed01, t, aimUntil > 0);
@@ -1363,7 +1558,7 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       if (action === "throw") aimUntil = ACTION_SECONDS.throw;
     },
     updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
-      if (!seated) return;
+      if (!riding) return;
       emotion.update(dt, speed, options, boosting);
       if (activeItemGesture) {
         activeItemGesture.timer += dt;
@@ -1579,12 +1774,21 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       );
     },
     sit() {
-      seated = true;
+      riding = true;
       rig.legL.rotation.x = rig.legR.rotation.x = -Math.PI / 2;
       rig.armL.rotation.x = rig.armR.rotation.x = -0.75;
       rig.armL.rotation.y = rig.armR.rotation.y = 0;
       rig.armL.rotation.z = rig.armR.rotation.z = 0;
       return bottomOf(rig.root, [rig.legL, rig.legR]);
+    },
+    stand() {
+      riding = true;
+      rig.legL.rotation.x = STANCE;
+      rig.legR.rotation.x = -STANCE;
+      rig.armL.rotation.x = rig.armR.rotation.x = -1;
+      const sole = bottomOf(rig.root, [rig.legL, rig.legR]);
+      const shoulder = rig.root.worldToLocal(rig.armR.getWorldPosition(new THREE.Vector3()));
+      return { sole, shoulder, reach: 0.58 };
     },
     restHands() {
       // O boneco procedural já sai de sit() com os braços no apoio
@@ -1687,6 +1891,9 @@ export function createZombieCharacter(): Character {
       shirt: 0,
       pants: 0,
       shoes: 0,
+      shirtColor: 0,
+      pantsColor: 0,
+      shoesColor: 0,
       accessory: 0,
       height: 1,
     };

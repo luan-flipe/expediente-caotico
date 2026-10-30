@@ -237,7 +237,7 @@ describe("Dinâmica da Cadeira de Escritório e Piloto (Mario Kart 8 style)", ()
     racer.update(0.016, 12, 0, 0, false, undefined, false, { driftLevel: 3, draft: true });
 
     // Nenhum valor NaN em todo o rig
-    racer.root.traverse((o) => {
+    racer.root.traverse((o: THREE.Object3D) => {
       expect(Number.isNaN(o.position.x)).toBe(false);
       expect(Number.isNaN(o.position.y)).toBe(false);
       expect(Number.isNaN(o.position.z)).toBe(false);

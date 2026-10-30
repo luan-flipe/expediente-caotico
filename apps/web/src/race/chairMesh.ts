@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { CHAIR_BASES, CHAIR_SEATS, type AvatarDNA, type ChairDNA } from "@ec/shared";
+import { CHAIR_BASES, CHAIR_SEATS, SCOOTER, type AvatarDNA, type ChairDNA } from "@ec/shared";
 import { celebrationExtras, createCharacter, modelReady, type Character, type CharacterSeatedOptions } from "../game/character";
 import { createGltfLoader } from "../game/gltfLoader";
+import { mountScooter } from "./scooterMesh";
 
 const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
 
@@ -24,11 +25,12 @@ interface Anchors {
   backZ: number;
 }
 
-export interface ChairModel {
+export interface Vehicle {
   group: THREE.Group;
-  anchors: Anchors;
   /** Saída do turbo (bocal do extintor no GLB). */
   exhaust: THREE.Vector3;
+  /** Cor do jato do turbo. */
+  jet: string;
   /** Deslocamento vertical atual do pistão a gás (squash/rebound elástico em metros). */
   pistonOffset?: number;
   /** Inclinação dinâmica lateral (roll/bank) do conjunto assento/encosto em radianos. */
@@ -45,6 +47,10 @@ export interface ChairModel {
     rivalDir?: THREE.Vector3,
   ): void;
   dispose(): void;
+}
+
+export interface ChairModel extends Vehicle {
+  anchors: Anchors;
 }
 
 // ---------- GLB do romulo-h ----------
@@ -269,6 +275,7 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
     group,
     anchors,
     exhaust,
+    jet: "#eef6ff",
     pistonOffset: 0,
     rollAngle: 0,
     backAngle: 0,
@@ -569,6 +576,7 @@ function proceduralChair(chair: ChairDNA): ChairModel {
     group: g,
     anchors,
     exhaust: new THREE.Vector3(0, 0.35, -0.75),
+    jet: "#ff8a2b",
     pistonOffset: 0,
     rollAngle: 0,
     backAngle: 0,
@@ -755,8 +763,9 @@ export function buildChair(chair: ChairDNA): ChairModel {
 export interface Racer3D {
   root: THREE.Group;
   char: Character;
-  chair: ChairModel;
+  chair: Vehicle;
   exhaust: THREE.Vector3;
+  jet: string;
   update(
     dt: number,
     speed: number,
@@ -772,11 +781,8 @@ export interface Racer3D {
   dispose(): void;
 }
 
-/** Cadeira com o boneco do crachá sentado. */
-export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
-  const root = new THREE.Group();
+function seatChair(chair: ChairDNA, char: Character): Vehicle {
   const seat = buildChair(chair);
-  const char = createCharacter(avatar);
   const thighBottom = char.sit();
   const a = seat.anchors;
   const baseCharY = a.seatTop - thighBottom;
@@ -785,7 +791,16 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
   // pontos no topo de cada braço da cadeira, no espaço do boneco (a esquerda dele fica em +x)
   const arm = (x: number) => new THREE.Vector3(x, a.armY + 0.03, a.armZ).sub(char.root.position);
   char.restHands(arm(Math.abs(a.armX)), arm(-Math.abs(a.armX)));
+  return seat;
+}
+
+/** Veículo do crachá com o boneco: sentado na cadeira ou em pé no patinete. */
+export function buildRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
+  const root = new THREE.Group();
+  const char = createCharacter(avatar);
+  const seat = chair.vehicle === SCOOTER ? mountScooter(chair, char) : seatChair(chair, char);
   root.add(seat.group, char.root);
+  const baseCharY = char.root.position.y;
   // o boneco vai junto com o assento quando ele gira na comemoração
   const pivot = seat.group.getObjectByName("Assento_Giratorio");
   if (pivot) {
@@ -813,6 +828,7 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
     char,
     chair: seat,
     exhaust: seat.exhaust,
+    jet: seat.jet,
     update(dt, speed, steer = 0, driftDir = 0, boosting = false, rivalDir, air = false, options) {
       seat.update(dt, speed, steer, driftDir, boosting, air, rivalDir);
       if (!pivot) {
@@ -840,10 +856,13 @@ export function seatedRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
   };
 }
 
+/** Alias para compatibilidade com racer sentado. */
+export const seatedRacer = buildRacer;
+
 let thumbRenderer: THREE.WebGLRenderer | null = null;
 const thumbCache = new Map<string, string>();
 
-/** Miniatura do boneco sentado na cadeira (dataURL). */
+/** Miniatura do boneco no veículo (dataURL). */
 export function chairThumbnail(avatar: AvatarDNA, chair: ChairDNA, size = 160): string {
   const key = JSON.stringify({ ...avatar, name: "" }) + JSON.stringify(chair) + size + (modelReady() ? "glb" : "") + (chairModelReady() ? "cglb" : "");
   const hit = thumbCache.get(key);
@@ -855,7 +874,7 @@ export function chairThumbnail(avatar: AvatarDNA, chair: ChairDNA, size = 160): 
   const sun = new THREE.DirectionalLight("#ffffff", 1.6);
   sun.position.set(2, 4, 5);
   scene.add(sun);
-  const r = seatedRacer(avatar, chair);
+  const r = buildRacer(avatar, chair);
   r.root.rotation.y = 0.6;
   scene.add(r.root);
   const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
