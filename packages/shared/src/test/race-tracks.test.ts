@@ -13,18 +13,21 @@ const LIMITS: Record<string, { min: number; max: number; raceMs: number }> = {
   corporativo: { min: 300, max: 400, raceMs: 150000 },
   estacionamento: { min: 300, max: 450, raceMs: 150000 },
   copa: { min: 150, max: 250, raceMs: 110000 },
+  parque: { min: 500, max: 650, raceMs: 180000 },
 };
 
 describe("registro de pistas", () => {
-  it("três pistas com nome, e o Circuito Corporativo continua sendo o padrão", () => {
-    expect(TRACK_IDS).toEqual(["corporativo", "estacionamento", "copa"]);
+  it("quatro pistas com nome, e o Circuito Corporativo continua sendo o padrão", () => {
+    expect(TRACK_IDS).toEqual(["corporativo", "estacionamento", "copa", "parque"]);
     expect(TRACKS.corporativo).toBe(TRACK);
     expect(TRACKS.estacionamento.name).toBe("Estacionamento");
     expect(TRACKS.copa.name).toBe("Copa");
+    expect(TRACKS.parque.name).toBe("Parque Ipanema");
     for (const id of TRACK_IDS) expect(TRACKS[id].id).toBe(id);
     expect(getTrack(undefined)).toBe(TRACK);
     expect(getTrack("nao-existe")).toBe(TRACK);
     expect(getTrack("copa")).toBe(TRACKS.copa);
+    expect(getTrack("parque")).toBe(TRACKS.parque);
   });
 
   it("corrida sem pista usa o Circuito Corporativo", () => {

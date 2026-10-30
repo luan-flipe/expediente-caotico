@@ -47,4 +47,13 @@ describe("buildTrack - Cenário e Elementos Estilizados Nintendo Odyssey", () =>
     expect(scene.children.length).toBeGreaterThan(0);
     expect(() => dispose()).not.toThrow();
   });
+
+  it("monta a pista do Parque Ipanema sem erros e com cenário 3D", () => {
+    const scene = new THREE.Scene();
+    const track = getTrack("parque");
+
+    const dispose = buildTrack(scene, track);
+    expect(scene.children.length).toBeGreaterThan(0);
+    expect(() => dispose()).not.toThrow();
+  });
 });

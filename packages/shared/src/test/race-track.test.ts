@@ -93,7 +93,7 @@ describe("atalhos", () => {
     });
   }
 
-  it("atalho existe nas 3 pistas", () => {
+  it("atalho existe nas 4 pistas", () => {
     for (const id of TRACK_IDS) expect(TRACKS[id].branches.length, id).toBe(1);
   });
 

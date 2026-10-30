@@ -2,6 +2,7 @@ import { AudioLoader } from "three";
 import { preloadCharacter } from "./game/character";
 import { preloadChair } from "./race/chairMesh";
 import { preloadCommander } from "./race/commander";
+import { preloadParque } from "./race/trackScene";
 
 /** A tela de carregamento nunca segura o jogo por mais que isso (o que faltar segue baixando). */
 export const LOADING_TIMEOUT_MS = 15000;
@@ -66,6 +67,7 @@ export function loadAssets(onProgress: (done: number, total: number) => void): P
     if (background) return;
     background = true;
     void preloadCommander();
+    void preloadParque();
     void import("./sound").then((m) => {
       m.preloadSounds();
       // só a faixa da primeira corrida; a outra baixa quando chegar a vez dela

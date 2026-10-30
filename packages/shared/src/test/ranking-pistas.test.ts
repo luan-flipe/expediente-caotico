@@ -27,6 +27,7 @@ describe("recordes por pista", () => {
       ["corporativo", "Circuito Corporativo"],
       ["estacionamento", "Estacionamento"],
       ["copa", "Copa"],
+      ["parque", "Parque Ipanema"],
     ]);
     expect(v.pistas[0].voltas).toEqual(v.voltas);
     expect(v.pistas[1].voltas).toEqual({ rows: [], me: null });

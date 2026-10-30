@@ -2,6 +2,27 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { branchEdges, gridSlots, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
 import { applyWaxedFloorSheen } from "./vfxJuice";
+import parqueUrl from "../assets/itens/parque-ipanema-3d.glb?url";
+import { createGltfLoader } from "../game/gltfLoader";
+
+let parqueModel: THREE.Group | null = null;
+let parquePromise: Promise<THREE.Group | null> | null = null;
+
+export function preloadParque(): Promise<THREE.Group | null> {
+  if (typeof window === "undefined" || typeof document === "undefined") return Promise.resolve(null);
+  if (parqueModel) return Promise.resolve(parqueModel);
+  parquePromise ??= createGltfLoader()
+    .loadAsync(parqueUrl)
+    .then((gltf) => {
+      parqueModel = gltf.scene;
+      return gltf.scene;
+    })
+    .catch((err) => {
+      console.warn("parque-ipanema-3d.glb não carregou", err);
+      return null;
+    });
+  return parquePromise;
+}
 
 /** Piso de cada ambiente (nomes de track.rooms, de todas as pistas). */
 const ROOM_FLOOR: Record<string, string> = {
@@ -20,6 +41,13 @@ const ROOM_FLOOR: Record<string, string> = {
   Mesas: "#c3b79c",
   Geladeira: "#b8c4c8",
   Cafeteira: "#a88b6c",
+  Arquibancadas: "#474b54",
+  "Orla do Lago": "#3c4854",
+  "Reta dos Ipês": "#4d424b",
+  "Curva do Mirante": "#3d4a46",
+  Moinho: "#4c463f",
+  Caramanchão: "#463e4c",
+  Bosque: "#3d4b42",
 };
 const ROOM_WALL: Record<string, string> = {
   Recepção: "#fff5ea",
@@ -37,6 +65,13 @@ const ROOM_WALL: Record<string, string> = {
   Mesas: "#e3d8c3",
   Geladeira: "#ece6da",
   Cafeteira: "#8a6a4a",
+  Arquibancadas: "#27ae60",
+  "Orla do Lago": "#27ae60",
+  "Reta dos Ipês": "#27ae60",
+  "Curva do Mirante": "#27ae60",
+  Moinho: "#27ae60",
+  Caramanchão: "#27ae60",
+  Bosque: "#27ae60",
 };
 
 function roomAt(track: Track, s: number): string {
@@ -173,6 +208,38 @@ function trackTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
         g.fillStyle = Math.random() > 0.4 ? `rgba(255,255,255,${a * 1.5})` : `rgba(0,0,0,${a})`;
         g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
       }
+    },
+    textures,
+  );
+}
+
+/** Textura de asfalto outdoor com marcas de pneus e granulação de cascalho para o Parque Ipanema. */
+function parkRoadTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    512,
+    512,
+    (g) => {
+      g.fillStyle = "#353940";
+      g.fillRect(0, 0, 512, 512);
+      for (let i = 0; i < 1800; i++) {
+        const a = Math.random() * 0.08 + 0.02;
+        g.fillStyle = Math.random() > 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a * 1.6})`;
+        g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+      }
+      const rubber = g.createLinearGradient(0, 0, 0, 512);
+      for (const [at, a] of [
+        [0, 0],
+        [0.18, 0.22],
+        [0.35, 0.05],
+        [0.5, 0.12],
+        [0.65, 0.05],
+        [0.82, 0.22],
+        [1, 0],
+      ]) {
+        rubber.addColorStop(at, `rgba(15, 18, 24, ${a})`);
+      }
+      g.fillStyle = rubber;
+      g.fillRect(0, 0, 512, 512);
     },
     textures,
   );
@@ -866,13 +933,18 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const gw = Math.max(...xs) - Math.min(...xs) + 50;
   const gd = Math.max(...zs) - Math.min(...zs) + 50;
   const parking = track.id === "estacionamento";
+  const isParque = track.id === "parque";
   // vãos das rampas viram buracos no chão (o piso em volta é recortado)
   const pits = track.ramps.filter((r) => r.gap).map((r) => gapPit(track, r));
   const groundShape = new THREE.Shape([new THREE.Vector2(-gw / 2, -gd / 2), new THREE.Vector2(gw / 2, -gd / 2), new THREE.Vector2(gw / 2, gd / 2), new THREE.Vector2(-gw / 2, gd / 2)]);
   // o plano deitado (rotation.x = -90 graus) leva o y local para -z do mundo
   for (const p of pits) groundShape.holes.push(new THREE.Path(p.outline.map((q) => new THREE.Vector2(q.x - cx, -(q.z - cz)))));
-  // escritório: carpete em placas; estacionamento: concreto com a grade de sempre
-  const groundMat = parking ? new THREE.MeshStandardMaterial({ color: "#9a9c9f", roughness: 1 }) : new THREE.MeshStandardMaterial({ map: carpetTexture(textures), roughness: 0.85 });
+  // escritório: carpete em placas; estacionamento: concreto com a grade de sempre; parque: gramado verdejante
+  const groundMat = isParque
+    ? new THREE.MeshStandardMaterial({ color: "#2d7a38", roughness: 0.9 })
+    : parking
+      ? new THREE.MeshStandardMaterial({ color: "#9a9c9f", roughness: 1 })
+      : new THREE.MeshStandardMaterial({ map: carpetTexture(textures), roughness: 0.85 });
   const ground = mesh(new THREE.ShapeGeometry(groundShape), groundMat, cx, -0.02, cz);
   ground.rotation.x = -Math.PI / 2;
   for (const p of pits) scene.add(p.group);
@@ -887,14 +959,35 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     scene.add(grid);
   }
 
+  if (isParque) {
+    const addParqueModel = (model: THREE.Group) => {
+      const clone = model.clone(true);
+      clone.position.set(0, -1.2, 0);
+      const root = clone.children[0] || clone;
+      if (root.children && root.children.length > 16) {
+        for (let i = 2; i <= 16; i++) {
+          if (root.children[i]) root.children[i].visible = false;
+        }
+      }
+      scene.add(clone);
+    };
+    if (parqueModel) {
+      addParqueModel(parqueModel);
+    } else {
+      void preloadParque().then((m) => {
+        if (m) addParqueModel(m);
+      });
+    }
+  }
+
   const edges = trackEdges(track);
   const colors = track.cum.map((s) => new THREE.Color(ROOM_FLOOR[roomAt(track, s)]));
-  // escritório: placas acetinadas tingidas pela cor do ambiente; estacionamento continua liso
-  const tiles = parking ? null : trackTexture(textures);
+  // escritório: placas acetinadas tingidas pela cor do ambiente; estacionamento continua liso; parque: asfalto esportivo
+  const tiles = isParque ? parkRoadTexture(textures) : parking ? null : trackTexture(textures);
   const floorMat = () => {
     if (tiles) {
-      const mat = new THREE.MeshStandardMaterial({ map: tiles, vertexColors: true, roughness: 0.28, metalness: 0.06 });
-      applyWaxedFloorSheen(mat, { sheenIntensity: 0.85, neonColor: "#e0f2fe" });
+      const mat = new THREE.MeshStandardMaterial({ map: tiles, vertexColors: true, roughness: isParque ? 0.65 : 0.28, metalness: 0.05 });
+      if (!isParque) applyWaxedFloorSheen(mat, { sheenIntensity: 0.85, neonColor: "#e0f2fe" });
       return mat;
     }
     return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
@@ -1035,6 +1128,9 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const baseboard = new THREE.MeshStandardMaterial({ color: "#18202c", roughness: 0.75, metalness: 0.1 });
   const column = new THREE.MeshStandardMaterial({ color: "#222a36", roughness: 0.6, metalness: 0.2 });
   const reflector = new THREE.MeshBasicMaterial({ color: "#ffd23f" });
+  const parkFenceWood = new THREE.MeshStandardMaterial({ color: "#5d4037", roughness: 0.85, metalness: 0.05 });
+  const parkFenceRail = new THREE.MeshStandardMaterial({ color: "#8d6e63", roughness: 0.8, metalness: 0.05 });
+  const parkPostWood = new THREE.MeshStandardMaterial({ color: "#4e342e", roughness: 0.9, metalness: 0.05 });
   // parede de a até b, sem os trechos que caem dentro de outro corredor (boca do atalho fica aberta)
   const wall = (a: Vec2, b: Vec2, room: string, open: (p: Vec2) => boolean) => {
     const len = Math.hypot(b.x - a.x, b.z - a.z);
@@ -1051,12 +1147,17 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
         const ry = Math.atan2(q.x - p.x, q.z - p.z);
         const mx = (p.x + q.x) / 2;
         const mz = (p.z + q.z) / 2;
-        stat.add(mesh(new THREE.BoxGeometry(0.24, 0.95, l + 0.25), wallMat(room), mx, 0.475, mz, ry));
-        if (ROOM_WALL[room] !== "glass") stat.add(mesh(new THREE.BoxGeometry(0.26, 0.22, l + 0.25), stripeMat(room), mx, 0.56, mz, ry));
-        stat.add(mesh(new THREE.BoxGeometry(0.28, 0.16, l + 0.25), baseboard, mx, 0.08, mz, ry));
-        const capGeo = new THREE.CylinderGeometry(0.065, 0.065, l + 0.25, 12);
-        capGeo.rotateX(Math.PI / 2);
-        stat.add(mesh(capGeo, cap, mx, 0.97, mz, ry));
+        if (isParque) {
+          stat.add(mesh(new THREE.BoxGeometry(0.18, 0.42, l + 0.1), parkFenceWood, mx, 0.21, mz, ry));
+          stat.add(mesh(new THREE.BoxGeometry(0.22, 0.10, l + 0.15), parkFenceRail, mx, 0.38, mz, ry));
+        } else {
+          stat.add(mesh(new THREE.BoxGeometry(0.24, 0.95, l + 0.25), wallMat(room), mx, 0.475, mz, ry));
+          if (ROOM_WALL[room] !== "glass") stat.add(mesh(new THREE.BoxGeometry(0.26, 0.22, l + 0.25), stripeMat(room), mx, 0.56, mz, ry));
+          stat.add(mesh(new THREE.BoxGeometry(0.28, 0.16, l + 0.25), baseboard, mx, 0.08, mz, ry));
+          const capGeo = new THREE.CylinderGeometry(0.065, 0.065, l + 0.25, 12);
+          capGeo.rotateX(Math.PI / 2);
+          stat.add(mesh(capGeo, cap, mx, 0.97, mz, ry));
+        }
         from = -1;
       }
     }
@@ -1071,10 +1172,17 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
       wall(side[i], side[(i + 1) % n], roomAt(track, track.cum[i]), inBranch);
       // pilar com faixa refletiva a cada 4 pontos do traçado, fora das bocas de atalho
       if (i % 4 === 0 && !inBranch(side[i])) {
-        stat.add(mesh(new THREE.CylinderGeometry(0.20, 0.22, 1.08, 14), column, side[i].x, 0.54, side[i].z));
-        const r = mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.12, 14), reflector, side[i].x, 0.78, side[i].z);
-        r.castShadow = false;
-        stat.add(r);
+        if (isParque) {
+          stat.add(mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.6, 8), parkPostWood, side[i].x, 0.3, side[i].z));
+          const r = mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.08, 8), reflector, side[i].x, 0.48, side[i].z);
+          r.castShadow = false;
+          stat.add(r);
+        } else {
+          stat.add(mesh(new THREE.CylinderGeometry(0.20, 0.22, 1.08, 14), column, side[i].x, 0.54, side[i].z));
+          const r = mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.12, 14), reflector, side[i].x, 0.78, side[i].z);
+          r.castShadow = false;
+          stat.add(r);
+        }
       }
     }
   }
@@ -1094,60 +1202,64 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   line.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), start.heading);
   line.castShadow = false;
   scene.add(line);
-  startGantry(scene, stat, start, textures);
+  startGantry(scene, stat, start, textures, isParque);
 
   for (const r of track.rooms.slice(1, -1)) {
     const at = pointAt(track, track.ctrlS[r.ctrl] + 4);
-    const sign = textSprite(r.name, textures);
+    const sign = textSprite(r.name, textures, isParque ? "Parque Ipanema" : "Setor corporativo");
     sign.position.set(at.pos.x, 3.6, at.pos.z);
     scene.add(sign);
   }
 
-  // luminárias suspensas ao longo do traçado
-  const lampBody = new THREE.MeshStandardMaterial({ color: "#2c3e50", roughness: 0.6, metalness: 0.3 });
-  const led = new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: "#eaf4fc", emissiveIntensity: 0.9 });
-  const cable = new THREE.MeshStandardMaterial({ color: "#8b98a5", roughness: 0.6, metalness: 0.4 });
-  for (let s = 2; s < track.length; s += 9) {
-    const at = pointAt(track, s);
-    const g = new THREE.Group();
-    g.position.set(at.pos.x, 3.8, at.pos.z);
-    g.rotation.y = at.heading;
-    g.add(mesh(new THREE.BoxGeometry(0.24, 0.1, 3.4), lampBody, 0, 0, 0));
-    g.add(mesh(new THREE.BoxGeometry(0.14, 0.03, 3.3), led, 0, -0.05, 0));
-    for (const z of [-1.3, 1.3]) g.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.8, 6), cable, 0, 1.4, z));
-    g.traverse((o) => (o.castShadow = false));
-    stat.add(g);
-  }
-
-  // Quadros e Banners Satíricos Corporativos nas paredes do circuito
-  const frameMat = new THREE.MeshStandardMaterial({ color: "#1e2430", roughness: 0.5, metalness: 0.35 });
-  const posterTextures = [
-    posterMetaTexture(textures),
-    posterCafeTexture(textures),
-    posterEstagiariosTexture(textures),
-    posterReuniaoTexture(textures),
-  ];
-  let posterIdx = 0;
-  for (let s = 10; s < track.length - 8; s += 14) {
-    const at = pointAt(track, s);
-    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-    const side = posterIdx % 2 === 0 ? 1 : -1;
-    const wallDist = at.halfWidth + 0.14;
-    const px = at.pos.x + nrm.x * wallDist * side;
-    const pz = at.pos.z + nrm.z * wallDist * side;
-    const room = roomAt(track, s);
-    if (ROOM_WALL[room] !== "glass" && !inBranch({ x: px, z: pz })) {
-      const posterTex = posterTextures[posterIdx % posterTextures.length];
-      const posterHeading = at.heading + (side === 1 ? -Math.PI / 2 : Math.PI / 2);
-      const poster = buildFramedPoster(posterTex, frameMat, px, 1.34, pz, posterHeading, 2.2, 1.38);
-      scene.add(poster);
-      posterIdx++;
+  // luminárias suspensas ao longo do traçado (apenas em ambientes internos)
+  if (!isParque) {
+    const lampBody = new THREE.MeshStandardMaterial({ color: "#2c3e50", roughness: 0.6, metalness: 0.3 });
+    const led = new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: "#eaf4fc", emissiveIntensity: 0.9 });
+    const cable = new THREE.MeshStandardMaterial({ color: "#8b98a5", roughness: 0.6, metalness: 0.4 });
+    for (let s = 2; s < track.length; s += 9) {
+      const at = pointAt(track, s);
+      const g = new THREE.Group();
+      g.position.set(at.pos.x, 3.8, at.pos.z);
+      g.rotation.y = at.heading;
+      g.add(mesh(new THREE.BoxGeometry(0.24, 0.1, 3.4), lampBody, 0, 0, 0));
+      g.add(mesh(new THREE.BoxGeometry(0.14, 0.03, 3.3), led, 0, -0.05, 0));
+      for (const z of [-1.3, 1.3]) g.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.8, 6), cable, 0, 1.4, z));
+      g.traverse((o) => (o.castShadow = false));
+      stat.add(g);
     }
   }
 
-  // escritório: fachada de vidro em volta e prédios no horizonte
-  if (!parking) facade(stat, cx, cz, gw / 2 - 1, gd / 2 - 1);
-  skyline(stat, cx, cz, Math.max(gw, gd) / 2 + 12, textures);
+  // Quadros e Banners Satíricos Corporativos nas paredes do circuito (apenas escritório)
+  if (!isParque) {
+    const frameMat = new THREE.MeshStandardMaterial({ color: "#1e2430", roughness: 0.5, metalness: 0.35 });
+    const posterTextures = [
+      posterMetaTexture(textures),
+      posterCafeTexture(textures),
+      posterEstagiariosTexture(textures),
+      posterReuniaoTexture(textures),
+    ];
+    let posterIdx = 0;
+    for (let s = 10; s < track.length - 8; s += 14) {
+      const at = pointAt(track, s);
+      const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+      const side = posterIdx % 2 === 0 ? 1 : -1;
+      const wallDist = at.halfWidth + 0.14;
+      const px = at.pos.x + nrm.x * wallDist * side;
+      const pz = at.pos.z + nrm.z * wallDist * side;
+      const room = roomAt(track, s);
+      if (ROOM_WALL[room] !== "glass" && !inBranch({ x: px, z: pz })) {
+        const posterTex = posterTextures[posterIdx % posterTextures.length];
+        const posterHeading = at.heading + (side === 1 ? -Math.PI / 2 : Math.PI / 2);
+        const poster = buildFramedPoster(posterTex, frameMat, px, 1.34, pz, posterHeading, 2.2, 1.38);
+        scene.add(poster);
+        posterIdx++;
+      }
+    }
+  }
+
+  // escritório: fachada de vidro em volta e prédios no horizonte (parque é céu aberto)
+  if (!parking && !isParque) facade(stat, cx, cz, gw / 2 - 1, gd / 2 - 1);
+  if (!isParque) skyline(stat, cx, cz, Math.max(gw, gd) / 2 + 12, textures);
 
   decorate(stat, track, textures);
   for (const m of mergeStatic(stat)) scene.add(m);
@@ -1155,7 +1267,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
 }
 
 /** Pórtico de largada: pilares, travessa alta, semáforo de 3 luzes e a faixa do Rally. */
-function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<typeof pointAt>, textures: THREE.Texture[]): void {
+function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<typeof pointAt>, textures: THREE.Texture[], isParque = false): void {
   const truss = new THREE.MeshStandardMaterial({ color: "#1d4ed8", roughness: 0.45, metalness: 0.25 });
   const deco = new THREE.MeshStandardMaterial({ color: "#f59e0b", roughness: 0.5, metalness: 0.1 });
   const housing = new THREE.MeshStandardMaterial({ color: "#181d24", roughness: 0.6, metalness: 0.2 });
@@ -1181,7 +1293,7 @@ function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<ty
     lamps.add(lamp);
   });
   scene.add(lamps);
-  const banner = textSprite("Rally da Firma", textures, "Grande prêmio");
+  const banner = textSprite(isParque ? "Parque Ipanema" : "Rally da Firma", textures, isParque ? "Grande Prêmio da Cidade" : "Grande prêmio");
   // a faixa termina logo abaixo da caixa do semáforo (base em 4.42 m)
   const bannerH = start.halfWidth * 0.48;
   banner.position.set(start.pos.x, 4.35 - bannerH / 2, start.pos.z);
@@ -1245,6 +1357,7 @@ function skyline(stat: THREE.Group, cx: number, cz: number, r: number, textures:
 
 /** Móveis fora da pista, por ambiente. Só entram onde não encostam em nenhum trecho. */
 function decorate(scene: THREE.Group, track: Track, textures: THREE.Texture[]): void {
+  if (track.id === "parque") return;
   const wood = new THREE.MeshStandardMaterial({ color: "#d97736", roughness: 0.55, metalness: 0.05 });
   const white = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.55, metalness: 0.05 });
   const dark = new THREE.MeshStandardMaterial({ color: "#2d3748", roughness: 0.6, metalness: 0.2 });

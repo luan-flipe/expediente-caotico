@@ -127,6 +127,56 @@ const COPA_CARPET: [number, number][] = [[6, 8]];
 const COPA_BOXES = [1.5, 5, 9];
 const COPA_CUPS = [3, 8.5, 10.5];
 
+/** Parque Ipanema: circuito aberto e panorâmico contornando o lago, o moinho e os jardins. */
+const PARQUE: Ctrl[] = [
+  { x: -105, z: -10, w: 13 }, // 0 reta das arquibancadas, linha de chegada
+  { x: -101, z: -28, w: 13 }, // 1 entrada da curva sul
+  { x: -84, z: -40, w: 13 }, // 2 curva da orla
+  { x: -60, z: -38, w: 13 }, // 3 orla do lago
+  { x: -38, z: -43, w: 13 }, // 4 lago sul
+  { x: -16, z: -49, w: 13 }, // 5 reta das palmeiras
+  { x: 8, z: -49.5, w: 13 }, // 6 bosque sul
+  { x: 32, z: -52, w: 13 }, // 7 reta dos carrinhos de picolé
+  { x: 55, z: -54.5, w: 13 }, // 8 picolé
+  { x: 78, z: -55, w: 13 }, // 9 reta dos ipês
+  { x: 100, z: -53.5, w: 13 }, // 10 curva leste
+  { x: 117, z: -40, w: 13 }, // 11 mirante
+  { x: 119.5, z: -20, w: 13 }, // 12 retorno do mirante
+  { x: 112, z: 0, w: 13 }, // 13 descida do mirante
+  { x: 92, z: 5, w: 13 }, // 14 curva do moinho
+  { x: 74, z: -8, w: 13 }, // 15 chicane do moinho
+  { x: 54, z: -4, w: 13 }, // 16 saída do moinho
+  { x: 34, z: 7, w: 13 }, // 17 reta do caramanchão
+  { x: 12, z: 15, w: 13 }, // 18 lago norte
+  { x: -8, z: 22, w: 13 }, // 19 curva da ponte
+  { x: -26, z: 35, w: 13 }, // 20 bosque
+  { x: -44, z: 47, w: 13 }, // 21 curva norte
+  { x: -66, z: 48, w: 13 }, // 22 reta dos eucaliptos
+  { x: -88, z: 43, w: 13 }, // 23 curva da torcida
+  { x: -104, z: 30, w: 13 }, // 24 entrada da reta principal
+  { x: -106, z: 10, w: 13 }, // 25 reta principal
+];
+
+const PARQUE_ROOMS: TrackRoom[] = [
+  { name: "Arquibancadas", ctrl: 0 },
+  { name: "Orla do Lago", ctrl: 2 },
+  { name: "Reta dos Ipês", ctrl: 7 },
+  { name: "Curva do Mirante", ctrl: 11 },
+  { name: "Moinho", ctrl: 14 },
+  { name: "Caramanchão", ctrl: 17 },
+  { name: "Bosque", ctrl: 20 },
+  { name: "Arquibancadas", ctrl: 24 },
+];
+
+const PARQUE_CARPET: [number, number][] = [
+  [1.8, 3.2],
+  [10.8, 12.2],
+  [21.8, 23.2],
+];
+
+const PARQUE_BOXES = [0.5, 5.0, 9.0, 13.8, 18.5, 24.5];
+const PARQUE_CUPS = [4.0, 7.5, 13.0, 17.5, 20.5, 25.2];
+
 /**
  * Atalho: segundo corredor que sai da pista principal no índice de controle from e volta nela em to
  * (podem ser fracionários), passando pelos pontos de ctrl. Mais curto e mais estreito, sem caixas.
@@ -140,6 +190,7 @@ interface BranchDef {
 const CORPORATIVO_BRANCH: BranchDef = { from: 2.2, to: 5, ctrl: [{ x: 35, z: -24, w: 5 }] };
 const ESTACIONAMENTO_BRANCH: BranchDef = { from: 2.5, to: 5.5, ctrl: [{ x: 42, z: -10, w: 7 }] };
 const COPA_BRANCH: BranchDef = { from: 8.7, to: 11.4, ctrl: [{ x: -12, z: -2, w: 5 }] };
+const PARQUE_BRANCH: BranchDef = { from: 10.4, to: 13.4, ctrl: [{ x: 105, z: -24, w: 7 }] };
 
 /**
  * Rampa: o chão sobe linear de 0 a height entre sFrom e sTo; quem sai do topo rápido decola. gap é um
@@ -166,6 +217,8 @@ interface RampDef {
 const CORPORATIVO_RAMP: RampDef = { path: -1, at: 0.4, len: 6, height: 1.6 };
 /** Estacionamento: rampa da garagem no atalho, pulando o fosso do subsolo. */
 const ESTACIONAMENTO_RAMP: RampDef = { path: 0, at: 0.15, len: 6, height: 2.2, gap: [0.36, 0.47] };
+/** Parque Ipanema: rampa panorâmica na reta dos ipês, saltando em direção ao mirante. */
+const PARQUE_RAMP: RampDef = { path: -1, at: 8.2, len: 7, height: 1.8 };
 
 const STEP = 5;
 /** Nas bocas, só troca de corredor quando o outro centro está tanto mais perto (m). */
@@ -680,7 +733,7 @@ export function turnAhead(track: Track, s: number, ahead: number): number {
 }
 
 /** Ids das pistas, na ordem do seletor. O id vai para o arquivo de dados (laps[id]): nunca renomear. */
-export const TRACK_IDS = ["corporativo", "estacionamento", "copa"] as const;
+export const TRACK_IDS = ["corporativo", "estacionamento", "copa", "parque"] as const;
 export type TrackId = (typeof TRACK_IDS)[number];
 export const DEFAULT_TRACK_ID: TrackId = "corporativo";
 
@@ -688,6 +741,7 @@ export const TRACKS: Record<TrackId, Track> = {
   corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES, cups: CORPORATIVO_CUPS, branch: CORPORATIVO_BRANCH, ramp: CORPORATIVO_RAMP }),
   estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS, branch: ESTACIONAMENTO_BRANCH, ramp: ESTACIONAMENTO_RAMP }),
   copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS, branch: COPA_BRANCH }),
+  parque: buildTrack({ id: "parque", name: "Parque Ipanema", ctrl: PARQUE, rooms: PARQUE_ROOMS, carpet: PARQUE_CARPET, boxes: PARQUE_BOXES, cups: PARQUE_CUPS, branch: PARQUE_BRANCH, ramp: PARQUE_RAMP }),
 };
 
 export const isTrackId = (v: unknown): v is TrackId => typeof v === "string" && (TRACK_IDS as readonly string[]).includes(v);
