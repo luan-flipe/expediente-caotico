@@ -83,4 +83,6 @@ export interface FutMatch {
   ball: Ball;
   restart: Restart | null;
   connected: Set<string>;
+  /** RNG determinístico da partida (a Tarefa 8 cria; sem ele a IA usa um valor neutro). */
+  rng?: () => number;
 }

@@ -39,3 +39,5 @@ export * from "./futebol/ball";
 export * from "./futebol/touch";
 export * from "./futebol/fouls";
 export * from "./futebol/restarts";
+export * from "./futebol/keeper";
+export * from "./futebol/bots";
