@@ -12,7 +12,10 @@ export interface Wearable {
 
 /** "02_moicano_alto.glb" vira "Moicano alto". */
 function labelOf(path: string): string {
-  const name = path.split("/").pop()!.replace(/\.glb$/i, "").replace(/^\d+[_-]?/, "").replace(/[_-]+/g, " ").trim();
+  const file = path.split("/").pop()!.replace(/\.glb$/i, "");
+  if (/jaqueta_jeans/i.test(file)) return "Jaqueta jeans";
+  if (/adidas/i.test(file)) return "Tenis adidas";
+  const name = file.replace(/^\d+[_-]?/, "").replace(/[_-]+/g, " ").trim();
   return name ? name[0].toUpperCase() + name.slice(1) : "Peça";
 }
 

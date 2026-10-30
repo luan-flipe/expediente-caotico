@@ -17,7 +17,7 @@ import { MeshoptDecoder } from "meshoptimizer";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BONECO = join(root, "assets-src", "characters", "boneco_completo.glb");
-const OUT = join(root, "assets-src", "roupas", "tenis", "05_adidas_do_thaythay.glb");
+const OUT = join(root, "assets-src", "roupas", "tenis", "05_tenis_adidas.glb");
 
 const AROUND = 56;
 const ROWS = 14;

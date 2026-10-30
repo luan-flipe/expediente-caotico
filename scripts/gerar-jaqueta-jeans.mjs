@@ -17,7 +17,7 @@ import { MeshoptDecoder } from "meshoptimizer";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BASE = join(root, "assets-src", "roupas", "camisetas", "03_moletom.glb");
-const OUT = join(root, "assets-src", "roupas", "camisetas", "05_jaqueta_jeans_do_romarinho.glb");
+const OUT = join(root, "assets-src", "roupas", "camisetas", "05_jaqueta_jeans.glb");
 
 /** Meia largura (|x|, vista de frente) da abertura por altura y: estreita no peito, abre embaixo e na gola. */
 const OPEN = [[0.44, 0.064], [0.52, 0.055], [0.62, 0.045], [0.72, 0.04], [0.78, 0.046], [0.84, 0.07], [0.92, 0.1]];
