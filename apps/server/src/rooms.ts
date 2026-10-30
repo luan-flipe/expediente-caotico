@@ -8,6 +8,7 @@ import {
   applyLap,
   applyAwards,
   applyRaceResult,
+  applyFutebolResult,
   applyShooterResult,
   applyWeeklyLap,
   buildFutPrivate,
@@ -507,7 +508,6 @@ export class Room {
   private recordRanking(): void {
     const store = this.store;
     if (!store) return;
-    // TODO(Tarefa 10): futebol entra aqui (aba própria, só com 2+ humanos; derrota não pontua; gols de pênalti não contam)
     if (this.futResults) return this.recordFutebolRanking();
     try {
       const accountOf = (id: string) => this.members.get(id)?.accountId ?? null;
@@ -535,8 +535,20 @@ export class Room {
     }
   }
 
-  /** Ponto de entrada do ranking do futebol (Tarefa 10). Vazio de propósito. */
-  private recordFutebolRanking(): void {}
+  /** Futebol: aba própria, só com 2+ humanos; derrota não pontua e gols de pênalti não contam (getFutResults já os exclui). */
+  private recordFutebolRanking(): void {
+    const store = this.store;
+    if (!store || !this.futResults || !this.futScore) return;
+    try {
+      const { winner } = this.futScore;
+      const rows = this.futResults.map((r) => ({ accountId: r.accountId, won: winner !== null && r.side === winner, goals: r.goals, assists: r.assists }));
+      const humans = this.futResults.filter((r) => !r.isBot).length;
+      applyFutebolResult(store.data, rows, humans, Date.now());
+      store.save();
+    } catch (err) {
+      console.error(`[${this.code}] falha ao registrar o ranking`, err);
+    }
+  }
 
   /** Avisa quem acabou de cumprir o desafio da semana (todas as conexões da conta nesta sala). */
   private notifyChallenge(accountIds: string[]): void {
