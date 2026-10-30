@@ -1368,10 +1368,10 @@ export class RaceEngine {
     const lite = this.quality === "leve";
     const braking = !!own && this.keys.has(getSettings().keys.race.frear);
 
-    // 1. Salto de entrada no drift (hop característico do Mario Kart)
+    // 1. Salto de entrada no drift (hop suave e contido)
     if (drift >= 0 && !v.wasDrifting) {
-      v.hopY = 0.03;
-      v.hopVel = 2.4;
+      v.hopY = 0.012;
+      v.hopVel = 0.9;
       v.wasDrifting = true;
     } else if (drift < 0) {
       v.wasDrifting = false;
@@ -1379,14 +1379,14 @@ export class RaceEngine {
 
     if (v.hopY > 0 || v.hopVel > 0) {
       v.hopY += v.hopVel * dt;
-      v.hopVel -= 18 * dt;
+      v.hopVel -= 24 * dt;
       if (v.hopY <= 0) {
         v.hopY = 0;
         v.hopVel = 0;
       }
     }
 
-    // Voo da rampa ou pulo
+    // Voo da rampa ou chasm
     const air = own ? !!own.air : flags.has("air");
     const inAir = air || v.hopY > 0;
     const isMine = own !== null && v.last.id === this.myId;
@@ -1394,8 +1394,8 @@ export class RaceEngine {
     const wantsTrick = isMine ? (driftKey || !!own?.trick) : flags.has("trick");
 
     // Sistema de Manobras no Ar (Trick System estilo Mario Kart):
-    // Ao decolar/estar no ar e apertar derrapagem (ou pulo), aciona manobra acrobática 3D
-    if (inAir && wantsTrick && !v.trickActive && !v.performedTrick) {
+    // Acionado apenas ao decolar de rampas no ar (air), nunca no drift hop terrestre
+    if (air && wantsTrick && !v.trickActive && !v.performedTrick) {
       v.trickActive = true;
       v.performedTrick = true;
       v.trickTimer = 0;
@@ -1475,9 +1475,9 @@ export class RaceEngine {
       v.trickPosY *= Math.max(0, 1 - dt * 14);
     }
 
-    // Aterrissagem com Landing Boost e Squash & Stretch
-    const justLanded = v.wasInAir && !inAir;
-    v.wasInAir = inAir;
+    // Aterrissagem com Landing Boost e Squash & Stretch (somente ao sair de voo aéreo)
+    const justLanded = v.wasInAir && !air;
+    v.wasInAir = air;
 
     if (justLanded) {
       if (v.performedTrick) {
@@ -1500,28 +1500,28 @@ export class RaceEngine {
     }
 
     // Micro-trepidação física do piso e das juntas nas rodinhas
-    const roadChatter = Math.abs(speed) > 1.2 && !inAir ? Math.sin(this.clock * 0.08 + x * 5) * 0.007 * Math.min(1, Math.abs(speed) / 10) : 0;
+    const roadChatter = Math.abs(speed) > 1.2 && !air ? Math.sin(this.clock * 0.08 + x * 5) * 0.007 * Math.min(1, Math.abs(speed) / 10) : 0;
     v.body.position.y = v.hopY + roadChatter + v.trickPosY;
 
-    // 2. Ângulo dinâmico de derrapagem (slide yaw) com transição progressiva e contra-esterço
+    // 2. Ângulo dinâmico de derrapagem (slide yaw) suave e progressivo
     let targetSlideYaw = 0;
     if (drift >= 0 && driftDir !== 0) {
       const steerFactor = steerInput * driftDir;
-      const driftProgress = own ? Math.min(1, own.driftMs / 220) : 1;
-      const baseSlide = -0.24 + (steerFactor > 0 ? 0.07 * steerFactor : -0.10 * Math.abs(steerFactor));
-      targetSlideYaw = driftDir * baseSlide * (0.35 + 0.65 * driftProgress);
+      const driftProgress = own ? Math.min(1, own.driftMs / 260) : 1;
+      const baseSlide = -0.16 + (steerFactor > 0 ? 0.04 * steerFactor : -0.06 * Math.abs(steerFactor));
+      targetSlideYaw = driftDir * baseSlide * (0.4 + 0.6 * driftProgress);
     }
-    v.slideYaw += (targetSlideYaw - v.slideYaw) * Math.min(1, dt * 9);
+    v.slideYaw += (targetSlideYaw - v.slideYaw) * Math.min(1, dt * 8);
     if (!Number.isFinite(v.slideYaw)) v.slideYaw = 0;
 
-    // 3. Inclinação lateral da cadeira no amortecedor (roll)
+    // 3. Inclinação lateral suave da cadeira no amortecedor (roll)
     let targetRoll = 0;
     if (drift >= 0 && driftDir !== 0) {
-      targetRoll = driftDir * 0.16 + (v.hopY > 0 ? driftDir * 0.06 : 0);
+      targetRoll = driftDir * 0.10 + (v.hopY > 0 ? driftDir * 0.02 : 0);
     } else if (Math.abs(speed) > 2) {
-      targetRoll = -steerInput * 0.08 * Math.min(1, Math.abs(speed) / 10);
+      targetRoll = -steerInput * 0.06 * Math.min(1, Math.abs(speed) / 10);
     }
-    v.roll += (targetRoll - v.roll) * Math.min(1, dt * 12);
+    v.roll += (targetRoll - v.roll) * Math.min(1, dt * 10);
     if (!Number.isFinite(v.roll)) v.roll = 0;
 
     // 4. Mergulho e empinada (pitch) no pistão a gás
@@ -1580,7 +1580,7 @@ export class RaceEngine {
     TMP_SEATED_OPTIONS.spinning = spinning;
     TMP_SEATED_OPTIONS.countdown = this.snap?.phase === "countdown" || (this.snap?.countdownMs ?? 0) > 0;
     TMP_SEATED_OPTIONS.isBraking = braking || speed < -0.5;
-    TMP_SEATED_OPTIONS.inAir = inAir;
+    TMP_SEATED_OPTIONS.inAir = air;
     TMP_SEATED_OPTIONS.isTricking = v.trickActive;
     TMP_SEATED_OPTIONS.trickType = v.trickType;
     TMP_SEATED_OPTIONS.trickProgress = v.trickTimer / v.trickDuration;
@@ -1837,10 +1837,10 @@ export class RaceEngine {
     const camDist = 5.6 + speedRatio * 0.35 + (boosting ? 0.3 : 0);
 
     // Suave movimento dinâmico da câmera para o exterior da curva em drift com interpolação de mola
-    const targetCamSwing = driftDir * -0.42;
-    const targetLookSwing = driftDir * 0.55;
-    this.camDriftOffset += (targetCamSwing - this.camDriftOffset) * Math.min(1, dt * 5);
-    this.camLookOffset += (targetLookSwing - this.camLookOffset) * Math.min(1, dt * 5);
+    const targetCamSwing = driftDir * -0.20;
+    const targetLookSwing = driftDir * 0.25;
+    this.camDriftOffset += (targetCamSwing - this.camDriftOffset) * Math.min(1, dt * 4.5);
+    this.camLookOffset += (targetLookSwing - this.camLookOffset) * Math.min(1, dt * 4.5);
 
     if (this.lookBackActive) {
       // Câmera retrovisor (KeyC ou botão do meio do mouse): olha para trás 180°

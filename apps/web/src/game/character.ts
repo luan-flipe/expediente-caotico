@@ -206,9 +206,9 @@ export class CharacterPhysicsInertia {
   ): void {
     this.time += dt;
 
-    // 1. Inclinação lateral: no drift ou curva forte, o corpo se joga para dentro da curva
-    const targetRoll = -steer * 0.24 - driftDir * 0.44;
-    const targetShiftX = -steer * 0.08 - driftDir * 0.16;
+    // 1. Inclinação lateral suave: no drift ou curva forte, o corpo se inclina para dentro da curva
+    const targetRoll = -steer * 0.18 - driftDir * 0.22;
+    const targetShiftX = -steer * 0.05 - driftDir * 0.08;
     const leanK = Math.min(1, dt * 10);
     this.bodyRoll += (targetRoll - this.bodyRoll) * leanK;
     this.bodyShiftX += (targetShiftX - this.bodyShiftX) * leanK;
@@ -311,7 +311,7 @@ export class CharacterWindPhysics {
 
     // 1. Gravata: elevação aerodinâmica para trás e ondulação em turbulência
     const targetTieX = -0.78 * dynamicPressure;
-    const targetTieZ = -steer * 0.32 - driftDir * 0.44;
+    const targetTieZ = -steer * 0.20 - driftDir * 0.22;
     const flutterFreq = 22.0 + effectiveSpeed * 2.2;
     const tieFlutterX = Math.sin(this.time * flutterFreq) * 0.12 * dynamicPressure;
     const tieFlutterZ = Math.cos(this.time * (flutterFreq * 0.8) + 0.6) * 0.08 * dynamicPressure;
@@ -322,7 +322,7 @@ export class CharacterWindPhysics {
 
     // 2. Crachá: inclinação no vento e pulo contra o tórax em ondulações
     const targetBadgeX = -0.42 * dynamicPressure;
-    const targetBadgeZ = -steer * 0.26 - driftDir * 0.36;
+    const targetBadgeZ = -steer * 0.16 - driftDir * 0.18;
     const badgeFlutter = Math.sin(this.time * 28.0) * 0.04 * dynamicPressure;
     const badgeBounce = Math.abs(Math.sin(this.time * 16.0)) * 0.016 * dynamicPressure;
 
@@ -347,7 +347,7 @@ export class CharacterWindPhysics {
     const hairWave = Math.sin(this.time * (18.0 + effectiveSpeed * 1.5)) * 0.14 * dynamicPressure;
 
     // Camada D: Força centrífuga e inércia em curvas e drift
-    const centrifugalHairZ = -steer * 0.28 - driftDir * 0.38;
+    const centrifugalHairZ = -steer * 0.18 - driftDir * 0.20;
 
     const targetHairX = idleHairX + stepHairX + speedHairX + hairWave;
     const targetHairZ = idleHairZ + centrifugalHairZ;
@@ -1250,8 +1250,8 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
 
       let stareWeight = 0;
       if (cabeca) {
-        let targetHeadY = -steer * 0.40 - driftDir * 0.46;
-        let targetHeadZ = -inertia.bodyRoll * 0.35 + wind.hairRotZ * 0.06 + steer * 0.08 + driftDir * 0.12;
+        let targetHeadY = -steer * 0.26 - driftDir * 0.24;
+        let targetHeadZ = -inertia.bodyRoll * 0.25 + wind.hairRotZ * 0.04 + steer * 0.05 + driftDir * 0.07;
         let targetHeadX = inertia.bodyPitch * 0.35 + wind.hairRotX * 0.08 + (boosting ? -0.22 : options?.isBraking ? 0.24 : speed > 2 ? -0.08 : 0);
 
         if (rivalDir) {
@@ -1604,8 +1604,8 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       rig.legR.rotation.x += (legD - rig.legR.rotation.x) * k;
       rig.legL.rotation.x += (legE - rig.legL.rotation.x) * k;
 
-      let targetHeadY = -steer * 0.40 - driftDir * 0.46;
-      let targetHeadZ = -inertia.bodyRoll * 0.35 + wind.hairRotZ * 0.06 + steer * 0.08 + driftDir * 0.12;
+      let targetHeadY = -steer * 0.26 - driftDir * 0.24;
+      let targetHeadZ = -inertia.bodyRoll * 0.25 + wind.hairRotZ * 0.04 + steer * 0.05 + driftDir * 0.07;
       let targetHeadX = inertia.bodyPitch * 0.35 + wind.hairRotX * 0.08 + (boosting ? -0.22 : options?.isBraking ? 0.24 : speed > 2 ? -0.08 : 0);
       let stareWeight = 0;
 

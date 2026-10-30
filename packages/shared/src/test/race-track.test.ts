@@ -85,6 +85,7 @@ describe("pista", () => {
 
 describe("atalhos", () => {
   const T = TRACKS.corporativo;
+  const BRANCH_TRACKS = TRACK_IDS.filter((id) => id !== "parque");
 
   function insideAny(p: { x: number; z: number }, r = 0): boolean {
     return [-1, 0].some((path) => {
@@ -93,8 +94,9 @@ describe("atalhos", () => {
     });
   }
 
-  it("atalho existe nas 4 pistas", () => {
-    for (const id of TRACK_IDS) expect(TRACKS[id].branches.length, id).toBe(1);
+  it("atalho existe nas pistas corporativo, estacionamento e copa; parque não tem atalho", () => {
+    for (const id of BRANCH_TRACKS) expect(TRACKS[id].branches.length, id).toBe(1);
+    expect(TRACKS.parque.branches.length).toBe(0);
   });
 
   it("progresso no atalho vira s da principal", () => {
@@ -107,7 +109,7 @@ describe("atalhos", () => {
   });
 
   it("s cresce ao percorrer o atalho", () => {
-    for (const id of TRACK_IDS) {
+    for (const id of BRANCH_TRACKS) {
       const tr = TRACKS[id];
       const b = tr.branches[0];
       const span = deltaS(tr, b.sFrom, b.sTo);
@@ -126,7 +128,7 @@ describe("atalhos", () => {
   });
 
   it("boca da bifurcação respeita prefer, sem trocar de caminho nem de s parado no meio", () => {
-    for (const id of TRACK_IDS) {
+    for (const id of BRANCH_TRACKS) {
       const tr = TRACKS[id];
       const s = tr.branches[0].sFrom + 2;
       const a = pointAt(tr, s).pos;
@@ -174,7 +176,7 @@ describe("atalhos", () => {
   });
 
   it("atalho não encosta no resto da pista", () => {
-    for (const id of TRACK_IDS) {
+    for (const id of BRANCH_TRACKS) {
       const tr = TRACKS[id];
       const b = tr.branches[0];
       const span = deltaS(tr, b.sFrom, b.sTo);

@@ -88,8 +88,9 @@ describe("voltas", () => {
 });
 
 describe("voltas pelo atalho", () => {
+  const BRANCH_TRACKS = TRACK_IDS.filter((id) => TRACKS[id].branches.length > 0);
   it("volta pelo atalho fecha e passa por todos os checkpoints na ordem", () => {
-    for (const id of TRACK_IDS) {
+    for (const id of BRANCH_TRACKS) {
       const v = flyingLap(TRACKS[id], 0);
       expect(v.usedBranch, id).toBe(true);
       expect(v.cpOrder, id).toEqual([...v.cps.keys()].slice(1).concat(0));
@@ -98,7 +99,7 @@ describe("voltas pelo atalho", () => {
   });
 
   it("piloto perfeito ganha entre 0,4 e 1,5 s pelo atalho (Copa, volta de 13 s: a partir de 0,25 s)", () => {
-    for (const id of TRACK_IDS) {
+    for (const id of BRANCH_TRACKS) {
       const main = flyingLap(TRACKS[id], -1);
       const cut = flyingLap(TRACKS[id], 0);
       const gain = (main.ms - cut.ms) / 1000;

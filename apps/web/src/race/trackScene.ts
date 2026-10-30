@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { branchEdges, gridSlots, heightAt, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
 import { applyWaxedFloorSheen } from "./vfxJuice";
 import parqueUrl from "../assets/itens/parque-ipanema-3d.glb?url";
+import rampGlbUrl from "../assets/itens/ramp-jump.glb?url";
 import { createGltfLoader } from "../game/gltfLoader";
 
 let parqueModel: THREE.Group | null = null;
@@ -22,6 +23,25 @@ export function preloadParque(): Promise<THREE.Group | null> {
       return null;
     });
   return parquePromise;
+}
+
+let rampModel: THREE.Group | null = null;
+let rampPromise: Promise<THREE.Group | null> | null = null;
+
+export function preloadRamp(): Promise<THREE.Group | null> {
+  if (typeof window === "undefined" || typeof document === "undefined") return Promise.resolve(null);
+  if (rampModel) return Promise.resolve(rampModel);
+  rampPromise ??= createGltfLoader()
+    .loadAsync(rampGlbUrl)
+    .then((gltf) => {
+      rampModel = gltf.scene;
+      return gltf.scene;
+    })
+    .catch((err) => {
+      console.warn("ramp-jump.glb não carregou", err);
+      return null;
+    });
+  return rampPromise;
 }
 
 /** Piso de cada ambiente (nomes de track.rooms, de todas as pistas). */
@@ -887,6 +907,38 @@ function rampMesh(track: Track, r: Ramp): THREE.Mesh {
   return m;
 }
 
+/** Monta a rampa GLB 3D posicionada e orientada no trecho sFrom -> sTo da pista */
+function buildRampGlb(track: Track, r: Ramp, template: THREE.Group): THREE.Group {
+  const clone = template.clone(true);
+  const start = along(track, r.path, r.sFrom);
+  const end = along(track, r.path, r.sTo);
+  const dx = end.pos.x - start.pos.x;
+  const dz = end.pos.z - start.pos.z;
+  const rampLen = Math.hypot(dx, dz);
+  const heading = Math.atan2(dx, dz);
+
+  const baseY = r.path === -1 ? heightAt(track, r.sFrom) : 0;
+  clone.position.set(start.pos.x, baseY, start.pos.z);
+  clone.rotation.y = heading;
+
+  // Dimensões originais do modelo GLB (ramp-jump.glb): Z: ~5.84 m, Y: ~1.86 m, X: ~7.47 m
+  const scaleZ = rampLen / 5.84;
+  const scaleY = r.height / 1.86;
+  const targetWidth = Math.max(5.0, Math.min(start.halfWidth * 1.85, 10.0));
+  const scaleX = targetWidth / 7.47;
+
+  clone.scale.set(scaleX, scaleY, scaleZ);
+
+  clone.traverse((obj) => {
+    if ((obj as THREE.Mesh).isMesh) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
+  });
+
+  return clone;
+}
+
 /** Vão: buraco no piso com paredes de concreto descendo até o subsolo, 3 m abaixo. */
 function gapPit(track: Track, r: Ramp): { group: THREE.Group; outline: Vec2[] } {
   const gap = r.gap!;
@@ -955,7 +1007,22 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const ground = mesh(new THREE.ShapeGeometry(groundShape), groundMat, cx, -0.02, cz);
   ground.rotation.x = -Math.PI / 2;
   for (const p of pits) scene.add(p.group);
-  for (const r of track.ramps) scene.add(rampMesh(track, r));
+  for (const r of track.ramps) {
+    if (rampModel) {
+      scene.add(buildRampGlb(track, r, rampModel));
+    } else {
+      const fallback = rampMesh(track, r);
+      scene.add(fallback);
+      void preloadRamp().then((model) => {
+        if (model) {
+          scene.remove(fallback);
+          fallback.geometry.dispose();
+          (fallback.material as THREE.Material).dispose();
+          scene.add(buildRampGlb(track, r, model));
+        }
+      });
+    }
+  }
   ground.castShadow = false;
   if (!isParque) scene.add(ground);
   if (parking) {
