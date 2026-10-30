@@ -4,6 +4,7 @@ import { Creator } from "./screens/Creator";
 import { Home } from "./screens/Home";
 import { Loading } from "./screens/Loading";
 import { Lobby } from "./screens/Lobby";
+import { useFutHold } from "./futebol/FutebolResults";
 import { escAction } from "./pause";
 import { PauseMenu } from "./screens/PauseMenu";
 import { Perfil } from "./screens/Perfil";
@@ -18,7 +19,7 @@ import { getState, setState, useStore } from "./store";
 const GameView = lazy(() => import("./game/GameView").then((m) => ({ default: m.GameView })));
 const RaceView = lazy(() => import("./race/RaceView").then((m) => ({ default: m.RaceView })));
 const FutebolView = lazy(() => import("./futebol/FutebolView").then((m) => ({ default: m.FutebolView })));
-const FutResultsStub = lazy(() => import("./futebol/FutResultsStub").then((m) => ({ default: m.FutResultsStub })));
+const FutebolResults = lazy(() => import("./futebol/FutebolResults").then((m) => ({ default: m.FutebolResults })));
 const ReplayView = lazy(() => import("./race/ReplayView").then((m) => ({ default: m.ReplayView })));
 const RaceResults = lazy(() => import("./race/RaceResults").then((m) => ({ default: m.RaceResults })));
 
@@ -32,6 +33,8 @@ export function App() {
   const results = useStore((s) => s.results);
   const raceResults = useStore((s) => s.raceResults);
   const futResults = useStore((s) => s.futResults);
+  const fsnap = useStore((s) => s.fsnap);
+  const holdFut = useFutHold(futResults);
   const myId = useStore((s) => s.myId);
   const settingsOpen = useStore((s) => s.settingsOpen);
 
@@ -77,7 +80,9 @@ export function App() {
     if (ranking) return <Ranking />;
     if (!lobby) return <Home />;
     if (lobby.phase === "results" && raceResults) return <RaceResults />;
-    if (lobby.phase === "results" && futResults) return <FutResultsStub />;
+    // o resultado do futebol chega junto do apito final: o campo fica uns segundos com a festa antes da tabela
+    if (lobby.phase === "results" && futResults && holdFut && myId && fsnap?.phase === "over") return <FutebolView myId={myId} />;
+    if (lobby.phase === "results" && futResults) return <FutebolResults />;
     if (lobby.phase === "results" && results) return <Results />;
     return <Lobby />;
   };

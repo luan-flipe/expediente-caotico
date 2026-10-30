@@ -2791,3 +2791,37 @@ input.fut-team-name {
     top: 128px;
   }
 }
+
+.fut-res-head {
+  display: flex;
+  gap: 12px;
+}
+
+.fut-res-team {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 2px solid #1d1b17;
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.fut-res-team b {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.fut-res-title {
+  margin: 0;
+  text-align: center;
+}
+
+.fut-res-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid #1d1b17;
+}

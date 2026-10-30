@@ -283,7 +283,7 @@ function onMessage(msg: ServerMsg): void {
       setState({ myId: msg.id, code: msg.code, error: null });
       return;
     case "lobby":
-      setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null, futResults: null } : {}) });
+      setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null, futResults: null, fsnap: null, fme: null } : {}) });
       return;
     case "results":
       setState({ results: msg.rows, awards: msg.awards, raceResults: null, futResults: null, snap: null, me: null, feed: [] });
@@ -299,7 +299,7 @@ function onMessage(msg: ServerMsg): void {
       setState({ fsnap: msg.s, fme: msg.me });
       return;
     case "fresults":
-      setState({ futResults: { rows: msg.rows, score: msg.score, awards: msg.awards }, awards: msg.awards, results: null, raceResults: null, fsnap: null, fme: null, feed: [] });
+      setState({ futResults: { rows: msg.rows, score: msg.score, awards: msg.awards }, awards: msg.awards, results: null, raceResults: null, feed: [] });
       return;
     case "chat":
       setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });

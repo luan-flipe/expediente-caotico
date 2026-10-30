@@ -427,3 +427,50 @@ export function playCountdownBeep(kind: "tick" | "go"): void {
   osc.start(t);
   osc.stop(t + dur + 0.02);
 }
+
+/** Apito do juiz sintetizado: tom agudo com vibrato (a bolinha dentro do apito). "start" e "foul" apitam uma vez, "half" duas, "end" três (a última longa). */
+export function playWhistle(kind: "start" | "half" | "end" | "foul"): void {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+  if (ctx.state === "suspended") void ctx.resume();
+  const blasts: [number, number][] =
+    kind === "end"
+      ? [
+          [0, 0.28],
+          [0.4, 0.28],
+          [0.8, 0.8],
+        ]
+      : kind === "half"
+        ? [
+            [0, 0.3],
+            [0.42, 0.3],
+          ]
+        : kind === "foul"
+          ? [[0, 0.32]]
+          : [[0, 0.5]];
+  for (const [at, dur] of blasts) {
+    const t = ctx.currentTime + at;
+    const osc = ctx.createOscillator();
+    const vib = ctx.createOscillator();
+    const vibDepth = ctx.createGain();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 2900;
+    vib.frequency.value = 38;
+    vibDepth.gain.value = 140;
+    vib.connect(vibDepth);
+    vibDepth.connect(osc.frequency);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.28, t + 0.02);
+    gain.gain.setValueAtTime(0.28, t + dur - 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain);
+    gain.connect(effectsGain);
+    osc.start(t);
+    vib.start(t);
+    osc.stop(t + dur + 0.02);
+    vib.stop(t + dur + 0.02);
+  }
+}

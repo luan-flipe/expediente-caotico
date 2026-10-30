@@ -21,6 +21,7 @@ import { createDynamicSky, type DynamicSky } from "../game/sky";
 import { inputBlocked } from "../pause";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
+import { playWhistle } from "../sound";
 import { getState, net, setState } from "../store";
 import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
 import ballUrl from "../assets/futebol/bola.glb?url";
@@ -28,6 +29,7 @@ import goalUrl from "../assets/futebol/gol.glb?url";
 import pitchUrl from "../assets/futebol/ipatingao.glb?url";
 import { reconcileDrawn } from "./reconcile";
 import { TOUCH_KICK, TOUCH_PASS, newControlState, newMouse, readFutInput, type FutKeys } from "./controls";
+import { Comemoracoes } from "./comemoracoes";
 import { uniformDNA } from "./uniforme";
 
 export type FutUiSignal = "lock" | "unlock";
@@ -154,6 +156,10 @@ export class FutebolEngine {
   private sun: THREE.DirectionalLight;
   private quality: Quality | null = null;
   private chat = new ChatBubbles(2.7);
+  private fx = new Comemoracoes(this.scene);
+  private eventsT = -1;
+  /** Quem a câmera acompanha durante a comemoração do gol. */
+  private focusId = "";
   private views = new Map<string, View>();
   private avatars = new Map<string, AvatarDNA>();
   private snap: FutSnapshot | null = null;
@@ -474,6 +480,41 @@ export class FutebolEngine {
     this.penTaker = taker;
 
     if (mine) this.reconcile(mine, me);
+    this.handleEvents(s);
+  }
+
+  /** Apito e comemoração a partir dos eventos do snapshot (cada snapshot chega uma vez). */
+  private handleEvents(s: FutSnapshot): void {
+    if (s.phase !== "goal") {
+      this.fx.clear();
+      this.focusId = "";
+    }
+    if (s.t <= this.eventsT) return;
+    this.eventsT = s.t;
+    for (const e of s.events) {
+      if (e.type === "whistle") playWhistle(e.kind);
+      else if (e.type === "foul") playWhistle("foul");
+      else if (e.type === "goal") this.celebrateGoal(e, s);
+    }
+  }
+
+  private celebrateGoal(e: Extract<FutSnapshot["events"][number], { type: "goal" }>, s: FutSnapshot): void {
+    const scorer = !e.own && e.scorerId ? this.views.get(e.scorerId) : undefined;
+    const mates: Character[] = [];
+    let keeper: Character | null = null;
+    for (const [id, v] of this.views) {
+      if (v.last.sentOff || id === scorer?.last.id) continue;
+      if (v.last.side === e.side && v.last.role === "linha") mates.push(v.char);
+      else if (v.last.side !== e.side && v.last.role === "goleiro") keeper = v.char;
+    }
+    this.focusId = scorer?.last.id ?? "";
+    this.fx.start({
+      scorer: scorer?.char ?? null,
+      mates,
+      keeper,
+      color: FUT_COLORS[s.teams[e.side].color]?.hex ?? "#ffffff",
+      at: new THREE.Vector3(scorer?.char.root.position.x ?? s.ball.x, 0, scorer?.char.root.position.z ?? s.ball.z),
+    });
   }
 
   /** O próprio boneco só é previsto onde o servidor também o move (jogo rolando, em pé, sem estar no carrinho). */
@@ -745,6 +786,15 @@ export class FutebolEngine {
       if (id === this.myId) this.myPos.set(x, 0, z);
     }
 
+    if (this.snap?.phase === "over") {
+      const sn = this.snap;
+      const [a, b] = sn.pens ? sn.pens.goals : sn.score;
+      const winner = sn.score[0] !== sn.score[1] ? (sn.score[0] > sn.score[1] ? 0 : 1) : a !== b ? (a > b ? 0 : 1) : null;
+      this.fx.final(dt, winner, [...this.views.values()].map((v) => ({ char: v.char, side: v.last.side })));
+    } else {
+      this.fx.update(dt);
+    }
+
     // bola
     const bs = this.sampleAt(this.ballBuf, rt);
     if (bs) {
@@ -817,6 +867,19 @@ export class FutebolEngine {
         yaw = attackYaw(t.last.side);
       }
     }
+    const focus = s?.phase === "goal" && this.fx.active ? this.views.get(this.focusId) : undefined;
+    if (focus) {
+      // comemoração: câmera curta de frente para o autor do gol
+      const f = focus.last.facing;
+      const p = focus.char.root.position;
+      const want = new THREE.Vector3(p.x + Math.sin(f) * 3.4, 1.7, p.z + Math.cos(f) * 3.4);
+      const look = new THREE.Vector3(p.x, 1.3, p.z);
+      this.camPos.lerp(want, 1 - Math.exp(-dt * 5));
+      this.camLook.lerp(look, 1 - Math.exp(-dt * 8));
+      this.camera.position.copy(this.camPos);
+      this.camera.lookAt(this.camLook);
+      return;
+    }
     const cp = Math.cos(this.pitch);
     const fwd = new THREE.Vector3(Math.sin(yaw) * cp, Math.sin(this.pitch), Math.cos(yaw) * cp);
     const right = new THREE.Vector3(-Math.cos(yaw), 0, Math.sin(yaw));
@@ -845,6 +908,7 @@ export class FutebolEngine {
     resetTouchInput();
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.chat.dispose();
+    this.fx.dispose();
     for (const v of this.views.values()) this.dropView(v);
     this.views.clear();
     this.lineMat.dispose();
