@@ -26,6 +26,7 @@ import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
 import ballUrl from "../assets/futebol/bola.glb?url";
 import goalUrl from "../assets/futebol/gol.glb?url";
 import pitchUrl from "../assets/futebol/ipatingao.glb?url";
+import { reconcileDrawn } from "./reconcile";
 import { TOUCH_KICK, TOUCH_PASS, newControlState, newMouse, readFutInput, type FutKeys } from "./controls";
 import { uniformDNA } from "./uniforme";
 
@@ -276,7 +277,11 @@ export class FutebolEngine {
         }
       });
     const [pitch, ball, goal] = await Promise.allSettled([loader.loadAsync(pitchUrl), loader.loadAsync(ballUrl), loader.loadAsync(goalUrl)]);
-    if (this.disposed) return;
+    if (this.disposed) {
+      // a tela saiu durante o carregamento: libera o que chegou
+      for (const r of [pitch, ball, goal]) if (r.status === "fulfilled") this.freeObject(r.value.scene);
+      return;
+    }
     if (pitch.status === "fulfilled") {
       shadows(pitch.value.scene, false);
       this.scene.add(pitch.value.scene);
@@ -304,6 +309,18 @@ export class FutebolEngine {
     } else {
       console.warn("gol.glb não carregou", goal.reason);
     }
+  }
+
+  private freeObject(o: THREE.Object3D): void {
+    o.traverse((c) => {
+      const m = c as THREE.Mesh;
+      m.geometry?.dispose();
+      const mat = m.material as (THREE.Material & { map?: THREE.Texture | null }) | (THREE.Material & { map?: THREE.Texture | null })[] | undefined;
+      for (const x of Array.isArray(mat) ? mat : mat ? [mat] : []) {
+        x.map?.dispose();
+        x.dispose();
+      }
+    });
   }
 
   private placeGoals(): void {
@@ -493,20 +510,21 @@ export class FutebolEngine {
     for (const q of this.pending) stepPlayer(next, q.input, this.field, DT);
     const old = this.pred;
     if (old) {
-      const dx = old.x + this.vis.x - next.x;
-      const dz = old.z + this.vis.z - next.z;
-      if (Math.hypot(dx, dz) > 3) {
-        this.vis.x = 0;
-        this.vis.z = 0;
-      } else {
-        // o desvio some devagar em vez de dar tranco
-        this.vis.x = dx;
-        this.vis.z = dz;
-      }
+      // a posição desenhada agora (interpolada) não pode pular: o desvio absorve a diferença e some aos poucos
+      const k = this.acc / DT;
+      const drawn = { x: this.prevX + (old.x - this.prevX) * k + this.vis.x, z: this.prevZ + (old.z - this.prevZ) * k + this.vis.z };
+      const r = reconcileDrawn(drawn, next);
+      this.prevX = r.prev.x;
+      this.prevZ = r.prev.z;
+      this.vis.x = r.vis.x;
+      this.vis.z = r.vis.z;
+    } else {
+      this.prevX = next.x;
+      this.prevZ = next.z;
+      this.vis.x = 0;
+      this.vis.z = 0;
     }
     this.pred = next;
-    this.prevX = next.x;
-    this.prevZ = next.z;
   }
 
   private teamDna(p: FutSnapshot["players"][number], teams: [FutTeamConfig, FutTeamConfig]): AvatarDNA {
@@ -622,7 +640,7 @@ export class FutebolEngine {
     if (!me || me.role !== "linha") return;
     let input: FutInput;
     if (inputBlocked(getState()) || me.sentOff) {
-      // menu ou chat por cima: comando parado e botões soltos
+      // menu ou chat por cima: comando parado. Sem botão apertado o servidor zera a carga sem chutar (touch.ts), ou seja, cancela
       this.ctl = newControlState();
       this.mouse.leftHit = this.mouse.rightHit = false;
       input = { mx: 0, mz: 0, aim: this.aimYaw, sprint: false, kick: "none", pass: "none" };
@@ -674,6 +692,8 @@ export class FutebolEngine {
         break;
       }
     }
+    // salto grande (saída de bola, cobrança, reposição): vai direto, sem deslizar pelo campo
+    if (Math.hypot(c.x - a.x, c.z - a.z) > 5 && rt >= a.t) return { ...c, t: rt };
     const k = c.t === a.t ? 1 : Math.max(0, Math.min(1, (rt - a.t) / (c.t - a.t)));
     return { t: rt, x: a.x + (c.x - a.x) * k, y: a.y + (c.y - a.y) * k, z: a.z + (c.z - a.z) * k, f: angleLerp(a.f, c.f, k) };
   }
@@ -828,6 +848,7 @@ export class FutebolEngine {
     for (const v of this.views.values()) this.dropView(v);
     this.views.clear();
     this.lineMat.dispose();
+    this.sky.dispose();
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh;
       m.geometry?.dispose();
