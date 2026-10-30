@@ -218,7 +218,7 @@ export class RaceEngine {
   private hazardMats = new Map<string, THREE.Material>();
   private ghostMine: Ghost | null = null;
   private ghostRecord: Ghost | null = null;
-  private chat = new ChatBubbles(2.75);
+  private chat = new ChatBubbles(3.05);
   private raf = 0;
   private lastFrame = performance.now();
   private cleanup: (() => void)[] = [];
