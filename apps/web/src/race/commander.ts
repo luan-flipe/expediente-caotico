@@ -159,11 +159,11 @@ export function createCommander(track: Track, listener?: THREE.AudioListener, ef
     return { geo, base: Float32Array.from(geo.attributes.position.array), attach, side };
   });
   root.add(banner);
-  const ropeGeo = new THREE.CylinderGeometry(0.02, 0.02, 3.6, 4);
+  const ropeGeo = new THREE.CylinderGeometry(0.02, 0.02, 4.55, 4);
   const ropeMat = new THREE.MeshStandardMaterial({ color: "#5a554c" });
   const rope = new THREE.Mesh(ropeGeo, ropeMat);
-  rope.position.set(0, 1.8, -6.1);
-  rope.rotation.x = Math.PI / 2 - 0.3;
+  rope.position.set(0, 1.99, -5.66);
+  rope.rotation.x = Math.PI / 2 - 0.32;
   root.add(rope);
 
   /**
