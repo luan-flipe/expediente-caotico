@@ -108,12 +108,6 @@ export interface FutRow extends RankingRowBase {
   assists: number;
   matches: number;
 }
-export interface FutRow extends RankingRowBase {
-  wins: number;
-  goals: number;
-  assists: number;
-  matches: number;
-}
 export interface LapRow extends RankingRowBase {
   ms: number;
 }
