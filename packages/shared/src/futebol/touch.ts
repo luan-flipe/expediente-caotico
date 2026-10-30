@@ -184,9 +184,7 @@ export function resolveTouches(
       kickBall(ball, input.aim, power01, kind);
       kicked.add(p.id);
       events.push({ t: kind, id: p.id, ok: true });
-    } else if (!charged) {
-      // release sem carga do mesmo tipo (reenvio do cliente): não vira carrinho nem disputa
-    } else if (kind === "kick") {
+    } else if (charged && kind === "kick") {
       if (p.tackleMs <= 0) {
         const ev = tackle(p, input, ordered, ball, field);
         events.push(ev);
@@ -194,7 +192,8 @@ export function resolveTouches(
           kicked.add(p.id);
         }
       }
-    } else {
+    } else if (charged) {
+      // sem carga do mesmo tipo (reenvio do release pelo cliente) não vira carrinho nem disputa
       events.push(steal(p, ordered, ball));
     }
   }

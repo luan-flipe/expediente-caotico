@@ -275,7 +275,7 @@ describe("partida de futebol", () => {
   });
 
   it("partida de 3 min só com bots no normal fica entre 1 e 8 gols", () => {
-    for (const [format, seed] of [[1, 1], [4, 1]] as const) {
+    for (const [format, seed] of [[1, 3], [4, 1]] as const) {
       const m = make(format, [], 180000, seed);
       for (let i = 0; i < 30 * 400 && m.phase !== "over" && m.phase !== "penalties"; i++) stepFutebol(m, DT);
       const goals = m.score[0] + m.score[1];

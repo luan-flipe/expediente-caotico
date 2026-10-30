@@ -158,8 +158,10 @@ export function botInput(p: FutPlayer, m: FutMatch, level: BotLevel): FutInput {
   const owner = b.ownerId === null ? undefined : m.players.find((q) => q.id === b.ownerId);
   if (owner?.side !== p.side && nearestToBall(m, p.side)?.id === p.id) {
     const d = dist(p, b);
-    const dispute = owner !== undefined && d <= FUT.controlRadius * 0.9 && rng() < par.stealChance;
-    return { ...moveTo(p, b, d > SPRINT_FROM), pass: dispute ? "release" : "none" };
+    const inReach = owner !== undefined && d <= FUT.controlRadius * 0.9;
+    // a disputa é carregar e soltar o passe (o servidor só aceita release com carga); quem já carregou solta no tick seguinte
+    const pass = inReach && (p.chargeKind === "pass" || rng() < par.stealChance) ? (p.chargeKind === "pass" ? "release" : "charge") : "none";
+    return { ...moveTo(p, b, d > SPRINT_FROM), pass };
   }
   const spot = formationSpot(p, m);
   return moveTo(p, spot, dist(p, spot) > SPRINT_HOME);

@@ -125,6 +125,20 @@ describe("bots de linha", () => {
     expect(Math.abs(b.aim - Math.atan2(m.ball.x - far.x, m.ball.z - far.z))).toBeGreaterThan(0.2);
   });
 
+  it("bot disputa de verdade: carrega, solta e a disputa acontece", () => {
+    const bot = mk({ id: "a1", x: 0, z: 0 });
+    const dono = mk({ id: "b1", side: 1, x: 0.6, z: 0 });
+    const b = ball({ x: 0.3, z: 0, ownerId: "b1" });
+    const m = match([bot, dono], b);
+    const eventos: string[] = [];
+    for (let i = 0; i < 60; i++) {
+      const ev = resolveTouches([bot, dono], b, new Map([["a1", botInput(bot, m, "normal")]]), 16);
+      eventos.push(...ev.filter((e) => e.t === "steal").map((e) => e.id));
+      if (eventos.length) break;
+    }
+    expect(eventos).toContain("a1");
+  });
+
   it("bot com bola na área chuta", () => {
     const shooter = mk({ id: "a1", x: field.halfL - 4, z: 1 });
     const keeper = mk({ id: "gb", role: "goleiro", side: 1, x: field.halfL - 1, z: 0 });
