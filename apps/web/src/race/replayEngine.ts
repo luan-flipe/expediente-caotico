@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { sampleGhost, type ReplayData, type Track } from "@ec/shared";
 import { applyQuality } from "../quality";
 import { getSettings } from "../settings";
-import { seatedRacer, type Racer3D } from "./chairMesh";
+import { buildRacer, type Racer3D } from "./chairMesh";
 import { buildParachute, parachuteFor } from "./parachute";
 import { nameTag } from "./ghosts";
 import { buildTrack } from "./trackScene";
@@ -69,7 +69,7 @@ export class ReplayEngine {
     this.sun = sun;
     this.disposeTrack = buildTrack(this.scene, track);
 
-    this.racer = seatedRacer(data.avatar, data.chair);
+    this.racer = buildRacer(data.avatar, data.chair);
     this.tag = nameTag(data.name, "#ffd23f");
     this.racer.root.add(this.tag);
     this.chute = buildParachute(parachuteFor(data.chair));

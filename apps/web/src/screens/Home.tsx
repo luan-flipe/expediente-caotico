@@ -73,16 +73,18 @@ export function Home() {
   };
 
   return (
-    <div className="screen">
+    <div className="screen home">
       <div className="wrap">
+        <div className="home-head">
         <div className="brand">
           <h1>
             Expediente <span>Caótico</span>
           </h1>
         </div>
         <p className="tagline">Tiroteio de bolinha de papel no escritório. Monte seu boneco, chame os colegas e dispute quem bate a meta do dia.</p>
+        </div>
 
-        <div className="grid-2">
+        <div className="home-grid">
           <div className="badge">
             <div className="badge-top">
               <span>CRACHÁ</span>
@@ -154,14 +156,9 @@ export function Home() {
                 )}
               </div>
             </div>
+            {challenge && <ChallengeCard challenge={challenge} />}
           </div>
-        </div>
-        {challenge && (
-          <div style={{ marginTop: 16 }}>
-            <ChallengeCard challenge={challenge} />
-          </div>
-        )}
-        <div className="pair" style={{ marginTop: 16 }}>
+        <div className="stack home-side">
         <div className="card stack">
           <div>
             <p className="label">Controles</p>
@@ -195,6 +192,7 @@ export function Home() {
               v{__APP_VERSION__}
             </span>
           </p>
+        </div>
         </div>
         </div>
       </div>

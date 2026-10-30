@@ -24,11 +24,22 @@ export interface Character {
    * Devolve a altura da parte de baixo das coxas, para apoiá-las no assento.
    */
   sit(): number;
-  /** Já sentado, gira os ombros até os pulsos alcançarem os pontos dados (coordenadas de root). */
+  /** Pose em pé no patinete: pernas retas, um pé à frente, braços para a frente. Para as animações. */
+  stand?(): StandFit;
+  /** Já sentado ou em pé, gira os ombros até os pulsos alcançarem os pontos dados (coordenadas de root). */
   restHands(left: THREE.Vector3, right: THREE.Vector3): void;
-  /** Já sentado, toca a comemoração e volta à pose sentada. Só o corpo: assento e confete ficam com a cadeira. */
+  /** Já sentado ou em pé, toca a comemoração e volta à pose. Só o corpo: assento e confete ficam com o veículo. */
   celebrate(): void;
   dispose(): void;
+}
+
+/** Medidas do boneco em pé (coordenadas de root), para o patinete pôr o deck sob os pés e o guidão ao alcance. */
+export interface StandFit {
+  sole: number;
+  /** Ombro esquerdo (+x); o direito é o espelho em x. */
+  shoulder: THREE.Vector3;
+  /** Do ombro ao pulso. */
+  reach: number;
 }
 
 /** Altura (no espaço do boneco) da parte mais baixa das peças, já na pose sentada. */
@@ -47,6 +58,8 @@ const CELEBRATE_URL = "/assets/characters/boneco_comemora.glb";
 const CELEBRATE_FIGURE_SCALE = 1.25;
 const TARGET_HEIGHT = 1.75;
 const HEIGHT_SCALE = [0.9, 1, 1.1];
+/** Pernas em pé no patinete: o pé esquerdo um pouco à frente. */
+const STANCE = 0.14;
 /** Duração em segundos de cada ação no jogo (os clipes originais são mais longos). */
 const ACTION_SECONDS: Record<CharacterAction, number> = { throw: 0.45, cafe: 0.7, dash: 0.3, tchau: 3.2 };
 const CLIP_OF: Record<CharacterAction, string> = { throw: "jogar_bolinha", cafe: "jogar_cafe", dash: "dash", tchau: "tchau" };
@@ -70,6 +83,8 @@ interface Loaded {
 /** Comemoração sentada, separada por quem a toca: o boneco, o assento da cadeira e o confete. */
 export interface Celebration {
   body: THREE.AnimationClip;
+  /** O mesmo sem as pernas, que no arquivo estão sentadas: no patinete os pés ficam no deck. */
+  standing: THREE.AnimationClip;
   /** Giro do assento, já com o nome do nó da cadeira do jogo. */
   seat: THREE.AnimationClip | null;
   confetti: { scene: THREE.Object3D; clip: THREE.AnimationClip } | null;
@@ -97,8 +112,10 @@ function splitCelebration(clip: THREE.AnimationClip | undefined, file: THREE.Obj
     });
   const confetti = file.getObjectByName("confete");
   const bits = clip.tracks.filter((t) => node(t).startsWith("confete_"));
+  const legs = /^(perna|joelho|pe)_/;
   return {
     body: new THREE.AnimationClip("comemorar", clip.duration, body),
+    standing: new THREE.AnimationClip("comemorar_em_pe", clip.duration, body.filter((t) => !legs.test(node(t)))),
     seat: seat.length ? new THREE.AnimationClip("comemorar_assento", clip.duration, seat) : null,
     confetti: confetti && bits.length ? { scene: confetti, clip: new THREE.AnimationClip("comemorar_confete", clip.duration, bits) } : null,
   };
@@ -243,22 +260,25 @@ function retargetWearable(src: THREE.SkinnedMesh, samples: LimbSample[][], body:
   );
 }
 
-/** Detalhe de roupa que fica na cor dele quando a peça muda de cor (pelo nome do material). */
-const FIXED_PART = /botao|cadarco|sola|ilhos|fivela|ziper/i;
+/** Parte de roupa que fica na cor dela quando a peça muda de cor (pelo nome do material, "fixo"/"fixa" para qualquer parte). */
+const FIXED_PART = /botao|cadarco|sola|ilhos|fivela|ziper|fix[ao]/i;
 const luminance = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+const fixedPart = (m: THREE.SkinnedMesh) => !Array.isArray(m.material) && FIXED_PART.test(m.material.name);
 
 /**
- * Cor de cada malha de uma roupa tingida. A principal (a de mais vértices) fica na cor escolhida e as outras
- * (gola, punho, forro) guardam o quanto eram mais claras ou escuras que ela; botão, cadarço e sola não mudam.
+ * Cor de cada malha de uma roupa tingida. A principal (a de mais vértices entre as que mudam) fica na cor
+ * escolhida e as outras (gola, punho, forro) guardam o quanto eram mais claras ou escuras que ela; botão,
+ * cadarço, sola e partes fixas não mudam.
  */
 function clothTints(list: THREE.SkinnedMesh[], hex: string): Map<THREE.SkinnedMesh, THREE.Color> {
   const size = (m: THREE.SkinnedMesh) => m.geometry.getAttribute("position").count;
-  const main = list.reduce((a, b) => (size(b) > size(a) ? b : a));
+  const dyed = list.filter((m) => !fixedPart(m));
+  const main = (dyed.length ? dyed : list).reduce((a, b) => (size(b) > size(a) ? b : a));
   const base = Math.max(luminance((main.material as THREE.MeshStandardMaterial).color), 1e-3);
   const tints = new Map<THREE.SkinnedMesh, THREE.Color>();
   for (const m of list) {
     const mat = m.material as THREE.MeshStandardMaterial;
-    if (Array.isArray(m.material) || !mat.isMeshStandardMaterial || FIXED_PART.test(mat.name)) continue;
+    if (Array.isArray(m.material) || !mat.isMeshStandardMaterial || fixedPart(m)) continue;
     tints.set(m, new THREE.Color(hex).multiplyScalar(Math.min(luminance(mat.color) / base, 1.5)));
   }
   return tints;
@@ -507,18 +527,35 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     actions.set(k, a);
   }
 
-  const cheer = model.celebration ? mixer.clipAction(model.celebration.body) : null;
-  cheer?.setLoop(THREE.LoopOnce, 1);
-  /** Pose sentada guardada ao começar a comemoração, para voltar a ela no fim. */
+  const cheerOf = (clip?: THREE.AnimationClip) => (clip ? mixer.clipAction(clip).setLoop(THREE.LoopOnce, 1) : null);
+  let cheer = cheerOf(model.celebration?.body);
+  /** Pose sentada ou em pé guardada ao começar a comemoração, para voltar a ela no fim. */
   let pose: [THREE.Object3D, THREE.Vector3, THREE.Quaternion, THREE.Vector3][] = [];
   const pernaD = inner.getObjectByName("perna_D");
   const pernaE = inner.getObjectByName("perna_E");
+  const bend = (list: readonly (readonly [string, number])[]) => {
+    for (const [n, x] of list) {
+      const o = inner.getObjectByName(n);
+      if (o) o.rotation.x = x;
+    }
+    tiltFeet();
+    syncFace();
+  };
+  const sole = () => {
+    if (!body) return 0;
+    // a caixa da malha com pele é calculada na pose atual dos ossos
+    inner.updateMatrixWorld(true);
+    (body as THREE.SkinnedMesh).computeBoundingBox();
+    return bottomOf(root, [body]);
+  };
 
-  let seated = false;
+  let riding = false;
+  /** Rotação das pernas na pose em pé; null sentado. */
+  let stance: [THREE.Euler, THREE.Euler] | null = null;
   return {
     root,
     update(dt, speed01) {
-      if (seated) {
+      if (riding) {
         if (!cheer?.isRunning()) return;
         mixer.update(dt);
         tiltFeet();
@@ -545,7 +582,21 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       syncFace();
     },
     updateSeated(dt, speed, _steer, driftDir) {
-      if (!seated || cheer?.isRunning()) return;
+      if (!riding || cheer?.isRunning()) return;
+      const k = Math.min(1, dt * 10);
+      if (stance) {
+        // elétrico, sem remada: no drift o pé de dentro da curva sai do deck para o lado
+        for (const [leg, base, dir] of [
+          [pernaD, stance[0], 1],
+          [pernaE, stance[1], -1],
+        ] as const) {
+          if (!leg) continue;
+          const dab = driftDir === dir;
+          leg.rotation.x += ((dab ? -0.35 : base.x) - leg.rotation.x) * k;
+          leg.rotation.z += ((dab ? base.z - dir * 0.55 : base.z) - leg.rotation.z) * k;
+        }
+        return;
+      }
       // pé no chão no drift para apoio e remadas na arrancada lenta; os braços ficam no apoio
       let legD = -Math.PI / 2;
       let legE = -Math.PI / 2;
@@ -556,7 +607,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         legD += Math.max(0, push) * 0.32;
         legE += Math.max(0, -push) * 0.32;
       }
-      const k = Math.min(1, dt * 10);
       if (pernaD) pernaD.rotation.x += (legD - pernaD.rotation.x) * k;
       if (pernaE) pernaE.rotation.x += (legE - pernaE.rotation.x) * k;
     },
@@ -566,24 +616,36 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       a.reset().play();
     },
     sit() {
-      seated = true;
+      riding = true;
       mixer.stopAllAction();
-      for (const [n, x] of [
+      bend([
         ["perna_D", -Math.PI / 2],
         ["perna_E", -Math.PI / 2],
         ["ombro_D", -0.75],
         ["ombro_E", -0.75],
-      ] as const) {
-        const o = inner.getObjectByName(n);
-        if (o) o.rotation.x = x;
-      }
-      tiltFeet();
-      syncFace();
-      if (!body) return 0;
-      // a caixa da malha com pele é calculada na pose atual dos ossos
-      inner.updateMatrixWorld(true);
-      (body as THREE.SkinnedMesh).computeBoundingBox();
-      return bottomOf(root, [body]);
+      ]);
+      return sole();
+    },
+    stand() {
+      riding = true;
+      mixer.stopAllAction();
+      cheer = cheerOf(model.celebration?.standing);
+      bend([
+        ["perna_D", STANCE],
+        ["perna_E", -STANCE],
+        ["ombro_D", -0.75],
+        ["ombro_E", -0.75],
+      ]);
+      stance = [pernaD?.rotation.clone() ?? new THREE.Euler(), pernaE?.rotation.clone() ?? new THREE.Euler()];
+      const bottom = sole();
+      const at = (name: string) => inner.getObjectByName(name)?.getWorldPosition(new THREE.Vector3());
+      const shoulder = at("ombro_E");
+      const wrist = at("punho_E");
+      return {
+        sole: bottom,
+        shoulder: shoulder ? root.worldToLocal(shoulder.clone()) : new THREE.Vector3(0.17, 0.7, 0),
+        reach: shoulder && wrist ? shoulder.distanceTo(wrist) : 0.3,
+      };
     },
     restHands(left, right) {
       root.updateMatrixWorld(true);
@@ -604,7 +666,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       }
     },
     celebrate() {
-      if (!seated || !cheer || cheer.isRunning()) return;
+      if (!riding || !cheer || cheer.isRunning()) return;
       pose = [];
       inner.traverse((o) => pose.push([o, o.position.clone(), o.quaternion.clone(), o.scale.clone()]));
       cheer.reset().play();
@@ -621,11 +683,11 @@ function proceduralCharacter(dna: AvatarDNA): Character {
   const rig = buildAvatar(dna);
   let t = 0;
   let aimUntil = 0;
-  let seated = false;
+  let riding = false;
   return {
     root: rig.root,
     update(dt, speed01) {
-      if (seated) return;
+      if (riding) return;
       t += dt * Math.max(0.05, speed01);
       aimUntil -= dt;
       animateAvatar(rig, speed01, t, aimUntil > 0);
@@ -634,10 +696,19 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       if (action === "throw") aimUntil = ACTION_SECONDS.throw;
     },
     sit() {
-      seated = true;
+      riding = true;
       rig.legL.rotation.x = rig.legR.rotation.x = -Math.PI / 2;
       rig.armL.rotation.x = rig.armR.rotation.x = -0.75;
       return bottomOf(rig.root, [rig.legL, rig.legR]);
+    },
+    stand() {
+      riding = true;
+      rig.legL.rotation.x = STANCE;
+      rig.legR.rotation.x = -STANCE;
+      rig.armL.rotation.x = rig.armR.rotation.x = -1;
+      const sole = bottomOf(rig.root, [rig.legL, rig.legR]);
+      const shoulder = rig.root.worldToLocal(rig.armR.getWorldPosition(new THREE.Vector3()));
+      return { sole, shoulder, reach: 0.58 };
     },
     restHands() {
       // o boneco procedural já sai de sit() com os braços no apoio

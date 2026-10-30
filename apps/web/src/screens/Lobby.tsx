@@ -165,7 +165,7 @@ export function Lobby() {
                 </button>
               )}
               <button className="btn" onClick={() => setState({ editing: true })}>
-                {race ? "Editar boneco e cadeira" : "Editar boneco"}
+                {race ? "Editar boneco e veículo" : "Editar boneco"}
               </button>
               <button className="btn" onClick={() => setState({ ranking: true })}>
                 Ranking
