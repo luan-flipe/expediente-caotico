@@ -59,7 +59,6 @@ const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const norm = (a) => mul(a, 1 / (Math.hypot(...a) || 1));
 const lerp3 = (a, b, t) => add(a, mul(sub(b, a), t));
-const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 const table = (rows, x) => {
   const k = rows.findIndex(([rx]) => rx > x);
   if (k <= 0) return rows[k < 0 ? rows.length - 1 : 0][1];
