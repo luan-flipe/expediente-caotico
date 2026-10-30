@@ -463,7 +463,6 @@ export class RaceEngine {
         const mine = this.views.get(this.myId);
         if (mine) {
           mine.r3d.char.playTaunt?.("wave", 1.5);
-          this.vfx?.spawnOnomatopoeia(mine.r3d.root.position.x, mine.r3d.root.position.y + 1.35, mine.r3d.root.position.z, "TCHAU!", 1.15, 0.75);
           playTauntSound();
         }
       }
@@ -540,7 +539,6 @@ export class RaceEngine {
 
     switch (item) {
       case "resma":
-        this.vfx?.spawnOnomatopoeia(p.x, p.y + 1.15, p.z, "TOMA!", 1.15, 0.65);
         spawn(this.itemGeoPaper, 4, () => ({
           x: p.x - fx * 0.7 + rx * ((Math.random() - 0.5) * 0.3),
           y: 0.65,
@@ -556,13 +554,11 @@ export class RaceEngine {
         break;
 
       case "pasta":
-        this.vfx?.spawnOnomatopoeia(p.x, p.y + 1.35, p.z, "BLINDADO!", 1.1, 0.75);
         v.bubbleScale = 0.2;
         v.bubble.visible = true;
         break;
 
       case "aviao":
-        this.vfx?.spawnOnomatopoeia(p.x, p.y + 1.35, p.z, "ZAPT!", 1.1, 0.65);
         spawn(this.itemGeoPaper, 4, () => ({
           x: p.x + fx * 0.4 + rx * ((Math.random() - 0.5) * 0.25),
           y: 0.85,
@@ -578,7 +574,6 @@ export class RaceEngine {
         break;
 
       case "grampeador":
-        this.vfx?.spawnOnomatopoeia(p.x, p.y + 1.25, p.z, "TCHAC!", 1.15, 0.6);
         if (v.last.id === this.myId) playStaplerClickSound();
         v.pitch = 0.09;
         spawn(this.itemGeoFlash, 1, () => ({
@@ -596,7 +591,6 @@ export class RaceEngine {
         break;
 
       case "poca":
-        this.vfx?.spawnOnomatopoeia(p.x, p.y + 1.15, p.z, "TOMA!", 1.15, 0.65);
         spawn(this.itemGeoDrop, 6, () => ({
           x: p.x - fx * 0.6 + rx * ((Math.random() - 0.5) * 0.35),
           y: 0.3,
@@ -612,7 +606,6 @@ export class RaceEngine {
         break;
 
       case "postit":
-        this.vfx?.spawnOnomatopoeia(p.x, p.y + 1.35, p.z, "COLOU!", 1.1, 0.65);
         spawn(this.itemGeoPostit, 6, () => ({
           x: p.x + fx * 0.5 + rx * ((Math.random() - 0.5) * 0.35),
           y: 0.75,
@@ -629,7 +622,6 @@ export class RaceEngine {
 
       case "expresso":
       case "triplo":
-        this.vfx?.spawnOnomatopoeia(p.x, p.y + 1.35, p.z, "GLUB!", 1.15, 0.7);
         if (v.last.id === this.myId) {
           playCoffeeGulpSound();
           this.shake = Math.min(0.5, this.shake + 0.22);
@@ -1193,7 +1185,6 @@ export class RaceEngine {
               this.pred.boostUntil = Math.max(this.pred.boostUntil, now + bDur);
               this.pred.boostSpeed = Math.max(this.pred.boostSpeed ?? 0, bSpeed);
               this.shake = Math.min(0.4, this.shake + 0.12);
-              this.vfx?.spawnOnomatopoeia(this.pred.pos.x, (this.pred.y ?? 0) + 1.2, this.pred.pos.z, "VRUUUM!", 1.15);
             }
             if (out.bonk) {
               if (out.bonkImpulse) {
@@ -1202,11 +1193,9 @@ export class RaceEngine {
               }
               this.pred.speed *= 0.5;
               this.shake = Math.min(0.5, this.shake + 0.25);
-              this.vfx?.spawnOnomatopoeia(this.pred.pos.x, (this.pred.y ?? 0) + 1.1, this.pred.pos.z, "POW!", 1.25);
             }
             if (out.spin) {
               this.pred.spinUntil = Math.max(this.pred.spinUntil, now + 800);
-              this.vfx?.spawnOnomatopoeia(this.pred.pos.x, (this.pred.y ?? 0) + 1.1, this.pred.pos.z, "VISH!", 1.2);
             }
             if (out.airCushionLift !== undefined && out.airCushionLift > 0) {
               this.pred.y = Math.max(this.pred.y ?? 0, out.airCushionLift);
@@ -1368,13 +1357,7 @@ export class RaceEngine {
       v.hopY = 0.03;
       v.hopVel = 2.4;
       v.wasDrifting = true;
-      if (own) {
-        this.vfx?.spawnOnomatopoeia(x, y + 1.25, z, "BOING!", 0.95);
-      }
     } else if (drift < 0) {
-      if (v.wasDrifting && own && this.pred && this.clock < this.pred.boostUntil) {
-        this.vfx?.spawnOnomatopoeia(x, y + 1.25, z, "TURBO!", 1.1);
-      }
       v.wasDrifting = false;
     }
 
@@ -1418,11 +1401,6 @@ export class RaceEngine {
 
       // VFX: explosão estelar multicolorida / dourada ao redor do piloto
       this.vfx?.spawnTrickBurst(x, y + 0.9, z);
-
-      // Onomatopeia 3D estilizada saltando no topo
-      const trickWords = ["SHOW!", "RAD!", "UHUU!", "BOING!", "PERFEITO!"] as const;
-      const word = trickWords[(v.trickCount + v.trickType) % trickWords.length];
-      this.vfx?.spawnOnomatopoeia(x, y + 1.45, z, word, 1.15, 0.85);
 
       if (isMine) {
         playTrickChime();
@@ -1489,7 +1467,6 @@ export class RaceEngine {
       if (v.performedTrick) {
         // Shockwave no solo, faíscas de empuxo e fumaça simétrica
         this.vfx?.spawnLandingBoost(x, y, z, heading);
-        this.vfx?.spawnOnomatopoeia(x, y + 1.1, z, "TURBO!", 1.25, 0.75);
 
         v.flame.visible = true;
         v.flame.scale.set(1.4, 1.8, 1.4);
@@ -1595,16 +1572,12 @@ export class RaceEngine {
       if (k.place < v.lastPlace) {
         // ULTRAPASSOU UM RIVAL! Taunt debochado
         v.r3d.char.playTaunt?.("wave", 1.5);
-        const tauntWords = ["TCHAU!", "VALEU!", "HA HA!"] as const;
-        const tw = tauntWords[Math.floor(Math.random() * tauntWords.length)];
-        this.vfx?.spawnOnomatopoeia(x, y + 1.45, z, tw, 1.2, 0.85);
         if (v.last.id === this.myId) {
           playTauntSound();
         }
       } else if (k.place > v.lastPlace) {
         // FOI ULTRAPASSADO POR UM RIVAL! Frustração / punho cerrado
         v.r3d.char.playTaunt?.("fist", 1.2);
-        this.vfx?.spawnOnomatopoeia(x, y + 1.35, z, "EITA!", 1.1, 0.7);
       } else if (k.place <= 2 && v.lastPlace > 2) {
         v.r3d.char.setEmotion?.("victory", 1.8);
       } else if (k.lap > (v.lastLap ?? 0) && k.place <= 2) {
@@ -1620,7 +1593,6 @@ export class RaceEngine {
       if (rivalDist < 3.2 && boosting && (!v.lastTauntAt || this.clock - v.lastTauntAt > 4000)) {
         v.lastTauntAt = this.clock;
         v.r3d.char.playTaunt?.("point", 1.3);
-        this.vfx?.spawnOnomatopoeia(x, y + 1.35, z, "VALEU!", 1.1, 0.75);
         if (v.last.id === this.myId) {
           playTauntSound();
         }
