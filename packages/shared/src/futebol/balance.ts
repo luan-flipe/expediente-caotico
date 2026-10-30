@@ -35,3 +35,6 @@ export const FUT_COLORS = [
   { name: "Preto", hex: "#1f2937" },
   { name: "Branco", hex: "#f3f4f6" },
 ] as const;
+
+/** Gramado do mapa Ipatingão já na escala do jogo (metros, centrado na origem, eixo comprido em X): meio comprimento e meia largura das linhas. */
+export const IPATINGAO = { grassHalfL: 50.04, grassHalfW: 32.63 } as const;
