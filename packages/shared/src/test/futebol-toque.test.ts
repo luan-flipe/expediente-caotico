@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FUT, resolveTouches } from "../index";
+import { FUT, fieldFor, resolveTouches, stepBall } from "../index";
 import type { Ball, FutInput, FutPlayer } from "../index";
 
 function mk(over: Partial<FutPlayer> = {}): FutPlayer {
@@ -101,13 +101,14 @@ describe("toques no futebol", () => {
     expect(Math.abs(b.vz)).toBeLessThan(1e-9);
   });
 
-  it("soltar sem a bola não chuta nem passa", () => {
+  it("kick solto sem a bola vira carrinho e não chuta nem passa", () => {
     const p = mk();
     const b = ball({ x: 10, z: 10 });
     const antes = { ...b };
     const ev = resolveTouches([p], b, new Map([["p1", inp({ kick: "release" })]]), 16);
     expect(b).toEqual(antes);
     expect(ev.some((e) => e.t === "kick" || e.t === "pass")).toBe(false);
+    expect(ev).toContainEqual({ t: "tackle", id: "p1", ok: false });
   });
 
   it("goleiro e expulso são ignorados", () => {
@@ -124,7 +125,7 @@ describe("toques no futebol", () => {
     const b = ball({ z: 0.5, ownerId: "a", lastTouch: { id: "a", side: 0 } });
     resolveTouches([a, c], b, new Map([["a", inp({ pass: "release", aim: Math.PI / 2 })]]), 16);
     expect(b.lastTouch).toEqual({ id: "a", side: 0 });
-    b.x = 8.2; b.z = 0; b.vx = 0; b.vz = 0;
+    b.x = 8.2; b.z = 0;
     resolveTouches([a, c], b, new Map(), 16);
     expect(b.ownerId).toBe("c");
     expect(b.lastTouch).toEqual({ id: "c", side: 0 });
@@ -189,5 +190,49 @@ describe("toques no futebol", () => {
     const ev2 = resolveTouches([t], b, ins, 16);
     expect(ev2.some((e) => e.t === "tackle")).toBe(false);
     expect(t.z).toBe(z1);
+  });
+
+  it("receber passe parado domina a bola", () => {
+    const a = mk({ id: "a" });
+    const c = mk({ id: "c", x: 6 });
+    const b = ball({ z: 0.5, ownerId: "a" });
+    resolveTouches([a, c], b, new Map([["a", inp({ pass: "release", aim: Math.PI / 2 })]]), 16);
+    for (let i = 0; i < 120 && b.ownerId !== "c"; i++) {
+      stepBall(b, 16);
+      resolveTouches([a, c], b, new Map(), 16);
+    }
+    expect(b.ownerId).toBe("c");
+    for (let i = 0; i < 30; i++) {
+      stepBall(b, 16);
+      resolveTouches([a, c], b, new Map(), 16);
+    }
+    expect(b.ownerId).toBe("c");
+    expect(Math.hypot(b.vx, b.vz)).toBeLessThan(0.5);
+    expect(dist(b, c) <= FUT.controlRadius).toBe(true);
+  });
+
+  it("dono que para segura a bola no pé", () => {
+    const p = mk({ vz: 0 });
+    const b = ball({ z: 0.5, vz: 6, ownerId: "p1" });
+    resolveTouches([p], b, new Map(), 16);
+    expect(b.vz).toBe(0);
+    expect(b.ownerId).toBe("p1");
+  });
+
+  it("carrinho não derruba quem já está no chão de novo", () => {
+    const t = mk({ id: "t" });
+    const v = mk({ id: "v", side: 1, z: 1.5, downMs: 700 });
+    const b = ball({ x: 9, z: 9 });
+    const ev = resolveTouches([t, v], b, new Map([["t", inp({ kick: "release" })]]), 16);
+    expect(v.downMs).toBe(700);
+    expect(ev).toContainEqual({ t: "tackle", id: "t", ok: false });
+  });
+
+  it("carrinho não sai do campo", () => {
+    const field = fieldFor(2);
+    const t = mk({ id: "t", z: field.halfW + 1.5 });
+    const b = ball({ x: 9, z: -9 });
+    resolveTouches([t], b, new Map([["t", inp({ kick: "release", aim: 0 })]]), 16, field);
+    expect(t.z).toBeLessThanOrEqual(field.halfW + 2);
   });
 });

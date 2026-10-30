@@ -1,6 +1,6 @@
 import { FUT } from "./balance";
 import { kickBall } from "./ball";
-import type { Ball, FutInput, FutPlayer } from "./types";
+import type { Ball, Field, FutInput, FutPlayer } from "./types";
 
 /** Resultado de um toque. Em "tackle" e "steal", victimId e ballFirst só vêm
  *  quando houve contato com um adversário (a falta é julgada em fouls.ts). */
@@ -29,6 +29,9 @@ const TACKLE_COOLDOWN_MS = 800;
 const TACKLE_DOWN_MS = 1200;
 const TACKLE_POKE = 7;
 
+/** Folga além das linhas do campo, igual à de stepPlayer (m). */
+const MARGIN = 2;
+
 const NO_INPUT: FutInput = { mx: 0, mz: 0, aim: 0, sprint: false, kick: "none", pass: "none" };
 
 function touch(ball: Ball, p: FutPlayer): void {
@@ -47,7 +50,7 @@ function byId(a: FutPlayer, b: FutPlayer): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-function tackle(p: FutPlayer, input: FutInput, players: FutPlayer[], ball: Ball): TouchEvent {
+function tackle(p: FutPlayer, input: FutInput, players: FutPlayer[], ball: Ball, field?: Field): TouchEvent {
   const dx = Math.sin(input.aim);
   const dz = Math.cos(input.aim);
   /** Projeção (t) e distância lateral (d) de um ponto sobre o deslize. */
@@ -61,7 +64,7 @@ function tackle(p: FutPlayer, input: FutInput, players: FutPlayer[], ball: Ball)
   let victim: FutPlayer | null = null;
   let victimT = 0;
   for (const o of players) {
-    if (o.side === p.side || o.role !== "linha" || o.sentOff) {
+    if (o.side === p.side || o.role !== "linha" || o.sentOff || o.downMs > 0) {
       continue;
     }
     const a = along(o.x, o.z);
@@ -77,6 +80,12 @@ function tackle(p: FutPlayer, input: FutInput, players: FutPlayer[], ball: Ball)
   const stop = victim !== null ? victimT : TACKLE_LEN;
   p.x += dx * stop;
   p.z += dz * stop;
+  if (field) {
+    const mx = field.halfL + MARGIN;
+    const mz = field.halfW + MARGIN;
+    p.x = Math.min(mx, Math.max(-mx, p.x));
+    p.z = Math.min(mz, Math.max(-mz, p.z));
+  }
   p.vx = 0;
   p.vz = 0;
   p.facing = input.aim;
@@ -99,6 +108,8 @@ function steal(p: FutPlayer, players: FutPlayer[], ball: Ball): TouchEvent {
   const owner = ball.ownerId === null ? null : players.find((o) => o.id === ball.ownerId);
   if (owner && owner.side !== p.side && Math.hypot(owner.x - p.x, owner.z - p.z) <= FUT.controlRadius) {
     ball.ownerId = p.id;
+    ball.vx = 0;
+    ball.vz = 0;
     touch(ball, p);
     return { t: "steal", id: p.id, ok: true, victimId: owner.id, ballFirst: true };
   }
@@ -112,6 +123,7 @@ export function resolveTouches(
   ball: Ball,
   inputs: Map<string, FutInput>,
   dtMs: number,
+  field?: Field,
 ): TouchEvent[] {
   const events: TouchEvent[] = [];
   const ordered = [...players].sort(byId);
@@ -173,7 +185,11 @@ export function resolveTouches(
       events.push({ t: kind, id: p.id, ok: true });
     } else if (kind === "kick") {
       if (p.tackleMs <= 0) {
-        events.push(tackle(p, input, ordered, ball));
+        const ev = tackle(p, input, ordered, ball, field);
+        events.push(ev);
+        if (ev.ballFirst) {
+          kicked.add(p.id);
+        }
       }
     } else {
       events.push(steal(p, ordered, ball));
@@ -185,6 +201,10 @@ export function resolveTouches(
   const owner = ball.ownerId === null ? null : ordered.find((q) => q.id === ball.ownerId);
   if (owner) {
     const speed = Math.hypot(owner.vx, owner.vz);
+    if (speed <= MOVING_EPS) {
+      ball.vx = 0;
+      ball.vz = 0;
+    }
     if (speed > MOVING_EPS) {
       const sprint = (inputs.get(owner.id) ?? NO_INPUT).sprint;
       const d = sprint ? FUT.sprintTouch : FUT.dribbleTouch;
@@ -224,6 +244,8 @@ export function resolveTouches(
     }
     if (best) {
       ball.ownerId = best.id;
+      ball.vx = 0;
+      ball.vz = 0;
       touch(ball, best);
     }
   }
