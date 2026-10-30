@@ -21,6 +21,9 @@ export interface CharacterSeatedOptions {
   isBraking?: boolean;
   inAir?: boolean;
   acceleration?: number;
+  isTricking?: boolean;
+  trickType?: number;
+  trickProgress?: number;
 }
 
 /** Boneco renderizado: GLB do romulo-h quando carregado, boneco procedural enquanto isso. */
@@ -161,6 +164,7 @@ export class CharacterPhysicsInertia {
   public chatterRot = 0;
 
   private wasInAir = false;
+  private wasTricking = false;
   private time = 0;
 
   public reset(): void {
@@ -172,6 +176,7 @@ export class CharacterPhysicsInertia {
     this.chatterY = 0;
     this.chatterRot = 0;
     this.wasInAir = false;
+    this.wasTricking = false;
     this.time = 0;
   }
 
@@ -183,6 +188,7 @@ export class CharacterPhysicsInertia {
     boosting: boolean,
     inAir: boolean,
     isBraking: boolean,
+    isTricking = false,
   ): void {
     this.time += dt;
 
@@ -206,11 +212,16 @@ export class CharacterPhysicsInertia {
     const pitchK = Math.min(1, dt * 9);
     this.bodyPitch += (targetPitch - this.bodyPitch) * pitchK;
 
-    // 3. Squash & Stretch na aterrissagem de saltos
+    // 3. Squash & Stretch na aterrissagem de saltos e elevação aerodinâmica em manobras
     if (this.wasInAir && !inAir) {
-      this.squashVel = -5.0; // Impacto elástico ao tocar o solo
+      this.squashVel = (this.wasTricking || isTricking) ? -7.2 : -5.0; // Impacto elástico extra potente ao tocar o solo após manobra
     }
     this.wasInAir = inAir;
+    this.wasTricking = inAir && isTricking;
+
+    if (isTricking && inAir) {
+      this.squashY += (0.16 - this.squashY) * Math.min(1, dt * 10);
+    }
 
     // Mola harmônica amortecida
     const springK = 54.0;
@@ -766,7 +777,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
       if (!seated || cheer?.isRunning()) return;
       emotion.update(dt, speed, options, boosting);
-      inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking);
+      inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking, !!options?.isTricking);
 
       // 1. Postura corporal do tronco (inércia centrífuga nas curvas e transferência de peso longitudinal)
       inner.position.x = inertia.bodyShiftX;
@@ -781,7 +792,11 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       // 2. Pernas: apoio e plantada de pé no drift, remada lenta ou frenagem
       let legD = -Math.PI / 2;
       let legE = -Math.PI / 2;
-      if (driftDir > 0) {
+      if (options?.isTricking && options.trickType === 3) {
+        // Super Kick-Out: pernas estendidas no ar
+        legD = 0.35;
+        legE = 0.35;
+      } else if (driftDir > 0) {
         legD += 0.52; // perna interna finca no chão
         legE -= 0.18; // perna externa encolhe
       } else if (driftDir < 0) {
@@ -844,33 +859,70 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         cabeca.rotation.z += (targetHeadZ - cabeca.rotation.z) * headK;
       }
 
-      // Braços: reação de pânico (solta apoios por 0.4s) ou gesto de vitória / tchauzinho
-      const pArm = emotion.panicArmTimer > 0 ? Math.min(1, emotion.panicArmTimer / 0.4) : 0;
-      if (pArm > 0 && ombroD && ombroE) {
-        const flail = Math.sin(emotion.time * 34) * 0.12;
-        _eArmTemp.set(-1.55 + flail, 0, -0.32);
-        _qArmTemp.setFromEuler(_eArmTemp);
-        ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, pArm);
-
-        _eArmTemp.set(-1.55 - flail, 0, 0.32);
-        _qArmTemp.setFromEuler(_eArmTemp);
-        ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, pArm);
-      } else if (emotion.wVictory > 0.01 && ombroE) {
-        const wave = Math.sin(emotion.time * 14) * 0.3;
-        _eArmTemp.set(-1.65 + wave * 0.2, -0.25, 0.45 + wave * 0.35);
-        _qArmTemp.setFromEuler(_eArmTemp);
-        ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, emotion.wVictory);
-        if (ombroD && handsRested) ombroD.quaternion.copy(restQuatD);
-      } else if (handsRested) {
-        if (options?.isBraking && pArm <= 0 && emotion.wVictory <= 0.01) {
-          // Trava os braços com força nos apoios para conter o peso
-          _eArmTemp.set(-0.95, 0, 0.08);
+      // Braços: acrobacias no ar (tricks) ou reações emotivas
+      if (options?.isTricking && ombroD && ombroE) {
+        const tType = options.trickType ?? 0;
+        if (tType === 0) {
+          // Manobra 1: Spin 360 - Punho direito levantado no ar em triunfo
+          _eArmTemp.set(-2.2, 0.15, -0.42);
           _qArmTemp.setFromEuler(_eArmTemp);
-          ombroD?.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.35);
-          ombroE?.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.35);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.88);
+          _eArmTemp.set(-0.95, 0, -0.25);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.88);
+        } else if (tType === 1) {
+          // Manobra 2: Backflip - Dois braços abertos em V triunfal
+          _eArmTemp.set(-2.05, 0, 0.58);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.9);
+          _eArmTemp.set(-2.05, 0, -0.58);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.9);
+        } else if (tType === 2) {
+          // Manobra 3: Parafuso - Braço apontando para frente voando estilo Superman
+          _eArmTemp.set(-1.65, 0.12, 0.15);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.9);
+          _eArmTemp.set(-0.85, 0, 0.35);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.85);
         } else {
-          if (ombroD) ombroD.quaternion.copy(restQuatD);
-          if (ombroE) ombroE.quaternion.copy(restQuatE);
+          // Manobra 4: Super Kick-Out - Braços segurando o assento por trás
+          _eArmTemp.set(-0.45, 0, 0.45);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.88);
+          _eArmTemp.set(-0.45, 0, -0.45);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.88);
+        }
+      } else {
+        const pArm = emotion.panicArmTimer > 0 ? Math.min(1, emotion.panicArmTimer / 0.4) : 0;
+        if (pArm > 0 && ombroD && ombroE) {
+          const flail = Math.sin(emotion.time * 34) * 0.12;
+          _eArmTemp.set(-1.55 + flail, 0, -0.32);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, pArm);
+
+          _eArmTemp.set(-1.55 - flail, 0, 0.32);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, pArm);
+        } else if (emotion.wVictory > 0.01 && ombroE) {
+          const wave = Math.sin(emotion.time * 14) * 0.3;
+          _eArmTemp.set(-1.65 + wave * 0.2, -0.25, 0.45 + wave * 0.35);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, emotion.wVictory);
+          if (ombroD && handsRested) ombroD.quaternion.copy(restQuatD);
+        } else if (handsRested) {
+          if (options?.isBraking && pArm <= 0 && emotion.wVictory <= 0.01) {
+            // Trava os braços com força nos apoios para conter o peso
+            _eArmTemp.set(-0.95, 0, 0.08);
+            _qArmTemp.setFromEuler(_eArmTemp);
+            ombroD?.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.35);
+            ombroE?.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.35);
+          } else {
+            if (ombroD) ombroD.quaternion.copy(restQuatD);
+            if (ombroE) ombroE.quaternion.copy(restQuatE);
+          }
         }
       }
 
@@ -976,7 +1028,7 @@ function proceduralCharacter(dna: AvatarDNA): Character {
     updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
       if (!seated) return;
       emotion.update(dt, speed, options, boosting);
-      inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking);
+      inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking, !!options?.isTricking);
 
       rig.body.position.x = inertia.bodyShiftX;
       rig.body.position.y = inertia.squashY * 0.22 + inertia.chatterY;
@@ -989,7 +1041,10 @@ function proceduralCharacter(dna: AvatarDNA): Character {
 
       let legD = -Math.PI / 2;
       let legE = -Math.PI / 2;
-      if (driftDir > 0) {
+      if (options?.isTricking && options.trickType === 3) {
+        legD = 0.35;
+        legE = 0.35;
+      } else if (driftDir > 0) {
         legD += 0.52;
         legE -= 0.18;
       } else if (driftDir < 0) {
@@ -1051,31 +1106,64 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       rig.head.rotation.z += (targetHeadZ - rig.head.rotation.z) * headK;
 
       // Braços no rig procedural
-      const pArm = emotion.panicArmTimer > 0 ? Math.min(1, emotion.panicArmTimer / 0.4) : 0;
-      if (pArm > 0) {
-        const flail = Math.sin(emotion.time * 34) * 0.12;
-        rig.armL.rotation.x = -0.75 * (1 - pArm) + (-1.55 + flail) * pArm;
-        rig.armR.rotation.x = -0.75 * (1 - pArm) + (-1.55 - flail) * pArm;
-        rig.armL.rotation.z = -0.32 * pArm;
-        rig.armR.rotation.z = 0.32 * pArm;
-        rig.armL.rotation.y = 0;
-        rig.armR.rotation.y = 0;
-      } else if (emotion.wVictory > 0.01) {
-        const wave = Math.sin(emotion.time * 14) * 0.3;
-        rig.armL.rotation.x = -0.75 * (1 - emotion.wVictory) + (-1.65 + wave * 0.2) * emotion.wVictory;
-        rig.armL.rotation.z = (0.45 + wave * 0.35) * emotion.wVictory;
-        rig.armL.rotation.y = -0.25 * emotion.wVictory;
-        rig.armR.rotation.x = -0.75;
-        rig.armR.rotation.z = 0;
-        rig.armR.rotation.y = 0;
+      if (options?.isTricking) {
+        const tType = options.trickType ?? 0;
+        if (tType === 0) {
+          rig.armR.rotation.x = -2.2;
+          rig.armR.rotation.z = -0.42;
+          rig.armR.rotation.y = 0.15;
+          rig.armL.rotation.x = -0.95;
+          rig.armL.rotation.z = -0.25;
+          rig.armL.rotation.y = 0;
+        } else if (tType === 1) {
+          rig.armL.rotation.x = -2.05;
+          rig.armL.rotation.z = 0.58;
+          rig.armL.rotation.y = 0;
+          rig.armR.rotation.x = -2.05;
+          rig.armR.rotation.z = -0.58;
+          rig.armR.rotation.y = 0;
+        } else if (tType === 2) {
+          rig.armR.rotation.x = -1.65;
+          rig.armR.rotation.z = 0.15;
+          rig.armR.rotation.y = 0.12;
+          rig.armL.rotation.x = -0.85;
+          rig.armL.rotation.z = 0.35;
+          rig.armL.rotation.y = 0;
+        } else {
+          rig.armL.rotation.x = -0.45;
+          rig.armL.rotation.z = 0.45;
+          rig.armL.rotation.y = 0;
+          rig.armR.rotation.x = -0.45;
+          rig.armR.rotation.z = -0.45;
+          rig.armR.rotation.y = 0;
+        }
       } else {
-        const brakeArm = options?.isBraking ? -0.95 : -0.75;
-        rig.armL.rotation.x = brakeArm;
-        rig.armL.rotation.z = 0;
-        rig.armL.rotation.y = 0;
-        rig.armR.rotation.x = brakeArm;
-        rig.armR.rotation.z = 0;
-        rig.armR.rotation.y = 0;
+        const pArm = emotion.panicArmTimer > 0 ? Math.min(1, emotion.panicArmTimer / 0.4) : 0;
+        if (pArm > 0) {
+          const flail = Math.sin(emotion.time * 34) * 0.12;
+          rig.armL.rotation.x = -0.75 * (1 - pArm) + (-1.55 + flail) * pArm;
+          rig.armR.rotation.x = -0.75 * (1 - pArm) + (-1.55 - flail) * pArm;
+          rig.armL.rotation.z = -0.32 * pArm;
+          rig.armR.rotation.z = 0.32 * pArm;
+          rig.armL.rotation.y = 0;
+          rig.armR.rotation.y = 0;
+        } else if (emotion.wVictory > 0.01) {
+          const wave = Math.sin(emotion.time * 14) * 0.3;
+          rig.armL.rotation.x = -0.75 * (1 - emotion.wVictory) + (-1.65 + wave * 0.2) * emotion.wVictory;
+          rig.armL.rotation.z = (0.45 + wave * 0.35) * emotion.wVictory;
+          rig.armL.rotation.y = -0.25 * emotion.wVictory;
+          rig.armR.rotation.x = -0.75;
+          rig.armR.rotation.z = 0;
+          rig.armR.rotation.y = 0;
+        } else {
+          const brakeArm = options?.isBraking ? -0.95 : -0.75;
+          rig.armL.rotation.x = brakeArm;
+          rig.armL.rotation.z = 0;
+          rig.armL.rotation.y = 0;
+          rig.armR.rotation.x = brakeArm;
+          rig.armR.rotation.z = 0;
+          rig.armR.rotation.y = 0;
+        }
       }
 
       applyAvatarEmotion(

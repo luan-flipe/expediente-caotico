@@ -481,6 +481,10 @@ const COMIC_PALETTES: Record<string, { bg: string; text: string; stroke: string;
   "POW!": { bg: "#e11d48", text: "#fef08a", stroke: "#020617", burst: true },
   "OUCH!": { bg: "#f59e0b", text: "#ffffff", stroke: "#451a03", burst: true },
   "TURBO!": { bg: "#0284c7", text: "#f0fdf4", stroke: "#082f49", burst: false },
+  "SHOW!": { bg: "#06b6d4", text: "#fef08a", stroke: "#083344", burst: true },
+  "RAD!": { bg: "#ec4899", text: "#fef08a", stroke: "#500724", burst: true },
+  "UHUU!": { bg: "#8b5cf6", text: "#fef08a", stroke: "#2e1065", burst: true },
+  "PERFEITO!": { bg: "#10b981", text: "#ffffff", stroke: "#064e3b", burst: false },
 };
 
 function createComicWordTexture(word: string): THREE.Texture {
@@ -1452,6 +1456,94 @@ export class RaceVfxManager {
    * @param driftLevel 1 (Blue #38bdf8), 2 (Orange #f97316), or 3 (Purple #a855f7)
    * @param driftDir Drift direction (-1 left, +1 right)
    */
+  /**
+   * Spawns a radial burst of glittering star sparks for aerial tricks (Mario Kart style).
+   */
+  public spawnTrickBurst(x: number, y: number, z: number): void {
+    const count = 16;
+    const colors = ["#fef08a", "#38bdf8", "#f43f5e", "#a855f7", "#34d399", "#fbbf24"];
+    for (let i = 0; i < count; i++) {
+      const spark = this.sparkPool[this.sparkIdx];
+      this.sparkIdx = (this.sparkIdx + 1) % this.maxSparks;
+
+      spark.active = true;
+      spark.age = 0;
+      spark.life = 0.36 + Math.random() * 0.22;
+      spark.scale = 1.35 + Math.random() * 0.45;
+
+      spark.x = x + (Math.random() - 0.5) * 0.25;
+      spark.y = y + (Math.random() - 0.5) * 0.25;
+      spark.z = z + (Math.random() - 0.5) * 0.25;
+
+      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.25;
+      const speed = 4.8 + Math.random() * 3.2;
+      spark.vx = Math.cos(angle) * speed;
+      spark.vy = 2.0 + (Math.random() - 0.5) * 3.2;
+      spark.vz = Math.sin(angle) * speed;
+
+      spark.rotX = Math.random() * Math.PI * 2;
+      spark.rotY = Math.random() * Math.PI * 2;
+      spark.rotZ = Math.random() * Math.PI * 2;
+      spark.rotSpeedX = (Math.random() - 0.5) * 28;
+      spark.rotSpeedY = (Math.random() - 0.5) * 28;
+      spark.rotSpeedZ = (Math.random() - 0.5) * 28;
+
+      const colHex = colors[i % colors.length];
+      _col0.set(colHex);
+      spark.r = _col0.r;
+      spark.g = _col0.g;
+      spark.b = _col0.b;
+    }
+  }
+
+  /**
+   * Spawns a punchy ground burst and shockwave on trick landing (Landing Boost).
+   */
+  public spawnLandingBoost(x: number, y: number, z: number, heading: number): void {
+    // 1. Expanding golden/cyan ground shockwave ring
+    this.spawnImpactShockwave(x, z, y + 0.02, "generic", 3.5);
+
+    // 2. Symmetrical landing smoke puffs from rear wheels
+    const rightX = Math.cos(heading) * 0.45;
+    const rightZ = -Math.sin(heading) * 0.45;
+    const fwdX = -Math.sin(heading);
+    const fwdZ = -Math.cos(heading);
+    this.spawnDriftSmoke(x + rightX, y, z + rightZ, fwdX, fwdZ, 6.0, true);
+    this.spawnDriftSmoke(x - rightX, y, z - rightZ, fwdX, fwdZ, 6.0, true);
+
+    // 3. Forward landing thrust sparks
+    for (let i = 0; i < 8; i++) {
+      const spark = this.sparkPool[this.sparkIdx];
+      this.sparkIdx = (this.sparkIdx + 1) % this.maxSparks;
+
+      spark.active = true;
+      spark.age = 0;
+      spark.life = 0.28 + Math.random() * 0.15;
+      spark.scale = 1.25;
+
+      spark.x = x + (Math.random() - 0.5) * 0.35;
+      spark.y = y + 0.08 + Math.random() * 0.08;
+      spark.z = z + (Math.random() - 0.5) * 0.35;
+
+      const speed = 5.2 + Math.random() * 3.8;
+      spark.vx = -Math.sin(heading) * speed + (Math.random() - 0.5) * 2;
+      spark.vy = 1.4 + Math.random() * 2.2;
+      spark.vz = -Math.cos(heading) * speed + (Math.random() - 0.5) * 2;
+
+      spark.rotX = Math.random() * Math.PI * 2;
+      spark.rotY = Math.random() * Math.PI * 2;
+      spark.rotZ = Math.random() * Math.PI * 2;
+      spark.rotSpeedX = (Math.random() - 0.5) * 20;
+      spark.rotSpeedY = (Math.random() - 0.5) * 20;
+      spark.rotSpeedZ = (Math.random() - 0.5) * 20;
+
+      _col0.set(i % 2 === 0 ? "#ff9a1f" : "#38bdf8");
+      spark.r = _col0.r;
+      spark.g = _col0.g;
+      spark.b = _col0.b;
+    }
+  }
+
   public spawnDriftSparks(
     x: number,
     y: number,

@@ -373,6 +373,7 @@ function flagsOf(r: Racer, now: number): string[] {
   if (r.kart.air) f.push("air");
   // paraquedas aberto depois do pico do salto
   if (r.kart.air && (r.kart.vy ?? 0) < 0) f.push("chute");
+  if (r.kart.trick) f.push("trick");
   return f;
 }
 

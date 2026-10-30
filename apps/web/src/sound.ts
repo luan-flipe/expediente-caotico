@@ -464,3 +464,76 @@ export function playFinalLapChime(): void {
     osc.stop(start + dur + 0.05);
   });
 }
+
+
+/**
+ * Toca o jingle/chime de manobra aérea no estilo Mario Kart (Trick Stunt).
+ * Tríade ascendente rápida e cristalina (C6 -> E6 -> G6) com ataque imediato.
+ */
+export function playTrickChime(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  const freqs = [1046.5, 1318.51, 1567.98];
+  freqs.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+
+    osc.type = "sine";
+    const start = t + idx * 0.045;
+    const dur = 0.14;
+
+    osc.frequency.setValueAtTime(freq, start);
+
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(0.2, start + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+
+    osc.connect(g);
+    g.connect(effectsGain!);
+
+    osc.start(start);
+    osc.stop(start + dur + 0.02);
+  });
+}
+
+/**
+ * Toca o som de impacto e turbo ao aterrissar de uma manobra (Landing Boost).
+ * Punch dinâmico de graves com subida rápida e dissipação.
+ */
+export function playLandingBoostSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(160, t);
+  osc.frequency.exponentialRampToValueAtTime(320, t + 0.07);
+  osc.frequency.exponentialRampToValueAtTime(80, t + 0.26);
+
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.25, t + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+
+  osc.connect(g);
+  g.connect(effectsGain!);
+
+  osc.start(t);
+  osc.stop(t + 0.32);
+}

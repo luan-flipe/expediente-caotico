@@ -20,7 +20,7 @@ import {
   type Track,
 } from "@ec/shared";
 import { loadMusic } from "../assets";
-import { nextRaceTrack, playFinalLapChime, RaceMusic } from "../sound";
+import { nextRaceTrack, playFinalLapChime, playLandingBoostSound, playTrickChime, RaceMusic } from "../sound";
 import { modelReady } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
@@ -88,6 +88,17 @@ interface KartView {
   lastSteer: number;
   bubbleScale: number;
   wasAirborne?: boolean;
+  trickActive: boolean;
+  trickTimer: number;
+  trickDuration: number;
+  trickType: number;
+  trickRotX: number;
+  trickRotY: number;
+  trickRotZ: number;
+  trickPosY: number;
+  performedTrick: boolean;
+  trickCount: number;
+  wasInAir?: boolean;
   heldItem: THREE.Group;
   blobShadows: CasterBlobShadows;
   /** Paraquedas de escritório (aparece com o flag chute). */
@@ -926,6 +937,17 @@ export class RaceEngine {
       hopY: 0,
       hopVel: 0,
       wasDrifting: false,
+      trickActive: false,
+      trickTimer: 0,
+      trickDuration: 0.72,
+      trickType: 0,
+      trickRotX: 0,
+      trickRotY: 0,
+      trickRotZ: 0,
+      trickPosY: 0,
+      performedTrick: false,
+      trickCount: 0,
+      wasInAir: false,
       smokePuffs,
       smokeTimer: 0,
       lastSteer: 0,
@@ -1347,9 +1369,128 @@ export class RaceEngine {
       }
     }
 
+    // Voo da rampa ou pulo
+    const air = own ? !!own.air : flags.has("air");
+    const inAir = air || v.hopY > 0;
+    const isMine = own !== null && v.last.id === this.myId;
+    const driftKey = isMine && this.keys.has(getSettings().keys.race.derrapar);
+    const wantsTrick = isMine ? (driftKey || !!own?.trick) : flags.has("trick");
+
+    // Sistema de Manobras no Ar (Trick System estilo Mario Kart):
+    // Ao decolar/estar no ar e apertar derrapagem (ou pulo), aciona manobra acrobática 3D
+    if (inAir && wantsTrick && !v.trickActive && !v.performedTrick) {
+      v.trickActive = true;
+      v.performedTrick = true;
+      v.trickTimer = 0;
+      v.trickDuration = 0.72;
+      v.trickCount++;
+
+      // Seleção da acrobacia 3D:
+      if (steerInput > 0.25) {
+        v.trickType = 2; // Corkscrew direita
+      } else if (steerInput < -0.25) {
+        v.trickType = 2; // Corkscrew esquerda
+      } else if (braking) {
+        v.trickType = 1; // Backflip vertical
+      } else if (isMine && (this.keys.has("ArrowUp") || this.keys.has("KeyW"))) {
+        v.trickType = 3; // Super Kick-Out pop
+      } else {
+        v.trickType = v.trickCount % 4;
+      }
+
+      // VFX: explosão estelar multicolorida / dourada ao redor do piloto
+      this.vfx?.spawnTrickBurst(x, y + 0.9, z);
+
+      // Onomatopeia 3D estilizada saltando no topo
+      const trickWords = ["SHOW!", "RAD!", "UHUU!", "BOING!", "PERFEITO!"] as const;
+      const word = trickWords[(v.trickCount + v.trickType) % trickWords.length];
+      this.vfx?.spawnOnomatopoeia(x, y + 1.45, z, word, 1.15, 0.85);
+
+      if (isMine) {
+        playTrickChime();
+        this.shake = Math.min(0.4, this.shake + 0.15);
+      }
+
+      v.r3d.char.setEmotion?.("victory", 1.4);
+    }
+
+    // Animação procedimental da manobra 3D
+    if (v.trickActive) {
+      v.trickTimer += dt;
+      const p = Math.min(1, v.trickTimer / v.trickDuration);
+      // Quintic smoothstep: 10p^3 - 15p^4 + 6p^5
+      const s = 10 * p * p * p - 15 * p * p * p * p + 6 * p * p * p * p * p;
+
+      if (v.trickType === 0) {
+        // Manobra 1: Spin 360° horizontal
+        const spinDir = steerInput < -0.1 ? -1 : 1;
+        v.trickRotY = spinDir * s * Math.PI * 2;
+        v.trickRotX = Math.sin(p * Math.PI) * 0.14;
+        v.trickRotZ = Math.sin(p * Math.PI) * 0.12 * spinDir;
+        v.trickPosY = Math.sin(p * Math.PI) * 0.18;
+      } else if (v.trickType === 1) {
+        // Manobra 2: Backflip empinado vertical
+        v.trickRotX = -s * Math.PI * 2;
+        v.trickRotY = 0;
+        v.trickRotZ = 0;
+        v.trickPosY = Math.sin(p * Math.PI) * 0.24;
+      } else if (v.trickType === 2) {
+        // Manobra 3: Parafuso 360° (Corkscrew roll)
+        const rollDir = steerInput < 0 ? -1 : 1;
+        v.trickRotZ = -rollDir * s * Math.PI * 2;
+        v.trickRotY = Math.sin(p * Math.PI) * 0.2 * rollDir;
+        v.trickRotX = Math.sin(p * Math.PI) * 0.1;
+        v.trickPosY = Math.sin(p * Math.PI) * 0.16;
+      } else {
+        // Manobra 4: Super Kick-Out com T-Pose pop
+        v.trickRotX = Math.sin(p * Math.PI) * -0.52;
+        v.trickRotY = Math.sin(p * Math.PI * 2) * 0.22;
+        v.trickRotZ = Math.sin(p * Math.PI * 2) * 0.18;
+        v.trickPosY = Math.sin(p * Math.PI) * 0.28;
+      }
+
+      if (p >= 1) {
+        v.trickActive = false;
+        v.trickRotX = 0;
+        v.trickRotY = 0;
+        v.trickRotZ = 0;
+        v.trickPosY = 0;
+      }
+    } else {
+      v.trickRotX *= Math.max(0, 1 - dt * 14);
+      v.trickRotY *= Math.max(0, 1 - dt * 14);
+      v.trickRotZ *= Math.max(0, 1 - dt * 14);
+      v.trickPosY *= Math.max(0, 1 - dt * 14);
+    }
+
+    // Aterrissagem com Landing Boost e Squash & Stretch
+    const justLanded = v.wasInAir && !inAir;
+    v.wasInAir = inAir;
+
+    if (justLanded) {
+      if (v.performedTrick) {
+        // Shockwave no solo, faíscas de empuxo e fumaça simétrica
+        this.vfx?.spawnLandingBoost(x, y, z, heading);
+        this.vfx?.spawnOnomatopoeia(x, y + 1.1, z, "TURBO!", 1.25, 0.75);
+
+        v.flame.visible = true;
+        v.flame.scale.set(1.4, 1.8, 1.4);
+
+        if (isMine) {
+          playLandingBoostSound();
+          this.camera.fov = Math.min(80, this.camera.fov + 4.5);
+          this.shake = Math.min(0.55, this.shake + 0.28);
+        }
+
+        v.r3d.char.setEmotion?.("adrenaline", 1.2);
+      }
+      v.performedTrick = false;
+      v.trickActive = false;
+    }
+
     // Micro-trepidação física do piso e das juntas nas rodinhas
-    const roadChatter = Math.abs(speed) > 1.2 ? Math.sin(this.clock * 0.08 + x * 5) * 0.007 * Math.min(1, Math.abs(speed) / 10) : 0;
-    v.body.position.y = v.hopY + roadChatter;
+    const roadChatter = Math.abs(speed) > 1.2 && !inAir ? Math.sin(this.clock * 0.08 + x * 5) * 0.007 * Math.min(1, Math.abs(speed) / 10) : 0;
+    v.body.position.y = v.hopY + roadChatter + v.trickPosY;
 
     // 2. Ângulo dinâmico de derrapagem (slide yaw) com transição progressiva e contra-esterço
     let targetSlideYaw = 0;
@@ -1384,16 +1525,13 @@ export class RaceEngine {
     v.pitch += (targetPitch - v.pitch) * Math.min(1, dt * 10);
     if (!Number.isFinite(v.pitch)) v.pitch = 0;
 
-    // 5. Rotações finais no corpo da cadeira
+    // 5. Rotações finais no corpo da cadeira incluindo acrobacias aéreas (tricks)
     v.spin = spinning ? v.spin + dt * 12 : 0;
-    v.body.rotation.y = v.spin + v.slideYaw;
-    v.body.rotation.z = v.roll * 0.25;
-    v.body.rotation.x = v.pitch;
+    v.body.rotation.y = v.spin + v.slideYaw + v.trickRotY;
+    v.body.rotation.z = v.roll * 0.25 + v.trickRotZ;
+    v.body.rotation.x = v.pitch + v.trickRotX;
 
     // 6. Atualização do boneco e rodas
-    // Voo da rampa ou pulo de drift
-    const air = own ? !!own.air : flags.has("air");
-    const inAir = air || v.hopY > 0;
 
     // Detecção do rival mais próximo para o "Luigi Death Stare" (< 4.5m)
     let nearestDistSq = 4.5 * 4.5;
@@ -1432,6 +1570,9 @@ export class RaceEngine {
     TMP_SEATED_OPTIONS.countdown = this.snap?.phase === "countdown" || (this.snap?.countdownMs ?? 0) > 0;
     TMP_SEATED_OPTIONS.isBraking = braking || speed < -0.5;
     TMP_SEATED_OPTIONS.inAir = inAir;
+    TMP_SEATED_OPTIONS.isTricking = v.trickActive;
+    TMP_SEATED_OPTIONS.trickType = v.trickType;
+    TMP_SEATED_OPTIONS.trickProgress = v.trickTimer / v.trickDuration;
     if (v.lastPlace !== undefined) {
       if (k.place <= 2 && v.lastPlace > 2) {
         v.r3d.char.setEmotion?.("victory", 1.8);

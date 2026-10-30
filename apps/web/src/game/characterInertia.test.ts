@@ -56,6 +56,23 @@ describe("CharacterPhysicsInertia", () => {
     expect(Math.abs(inertia.squashY)).toBeLessThan(0.05); // Dampened out
   });
 
+  it("applies aerial trick stretch and deeper landing boost squash than normal landing", () => {
+    const normalInertia = new CharacterPhysicsInertia();
+    normalInertia.update(0.1, 14, 0, 0, false, true, false, false);
+    normalInertia.update(0.016, 14, 0, 0, false, false, false, false);
+
+    const trickInertia = new CharacterPhysicsInertia();
+    // In air executing a trick
+    for (let i = 0; i < 10; i++) {
+      trickInertia.update(0.05, 14, 0, 0, false, true, false, true);
+    }
+    expect(trickInertia.squashY).toBeGreaterThan(0.05); // Aerodynamic acrobatic lift
+
+    // Land after trick
+    trickInertia.update(0.016, 14, 0, 0, false, false, false, false);
+    expect(trickInertia.squashVel).toBeLessThan(normalInertia.squashVel); // Deeper landing compression
+  });
+
   it("activates tactile road chatter vibration at high speeds", () => {
     const inertia = new CharacterPhysicsInertia();
     inertia.update(0.1, 14, 0, 0, false, false, false);
@@ -75,23 +92,29 @@ describe("CharacterPhysicsInertia", () => {
   });
 });
 
-describe("Character seated with inertia", () => {
-  it("renders procedural character and executes updateSeated with all options cleanly", () => {
+describe("Character seated with inertia & tricks", () => {
+  it("renders procedural character and executes updateSeated with all trick types cleanly", () => {
     const char = createCharacter(DEFAULT_AVATAR);
     expect(char).toBeDefined();
 
-    // Call updateSeated with full options
-    char.setSeated?.(true);
-    char.updateSeated?.(0.016, 15, 0.5, 1, false, undefined, {
-      driftLevel: 2,
-      isBraking: false,
-      inAir: false,
-      draft: false,
-      spinning: false,
-    });
-    char.update(0.016, 15);
+    char.sit?.();
 
-    expect(Number.isFinite(char.root.position.x)).toBe(true);
-    expect(Number.isFinite(char.root.scale.y)).toBe(true);
+    // Test each trick maneuver type (0: Spin, 1: Backflip, 2: Corkscrew, 3: Kick-out)
+    for (let trickType = 0; trickType <= 3; trickType++) {
+      char.updateSeated?.(0.016, 15, 0.5, 0, false, undefined, {
+        driftLevel: 0,
+        isBraking: false,
+        inAir: true,
+        isTricking: true,
+        trickType,
+        trickProgress: 0.5,
+        draft: false,
+        spinning: false,
+      });
+      char.update(0.016, 15);
+
+      expect(Number.isFinite(char.root.position.x)).toBe(true);
+      expect(Number.isFinite(char.root.scale.y)).toBe(true);
+    }
   });
 });
