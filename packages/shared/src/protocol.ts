@@ -110,8 +110,8 @@ export type ServerMsg =
   | { t: "results"; rows: ResultRow[]; awards: Award[] }
   | { t: "rsnap"; s: RaceSnapshot; me: RacePrivate | null }
   | { t: "rresults"; rows: RaceResultRow[]; awards: Award[] }
-  /** Fantasmas da pista: o do próprio jogador (conta ou sessão) e o do recordista. Reenviado quando algum muda. */
-  | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null }
+  /** Fantasmas da pista: o do próprio jogador (conta ou sessão), o do recordista e o do rival (a volta logo à frente da sua). Reenviado quando algum muda. */
+  | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null; rival?: (GhostLap & { name: string }) | null }
   /** Chat rápido de alguém da sala (inclusive de quem mandou). */
   | { t: "chat"; from: string; kind: "phrase" | "emote"; index: number }
   /** Cumpriu o desafio da semana: o cliente mostra um aviso na hora. */

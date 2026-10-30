@@ -13,8 +13,8 @@ import {
   disposeAvatar,
 } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
-import { dressFace } from "./rosto";
-import { BEARDS_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
+import { dressFace, preloadFaces } from "./rosto";
+import { BEARDS_3D, GLASSES_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
 export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
 
@@ -523,6 +523,7 @@ interface Loaded {
   /** Malhas de cada peça das pastas, na ordem de HAIRS, BEARDS_3D, SHIRTS_3D, PANTS_3D e SHOES_3D; vazio se o arquivo não serviu. */
   hairs: THREE.SkinnedMesh[][];
   beards: THREE.SkinnedMesh[][];
+  glasses: THREE.SkinnedMesh[][];
   shirts: THREE.SkinnedMesh[][];
   pants: THREE.SkinnedMesh[][];
   shoes: THREE.SkinnedMesh[][];
@@ -862,8 +863,19 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
     console.warn("boneco_comemora.glb não carregou, sem comemoração", err);
     return null;
   });
-  loading ??= Promise.all([loader.loadAsync(MODEL_URL, onProgress), load(HAIRS), load(BEARDS_3D), load(SHIRTS_3D), load(PANTS_3D), load(SHOES_3D), cheer])
-    .then(([gltf, hairs, beards, shirts, pants, shoes, party]) => {
+  loading ??= Promise.all([
+    loader.loadAsync(MODEL_URL, onProgress),
+    load(HAIRS),
+    load(BEARDS_3D),
+    load(GLASSES_3D),
+    load(SHIRTS_3D),
+    load(PANTS_3D),
+    load(SHOES_3D),
+    cheer,
+    // as texturas das expressões do rosto
+    preloadFaces(),
+  ])
+    .then(([gltf, hairs, beards, glasses, shirts, pants, shoes, party]) => {
       const scene = gltf.scene;
       let skeleton: THREE.Skeleton | null = null;
       scene.traverse((o) => {
@@ -871,7 +883,7 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
       });
       if (skeleton) {
         const samples = limbSamples(scene);
-        for (const piece of [hairs, beards, shirts, pants, shoes].flat(2)) retargetWearable(piece, samples, skeleton);
+        for (const piece of [hairs, beards, glasses, shirts, pants, shoes].flat(2)) retargetWearable(piece, samples, skeleton);
       }
       const h = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
       loaded = {
@@ -880,6 +892,7 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
         scale: TARGET_HEIGHT / h,
         hairs,
         beards,
+        glasses,
         shirts,
         pants,
         shoes,
@@ -909,7 +922,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   });
 
   const mats: THREE.Material[] = [];
-  const syncFace = dressFace(inner, dna, mats);
+  dressFace(inner, dna, mats);
   const hairColor = HAIR_COLORS[dna.hairColor] ?? HAIR_COLORS[0];
   const beardColor = HAIR_COLORS[dna.beardColor] ?? hairColor;
   const attachedHairMeshes: THREE.SkinnedMesh[] = [];
@@ -934,6 +947,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const shirt = model.shirts[dna.shirt - 1];
   // roupa vem com o índice de CLOTH_COLORS (0 deixa a cor original da peça)
   const pieces: [THREE.SkinnedMesh[] | undefined, string | undefined, number?][] = [
+    [model.glasses[dna.glasses - 1], undefined],
     [skirt && shirt ? shirt.map((m) => tuckShirt(m, skirt)) : shirt, undefined, dna.shirtColor],
     [pants, undefined, dna.pantsColor],
     [model.shoes[dna.shoes - 1], undefined, dna.shoesColor],
@@ -1077,7 +1091,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (o) o.rotation.x = x;
     }
     tiltFeet();
-    syncFace();
   };
   const sole = () => {
     if (!body) return 0;
@@ -1121,7 +1134,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         if (!cheer?.isRunning()) return;
         mixer.update(dt);
         tiltFeet();
-        syncFace();
         if (cheer.isRunning()) return;
         for (const [o, p, q, s] of pose) {
           o.position.copy(p);
@@ -1162,7 +1174,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (walk) walk.timeScale = 0.6 + speed01 * (run ? 1.6 : 0.8);
       mixer.update(dt);
       tiltFeet();
-      syncFace();
       applyGlbEmotion(faceParts, baseTransforms, emotion, 0);
     },
     updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
@@ -1424,7 +1435,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
 
       applyGlbEmotion(faceParts, baseTransforms, emotion, stareWeight);
       tiltFeet();
-      syncFace();
     },
     play(action) {
       const a = actions.get(action);

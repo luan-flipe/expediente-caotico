@@ -34,7 +34,7 @@ import { ChatBubbles, chatText } from "../chatBubbles";
 import { buildRacer, chairModelReady, type Racer3D } from "./chairMesh";
 import type { CharacterSeatedOptions } from "../game/character";
 import { createCommander, type Commander } from "./commander";
-import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, nameTag } from "./ghosts";
+import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, GHOST_RIVAL, nameTag } from "./ghosts";
 import type { Ghosts } from "../store";
 import { buildTrack } from "./trackScene";
 import { buildParachute, parachuteFor } from "./parachute";
@@ -249,7 +249,8 @@ export class RaceEngine {
   private hazardMats = new Map<string, THREE.Material>();
   private ghostMine: Ghost | null = null;
   private ghostRecord: Ghost | null = null;
-  private chat = new ChatBubbles(2.75);
+  private ghostRival: Ghost | null = null;
+  private chat = new ChatBubbles(3.05);
   private raf = 0;
   private lastFrame = performance.now();
   private cleanup: (() => void)[] = [];
@@ -1047,6 +1048,9 @@ export class RaceEngine {
     this.ghostRecord ??= this.addGhost(new Ghost(DEFAULT_AVATAR, DEFAULT_CHAIR, GHOST_RECORD, record?.name ?? "Recorde"));
     this.ghostMine.setLap(same ? null : (mine?.samples ?? null), "Sua melhor");
     this.ghostRecord.setLap(record?.samples ?? null, record?.name ?? "Recorde");
+    const rival = g?.rival ?? null;
+    this.ghostRival ??= this.addGhost(new Ghost(DEFAULT_AVATAR, DEFAULT_CHAIR, GHOST_RIVAL, rival?.name ?? "Rival"));
+    this.ghostRival.setLap(rival?.samples ?? null, rival?.name ?? "Rival");
   }
 
   private addGhost(g: Ghost): Ghost {
@@ -1340,6 +1344,7 @@ export class RaceEngine {
     const lapT = this.snap?.timeTrial && this.snap.phase === "active" && this.me && this.me.lapMs > 0 ? this.me.lapMs + since : null;
     this.ghostMine?.update(lapT, dt);
     this.ghostRecord?.update(lapT, dt);
+    this.ghostRival?.update(lapT, dt);
     const intro = this.snap?.phase === "countdown" ? RACE.countdownMs - this.snap.countdownMs + since : RACE.introMs;
     const raceMs = this.snap && this.snap.phase !== "countdown" ? this.snap.elapsedMs + since : null;
     this.commander?.update(dt, intro, raceMs);
@@ -1958,6 +1963,7 @@ export class RaceEngine {
     this.itemMatFlash.dispose();
     this.ghostMine?.dispose();
     this.ghostRecord?.dispose();
+    this.ghostRival?.dispose();
     this.ghostMine = this.ghostRecord = null;
     this.scene.traverse((o) => {
       const m = o as THREE.Mesh;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getTrack, ITEM_NAMES, RACE, type ItemId } from "@ec/shared";
 import { keyLabel, useSettings } from "../settings";
+import { playCountdownBeep } from "../sound";
 import { net, useStore } from "../store";
 import { IS_TOUCH } from "../touch";
 import { Minimap } from "./Minimap";
@@ -139,6 +140,17 @@ export function RaceHud({ myId }: { myId: string }) {
 
     return () => window.removeEventListener("ec:finallap", handleEvent);
   }, [me, snap]);
+
+  // bipe a cada número da contagem e um mais agudo no VAI
+  const countSec = snap?.phase === "countdown" && snap.countdownMs - (RACE.countdownMs - RACE.introMs) <= 0 ? Math.max(1, Math.ceil(snap.countdownMs / 1000)) : 0;
+  const goNow = snap?.phase === "active" && snap.elapsedMs < 900;
+  useEffect(() => {
+    if (countSec > 0) playCountdownBeep("tick");
+  }, [countSec]);
+  useEffect(() => {
+    if (goNow) playCountdownBeep("go");
+  }, [goNow]);
+
 
   if (!snap) return <div className="hud center-msg">Ajustando a cadeira...</div>;
   const now = performance.now();

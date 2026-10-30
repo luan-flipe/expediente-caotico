@@ -180,6 +180,20 @@ export function Settings() {
           <span className="muted">Leve tira as sombras e usa resolução menor, para computador fraco e celular. Vale na hora, até no meio da partida.</span>
         </div>
 
+        <div className="card stack">
+          <p className="label" style={{ margin: 0 }}>
+            Modo daltônico
+          </p>
+          <div className="seg">
+            {[false, true].map((on) => (
+              <button key={String(on)} className={s.daltonico === on ? "on" : ""} onClick={() => patch({ daltonico: on })}>
+                {on ? "Ligado" : "Desligado"}
+              </button>
+            ))}
+          </div>
+          <span className="muted">Troca vermelho e verde da interface por laranja e azul e põe um símbolo ao lado das cores dos avisos.</span>
+        </div>
+
         {/* no toque não há teclado: os controles são os botões da tela */}
         {!IS_TOUCH && (
           <>

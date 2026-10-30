@@ -5,3 +5,6 @@ dist
 .vitest
 .vs
 data/
+apps/mobile/android/app/build/
+apps/mobile/android/build/
+apps/mobile/android/.gradle/

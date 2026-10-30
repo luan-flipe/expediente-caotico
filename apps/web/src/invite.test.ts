@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canNativeShare, inviteText, inviteUrl } from "./invite";
+import { canNativeShare, inviteText, inviteUrl, whatsappUrl } from "./invite";
 
 describe("convite", () => {
   it("monta o link com o código da sala", () => {
@@ -14,5 +14,13 @@ describe("convite", () => {
     expect(canNativeShare({ share: () => {}, maxTouchPoints: 5 })).toBe(true);
     expect(canNativeShare({ share: () => {}, maxTouchPoints: 0 })).toBe(false);
     expect(canNativeShare({ maxTouchPoints: 5 })).toBe(false);
+  });
+});
+
+describe("whatsappUrl", () => {
+  it("codifica o convite inteiro na query", () => {
+    const u = whatsappUrl(inviteText("https://x.com", "ABCDE"));
+    expect(u.startsWith("https://wa.me/?text=")).toBe(true);
+    expect(decodeURIComponent(u.slice("https://wa.me/?text=".length))).toBe(inviteText("https://x.com", "ABCDE"));
   });
 });

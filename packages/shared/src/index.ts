@@ -28,3 +28,6 @@ export * from "./ranking/types";
 export * from "./ranking/rules";
 export * from "./ranking/challenges";
 export * from "./ranking/ghost";
+export * from "./ranking/rival";
+export * from "./ranking/cargo";
+export * from "./race/pistaDoDia";

@@ -1,5 +1,5 @@
 import { ITEM_NAMES } from "@ec/shared";
-import { net, useStore } from "../store";
+import { jogarDeNovo, net, useStore } from "../store";
 import { Awards } from "../screens/Awards";
 import { chairThumbnail } from "./chairMesh";
 import { fmtRace, ITEM_ICON } from "./RaceHud";
@@ -13,6 +13,7 @@ export function RaceResults() {
   const trial = lobby?.mode === "timetrial";
   // no treino só sobe ao pódio quem fechou uma volta válida
   const top = trial ? rows.filter((r) => r.bestLapMs !== null) : rows;
+  const bestOfAll = Math.min(...rows.map((r) => r.bestLapMs ?? Infinity));
   const podium = [top[1], top[0], top[2]].filter(Boolean);
 
   return (
@@ -61,7 +62,7 @@ export function RaceResults() {
                     </div>
                   </td>
                   {!trial && <td className="num">{r.totalMs !== null ? fmtRace(r.totalMs) : `${r.lapsDone} volta${r.lapsDone === 1 ? "" : "s"}`}</td>}
-                  <td className="num">{fmtRace(r.bestLapMs)}</td>
+                  <td className={r.bestLapMs !== null && r.bestLapMs === bestOfAll ? "num best-lap" : "num"}>{fmtRace(r.bestLapMs)}</td>
                   {!trial && <td>{r.favItem ? `${ITEM_ICON[r.favItem]} ${ITEM_NAMES[r.favItem]}` : "Nenhum"}</td>}
                 </tr>
               ))}
@@ -70,9 +71,14 @@ export function RaceResults() {
           <Awards />
           <div className="row" style={{ marginTop: 16 }}>
             {isHost ? (
-              <button className="btn primary" onClick={() => net.send({ t: "lobby" })}>
-                Voltar ao lobby
-              </button>
+              <>
+                <button className="btn primary" onClick={jogarDeNovo}>
+                  Jogar de novo
+                </button>
+                <button className="btn" onClick={() => net.send({ t: "lobby" })}>
+                  Voltar ao lobby
+                </button>
+              </>
             ) : (
               <span className="muted">Aguardando o anfitrião voltar ao lobby.</span>
             )}
