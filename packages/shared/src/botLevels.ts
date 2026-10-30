@@ -30,8 +30,8 @@ export interface RoomOptions {
 export const DEFAULT_ROOM_OPTIONS: RoomOptions = { laps: RACE.laps, items: true, botLevel: DEFAULT_BOT_LEVEL, track: DEFAULT_TRACK_ID,
   futFormat: 2,
   futTeams: [
-    { name: "Financeiro", kit: 0, color: 1 },
-    { name: "TI", kit: 1, color: 4 },
+    { name: "Financeiro", kit: 0, color: 2 },
+    { name: "TI", kit: 1, color: 3 },
   ],
 };
 

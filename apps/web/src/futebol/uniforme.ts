@@ -16,28 +16,12 @@ const PANTS_COLOR = CLOTH_COLORS.indexOf("#26324a") + 1;
 /** Calça longa (01_calca) e sem acessório, para o crachá não aparecer no uniforme. */
 const PANTS = 1;
 
-const rgb = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-const dist = (a: string, b: string): number => {
-  const [p, q] = [rgb(a), rgb(b)];
-  return p.reduce((s, v, i) => s + (v - q[i]) ** 2, 0);
-};
-
-/**
- * Para cada cor do time, o índice (1-based) de CLOTH_COLORS mais próximo, sem repetir:
- * os pares mais próximos são fechados primeiro, então dois times nunca ficam com a mesma cor.
- */
-const TEAM_CLOTH: number[] = (() => {
-  const pairs = FUT_COLORS.flatMap((c, i) => CLOTH_COLORS.map((h, j) => ({ i, j, d: dist(c.hex, h) })));
-  pairs.sort((a, b) => a.d - b.d || a.i - b.i || a.j - b.j);
-  const out: number[] = [];
-  const used = new Set<number>();
-  for (const { i, j } of pairs) {
-    if (out[i] !== undefined || used.has(j)) continue;
-    out[i] = j + 1;
-    used.add(j);
-  }
-  return out;
-})();
+/** Índice (1-based) de CLOTH_COLORS com o mesmo hex de cada cor do time. */
+const TEAM_CLOTH: number[] = FUT_COLORS.map((c) => {
+  const i = CLOTH_COLORS.indexOf(c.hex);
+  if (i < 0) throw new Error("FUT_COLORS fora de CLOTH_COLORS: " + c.hex);
+  return i + 1;
+});
 
 const valid = (v: number, len: number): number => (Number.isInteger(v) && v >= 0 && v < len ? v : 0);
 

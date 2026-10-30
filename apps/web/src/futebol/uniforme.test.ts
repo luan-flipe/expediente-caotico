@@ -42,6 +42,12 @@ describe("uniformDNA", () => {
     expect(seen.size).toBeGreaterThan(FUT_COLORS.length);
   });
 
+  it("a cor da camisa tem o mesmo hex da cor do time", () => {
+    FUT_COLORS.forEach((c, color) => {
+      expect(CLOTH_COLORS[uniformDNA(avatar, { name: "T", kit: 0, color }).shirtColor - 1]).toBe(c.hex);
+    });
+  });
+
   it("calça escura fixa e índices inválidos caem no padrão", () => {
     const a = uniformDNA(avatar, { name: "A", kit: 0, color: 0 });
     const b = uniformDNA(avatar, { name: "B", kit: 2, color: 5 });

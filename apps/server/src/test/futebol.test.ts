@@ -107,12 +107,12 @@ describe("modo futebol no servidor", () => {
     const { a, b } = await twoPlayers();
     a.send({ t: "mode", mode: "futebol" });
     await b.waitFor("lobby", (m) => m.state.mode === "futebol");
-    // laranja (4) é a cor do time 1
-    a.send({ t: "futTeamConfig", side: 0, color: 4 });
+    // ciano (3) é a cor do time 1
+    a.send({ t: "futTeamConfig", side: 0, color: 3 });
     await a.waitFor("error");
-    a.send({ t: "futTeamConfig", side: 0, name: "<b>Contábil", kit: 2, color: 2 });
-    const lob = await a.waitFor("lobby", (m) => m.state.options.futTeams[0].color === 2);
-    expect(lob.state.options.futTeams[0]).toEqual({ name: "bContábil", kit: 2, color: 2 });
+    a.send({ t: "futTeamConfig", side: 0, name: "<b>Contábil", kit: 2, color: 5 });
+    const lob = await a.waitFor("lobby", (m) => m.state.options.futTeams[0].color === 5);
+    expect(lob.state.options.futTeams[0]).toEqual({ name: "bContábil", kit: 2, color: 5 });
     // nome vazio depois de sanitizar não vale
     a.send({ t: "futTeamConfig", side: 0, name: "<>" });
     a.send({ t: "futTeamConfig", side: 0, kit: 1 });
