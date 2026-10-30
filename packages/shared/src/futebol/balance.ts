@@ -1,0 +1,18 @@
+export const FUT = {
+  restartWaitMs: 8000,
+  restartCountdownMs: 3000,
+  walkSpeed: 6,
+  sprintSpeed: 8.5,
+  doubleTapMs: 250,
+  controlRadius: 0.9,
+  dribbleTouch: 0.7,
+  sprintTouch: 1.6,
+  chargeMaxMs: 1000,
+  shotMin: 10,
+  shotMax: 28,
+  passMin: 6,
+  passMax: 18,
+  ballRadius: 0.25,
+  goalCelebrateMs: 4000,
+  kickoffWaitMs: 2000,
+} as const;

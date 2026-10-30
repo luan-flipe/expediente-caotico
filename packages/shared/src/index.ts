@@ -31,3 +31,6 @@ export * from "./ranking/ghost";
 export * from "./ranking/rival";
 export * from "./ranking/cargo";
 export * from "./race/pistaDoDia";
+export * from "./futebol/types";
+export * from "./futebol/balance";
+export * from "./futebol/field";
