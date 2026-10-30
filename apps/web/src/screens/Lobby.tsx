@@ -3,7 +3,7 @@ import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN,
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail, type CharacterAction } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
-import { canNativeShare, inviteText } from "../invite";
+import { canNativeShare, inviteText, whatsappUrl } from "../invite";
 import { MenuMusicControl } from "./MenuMusicControl";
 import { leaveRoom, net, setState, useStore } from "../store";
 
@@ -99,6 +99,9 @@ export function Lobby() {
             <button className="btn small" onClick={copy}>
               {copied ? "Copiado!" : "Copiar convite"}
             </button>
+            <a className="btn small" href={whatsappUrl(inviteText(location.origin, lobby.code))} target="_blank" rel="noopener noreferrer">
+              Convidar no WhatsApp
+            </a>
           </div>
         </div>
 

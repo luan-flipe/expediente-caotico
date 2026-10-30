@@ -2312,3 +2312,25 @@ input {
     min-height: 120px;
   }
 }
+
+/* convite pelo WhatsApp ao lado de copiar */
+.postit .btn {
+  margin: 6px 6px 0 0;
+  text-decoration: none;
+  display: inline-block;
+}
+
+/* melhor volta da corrida inteira: roxo, como nos jogos de corrida */
+.table td.best-lap {
+  color: #7b2ff7;
+  font-weight: 800;
+}
+
+/* dica da tela de carregamento */
+.loading-tip {
+  margin: 10px auto 0;
+  max-width: 480px;
+  font-size: 15px;
+  color: var(--paper-2);
+  opacity: 0.85;
+}

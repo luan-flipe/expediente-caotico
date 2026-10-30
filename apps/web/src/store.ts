@@ -316,3 +316,9 @@ function onMessage(msg: ServerMsg): void {
 }
 
 export const net = new Connection(onMessage, (online) => setState({ online }), savedSession, loginSession);
+
+/** Revanche do anfitrião: volta ao lobby e já começa outra partida com as mesmas opções. */
+export function jogarDeNovo(): void {
+  net.send({ t: "lobby" });
+  net.send({ t: "start" });
+}

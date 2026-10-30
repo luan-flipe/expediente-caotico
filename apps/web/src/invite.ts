@@ -10,6 +10,11 @@ export function inviteText(origin: string, code: string): string {
   return `Bora jogar Expediente Caótico? Sala ${code}: ${inviteUrl(origin, code)}`;
 }
 
+/** Link que abre o WhatsApp (app ou web) com o convite já escrito. */
+export function whatsappUrl(text: string): string {
+  return `https://wa.me/?text=${encodeURIComponent(text)}`;
+}
+
 /** Só celular/tablet com toque abre o menu nativo de compartilhar; no computador copia direto. */
 export function canNativeShare(nav: { share?: unknown; maxTouchPoints?: number }): boolean {
   return typeof nav.share === "function" && (nav.maxTouchPoints ?? 0) > 0;

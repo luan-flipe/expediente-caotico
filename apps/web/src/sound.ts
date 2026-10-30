@@ -403,3 +403,27 @@ export function playZombieSound(opts?: SoundPosition & { volume?: number }): voi
     src.start();
   });
 }
+
+/** Bipe curto da contagem da largada: "tick" nos números, "go" no VAI. Sem AudioContext (testes) não faz nada. */
+export function playCountdownBeep(kind: "tick" | "go"): void {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+  if (ctx.state === "suspended") void ctx.resume();
+  const go = kind === "go";
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const t = ctx.currentTime;
+  const dur = go ? 0.5 : 0.14;
+  osc.type = go ? "square" : "triangle";
+  osc.frequency.value = go ? 1046 : 523;
+  // ataque rápido e queda suave, sem estalo no começo nem no fim
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(go ? 0.22 : 0.3, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(gain);
+  gain.connect(effectsGain);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
