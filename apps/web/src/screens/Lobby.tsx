@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN, RACE, TRACK_IDS, TRACKS } from "@ec/shared";
+import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN, pistaDoDia, RACE, TRACK_IDS, TRACKS } from "@ec/shared";
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail, type CharacterAction } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
@@ -49,6 +49,7 @@ export function Lobby() {
     </div>
   );
 
+  const pistaHoje = pistaDoDia(Date.now());
   const trackRow = (
     <div className="row">
       <span className="muted">Pista:</span>
@@ -56,6 +57,7 @@ export function Lobby() {
         {TRACK_IDS.map((id) => (
           <button key={id} className={opts.track === id ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", track: id })}>
             {TRACKS[id].name}
+            {id === pistaHoje && <span className="tag-dia">★ do dia</span>}
           </button>
         ))}
       </div>

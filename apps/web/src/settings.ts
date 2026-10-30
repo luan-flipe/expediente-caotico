@@ -18,6 +18,8 @@ export interface Settings {
   quality: Quality;
   /** Celular: segurar o botão de disparo atira sem parar (desligado, cada toque é um tiro). */
   touchAutoFire: boolean;
+  /** Troca vermelho e verde por laranja e azul e põe símbolos junto das cores nos avisos. */
+  daltonico: boolean;
 }
 
 export const SENS_MIN = 0.25;
@@ -60,6 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   quality: "alta",
   touchAutoFire: true,
+  daltonico: false,
 };
 
 export const SHOOTER_LABELS: Record<ShooterAction, string> = {
@@ -159,6 +162,7 @@ export function sanitizeSettings(raw: unknown, touch = IS_TOUCH): Settings {
     },
     quality: src.quality === "leve" || src.quality === "alta" ? src.quality : defaultQuality(touch),
     touchAutoFire: typeof src.touchAutoFire === "boolean" ? src.touchAutoFire : d.touchAutoFire,
+    daltonico: typeof src.daltonico === "boolean" ? src.daltonico : d.daltonico,
   };
 }
 

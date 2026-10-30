@@ -2334,3 +2334,37 @@ input {
   color: var(--paper-2);
   opacity: 0.85;
 }
+
+/* cargo do jogador no crachá do perfil */
+.badge-cargo {
+  padding: 0 16px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* pista do dia no seletor da sala */
+.tag-dia {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--blue);
+}
+
+/* modo daltônico: laranja e azul no lugar de vermelho e verde, e um símbolo junto de cada cor de aviso */
+html.daltonico {
+  --red: #d55e00;
+  --green: #0072b2;
+  --blue: #7b2ff7;
+}
+
+html.daltonico .tag.ok::before {
+  content: "✓ ";
+}
+
+html.daltonico .tag.off::before,
+html.daltonico .error::before {
+  content: "⚠ ";
+}
