@@ -43,3 +43,22 @@ export interface FutPlayer {
   sentOff: boolean;
   isBot: boolean;
 }
+
+/** Quem tocou na bola (para saber de quem foi o último toque). */
+export interface BallTouch {
+  id: string;
+  side: TeamSide;
+}
+
+/** Bola em 3D: y é a altura do centro; no chão y = ballRadius. */
+export interface Ball {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  ownerId: string | null;
+  lastTouch: BallTouch | null;
+  prevTouch: BallTouch | null;
+}

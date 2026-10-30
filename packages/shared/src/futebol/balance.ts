@@ -15,4 +15,8 @@ export const FUT = {
   ballRadius: 0.25,
   goalCelebrateMs: 4000,
   kickoffWaitMs: 2000,
+  gravity: 9.8,
+  bounce: 0.55,
+  groundFrictionPerSec: 0.35,
+  ballStopSpeed: 0.05,
 } as const;
