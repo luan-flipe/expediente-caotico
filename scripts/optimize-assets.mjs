@@ -50,6 +50,7 @@ const WEARABLES = [
   "tenis/01_tenis.glb",
   "tenis/02_galocha.glb",
   "tenis/03_salto_alto.glb",
+  "tenis/04_crocs.glb",
 ];
 const wearablesOut = join(root, "apps", "web", "src", "assets");
 const MUSIC = "audio/turbo_pixel_drift.mp3";
