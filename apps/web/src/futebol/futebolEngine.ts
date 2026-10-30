@@ -29,7 +29,9 @@ import goalUrl from "../assets/futebol/gol.glb?url";
 import pitchUrl from "../assets/futebol/ipatingao.glb?url";
 import { reconcileDrawn } from "./reconcile";
 import { TOUCH_KICK, TOUCH_PASS, newControlState, newMouse, readFutInput, type FutKeys } from "./controls";
+import { Arena } from "./arena";
 import { Comemoracoes } from "./comemoracoes";
+import { Torcida } from "./torcida";
 import { uniformDNA } from "./uniforme";
 
 export type FutUiSignal = "lock" | "unlock";
@@ -166,6 +168,9 @@ export class FutebolEngine {
   private me: FutPrivate | null = null;
   private field: Field | null = null;
   private lines: THREE.Group | null = null;
+  private arena: Arena | null = null;
+  private crowd: Torcida | null = null;
+  private clock = 0;
   private goals: THREE.Object3D[] = [];
   private lineMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.92 });
 
@@ -291,6 +296,7 @@ export class FutebolEngine {
     if (pitch.status === "fulfilled") {
       shadows(pitch.value.scene, false);
       this.scene.add(pitch.value.scene);
+      this.crowd = new Torcida(this.scene, pitch.value.scene, getSettings().quality);
     } else {
       console.warn("ipatingao.glb não carregou", pitch.reason);
     }
@@ -339,6 +345,7 @@ export class FutebolEngine {
     this.field = fieldFor(format);
     this.lines = buildLines(this.field, this.lineMat);
     this.scene.add(this.lines);
+    this.arena = new Arena(this.scene, this.field);
     this.placeGoals();
     const f = this.field;
     Object.assign(this.sun.shadow.camera, { left: -f.halfL - 12, right: f.halfL + 12, top: f.halfW + 12, bottom: -f.halfW - 12 });
@@ -351,6 +358,7 @@ export class FutebolEngine {
     if (q === this.quality) return;
     this.quality = q;
     applyQuality(this.renderer, this.scene, this.sun, q);
+    this.crowd?.setQuality(q);
   }
 
   // ---------- entrada ----------
@@ -492,8 +500,10 @@ export class FutebolEngine {
     if (s.t <= this.eventsT) return;
     this.eventsT = s.t;
     for (const e of s.events) {
-      if (e.type === "whistle") playWhistle(e.kind);
-      else if (e.type === "foul") playWhistle("foul");
+      if (e.type === "whistle") {
+        playWhistle(e.kind);
+        if (e.kind === "end") this.crowd?.cheer();
+      } else if (e.type === "foul") playWhistle("foul");
       else if (e.type === "goal") this.celebrateGoal(e, s);
     }
   }
@@ -507,6 +517,7 @@ export class FutebolEngine {
       if (v.last.side === e.side && v.last.role === "linha") mates.push(v.char);
       else if (v.last.side !== e.side && v.last.role === "goleiro") keeper = v.char;
     }
+    this.crowd?.cheer();
     this.focusId = scorer?.last.id ?? "";
     this.fx.start({
       scorer: scorer?.char ?? null,
@@ -813,6 +824,9 @@ export class FutebolEngine {
       (this.ballPrev ??= new THREE.Vector3()).set(bs.x, bs.y, bs.z);
     }
 
+    this.clock += dt;
+    this.arena?.update(this.clock);
+    this.crowd?.update(dt);
     this.updateAim(now);
     this.updateCamera(dt);
     this.updatePower(now);
@@ -909,6 +923,8 @@ export class FutebolEngine {
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.chat.dispose();
     this.fx.dispose();
+    this.arena?.dispose();
+    this.crowd?.dispose();
     for (const v of this.views.values()) this.dropView(v);
     this.views.clear();
     this.lineMat.dispose();
