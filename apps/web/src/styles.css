@@ -2508,6 +2508,8 @@ input {
     top: 105vh;
     transform: rotate(720deg) scale(0.8);
   }
+}
+
 /* sala de espera no computador: cabe na janela sem rolar; a coluna do boneco cede altura */
 @media (min-width: 1101px) {
   .screen.lobby {
