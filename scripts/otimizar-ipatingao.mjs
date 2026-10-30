@@ -7,13 +7,14 @@
 // Para gerar de novo, copie o original (ipatingao-3d.glb) para assets-src/futebol/ipatingao.glb.
 //
 // Medidas do modelo original (eixo para cima = Y, 1 unidade = 1 m):
-//  - O gramado é a malha com a textura 340x520 (listras com as linhas do campo): fica em y = 0.5,
-//    x 2.0..75.7 e z 224.3..332.5, centro (38.85, 278.4). O eixo comprido do campo é Z.
-//  - Dentro da textura as linhas ocupam só uma parte: o script mede (pixels brancos) e calcula o
-//    tamanho das linhas, cerca de 99,9 m (comprimento) x 64,2 m (largura).
+//  - O gramado é a malha com a textura 340x520 (listras com as linhas do campo). Ela tem giro próprio de
+//    2,86 graus em Y: o eixo comprido do campo não é exatamente o Z do modelo. Centro das linhas
+//    (38.93, 0.45, 278.27), y do gramado 0.45. Malha 68,6 x 104,9 m.
+//  - Dentro da textura as linhas ocupam x 20..320, y 20..500 (de 340x520): 97,0 m (comprimento) x
+//    60,7 m (largura). O script mede tudo isso (pixels brancos, matriz do nó).
 // Transformação aplicada no próprio .glb (nó "Ipatingao" na raiz da cena):
-//  - leva o centro do gramado para a origem, gira 90 graus em Y (eixo comprido vira X), escala 1
-//    (o modelo já está em metros) e põe o gramado em y = 0.
+//  - leva o centro das linhas para a origem, gira em Y (92,86 graus) para o eixo comprido ficar em X,
+//    escala 1 (o modelo já está em metros) e põe o gramado em y = 0.
 //  - O campo 4v4 (60 x 38 m) cabe com folga dentro das linhas. O cliente só carrega e põe na origem.
 //  - O tamanho do gramado (meio comprimento e meia largura das linhas) é impresso no fim e vive em
 //    IPATINGAO, em packages/shared/src/futebol/balance.ts.
@@ -54,10 +55,17 @@ for (const n of docRoot.listNodes()) {
   if (tex && tex.getSize()?.join("x") === "340x520") pitchNode = n;
 }
 if (!pitchNode) throw new Error("não achei a malha do gramado (textura 340x520)");
-const pb = getBounds(pitchNode);
-const cx = (pb.min[0] + pb.max[0]) / 2;
-const cz = (pb.min[2] + pb.max[2]) / 2;
-const py = pb.max[1];
+// A malha do gramado tem escala e giro próprios: o eixo comprido do campo NÃO é exatamente o Z do modelo
+// (giro de cerca de 2,9 graus em Y). Mede-se no espaço local da malha e leva para o mundo pela matriz do nó.
+const W = pitchNode.getWorldMatrix(); // coluna 0 = X local, coluna 2 = Z local (em mundo)
+const sx = Math.hypot(W[0], W[2]);
+const sz = Math.hypot(W[8], W[10]);
+const pa = pitchNode.getMesh().listPrimitives()[0].getAttribute("POSITION");
+const lmin = pa.getMin([]);
+const lmax = pa.getMax([]);
+const py = W[13];
+const phi = Math.atan2(W[8], W[10]); // direção do eixo comprido (Z local) em mundo: (sin phi, cos phi)
+if (lmax[2] - lmin[2] < lmax[0] - lmin[0]) throw new Error("esperava o eixo comprido em Z local");
 const pitchTex = pitchNode.getMesh().listPrimitives()[0].getMaterial().getBaseColorTexture();
 const { data, info } = await sharp(Buffer.from(pitchTex.getImage())).removeAlpha().raw().toBuffer({ resolveWithObject: true });
 let x0 = info.width, x1 = 0, y0 = info.height, y1 = 0;
@@ -72,18 +80,28 @@ for (let y = 0; y < info.height; y++) {
     }
   }
 }
-const lineW = ((pb.max[0] - pb.min[0]) * (x1 - x0 + 1)) / info.width; // eixo X do modelo = largura
-const lineL = ((pb.max[2] - pb.min[2]) * (y1 - y0 + 1)) / info.height; // eixo Z do modelo = comprimento
-console.log(`gramado: centro (${cx.toFixed(2)}, ${py.toFixed(2)}, ${cz.toFixed(2)}), malha ${(pb.max[0] - pb.min[0]).toFixed(1)} x ${(pb.max[2] - pb.min[2]).toFixed(1)}, linhas ${lineL.toFixed(1)} x ${lineW.toFixed(1)} m`);
+// UV: u = 0..1 de x local min..max; v = 1..0 de z local min..max. Centro e tamanho das linhas (em metros).
+const lineW = (lmax[0] - lmin[0]) * sx * ((x1 - x0 + 1) / info.width);
+const lineL = (lmax[2] - lmin[2]) * sz * ((y1 - y0 + 1) / info.height);
+const uc = (x0 + x1 + 1) / 2 / info.width;
+const vc = (y0 + y1 + 1) / 2 / info.height;
+const lc = [lmin[0] + (lmax[0] - lmin[0]) * uc, 0, lmax[2] - (lmax[2] - lmin[2]) * vc];
+const cx = W[0] * lc[0] + W[8] * lc[2] + W[12];
+const cz = W[2] * lc[0] + W[10] * lc[2] + W[14];
+console.log(`gramado: centro das linhas (${cx.toFixed(2)}, ${py.toFixed(2)}, ${cz.toFixed(2)}), giro ${((phi * 180) / Math.PI).toFixed(2)} graus, linhas ${lineL.toFixed(1)} x ${lineW.toFixed(1)} m`);
+console.log(`linhas na textura: x ${x0}..${x1}, y ${y0}..${y1} de ${info.width}x${info.height}`);
 
 // 3. Join por material (sem mexer na geometria).
 await doc.transform(weld({ tolerance: 0, toleranceNormal: 0 }), joinMeshes(), prune());
 console.log(`malhas ${docRoot.listMeshes().length}, materiais ${docRoot.listMaterials().length}`);
 
 // 4. Transformação: gramado no centro, eixo comprido em X, chão em y = 0.
-// p' = SCALE * R * (p - c), com R = giro de 90 graus em Y (x' = z, z' = -x).
-const wrap = doc.createNode("Ipatingao").setRotation([0, Math.SQRT1_2, 0, Math.SQRT1_2]).setScale([SCALE, SCALE, SCALE]);
-wrap.setTranslation([-SCALE * cz, -SCALE * py, SCALE * cx]);
+// p' = SCALE * R * (p - c), com R = giro theta em Y (x' = x cos + z sin, z' = -x sin + z cos).
+const theta = Math.PI / 2 - phi;
+const c = Math.cos(theta);
+const sn = Math.sin(theta);
+const wrap = doc.createNode("Ipatingao").setRotation([0, Math.sin(theta / 2), 0, Math.cos(theta / 2)]).setScale([SCALE, SCALE, SCALE]);
+wrap.setTranslation([-SCALE * (cx * c + cz * sn), -SCALE * py, -SCALE * (-cx * sn + cz * c)]);
 for (const c of scene.listChildren()) {
   scene.removeChild(c);
   wrap.addChild(c);
