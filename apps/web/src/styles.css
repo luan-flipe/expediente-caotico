@@ -50,11 +50,11 @@ input {
   background:
     linear-gradient(var(--paper-2) 1px, transparent 1px) 0 0 / 100% 32px,
     var(--paper);
-  padding: 32px 24px 48px;
+  padding: clamp(12px, 3vh, 32px) clamp(12px, 2.5vw, 40px) 48px;
 }
 
 .wrap {
-  max-width: 1080px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -139,6 +139,14 @@ input {
 
 .home-head .brand {
   margin: 0;
+  align-items: center;
+}
+
+.brand-logo {
+  display: block;
+  flex: none;
+  width: clamp(48px, min(8vw, 11vh), 96px);
+  height: auto;
 }
 
 .home-head .brand h1 {
@@ -2231,4 +2239,65 @@ input {
   font-size: 10px;
   opacity: 0.6;
   white-space: nowrap;
+}
+
+/* sala de espera no computador: cabe na janela sem rolar; a coluna do boneco cede altura */
+@media (min-width: 1101px) {
+  .screen.lobby {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: clamp(12px, 3vh, 32px);
+  }
+
+  .screen.lobby .wrap {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    gap: clamp(8px, 1.6vh, 16px);
+  }
+
+  .screen.lobby .brand h1 {
+    font-size: clamp(32px, 6.5vh, 64px);
+  }
+
+  .screen.lobby .postit {
+    padding: clamp(6px, 1.2vh, 14px) 18px;
+  }
+
+  .screen.lobby .postit .code {
+    font-size: clamp(24px, 4.5vh, 40px);
+  }
+
+  .screen.lobby .roster {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: clamp(8px, 1vw, 14px);
+  }
+
+  .screen.lobby .roster .slot {
+    min-height: 0;
+  }
+
+  .screen.lobby .roster .slot img {
+    height: clamp(64px, 15vh, 170px);
+    object-fit: cover;
+    object-position: 50% 20%;
+  }
+
+  .screen.lobby .grid-2 {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+  }
+
+  .screen.lobby .grid-2 > .card {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .screen.lobby .badge-preview {
+    flex: 1;
+    height: auto;
+    min-height: 120px;
+  }
 }
