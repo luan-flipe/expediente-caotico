@@ -24,7 +24,12 @@ export const PANTS = ["#26324a", "#1e1e1e", "#5a5f66", "#7a5b3a", "#c9b48a", "#2
 export const BEARDS = ["Sem barba", "Curta", "Cheia"];
 /** Índice 2 (Tênis) é o calçado do próprio boneco e o padrão. */
 export const SHOES = ["Descalço", "Meia", "Tênis", "Sapato", "Salto alto", "Bota bico de aço", "Galocha"];
-export const GLASSES = ["Sem óculos", "Redondo", "Quadrado"];
+/** Cores de camiseta, calça e tênis. No crachá, 0 é a cor original da peça e i é a cor i - 1 daqui. */
+export const CLOTH_COLORS = [
+  "#f4f1ea", "#232323", "#5a5f66", "#26324a", "#2f6fdf", "#3fb8c4", "#24a06b",
+  "#2f4d3a", "#f2b632", "#e2483c", "#ef7aa8", "#7b4bd6", "#8a6a4a", "#c9b48a",
+];
+export const GLASSES =["Sem óculos", "Redondo", "Quadrado"];
 export const ACCESSORIES = ["Nenhum", "Fone", "Boné", "Gravata", "Crachá"];
 export const HEIGHTS = ["Baixo", "Médio", "Alto"];
 /** Teto do índice de cabelo, barba, camiseta, calça e tênis: 0 é nenhum, os demais vêm das pastas de peças do cliente. */
@@ -46,6 +51,9 @@ export const DEFAULT_AVATAR: AvatarDNA = {
   shirt: 0,
   pants: 0,
   shoes: 0,
+  shirtColor: 0,
+  pantsColor: 0,
+  shoesColor: 0,
   accessory: 4,
   height: 1,
 };
@@ -92,6 +100,10 @@ export function sanitizeAvatar(raw: unknown): AvatarDNA {
     shirt: idx(r.shirt, MAX_WEARABLES, d.shirt),
     pants: idx(r.pants, MAX_WEARABLES, d.pants),
     shoes: idx(r.shoes, MAX_WEARABLES, d.shoes),
+    // crachá antigo sem as cores fica com as roupas na cor original
+    shirtColor: idx(r.shirtColor, CLOTH_COLORS.length + 1, d.shirtColor),
+    pantsColor: idx(r.pantsColor, CLOTH_COLORS.length + 1, d.pantsColor),
+    shoesColor: idx(r.shoesColor, CLOTH_COLORS.length + 1, d.shoesColor),
     accessory: idx(r.accessory, ACCESSORIES.length, d.accessory),
     height: idx(r.height, HEIGHTS.length, d.height),
   };
@@ -119,16 +131,25 @@ export function randomAvatar(rng: () => number, name = DEFAULT_AVATAR.name): Ava
     shoes: 0,
     accessory: r(ACCESSORIES.length),
     height: r(HEIGHTS.length),
+    // por último, para não mudar os sorteios de antes; metade das vezes a roupa fica na cor original
+    shirtColor: rng() < 0.5 ? 0 : 1 + r(CLOTH_COLORS.length),
+    pantsColor: rng() < 0.5 ? 0 : 1 + r(CLOTH_COLORS.length),
+    shoesColor: rng() < 0.5 ? 0 : 1 + r(CLOTH_COLORS.length),
   };
 }
 
-type PresetDNA = Omit<AvatarDNA, "name" | "model" | "eyes" | "face" | "shoes" | "top" | "bottom" | "beardColor"> &
-  Partial<Pick<AvatarDNA, "top" | "bottom" | "shoes" | "beardColor" | "face">>;
+type ClothColor = "shirtColor" | "pantsColor" | "shoesColor";
+type PresetDNA = Omit<AvatarDNA, "name" | "model" | "eyes" | "face" | "shoes" | "top" | "bottom" | "beardColor" | ClothColor> &
+  Partial<Pick<AvatarDNA, "top" | "bottom" | "shoes" | "beardColor" | "face" | ClothColor>>;
 
-/** Sem beardColor, a barba do funcionário pronto é da cor do cabelo. */
+/** Sem beardColor, a barba do funcionário pronto é da cor do cabelo; sem as cores de roupa, a peça fica na original. */
 const p = (n: number, dna: PresetDNA) => ({
   id: `funcionario_${String(n).padStart(2, "0")}`,
-  dna: { name: `Funcionário ${String(n).padStart(2, "0")}`, model: 0, eyes: 0, face: 0, shoes: 0, top: 0, bottom: 0, beardColor: dna.hairColor, ...dna },
+  dna: {
+    name: `Funcionário ${String(n).padStart(2, "0")}`,
+    model: 0, eyes: 0, face: 0, shoes: 0, top: 0, bottom: 0, beardColor: dna.hairColor, shirtColor: 0, pantsColor: 0, shoesColor: 0,
+    ...dna,
+  },
 });
 
 /** Pontos de partida editáveis. Os nomes reais entram depois. Cabelo e barba são das pastas de peças. */

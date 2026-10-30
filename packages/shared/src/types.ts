@@ -26,6 +26,10 @@ export interface AvatarDNA {
   shirt: number;
   pants: number;
   shoes: number;
+  /** Cor da camiseta, da calça e do tênis: 0 é a cor original da peça, i é CLOTH_COLORS[i - 1]. */
+  shirtColor: number;
+  pantsColor: number;
+  shoesColor: number;
   accessory: number;
   height: number;
 }

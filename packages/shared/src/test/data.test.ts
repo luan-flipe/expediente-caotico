@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ABILITIES, ABILITY_IDS } from "../data/abilities";
-import { HAIR_ORDER, HAIR_STYLES, MAX_WEARABLES, PRESETS, randomAvatar, sanitizeAvatar } from "../data/avatar";
+import { CLOTH_COLORS, HAIR_ORDER, HAIR_STYLES, MAX_WEARABLES, PRESETS, randomAvatar, sanitizeAvatar } from "../data/avatar";
 import { OFFICE_MAP } from "../data/map";
 import { SYNERGIES } from "../data/synergies";
 import { BALANCE } from "../data/balance";
@@ -48,6 +48,23 @@ describe("avatar", () => {
     expect(sanitizeAvatar({ hairColor: 4 }).beardColor).toBe(4);
     expect(sanitizeAvatar({ hairColor: 4, beardColor: 6 }).beardColor).toBe(6);
     expect(sanitizeAvatar({ hairColor: 4, beardColor: 99 }).beardColor).toBe(4);
+  });
+
+  it("cor da roupa: crachá antigo fica na cor original, e índice vai até a última de CLOTH_COLORS", () => {
+    const old = sanitizeAvatar({ shirt: 2, pants: 1, shoes: 1 });
+    expect([old.shirtColor, old.pantsColor, old.shoesColor]).toEqual([0, 0, 0]);
+    expect(sanitizeAvatar({ shirtColor: CLOTH_COLORS.length }).shirtColor).toBe(CLOTH_COLORS.length);
+    expect(sanitizeAvatar({ pantsColor: CLOTH_COLORS.length + 1 }).pantsColor).toBe(0);
+    expect(sanitizeAvatar({ shoesColor: 2.5 }).shoesColor).toBe(0);
+  });
+
+  it("boneco sorteado tem cor de roupa válida", () => {
+    let s = 7;
+    const rng = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 50; i++) {
+      const a = randomAvatar(rng);
+      expect(sanitizeAvatar(a)).toEqual(a);
+    }
   });
 
   it("ordem dos penteados na tela mostra cada um uma vez", () => {

@@ -57,7 +57,7 @@ describe("modo corrida no servidor", () => {
 
     a.send({ t: "mode", mode: "race" });
     const lob = await a.waitFor("lobby", (m) => m.state.mode === "race");
-    expect(lob.state.players.find((p) => p.id === wa.id)!.chair).toEqual({ seat: 3, base: 0, wheels: 0, back: 1, trinket: 0 });
+    expect(lob.state.players.find((p) => p.id === wa.id)!.chair).toEqual({ vehicle: 0, seat: 3, base: 0, wheels: 0, back: 1, trinket: 0 });
 
     b.send({ t: "ready", ready: true });
     await a.waitFor("lobby", (m) => m.state.players.find((p) => p.id === wb.id)?.ready === true);

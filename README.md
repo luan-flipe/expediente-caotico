@@ -64,7 +64,7 @@ Pontos: eliminação 100, assistência 40, 10 a cada 5 s sozinho na Reunião Rel
 | Tab | classificação |
 | Esc | abrir as Configurações (a corrida continua) |
 
-Todas as cadeiras têm a mesma física; a aba **Cadeira** do editor muda só a aparência (estofado, base, rodas, encosto e enfeite).
+Dá para correr de cadeira ou de patinete elétrico. Todos têm a mesma física; a aba **Veículo** do editor muda só a aparência (veículo, cores, rodas, encosto da cadeira e enfeite).
 
 | Item (caixas de arquivo na pista) | Efeito |
 |---|---|

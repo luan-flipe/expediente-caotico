@@ -20,6 +20,9 @@ const fakeAvatar = {
   shirt: 0,
   pants: 0,
   shoes: 0,
+  shirtColor: 0,
+  pantsColor: 0,
+  shoesColor: 0,
   accessory: 0,
   height: 1,
 };

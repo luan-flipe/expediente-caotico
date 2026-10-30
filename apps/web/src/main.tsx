@@ -1,4 +1,4 @@
-import { lazy, StrictMode, Suspense } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Loading } from "./screens/Loading";
 import { captarInstalacao, registrarSw } from "./pwa/registrar";
@@ -14,7 +14,9 @@ captarInstalacao();
 if (IS_TOUCH) document.documentElement.classList.add("touch");
 
 // Só React, a tela de carregamento e o estado entram no primeiro código; o resto (Three.js, telas, modos) vem depois.
-const App = lazy(() => import("./App").then((m) => ({ default: m.App })));
+// O código das telas já começa a baixar junto com os modelos, e a mesma tela de carregamento segura as duas esperas
+// (trocar por um fallback de Suspense remontava a tela e ela piscava).
+const appModule = import("./App");
 
 const wanted = new URLSearchParams(location.search).get("sala")?.toUpperCase();
 const session = savedSession();
@@ -26,15 +28,15 @@ import("./boot").catch((err) => {
   setState({ assetsReady: true });
 });
 
+type AppComponent = (typeof import("./App"))["App"];
+
 function Root() {
   const assetsReady = useStore((s) => s.assetsReady);
-  return assetsReady ? (
-    <Suspense fallback={<Loading />}>
-      <App />
-    </Suspense>
-  ) : (
-    <Loading />
-  );
+  const [App, setApp] = useState<AppComponent | null>(null);
+  useEffect(() => {
+    void appModule.then((m) => setApp(() => m.App));
+  }, []);
+  return assetsReady && App ? <App /> : <Loading />;
 }
 
 createRoot(document.getElementById("root")!).render(
