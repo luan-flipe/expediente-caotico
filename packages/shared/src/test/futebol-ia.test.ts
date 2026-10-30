@@ -27,7 +27,7 @@ function ball(over: Partial<Ball> = {}): Ball {
   return { x: 0, y: FUT.ballRadius, z: 0, vx: 0, vy: 0, vz: 0, ownerId: null, lastTouch: null, prevTouch: null, ...over };
 }
 function match(players: FutPlayer[], b: Ball = ball(), seed = 7): FutMatch {
-  return { field, players, ball: b, restart: null, connected: new Set(), rng: mulberry32(seed) };
+  return { field, players, ball: b, restart: null, connected: new Set(), rng: mulberry32(seed) } as FutMatch;
 }
 
 /** Dispara a bola de (x, z) rumo a (tx, tz) com a velocidade dada e vê se o goleiro 0 pega. */

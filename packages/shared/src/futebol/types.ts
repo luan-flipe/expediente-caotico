@@ -1,3 +1,5 @@
+import type { BotLevel } from "../botLevels";
+import type { AvatarDNA } from "../types";
 /** Jogadores de linha por time (sem contar o goleiro). */
 export type FutFormat = 1 | 2 | 3 | 4;
 export const FUT_FORMATS = [1, 2, 3, 4] as const;
@@ -75,14 +77,125 @@ export interface Restart {
   leftMs: number;
 }
 
-/** Versão mínima da partida (a Tarefa 8 estende). connected = ids humanos
- *  conectados; bots e goleiros contam sempre como presentes. */
+export type FutPhase = "kickoff" | "play" | "restart" | "goal" | "penalties" | "over";
+
+export type FutEvent =
+  | { type: "goal"; side: TeamSide; scorerId: string | null; assistId: string | null; own: boolean }
+  | { type: "card"; id: string; card: "yellow" | "red" }
+  | { type: "foul"; id: string }
+  | { type: "restart"; kind: RestartKind }
+  | { type: "whistle"; kind: "start" | "half" | "end" }
+  | { type: "pen"; side: TeamSide; takerId: string; scored: boolean };
+
+/** Uniforme de um time: kit = índice do modelo (0..2), color = índice da cor (0..7). */
+export interface FutTeamConfig {
+  name: string;
+  kit: number;
+  color: number;
+}
+
+/** Dados fixos de cada jogador e o que ele fez na partida. human = entrou como humano. */
+export interface FutPlayerInfo {
+  name: string;
+  avatar: AvatarDNA;
+  accountId: string | null;
+  human: boolean;
+  goals: number;
+  assists: number;
+}
+
+/** Disputa de pênaltis: cobranças alternadas, cinco por time e depois morte súbita. */
+export interface Shootout {
+  goals: [number, number];
+  taken: [number, number];
+  /** Time que cobra agora. */
+  turn: TeamSide;
+  stage: "aim" | "flight" | "result";
+  takerId: string;
+  keeperId: string;
+  timerMs: number;
+}
+
+/** Partida completa. connected = ids humanos conectados; bots e goleiros contam sempre. */
 export interface FutMatch {
   field: Field;
   players: FutPlayer[];
   ball: Ball;
   restart: Restart | null;
   connected: Set<string>;
-  /** RNG determinístico da partida (a Tarefa 8 cria; sem ele a IA usa um valor neutro). */
-  rng?: () => number;
+  /** RNG determinístico da partida (mulberry32 da seed). */
+  rng: () => number;
+  now: number;
+  phase: FutPhase;
+  /** Tempo restante da fase de espera (kickoff, goal). */
+  phaseMs: number;
+  elapsedMs: number;
+  durationMs: number;
+  format: FutFormat;
+  botLevel: BotLevel;
+  seed: number;
+  score: [number, number];
+  teams: [FutTeamConfig, FutTeamConfig];
+  info: Map<string, FutPlayerInfo>;
+  inputs: Map<string, FutInput>;
+  ack: Map<string, number>;
+  events: FutEvent[];
+  /** Time que sofreu o último gol (faz a saída do meio). */
+  kickoffSide: TeamSide;
+  halfDone: boolean;
+  /** Quando (m.now) cada jogador tocou na bola pela última vez (para a assistência). */
+  touchAt: Map<string, number>;
+  lastTouchId: string | null;
+  shootout: Shootout | null;
+  winner: TeamSide | null;
+}
+
+export interface FutSnapshot {
+  t: number;
+  phase: FutPhase;
+  elapsedMs: number;
+  durationMs: number;
+  celebrateMs: number;
+  format: FutFormat;
+  score: [number, number];
+  pens: { goals: [number, number]; taken: [number, number]; takerId: string } | null;
+  teams: [FutTeamConfig, FutTeamConfig];
+  restart: { kind: RestartKind; side: TeamSide; x: number; z: number; takerId: string; leftMs: number } | null;
+  ball: { x: number; y: number; z: number; vx: number; vy: number; vz: number; ownerId: string | null };
+  players: {
+    id: string;
+    name: string;
+    side: TeamSide;
+    role: "linha" | "goleiro";
+    x: number;
+    z: number;
+    vx: number;
+    vz: number;
+    facing: number;
+    sliding: boolean;
+    down: boolean;
+    yellow: number;
+    sentOff: boolean;
+    isBot: boolean;
+    connected: boolean;
+  }[];
+  events: FutEvent[];
+}
+
+export interface FutPrivate {
+  chargeMs: number;
+  /** Último seq de entrada confirmado. */
+  ackSeq: number;
+}
+
+export interface FutResultRow {
+  id: string;
+  name: string;
+  side: TeamSide;
+  isBot: boolean;
+  accountId: string | null;
+  goals: number;
+  assists: number;
+  yellow: number;
+  red: number;
 }

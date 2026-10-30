@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FUT, fieldFor, pushAway, restartBlocks, restartForOut, startRestart, stepRestart } from "../index";
+import { FUT, fieldFor, mulberry32, pushAway, restartBlocks, restartForOut, startRestart, stepRestart } from "../index";
 import type { Ball, FutMatch, FutPlayer } from "../index";
 
 function mk(over: Partial<FutPlayer> = {}): FutPlayer {
@@ -13,7 +13,7 @@ function ball(over: Partial<Ball> = {}): Ball {
   return { x: 0, y: FUT.ballRadius, z: 0, vx: 0, vy: 0, vz: 0, ownerId: null, lastTouch: null, prevTouch: null, ...over };
 }
 function match(players: FutPlayer[], connected: string[] = []): FutMatch {
-  return { field: fieldFor(2), players, ball: ball(), restart: null, connected: new Set(connected) };
+  return { field: fieldFor(2), players, ball: ball(), restart: null, connected: new Set(connected), rng: mulberry32(1) } as FutMatch;
 }
 
 const team = () => [
