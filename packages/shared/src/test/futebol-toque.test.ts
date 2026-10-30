@@ -102,13 +102,32 @@ describe("toques no futebol", () => {
   });
 
   it("kick solto sem a bola vira carrinho e não chuta nem passa", () => {
-    const p = mk();
+    const p = mk({ chargeKind: "kick" });
     const b = ball({ x: 10, z: 10 });
     const antes = { ...b };
     const ev = resolveTouches([p], b, new Map([["p1", inp({ kick: "release" })]]), 16);
     expect(b).toEqual(antes);
     expect(ev.some((e) => e.t === "kick" || e.t === "pass")).toBe(false);
     expect(ev).toContainEqual({ t: "tackle", id: "p1", ok: false });
+  });
+
+  it("release repetido depois do chute não vira carrinho", () => {
+    const p = mk({ chargeKind: "kick", chargeMs: 200 });
+    const b = ball({ z: 0.3, ownerId: "p1" });
+    const ins = new Map([["p1", inp({ kick: "release" })]]);
+    resolveTouches([p], b, ins, 16);
+    const ev = resolveTouches([p], b, ins, 16);
+    expect(ev.some((e) => e.t === "tackle")).toBe(false);
+    expect(p.tackleMs).toBe(0);
+  });
+
+  it("release repetido depois do passe não vira disputa", () => {
+    const p = mk({ chargeKind: "pass", chargeMs: 200 });
+    const b = ball({ z: 0.3, ownerId: "p1" });
+    const ins = new Map([["p1", inp({ pass: "release" })]]);
+    resolveTouches([p], b, ins, 16);
+    const ev = resolveTouches([p], b, ins, 16);
+    expect(ev.some((e) => e.t === "steal")).toBe(false);
   });
 
   it("goleiro e expulso são ignorados", () => {
@@ -143,7 +162,7 @@ describe("toques no futebol", () => {
 
   it("disputa toma a bola de quem conduz dentro do raio", () => {
     const dono = mk({ id: "a", x: 0, z: 0 });
-    const rival = mk({ id: "b", side: 1, x: 0.6, z: 0 });
+    const rival = mk({ id: "b", side: 1, x: 0.6, z: 0, chargeKind: "pass" });
     const b = ball({ x: 0, z: 0.3, ownerId: "a", lastTouch: { id: "a", side: 0 } });
     const ev = resolveTouches([dono, rival], b, new Map([["b", inp({ pass: "release" })]]), 16);
     expect(b.ownerId).toBe("b");
@@ -154,7 +173,7 @@ describe("toques no futebol", () => {
 
   it("disputa falha longe do dono", () => {
     const dono = mk({ id: "a" });
-    const rival = mk({ id: "b", side: 1, x: 5 });
+    const rival = mk({ id: "b", side: 1, x: 5, chargeKind: "pass" });
     const b = ball({ ownerId: "a" });
     const ev = resolveTouches([dono, rival], b, new Map([["b", inp({ pass: "release" })]]), 16);
     expect(b.ownerId).toBe("a");
@@ -162,7 +181,7 @@ describe("toques no futebol", () => {
   });
 
   it("carrinho derruba o adversário e informa o contato", () => {
-    const t = mk({ id: "t", x: 0, z: 0 });
+    const t = mk({ id: "t", x: 0, z: 0, chargeKind: "kick" });
     const v = mk({ id: "v", side: 1, x: 0, z: 1.5 });
     const b = ball({ x: 8, z: 8 });
     const ev = resolveTouches([t, v], b, new Map([["t", inp({ kick: "release", aim: 0 })]]), 16);
@@ -172,7 +191,7 @@ describe("toques no futebol", () => {
   });
 
   it("carrinho que pega a bola primeiro marca ballFirst", () => {
-    const t = mk({ id: "t" });
+    const t = mk({ id: "t", chargeKind: "kick" });
     const v = mk({ id: "v", side: 1, z: 2.1 });
     const b = ball({ z: 1.85 });
     const ev = resolveTouches([t, v], b, new Map([["t", inp({ kick: "release", aim: 0 })]]), 16);
@@ -181,7 +200,7 @@ describe("toques no futebol", () => {
   });
 
   it("carrinho no vazio dá ok falso e respeita a recarga", () => {
-    const t = mk({ id: "t" });
+    const t = mk({ id: "t", chargeKind: "kick" });
     const b = ball({ x: 9, z: 9 });
     const ins = new Map([["t", inp({ kick: "release", aim: 0 })]]);
     const ev = resolveTouches([t], b, ins, 16);
@@ -220,7 +239,7 @@ describe("toques no futebol", () => {
   });
 
   it("carrinho não derruba quem já está no chão de novo", () => {
-    const t = mk({ id: "t" });
+    const t = mk({ id: "t", chargeKind: "kick" });
     const v = mk({ id: "v", side: 1, z: 1.5, downMs: 700 });
     const b = ball({ x: 9, z: 9 });
     const ev = resolveTouches([t, v], b, new Map([["t", inp({ kick: "release" })]]), 16);

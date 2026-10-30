@@ -169,7 +169,8 @@ export function resolveTouches(
     }
 
     // release
-    const power01 = p.chargeKind === kind ? Math.min(1, p.chargeMs / FUT.chargeMaxMs) : 0;
+    const charged = p.chargeKind === kind;
+    const power01 = charged ? Math.min(1, p.chargeMs / FUT.chargeMaxMs) : 0;
     p.chargeMs = 0;
     p.chargeKind = null;
     const hasBall = ball.ownerId === p.id;
@@ -183,6 +184,8 @@ export function resolveTouches(
       kickBall(ball, input.aim, power01, kind);
       kicked.add(p.id);
       events.push({ t: kind, id: p.id, ok: true });
+    } else if (!charged) {
+      // release sem carga do mesmo tipo (reenvio do cliente): não vira carrinho nem disputa
     } else if (kind === "kick") {
       if (p.tackleMs <= 0) {
         const ev = tackle(p, input, ordered, ball, field);
