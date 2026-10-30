@@ -279,7 +279,14 @@ export class RaceEngine {
     this.scene.add(this.sun.target);
     this.disposeTrack = buildTrack(this.scene, track);
     this.vfx = new RaceVfxManager(this.scene, this.camera);
-    this.interactive = new TrackInteractiveManager({ track });
+    const isParque = track.id === "parque";
+    this.interactive = new TrackInteractiveManager({
+      track,
+      enableCoffeeCalcinha: !isParque,
+      enableRoombas: !isParque,
+      enableAutomaticDoors: !isParque,
+      enableAirVents: !isParque,
+    });
     this.interactive.init(this.scene);
 
     const skidGeo = new THREE.PlaneGeometry(0.18, 0.4);

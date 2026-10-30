@@ -130,53 +130,64 @@ const COPA_CUPS = [3, 8.5, 10.5];
 
 /** Parque Ipanema: circuito aberto e panorâmico contornando o lago, o moinho e os jardins. */
 const PARQUE: Ctrl[] = [
-  { x: -105, z: -10, w: 13, y: 1.09 }, // 0 reta das arquibancadas, linha de chegada
-  { x: -101, z: -28, w: 13, y: 1.23 }, // 1 entrada da curva sul
-  { x: -84, z: -40, w: 13, y: 1.62 }, // 2 curva da orla
-  { x: -60, z: -38, w: 13, y: 1.17 }, // 3 orla do lago
-  { x: -38, z: -43, w: 13, y: 1.78 }, // 4 lago sul
-  { x: -16, z: -49, w: 13, y: 2.33 }, // 5 reta das palmeiras
-  { x: 8, z: -49.5, w: 13, y: 1.29 }, // 6 bosque sul
-  { x: 32, z: -52, w: 13, y: 1.42 }, // 7 reta dos carrinhos de picolé
-  { x: 55, z: -54.5, w: 13, y: 2.42 }, // 8 picolé
-  { x: 78, z: -55, w: 13, y: 2.63 }, // 9 reta dos ipês
-  { x: 100, z: -53.5, w: 13, y: 1.27 }, // 10 curva leste
-  { x: 117, z: -40, w: 13, y: 1.77 }, // 11 mirante
-  { x: 119.5, z: -20, w: 13, y: 1.74 }, // 12 retorno do mirante
-  { x: 112, z: 0, w: 13, y: 2.64 }, // 13 descida do mirante
-  { x: 92, z: 5, w: 13, y: 2.26 }, // 14 curva do moinho
-  { x: 74, z: -8, w: 13, y: 1.67 }, // 15 chicane do moinho
-  { x: 54, z: -4, w: 13, y: 1.46 }, // 16 saída do moinho
-  { x: 34, z: 7, w: 13, y: 2.68 }, // 17 reta do caramanchão
-  { x: 12, z: 15, w: 13, y: 2.41 }, // 18 lago norte
-  { x: -8, z: 22, w: 13, y: 1.43 }, // 19 curva da ponte
-  { x: -26, z: 35, w: 13, y: 1.25 }, // 20 bosque
-  { x: -44, z: 47, w: 13, y: 0.61 }, // 21 curva norte
-  { x: -66, z: 48, w: 13, y: 1.25 }, // 22 reta dos eucaliptos
-  { x: -88, z: 43, w: 13, y: 1.4 }, // 23 curva da torcida
-  { x: -104, z: 30, w: 13, y: 0.79 }, // 24 entrada da reta principal
-  { x: -106, z: 10, w: 13, y: 1.45 }, // 25 reta principal
+  { x: -105.5, z: -1.3, w: 13, y: 1.44 }, // 0 reta das arquibancadas, linha de chegada
+  { x: -103.2, z: -17.5, w: 13, y: 0.97 }, // 1 entrada da curva sul
+  { x: -97.0, z: -32.4, w: 13, y: 1.79 }, // 2 descida da orla
+  { x: -82.5, z: -38.7, w: 13, y: 1.74 }, // 3 curva da orla
+  { x: -67.1, z: -38.8, w: 13, y: 1.4 }, // 4 orla do lago
+  { x: -50.8, z: -37.4, w: 13, y: 1.37 }, // 5 lago sul
+  { x: -35.7, z: -41.5, w: 13, y: 1.89 }, // 6 transição da reta sul
+  { x: -22.9, z: -48.8, w: 13, y: 2.78 }, // 7 subida das palmeiras
+  { x: -6.6, z: -48.7, w: 13, y: 2.11 }, // 8 reta das palmeiras
+  { x: 9.7, z: -49.3, w: 13, y: 1.28 }, // 9 bosque sul
+  { x: 25.0, z: -51.1, w: 13, y: 1.05 }, // 10 reta dos carrinhos de picolé
+  { x: 41.3, z: -53.2, w: 13, y: 2.26 }, // 11 subida do picolé
+  { x: 56.6, z: -54.6, w: 13, y: 2.54 }, // 12 reta dos ipês
+  { x: 72.9, z: -54.9, w: 13, y: 2.78 }, // 13 mirante leste
+  { x: 89.2, z: -54.5, w: 13, y: 2.04 }, // 14 descida para o retorno
+  { x: 104.4, z: -52.1, w: 13, y: 1.34 }, // 15 aproximação da curva do mirante
+  { x: 116.9, z: -42.1, w: 13, y: 1.85 }, // 16 curva do mirante
+  { x: 119.8, z: -26.3, w: 13, y: 1.81 }, // 17 contorno do mirante
+  { x: 117.2, z: -11.2, w: 13, y: 2.18 }, // 18 saída do mirante
+  { x: 109.5, z: 3.0, w: 13, y: 2.77 }, // 19 subida do moinho
+  { x: 93.7, z: 4.8, w: 13, y: 2.39 }, // 20 curva do moinho
+  { x: 80.1, z: -3.6, w: 13, y: 2.05 }, // 21 chicane do moinho
+  { x: 66.9, z: -9.5, w: 13, y: 1.46 }, // 22 saída do moinho
+  { x: 52.4, z: -2.1, w: 13, y: 1.68 }, // 23 descida para o caramanchão
+  { x: 37.9, z: 5.4, w: 13, y: 2.76 }, // 24 reta do caramanchão
+  { x: 23.7, z: 11.1, w: 13, y: 2.7 }, // 25 caramanchão norte
+  { x: 8.0, z: 16.0, w: 13, y: 2.4 }, // 26 lago norte
+  { x: -6.4, z: 21.3, w: 13, y: 1.68 }, // 27 curva da ponte
+  { x: -20.1, z: 30.2, w: 13, y: 1.08 }, // 28 bosque
+  { x: -32.5, z: 40.8, w: 13, y: 1.45 }, // 29 bosque dos eucaliptos
+  { x: -47.0, z: 47.9, w: 13, y: 0.84 }, // 30 curva norte
+  { x: -62.3, z: 48.3, w: 13, y: 1.38 }, // 31 reta dos eucaliptos
+  { x: -78.5, z: 46.2, w: 13, y: 1.52 }, // 32 curva da torcida
+  { x: -94.0, z: 41.1, w: 13, y: 1.47 }, // 33 aproximação da reta principal
+  { x: -104.2, z: 30.4, w: 13, y: 0.9 }, // 34 entrada da reta principal
+  { x: -106.1, z: 14.1, w: 13, y: 1.51 }, // 35 reta principal
 ];
 
 const PARQUE_ROOMS: TrackRoom[] = [
   { name: "Arquibancadas", ctrl: 0 },
-  { name: "Orla do Lago", ctrl: 2 },
-  { name: "Reta dos Ipês", ctrl: 7 },
-  { name: "Curva do Mirante", ctrl: 11 },
-  { name: "Moinho", ctrl: 14 },
-  { name: "Caramanchão", ctrl: 17 },
-  { name: "Bosque", ctrl: 20 },
-  { name: "Arquibancadas", ctrl: 24 },
+  { name: "Orla do Lago", ctrl: 3 },
+  { name: "Reta das Palmeiras", ctrl: 7 },
+  { name: "Reta dos Ipês", ctrl: 11 },
+  { name: "Curva do Mirante", ctrl: 16 },
+  { name: "Moinho", ctrl: 20 },
+  { name: "Caramanchão", ctrl: 24 },
+  { name: "Bosque", ctrl: 28 },
+  { name: "Arquibancadas", ctrl: 33 },
 ];
 
 const PARQUE_CARPET: [number, number][] = [
-  [1.8, 3.2],
-  [10.8, 12.2],
-  [21.8, 23.2],
+  [2.5, 4.5],
+  [15.5, 18.0],
+  [29.5, 31.0],
 ];
 
-const PARQUE_BOXES = [0.5, 5.0, 9.0, 13.8, 18.5, 24.5];
-const PARQUE_CUPS = [4.0, 7.5, 13.0, 17.5, 20.5, 25.2];
+const PARQUE_BOXES = [1.0, 7.0, 13.0, 19.5, 25.5, 33.0];
+const PARQUE_CUPS = [4.0, 10.0, 16.5, 22.5, 28.5, 34.5];
 
 /**
  * Atalho: segundo corredor que sai da pista principal no índice de controle from e volta nela em to
@@ -191,7 +202,7 @@ interface BranchDef {
 const CORPORATIVO_BRANCH: BranchDef = { from: 2.2, to: 5, ctrl: [{ x: 35, z: -24, w: 5 }] };
 const ESTACIONAMENTO_BRANCH: BranchDef = { from: 2.5, to: 5.5, ctrl: [{ x: 42, z: -10, w: 7 }] };
 const COPA_BRANCH: BranchDef = { from: 8.7, to: 11.4, ctrl: [{ x: -12, z: -2, w: 5 }] };
-const PARQUE_BRANCH: BranchDef = { from: 10.4, to: 13.4, ctrl: [{ x: 105, z: -24, w: 7 }] };
+const PARQUE_BRANCH: BranchDef = { from: 15.6, to: 18.8, ctrl: [{ x: 107, z: -25, w: 7 }] };
 
 /**
  * Rampa: o chão sobe linear de 0 a height entre sFrom e sTo; quem sai do topo rápido decola. gap é um
@@ -219,7 +230,7 @@ const CORPORATIVO_RAMP: RampDef = { path: -1, at: 0.4, len: 6, height: 1.6 };
 /** Estacionamento: rampa da garagem no atalho, pulando o fosso do subsolo. */
 const ESTACIONAMENTO_RAMP: RampDef = { path: 0, at: 0.15, len: 6, height: 2.2, gap: [0.36, 0.47] };
 /** Parque Ipanema: rampa panorâmica na reta dos ipês, saltando em direção ao mirante. */
-const PARQUE_RAMP: RampDef = { path: -1, at: 8.2, len: 7, height: 1.8 };
+const PARQUE_RAMP: RampDef = { path: -1, at: 11.8, len: 7, height: 1.8 };
 
 const STEP = 5;
 /** Nas bocas, só troca de corredor quando o outro centro está tanto mais perto (m). */
