@@ -273,6 +273,7 @@ export class CharacterWindPhysics {
   public badgeBounceY = 0;
   public hairRotX = 0;
   public hairRotZ = 0;
+  public hairBounceY = 0;
   public beardRotX = 0;
   public capLift = 0;
 
@@ -286,6 +287,7 @@ export class CharacterWindPhysics {
     this.badgeBounceY = 0;
     this.hairRotX = 0;
     this.hairRotZ = 0;
+    this.hairBounceY = 0;
     this.beardRotX = 0;
     this.capLift = 0;
     this.time = 0;
@@ -327,17 +329,35 @@ export class CharacterWindPhysics {
     this.badgeRotZ += (targetBadgeZ - this.badgeRotZ) * badgeK;
     this.badgeBounceY += (badgeBounce - this.badgeBounceY) * badgeK;
 
-    // 3. Cabelos: esvoaçar contínuo para trás com ondas secundárias
-    const targetHairX = -0.68 * dynamicPressure;
-    const targetHairZ = -steer * 0.22 - driftDir * 0.30;
+    // 3. Cabelos: dinâmica multi-camada (respiração/idle sway + impacto dos passos + arrasto de velocidade + inércia centrífuga)
+    // Camada A: Balanço orgânico contínuo de repouso / respiração (sempre ativo, inclusive no editor de avatar e grid)
+    const idleHairX = Math.sin(this.time * 2.2) * 0.045 + Math.cos(this.time * 1.1) * 0.02;
+    const idleHairZ = Math.sin(this.time * 1.7 + 0.5) * 0.04;
+    const idleBounceY = Math.sin(this.time * 3.2) * 0.005;
+
+    // Camada B: Salto e impacto dos passos na locomoção
+    const stepWave = Math.sin(this.time * 11.5);
+    const stepHairX = stepWave * 0.09 * Math.min(1.0, absSpeed / 2.5);
+    const stepBounceY = Math.abs(stepWave) * 0.015 * Math.min(1.0, absSpeed / 2.5);
+
+    // Camada C: Arrasto aerodinâmico de velocidade (Mario Kart speed trail)
+    const speedHairX = -0.72 * dynamicPressure;
     const hairWave = Math.sin(this.time * (18.0 + effectiveSpeed * 1.5)) * 0.14 * dynamicPressure;
 
+    // Camada D: Força centrífuga e inércia em curvas e drift
+    const centrifugalHairZ = -steer * 0.28 - driftDir * 0.38;
+
+    const targetHairX = idleHairX + stepHairX + speedHairX + hairWave;
+    const targetHairZ = idleHairZ + centrifugalHairZ;
+    const targetBounceY = idleBounceY + stepBounceY;
+
     const hairK = Math.min(1, dt * 13);
-    this.hairRotX += (targetHairX + hairWave - this.hairRotX) * hairK;
+    this.hairRotX += (targetHairX - this.hairRotX) * hairK;
     this.hairRotZ += (targetHairZ - this.hairRotZ) * hairK;
+    this.hairBounceY += (targetBounceY - this.hairBounceY) * hairK;
 
     // 4. Barba: vibração na ponta do queixo
-    const targetBeardX = -0.20 * dynamicPressure;
+    const targetBeardX = -0.20 * dynamicPressure + Math.sin(this.time * 2.2) * 0.015;
     const beardTremble = Math.sin(this.time * 30.0) * 0.035 * dynamicPressure;
     const beardK = Math.min(1, dt * 15);
     this.beardRotX += (targetBeardX + beardTremble - this.beardRotX) * beardK;
@@ -957,6 +977,14 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (glbCapVisor) {
         glbCapVisor.position.y = 0.20 + wind.capLift;
       }
+      for (const p of attachedHairMeshes) {
+        p.rotation.x = wind.hairRotX * 0.45;
+        p.rotation.z = wind.hairRotZ * 0.35;
+        p.position.y = wind.hairBounceY * 0.5;
+      }
+      for (const p of attachedBeardMeshes) {
+        p.rotation.x = wind.beardRotX * 0.25;
+      }
       const busy = [...actions.values()].some((a) => a.isRunning());
       // até a metade da velocidade o boneco anda; dali em diante passa a correr
       const s = busy ? 0 : speed01;
@@ -997,11 +1025,12 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         glbCapVisor.position.y = 0.20 + wind.capLift;
       }
       for (const p of attachedHairMeshes) {
-        p.rotation.x = wind.hairRotX * 0.14;
-        p.rotation.z = wind.hairRotZ * 0.08;
+        p.rotation.x = wind.hairRotX * 0.55;
+        p.rotation.z = wind.hairRotZ * 0.40;
+        p.position.y = wind.hairBounceY * 0.6;
       }
       for (const p of attachedBeardMeshes) {
-        p.rotation.x = wind.beardRotX * 0.12;
+        p.rotation.x = wind.beardRotX * 0.25;
       }
 
       // 1. Postura corporal do tronco (inércia centrífuga nas curvas e transferência de peso longitudinal)

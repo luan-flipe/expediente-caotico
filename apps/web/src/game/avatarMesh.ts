@@ -19,6 +19,8 @@ export interface AvatarRig {
   tiePivot?: THREE.Group;
   badgePivot?: THREE.Group;
   hairPivot?: THREE.Group;
+  hairLockL?: THREE.Group;
+  hairLockR?: THREE.Group;
   hairPonytail?: THREE.Object3D;
   beardPivot?: THREE.Group;
   capVisor?: THREE.Mesh;
@@ -33,6 +35,7 @@ export interface AvatarWindState {
   badgeBounceY: number;
   hairRotX: number;
   hairRotZ: number;
+  hairBounceY: number;
   beardRotX: number;
   capLift: number;
 }
@@ -71,6 +74,8 @@ function limb(w: number, h: number, d: number, m: THREE.Material, endMat?: THREE
 
 interface HairPivots {
   hairPivot?: THREE.Group;
+  hairLockL?: THREE.Group;
+  hairLockR?: THREE.Group;
   hairPonytail?: THREE.Object3D;
 }
 
@@ -80,7 +85,15 @@ function addHair(head: THREE.Group, style: number, m: THREE.Material): HairPivot
   switch (style) {
     case 1:
       head.add(at(box(0.56, 0.14, 0.54, m, 0.05), 0, top - 0.02, -0.01));
-      head.add(at(box(0.56, 0.3, 0.1, m, 0.04), 0, top - 0.16, -0.24));
+      {
+        const hp = new THREE.Group();
+        hp.name = "Cabelo_Pivo";
+        hp.position.set(0, top - 0.02, -0.24);
+        hp.userData.baseY = hp.position.y;
+        hp.add(at(box(0.56, 0.3, 0.1, m, 0.04), 0, -0.14, 0));
+        head.add(hp);
+        pivots.hairPivot = hp;
+      }
       break;
     case 2:
       head.add(at(box(0.58, 0.16, 0.56, m, 0.06), 0, top - 0.01, -0.01));
@@ -88,12 +101,28 @@ function addHair(head: THREE.Group, style: number, m: THREE.Material): HairPivot
         const hp = new THREE.Group();
         hp.name = "Cabelo_Pivo";
         hp.position.set(0, top - 0.01, -0.16);
-        hp.add(at(box(0.6, 0.42, 0.14, m, 0.05), 0, -0.23, -0.07));
+        hp.userData.baseY = hp.position.y;
+        hp.add(at(box(0.6, 0.42, 0.14, m, 0.05), 0, -0.21, -0.07));
         head.add(hp);
         pivots.hairPivot = hp;
       }
-      head.add(at(box(0.08, 0.3, 0.4, m, 0.03), -0.29, top - 0.17, -0.04));
-      head.add(at(box(0.08, 0.3, 0.4, m, 0.03), 0.29, top - 0.17, -0.04));
+      {
+        const lockL = new THREE.Group();
+        lockL.name = "Mecha_E";
+        lockL.position.set(-0.29, top - 0.02, -0.04);
+        lockL.userData.baseY = lockL.position.y;
+        lockL.add(at(box(0.08, 0.3, 0.4, m, 0.03), 0, -0.15, 0));
+        head.add(lockL);
+        pivots.hairLockL = lockL;
+
+        const lockR = new THREE.Group();
+        lockR.name = "Mecha_D";
+        lockR.position.set(0.29, top - 0.02, -0.04);
+        lockR.userData.baseY = lockR.position.y;
+        lockR.add(at(box(0.08, 0.3, 0.4, m, 0.03), 0, -0.15, 0));
+        head.add(lockR);
+        pivots.hairLockR = lockR;
+      }
       break;
     case 3:
       head.add(at(box(0.58, 0.16, 0.56, m, 0.06), 0, top - 0.01, -0.01));
@@ -101,20 +130,45 @@ function addHair(head: THREE.Group, style: number, m: THREE.Material): HairPivot
         const hp = new THREE.Group();
         hp.name = "Cabelo_Pivo";
         hp.position.set(0, top - 0.01, -0.17);
-        hp.add(at(box(0.6, 0.85, 0.14, m, 0.05), 0, -0.41, -0.07));
+        hp.userData.baseY = hp.position.y;
+        hp.add(at(box(0.6, 0.85, 0.14, m, 0.05), 0, -0.42, -0.07));
         head.add(hp);
         pivots.hairPivot = hp;
       }
-      head.add(at(box(0.08, 0.6, 0.36, m, 0.03), -0.29, top - 0.3, -0.06));
-      head.add(at(box(0.08, 0.6, 0.36, m, 0.03), 0.29, top - 0.3, -0.06));
+      {
+        const lockL = new THREE.Group();
+        lockL.name = "Mecha_E";
+        lockL.position.set(-0.29, top - 0.02, -0.06);
+        lockL.userData.baseY = lockL.position.y;
+        lockL.add(at(box(0.08, 0.6, 0.36, m, 0.03), 0, -0.28, 0));
+        head.add(lockL);
+        pivots.hairLockL = lockL;
+
+        const lockR = new THREE.Group();
+        lockR.name = "Mecha_D";
+        lockR.position.set(0.29, top - 0.02, -0.06);
+        lockR.userData.baseY = lockR.position.y;
+        lockR.add(at(box(0.08, 0.6, 0.36, m, 0.03), 0, -0.28, 0));
+        head.add(lockR);
+        pivots.hairLockR = lockR;
+      }
       break;
     case 4:
       head.add(at(box(0.56, 0.13, 0.54, m, 0.05), 0, top - 0.02, -0.01));
-      head.add(at(box(0.56, 0.3, 0.1, m, 0.04), 0, top - 0.16, -0.24));
+      {
+        const nape = new THREE.Group();
+        nape.name = "Cabelo_Pivo";
+        nape.position.set(0, top - 0.02, -0.24);
+        nape.userData.baseY = nape.position.y;
+        nape.add(at(box(0.56, 0.3, 0.1, m, 0.04), 0, -0.14, 0));
+        head.add(nape);
+        pivots.hairPivot = nape;
+      }
       {
         const hp = new THREE.Group();
         hp.name = "Coque_Pivo";
         hp.position.set(0, top + 0.07, -0.22);
+        hp.userData.baseY = hp.position.y;
         hp.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.15, 1), m), 0, 0, 0));
         head.add(hp);
         pivots.hairPonytail = hp;
@@ -125,6 +179,7 @@ function addHair(head: THREE.Group, style: number, m: THREE.Material): HairPivot
         const hp = new THREE.Group();
         hp.name = "Moicano_Pivo";
         hp.position.set(0, top - 0.04, -0.02);
+        hp.userData.baseY = hp.position.y;
         hp.add(at(box(0.12, 0.2, 0.56, m, 0.04), 0, 0.10, 0));
         head.add(hp);
         pivots.hairPivot = hp;
@@ -135,6 +190,7 @@ function addHair(head: THREE.Group, style: number, m: THREE.Material): HairPivot
         const hp = new THREE.Group();
         hp.name = "Afro_Pivo";
         hp.position.set(0, top, 0);
+        hp.userData.baseY = hp.position.y;
         for (let i = 0; i < 14; i++) {
           const a = (i / 14) * Math.PI * 2;
           const r = i % 2 ? 0.2 : 0.12;
@@ -309,6 +365,8 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
     tiePivot,
     badgePivot,
     hairPivot: hairPivots.hairPivot,
+    hairLockL: hairPivots.hairLockL,
+    hairLockR: hairPivots.hairLockR,
     hairPonytail: hairPivots.hairPonytail,
     beardPivot,
     capVisor,
@@ -472,7 +530,7 @@ export function animateAvatar(rig: AvatarRig, speed01: number, t: number, aiming
   rig.legR.rotation.x = -swing;
   rig.armL.rotation.x = -swing * 0.8;
   rig.armR.rotation.x = aiming ? -1.45 : swing * 0.8;
-  rig.body.position.y = Math.abs(Math.sin(t * 11)) * 0.05 * speed01;
+  rig.body.position.y = Math.abs(Math.sin(t * 11)) * 0.05 * speed01 + Math.sin(t * 2.2) * 0.008 * (1 - speed01);
   rig.head.rotation.z = Math.sin(t * 2.1) * 0.03;
 }
 
@@ -498,14 +556,32 @@ export function applyAvatarWindPhysics(rig: AvatarRig, wind: AvatarWindState): v
     rig.badgePivot.position.y = 0.09 + wind.badgeBounceY;
   }
 
-  // 3. Cabelos (Mechas e coque/ponytail)
+  // 3. Cabelos (Pivot principal, mechas laterais e coque/ponytail)
   if (rig.hairPivot) {
     rig.hairPivot.rotation.x = wind.hairRotX;
     rig.hairPivot.rotation.z = wind.hairRotZ;
+    const baseY = typeof rig.hairPivot.userData.baseY === "number" ? rig.hairPivot.userData.baseY : rig.hairPivot.position.y;
+    rig.hairPivot.position.y = baseY + wind.hairBounceY;
+  }
+  if (rig.hairLockL) {
+    // Mecha lateral esquerda: responde ao vento, curvas centrífugas e balanço orgânico
+    rig.hairLockL.rotation.x = wind.hairRotX * 0.92;
+    rig.hairLockL.rotation.z = wind.hairRotZ * 0.85 - Math.max(0, -wind.hairRotX) * 0.14;
+    const baseY = typeof rig.hairLockL.userData.baseY === "number" ? rig.hairLockL.userData.baseY : rig.hairLockL.position.y;
+    rig.hairLockL.position.y = baseY + wind.hairBounceY * 0.85;
+  }
+  if (rig.hairLockR) {
+    // Mecha lateral direita: defasagem harmônica e abertura centrífuga
+    rig.hairLockR.rotation.x = wind.hairRotX * 0.92;
+    rig.hairLockR.rotation.z = wind.hairRotZ * 0.85 + Math.max(0, -wind.hairRotX) * 0.14;
+    const baseY = typeof rig.hairLockR.userData.baseY === "number" ? rig.hairLockR.userData.baseY : rig.hairLockR.position.y;
+    rig.hairLockR.position.y = baseY + wind.hairBounceY * 0.85;
   }
   if (rig.hairPonytail) {
-    rig.hairPonytail.rotation.x = wind.hairRotX * 1.32;
-    rig.hairPonytail.rotation.z = wind.hairRotZ * 0.78;
+    rig.hairPonytail.rotation.x = wind.hairRotX * 1.45;
+    rig.hairPonytail.rotation.z = wind.hairRotZ * 0.95;
+    const baseY = typeof rig.hairPonytail.userData.baseY === "number" ? rig.hairPonytail.userData.baseY : rig.hairPonytail.position.y;
+    rig.hairPonytail.position.y = baseY + wind.hairBounceY * 1.35;
   }
 
   // 4. Barba no queixo

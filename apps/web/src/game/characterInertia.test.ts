@@ -102,8 +102,34 @@ describe("CharacterWindPhysics (Secondary Wind Simulation)", () => {
     expect(wind.badgeBounceY).toBe(0);
     expect(wind.hairRotX).toBe(0);
     expect(wind.hairRotZ).toBe(0);
+    expect(wind.hairBounceY).toBe(0);
     expect(wind.beardRotX).toBe(0);
     expect(wind.capLift).toBe(0);
+  });
+
+  it("produces continuous organic idle sway even when stationary (speed = 0)", () => {
+    const wind = new CharacterWindPhysics();
+    // Simulate standing still over 2 seconds
+    let maxAbsX = 0;
+    let maxAbsZ = 0;
+    for (let i = 0; i < 120; i++) {
+      wind.update(0.016, 0, 0, 0, false, false);
+      maxAbsX = Math.max(maxAbsX, Math.abs(wind.hairRotX));
+      maxAbsZ = Math.max(maxAbsZ, Math.abs(wind.hairRotZ));
+    }
+    // Hair is subtly alive with idle breathing & sway
+    expect(maxAbsX).toBeGreaterThan(0.01);
+    expect(maxAbsZ).toBeGreaterThan(0.01);
+  });
+
+  it("produces footstep cadence bounce during locomotion", () => {
+    const wind = new CharacterWindPhysics();
+    let maxBounce = 0;
+    for (let i = 0; i < 60; i++) {
+      wind.update(0.016, 2.0, 0, 0, false, false);
+      maxBounce = Math.max(maxBounce, Math.abs(wind.hairBounceY));
+    }
+    expect(maxBounce).toBeGreaterThan(0.005);
   });
 
   it("lifts tie and sweeps hair backward proportional to airspeed, boosted during turbo", () => {
@@ -161,6 +187,8 @@ describe("CharacterWindPhysics (Secondary Wind Simulation)", () => {
     expect(wind.tieRotZ).toBe(0);
     expect(wind.badgeRotX).toBe(0);
     expect(wind.hairRotX).toBe(0);
+    expect(wind.hairRotZ).toBe(0);
+    expect(wind.hairBounceY).toBe(0);
     expect(wind.beardRotX).toBe(0);
     expect(wind.capLift).toBe(0);
   });
@@ -258,6 +286,25 @@ describe("Character seated with inertia & tricks", () => {
       capChar.updateSeated?.(0.016, 15, 0, 0, false, undefined);
       capChar.update(0.016, 15);
       expect(Number.isFinite(capChar.root.position.x)).toBe(true);
+    }
+  });
+
+  it("articulates and animates hair for all 6 avatar hairstyles in idle and racing", () => {
+    for (let hairStyle = 1; hairStyle <= 6; hairStyle++) {
+      const char = createCharacter({
+        ...DEFAULT_AVATAR,
+        hair: hairStyle,
+      });
+
+      // Standing / editor mode: idle sway and walking
+      char.update(0.016, 0);
+      char.update(0.016, 1.0);
+
+      // Kart mode: turns, drift and high-speed wind
+      char.sit?.();
+      char.updateSeated?.(0.016, 16, 0.5, 1, true, undefined);
+
+      expect(Number.isFinite(char.root.position.x)).toBe(true);
     }
   });
 });
