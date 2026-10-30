@@ -5,6 +5,7 @@ import {
   getLobbyMusicVolume,
   nextRaceTrack,
   peekRaceTrack,
+  playCountdownBeep,
   preloadSounds,
   RACE_MUSIC_DUCK,
   RACE_MUSIC_FADE_IN,
@@ -166,5 +167,12 @@ describe("música da corrida", () => {
     expect(done).toHaveBeenCalledOnce();
     m.play(RACE_TRACKS[0], buffer);
     expect(src.start).not.toHaveBeenCalled();
+  });
+});
+
+describe("playCountdownBeep", () => {
+  it("sem AudioContext não quebra", () => {
+    expect(() => playCountdownBeep("tick")).not.toThrow();
+    expect(() => playCountdownBeep("go")).not.toThrow();
   });
 });

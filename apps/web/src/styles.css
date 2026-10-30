@@ -1776,23 +1776,29 @@ input {
 }
 
 .qc-panel {
-  width: min(460px, calc(100vw - 32px));
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   background: var(--paper);
   border: 2px solid var(--line);
   box-shadow: var(--shadow);
-  padding: 16px;
+  padding: 16px 20px 20px 16px;
   display: grid;
+  /* a trilha única não pode crescer além do painel, senão os botões vazam pela borda */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
 .qc-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* sobra à direita e embaixo para a sombra dos botões */
+  padding: 0 4px 4px 0;
+  gap: 10px;
 }
 
 .qc-grid.emotes {
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .qc-grid .btn {
@@ -1800,9 +1806,14 @@ input {
   align-items: center;
   gap: 8px;
   justify-content: flex-start;
+  min-width: 0;
+  padding: 10px 12px;
+  text-align: left;
+  line-height: 1.15;
 }
 
 .qc-grid.emotes .btn {
+  padding: 8px 4px;
   justify-content: center;
   flex-direction: column;
   gap: 2px;
@@ -2300,4 +2311,60 @@ input {
     height: auto;
     min-height: 120px;
   }
+}
+
+/* convite pelo WhatsApp ao lado de copiar */
+.postit .btn {
+  margin: 6px 6px 0 0;
+  text-decoration: none;
+  display: inline-block;
+}
+
+/* melhor volta da corrida inteira: roxo, como nos jogos de corrida */
+.table td.best-lap {
+  color: #7b2ff7;
+  font-weight: 800;
+}
+
+/* dica da tela de carregamento */
+.loading-tip {
+  margin: 10px auto 0;
+  max-width: 480px;
+  font-size: 15px;
+  color: var(--paper-2);
+  opacity: 0.85;
+}
+
+/* cargo do jogador no crachá do perfil */
+.badge-cargo {
+  padding: 0 16px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* pista do dia no seletor da sala */
+.tag-dia {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--blue);
+}
+
+/* modo daltônico: laranja e azul no lugar de vermelho e verde, e um símbolo junto de cada cor de aviso */
+html.daltonico {
+  --red: #d55e00;
+  --green: #0072b2;
+  --blue: #7b2ff7;
+}
+
+html.daltonico .tag.ok::before {
+  content: "✓ ";
+}
+
+html.daltonico .tag.off::before,
+html.daltonico .error::before {
+  content: "⚠ ";
 }

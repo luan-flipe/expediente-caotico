@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Loading } from "./screens/Loading";
 import { captarInstalacao, registrarSw } from "./pwa/registrar";
+import { getSettings, subscribeSettings } from "./settings";
 import { getState, net, savedSession, setState, useStore } from "./store";
 import "./styles.css";
 import { IS_TOUCH } from "./touch";
@@ -9,6 +10,11 @@ import { IS_TOUCH } from "./touch";
 // PWA: o service worker só em produção; o botão de instalar escuta o aviso do navegador desde já
 registrarSw(() => getState().code !== null);
 captarInstalacao();
+
+// modo daltônico: uma classe no <html> troca as cores da interface (ver styles.css)
+const aplicarDaltonico = () => document.documentElement.classList.toggle("daltonico", getSettings().daltonico);
+aplicarDaltonico();
+subscribeSettings(aplicarDaltonico);
 
 // aparelho de toque: o CSS aumenta os alvos e troca as dicas de teclado
 if (IS_TOUCH) document.documentElement.classList.add("touch");

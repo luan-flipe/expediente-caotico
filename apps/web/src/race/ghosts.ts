@@ -4,6 +4,7 @@ import { buildRacer, type Racer3D } from "./chairMesh";
 
 export const GHOST_MINE = "#4aa3ff";
 export const GHOST_RECORD = "#ffd23f";
+export const GHOST_RIVAL = "#ff6fb5";
 const GHOST_OPACITY = 0.35;
 
 const angleLerp = (a: number, b: number, t: number) => {
