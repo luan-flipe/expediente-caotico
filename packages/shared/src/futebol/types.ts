@@ -62,3 +62,25 @@ export interface Ball {
   lastTouch: BallTouch | null;
   prevTouch: BallTouch | null;
 }
+
+export type RestartKind = "lateral" | "escanteio" | "meta" | "falta" | "penalti" | "saida";
+
+/** Bola parada em espera: só o cobrador toca; leftMs chega a 0 e a IA cobra. */
+export interface Restart {
+  kind: RestartKind;
+  side: TeamSide;
+  x: number;
+  z: number;
+  takerId: string;
+  leftMs: number;
+}
+
+/** Versão mínima da partida (a Tarefa 8 estende). connected = ids humanos
+ *  conectados; bots e goleiros contam sempre como presentes. */
+export interface FutMatch {
+  field: Field;
+  players: FutPlayer[];
+  ball: Ball;
+  restart: Restart | null;
+  connected: Set<string>;
+}
