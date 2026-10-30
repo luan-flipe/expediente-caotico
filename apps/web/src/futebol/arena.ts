@@ -71,6 +71,9 @@ export class Arena {
   private step = -1;
   private tex: THREE.CanvasTexture[] = [];
   private tmp = new THREE.Object3D();
+  private redraws: (() => void)[] = [];
+  private dead = false;
+  private back: THREE.InstancedMesh | null = null;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -115,17 +118,24 @@ export class Arena {
       c.width = AD_W;
       c.height = AD_H;
       const g = c.getContext("2d")!;
-      drawAd(g, a);
+      let img: HTMLImageElement | undefined;
       const t = this.own(new THREE.CanvasTexture(c));
+      const redraw = () => {
+        if (this.dead) return;
+        drawAd(g, a, img);
+        t.needsUpdate = true;
+      };
+      redraw();
+      this.redraws.push(redraw);
       t.colorSpace = THREE.SRGBColorSpace;
       this.tex.push(t);
       if (a.imagem) {
-        const img = new Image();
-        img.onload = () => {
-          drawAd(g, a, img);
-          t.needsUpdate = true;
+        const im = new Image();
+        im.onload = () => {
+          img = im;
+          redraw();
         };
-        img.src = a.imagem;
+        im.src = a.imagem;
       }
       const face = this.own(new THREE.InstancedMesh(faceGeo, this.own(new THREE.MeshBasicMaterial({ map: t, toneMapped: false })), n));
       face.userData.ad = i;
@@ -133,15 +143,47 @@ export class Arena {
       this.faces.push(face);
       this.group.add(face);
     });
+    this.buildBack(n);
+    // a fonte do nome pode chegar depois: redesenha quando carregar
+    void document.fonts?.ready.then(() => this.redraws.forEach((f) => f()));
     // corpo das placas: matriz fixa
     const o = this.tmp;
     this.slots.forEach((s, i) => {
       this.place(o, s, 0);
       body.setMatrixAt(i, o.matrix);
+      if (this.back) {
+        // verso: mesma inclinação, virado para fora
+        o.rotation.set(BOARD_TILT, s.yaw + Math.PI, 0);
+        o.position.set(s.x, (BOARD_H / 2) * Math.cos(BOARD_TILT), s.z);
+        o.translateZ(0.075);
+        o.updateMatrix();
+        this.back.setMatrixAt(i, o.matrix);
+      }
     });
+    if (this.back) this.back.instanceMatrix.needsUpdate = true;
     body.instanceMatrix.needsUpdate = true;
     body.frustumCulled = false;
     this.assign(0);
+  }
+
+  /** Verso das placas: painel de LED desligado com o mesmo amarelo do destaque, em vez de uma faixa preta. */
+  private buildBack(n: number): void {
+    const c = document.createElement("canvas");
+    c.width = AD_W;
+    c.height = AD_H;
+    const g = c.getContext("2d")!;
+    g.fillStyle = "#26231f";
+    g.fillRect(0, 0, AD_W, AD_H);
+    g.fillStyle = "#34302a";
+    for (let x = 0; x < AD_W; x += 64) g.fillRect(x, 0, 3, AD_H);
+    g.fillStyle = "#ffd21f";
+    g.fillRect(0, AD_H - 10, AD_W, 10);
+    const t = this.own(new THREE.CanvasTexture(c));
+    t.colorSpace = THREE.SRGBColorSpace;
+    const back = this.own(new THREE.InstancedMesh(this.own(new THREE.PlaneGeometry(BOARD_LEN - 0.2, BOARD_H * 0.9)), this.own(new THREE.MeshBasicMaterial({ map: t })), n));
+    back.frustumCulled = false;
+    this.back = back;
+    this.group.add(back);
   }
 
   /** Coloca `o` na placa `s`; `lift` afasta a face do corpo. */
@@ -177,6 +219,7 @@ export class Arena {
   }
 
   dispose(): void {
+    this.dead = true;
     this.scene.remove(this.group);
     for (const d of this.disposables) d.dispose();
     this.disposables = [];

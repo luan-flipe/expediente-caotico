@@ -77,9 +77,13 @@ describe("placas de publicidade", () => {
     expect(new Set(Array.from({ length: n }, (_, i) => adIndex(i, 3, n))).size).toBe(n);
   });
 
-  it("a lista de anunciantes tem o destaque e só nomes fictícios genéricos", () => {
+  it("a lista de anunciantes tem o destaque e só os nomes fictícios esperados", () => {
     expect(ANUNCIANTES[0].nome).toBe("ANUNCIE AQUI");
     expect(ANUNCIANTES[0].destaque).toBe(true);
+    // lista fechada: um anunciante novo (real) exige conferir este teste de propósito
+    expect(ANUNCIANTES.map((a) => a.nome)).toEqual(["ANUNCIE AQUI", "Expediente Caótico", "Café da Copa", "Grampeador Turbo", "RH Express", "Impressora Descontrolada"]);
+    const marcas = /coca|pepsi|nike|adidas|samsung|apple|google|microsoft|ambev|brahma|skol|itau|bradesco|petrobras|vivo|claro|globo|amazon|nestle|nescafe|3m|epson|canon|brother|bic|stanley/i;
+    for (const a of ANUNCIANTES) expect(a.nome).not.toMatch(marcas);
   });
 });
 
