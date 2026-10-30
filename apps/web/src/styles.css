@@ -147,9 +147,6 @@ input {
   flex: none;
   width: clamp(48px, min(8vw, 11vh), 96px);
   height: auto;
-  background: #fffdf7;
-  border: 2px solid var(--line);
-  box-shadow: var(--shadow);
 }
 
 .home-head .brand h1 {

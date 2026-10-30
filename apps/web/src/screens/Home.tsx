@@ -5,7 +5,7 @@ import { ChallengeCard, useChallenge } from "./ChallengeCard";
 import { MenuMusicControl } from "./MenuMusicControl";
 import { instalar, useInstalavel } from "../pwa/registrar";
 import { keyLabel, useSettings } from "../settings";
-import mascote from "./mascote.webp";
+import logo from "./logo.webp";
 import { net, saveAvatar, setAccount, setState, useStore } from "../store";
 
 /** Botão oficial do Google; só existe com client id no servidor e sem conta logada. */
@@ -78,7 +78,7 @@ export function Home() {
       <div className="wrap">
         <div className="home-head">
         <div className="brand">
-          <img className="brand-logo" src={mascote} width={96} height={96} alt="" />
+          <img className="brand-logo" src={logo} width={96} height={96} alt="" />
           <h1>
             Expediente <span>Caótico</span>
           </h1>
