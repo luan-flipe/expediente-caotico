@@ -260,22 +260,25 @@ function retargetWearable(src: THREE.SkinnedMesh, samples: LimbSample[][], body:
   );
 }
 
-/** Detalhe de roupa que fica na cor dele quando a peça muda de cor (pelo nome do material). */
-const FIXED_PART = /botao|cadarco|sola|ilhos|fivela|ziper/i;
+/** Parte de roupa que fica na cor dela quando a peça muda de cor (pelo nome do material, "fixo"/"fixa" para qualquer parte). */
+const FIXED_PART = /botao|cadarco|sola|ilhos|fivela|ziper|fix[ao]/i;
 const luminance = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+const fixedPart = (m: THREE.SkinnedMesh) => !Array.isArray(m.material) && FIXED_PART.test(m.material.name);
 
 /**
- * Cor de cada malha de uma roupa tingida. A principal (a de mais vértices) fica na cor escolhida e as outras
- * (gola, punho, forro) guardam o quanto eram mais claras ou escuras que ela; botão, cadarço e sola não mudam.
+ * Cor de cada malha de uma roupa tingida. A principal (a de mais vértices entre as que mudam) fica na cor
+ * escolhida e as outras (gola, punho, forro) guardam o quanto eram mais claras ou escuras que ela; botão,
+ * cadarço, sola e partes fixas não mudam.
  */
 function clothTints(list: THREE.SkinnedMesh[], hex: string): Map<THREE.SkinnedMesh, THREE.Color> {
   const size = (m: THREE.SkinnedMesh) => m.geometry.getAttribute("position").count;
-  const main = list.reduce((a, b) => (size(b) > size(a) ? b : a));
+  const dyed = list.filter((m) => !fixedPart(m));
+  const main = (dyed.length ? dyed : list).reduce((a, b) => (size(b) > size(a) ? b : a));
   const base = Math.max(luminance((main.material as THREE.MeshStandardMaterial).color), 1e-3);
   const tints = new Map<THREE.SkinnedMesh, THREE.Color>();
   for (const m of list) {
     const mat = m.material as THREE.MeshStandardMaterial;
-    if (Array.isArray(m.material) || !mat.isMeshStandardMaterial || FIXED_PART.test(mat.name)) continue;
+    if (Array.isArray(m.material) || !mat.isMeshStandardMaterial || fixedPart(m)) continue;
     tints.set(m, new THREE.Color(hex).multiplyScalar(Math.min(luminance(mat.color) / base, 1.5)));
   }
   return tints;
