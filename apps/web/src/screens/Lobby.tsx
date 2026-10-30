@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, LAPS_MAX, LAPS_MIN, pistaDoDia, RACE, TRACK_IDS, TRACKS } from "@ec/shared";
+import { useEffect, useState } from "react";
+import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, FUT_COLORS, FUT_KITS, LAPS_MAX, LAPS_MIN, pistaDoDia, RACE, TRACK_IDS, TRACKS, type LobbyPlayer, type LobbyState, type TeamSide } from "@ec/shared";
+import { uniformDNA } from "../futebol/uniforme";
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail, type CharacterAction } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
@@ -13,7 +14,94 @@ const ACTIONS: [CharacterAction, string][] = [
   ["dash", "Dash"],
   ["tchau", "Tchau"],
 ];
+const FUT_FORMATS = [1, 2, 3, 4] as const;
 const LAP_CHOICES = Array.from({ length: LAPS_MAX - LAPS_MIN + 1 }, (_, i) => LAPS_MIN + i);
+
+/** Nome do time: só envia ao sair do campo ou com Enter, não a cada tecla. */
+function TeamName({ value, canEdit, onCommit }: { value: string; canEdit: boolean; onCommit: (name: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  if (!canEdit) return <h3 className="fut-team-name">{value}</h3>;
+  const commit = () => {
+    const name = draft.trim();
+    if (name && name !== value) onCommit(name);
+    else setDraft(value);
+  };
+  return (
+    <input
+      className="fut-team-name"
+      value={draft}
+      maxLength={16}
+      aria-label="Nome do time"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+    />
+  );
+}
+
+function FutTeams({ lobby, myId, isHost }: { lobby: LobbyState; myId: string | null; isHost: boolean }) {
+  const humans = lobby.players.filter((p) => !p.isBot);
+  const mySide = lobby.players.find((p) => p.id === myId)?.side;
+  const config = (side: TeamSide, patch: { name?: string; kit?: number; color?: number }) => net.send({ t: "futTeamConfig", side, ...patch });
+  return (
+    <div className="fut-teams">
+      {([0, 1] as const).map((side) => {
+        const team = lobby.options.futTeams[side];
+        const rival = lobby.options.futTeams[side === 0 ? 1 : 0];
+        const members: LobbyPlayer[] = humans.filter((p) => (p.side ?? 0) === side);
+        const canEdit = isHost || members[0]?.id === myId;
+        return (
+          <section className="fut-team card" key={side} style={{ borderTopColor: FUT_COLORS[team.color]?.hex }}>
+            <TeamName value={team.name} canEdit={canEdit} onCommit={(name) => config(side, { name })} />
+            {canEdit ? (
+              <div className="fut-look">
+                <div className="seg" aria-label="Modelo do uniforme">
+                  {FUT_KITS.map((k, i) => (
+                    <button key={k} className={team.kit === i ? "on" : ""} onClick={() => config(side, { kit: i })}>
+                      {k}
+                    </button>
+                  ))}
+                </div>
+                <div className="fut-swatches" aria-label="Cor do uniforme">
+                  {FUT_COLORS.map((c, i) => (
+                    <button
+                      key={c.hex}
+                      className={"fut-swatch" + (team.color === i ? " on" : "")}
+                      style={{ background: c.hex }}
+                      title={i === rival.color ? c.name + " (já é do outro time)" : c.name}
+                      aria-label={c.name}
+                      disabled={i === rival.color}
+                      onClick={() => config(side, { color: i })}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="muted fut-kit-line">
+                <span className="fut-swatch on" style={{ background: FUT_COLORS[team.color]?.hex }} /> {FUT_KITS[team.kit]}, {FUT_COLORS[team.color]?.name}
+              </p>
+            )}
+            <div className="fut-bottom">
+            <div className="fut-members">
+              {members.map((p) => (
+                <div className="fut-member" key={p.id} title={p.name}>
+                  <img src={avatarThumbnail(uniformDNA(p.avatar, team))} alt={p.name} />
+                  <span>{p.id === myId ? "você" : p.name}</span>
+                </div>
+              ))}
+              {members.length === 0 && <span className="muted">Sem jogadores humanos</span>}
+            </div>
+            <button className="btn small" disabled={mySide === side} onClick={() => net.send({ t: "futTeam", side })}>
+              {mySide === side ? "Você está aqui" : "Entrar neste time"}
+            </button>
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
 
 export function Lobby() {
   const lobby = useStore((s) => s.lobby)!;
@@ -32,8 +120,9 @@ export function Lobby() {
   const bots = lobby.players.filter((p) => p.isBot).length;
   const full = lobby.players.length >= BALANCE.maxPlayers;
   const trial = lobby.mode === "timetrial";
+  const futebol = lobby.mode === "futebol";
   const race = lobby.mode === "race" || trial;
-  const isZombies = !race && lobby.shooterSubmode === "zombies";
+  const isZombies = !race && !futebol && lobby.shooterSubmode === "zombies";
 
   const opts = lobby.options;
   const botRow = (
@@ -110,6 +199,9 @@ export function Lobby() {
         {error && <div className="error">{error}</div>}
         {!online && <div className="error">Reconectando ao servidor...</div>}
 
+        {futebol ? (
+          <FutTeams lobby={lobby} myId={myId} isHost={isHost} />
+        ) : (
         <div>
           <p className="label">
             Participantes {lobby.players.length}/{BALANCE.maxPlayers}
@@ -136,6 +228,7 @@ export function Lobby() {
             ))}
           </div>
         </div>
+        )}
 
         <div className="grid-2 even">
           <div className="card stack">
@@ -201,9 +294,12 @@ export function Lobby() {
                 <button className={trial ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "timetrial" })}>
                   Contra o relógio
                 </button>
+                <button className={futebol ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "futebol" })}>
+                  Futebol da Firma
+                </button>
               </div>
             </div>
-            {!race && (
+            {!race && !futebol && (
               <div className="row">
                 <span className="muted">Tipo:</span>
                 <div className="seg">
@@ -225,7 +321,34 @@ export function Lobby() {
               </div>
             )}
 
-            {trial ? (
+            {futebol ? (
+              <>
+                <div className="row">
+                  <span className="muted">Formato:</span>
+                  <div className="seg">
+                    {FUT_FORMATS.map((n) => (
+                      <button key={n} className={opts.futFormat === n ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", futFormat: n })}>
+                        {n}v{n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="row">
+                  <span className="muted">Duração:</span>
+                  <div className="seg">
+                    {DURATIONS_MS.map((ms) => (
+                      <button key={ms} className={lobby.durationMs === ms ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "duration", ms })}>
+                        {ms / 60000} min
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {botRow}
+                <div className="row">
+                  <span className="muted">Vagas que sobrarem em cada time são preenchidas por bots. Goleiros são sempre bots.</span>
+                </div>
+              </>
+            ) : trial ? (
               <>
                 {trackRow}
                 <div className="row">
@@ -279,7 +402,7 @@ export function Lobby() {
 
             {isHost && (
               <>
-                {!trial && (
+                {!trial && !futebol && (
                   <div className="row">
                     <button className="btn small" disabled={full} onClick={() => net.send({ t: "addBot" })}>
                       + Bot estagiário
@@ -290,7 +413,7 @@ export function Lobby() {
                   </div>
                 )}
                 <button className="btn primary" onClick={() => net.send({ t: "start" })}>
-{trial ? "Iniciar treino" : race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
+{futebol ? "Iniciar partida" : trial ? "Iniciar treino" : race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
                 </button>
               </>
             )}

@@ -2368,3 +2368,122 @@ html.daltonico .tag.off::before,
 html.daltonico .error::before {
   content: "⚠ ";
 }
+
+/* Futebol da Firma: times na sala de espera */
+.fut-teams {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.fut-team {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 8px solid var(--line);
+  min-width: 0;
+}
+
+.fut-team-name {
+  margin: 0;
+  font: inherit;
+  font-weight: 800;
+  font-size: 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+input.fut-team-name {
+  padding: 4px 8px;
+  border: 2px solid var(--line);
+  background: #fff;
+}
+
+.fut-swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fut-swatch {
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--line);
+  padding: 0;
+  cursor: pointer;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.fut-swatch.on {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.fut-swatch:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.fut-look {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fut-bottom {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.fut-bottom .btn {
+  white-space: nowrap;
+}
+
+.fut-kit-line {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fut-members {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 0;
+}
+
+.fut-member {
+  width: 76px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.fut-member img {
+  width: 100%;
+  height: clamp(52px, 10vh, 90px);
+  object-fit: cover;
+  object-position: 50% 62%;
+  display: block;
+  background: var(--paper-2);
+  border: 2px solid var(--line);
+}
+
+.fut-member span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .fut-teams {
+    grid-template-columns: 1fr;
+  }
+}
