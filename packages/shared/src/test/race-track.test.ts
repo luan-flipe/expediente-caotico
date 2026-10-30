@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CHAIR, sanitizeChair } from "../race/chair";
+import { DEFAULT_CHAIR, SCOOTER, randomChair, sanitizeChair } from "../race/chair";
 import { RACE } from "../race/balance";
+import { mulberry32 } from "../rng";
 import { boxSpots, branchPointAt, checkpoints, clampToTrack, deltaS, gridSlots, inCarpet, pointAt, progressOf, TRACK, TRACK_IDS, TRACKS } from "../race/track";
 
 describe("pista", () => {
@@ -194,6 +195,20 @@ describe("cadeira", () => {
   it("sanitizeChair corrige valores inválidos", () => {
     expect(sanitizeChair(null)).toEqual(DEFAULT_CHAIR);
     expect(sanitizeChair({ seat: 99, base: -1, wheels: 1.5, back: "x", trinket: 2 })).toEqual({ ...DEFAULT_CHAIR, trinket: 2 });
-    expect(sanitizeChair({ seat: 3, base: 2, wheels: 2, back: 0, trinket: 5 })).toEqual({ seat: 3, base: 2, wheels: 2, back: 0, trinket: 5 });
+    expect(sanitizeChair({ seat: 3, base: 2, wheels: 2, back: 0, trinket: 5 })).toEqual({ vehicle: 0, seat: 3, base: 2, wheels: 2, back: 0, trinket: 5 });
+  });
+
+  it("crachá salvo antes do patinete fica na cadeira, e veículo fora da lista também", () => {
+    expect(sanitizeChair({ vehicle: SCOOTER, seat: 3 })).toEqual({ ...DEFAULT_CHAIR, vehicle: SCOOTER, seat: 3 });
+    expect(sanitizeChair({ vehicle: 7 }).vehicle).toBe(0);
+    expect(sanitizeChair({ vehicle: "1" }).vehicle).toBe(0);
+  });
+
+  it("sorteio dos bots sai sempre válido e às vezes de patinete", () => {
+    const rng = mulberry32(7);
+    const picks = Array.from({ length: 200 }, () => randomChair(rng));
+    for (const c of picks) expect(sanitizeChair(c)).toEqual(c);
+    expect(picks.some((c) => c.vehicle === SCOOTER)).toBe(true);
+    expect(picks.some((c) => c.vehicle === 0)).toBe(true);
   });
 });
