@@ -12,9 +12,11 @@ const BOT: Record<BotLevel, { aimNoise: number; stealChance: number; markDist: n
 };
 
 /** Alvo do chute dentro do gol, como fração da meia-largura (longe do goleiro). */
-const SHOT_TARGET = 0.65;
+const SHOT_TARGET = 0.75;
 /** Força do chute (0..1). */
-const SHOT_POWER = 0.85;
+const SHOT_POWER = 0.7;
+/** Alcance do chute dos bots, em comprimentos de área (só chutam com o gol perto o bastante). */
+const SHOOT_RANGE = 2.2;
 /** Força do toque de uma cobrança sem companheiro à vista. */
 const RESTART_POWER = 0.4;
 /** Acima dessa distância (m) da bola o bot corre. */
@@ -130,7 +132,7 @@ export function botInput(p: FutPlayer, m: FutMatch, level: BotLevel): FutInput {
   if (b.ownerId === p.id || taker) {
     const faceGoal = aimTo(p, goal);
     const walk = { ...IDLE, mx: Math.sin(faceGoal), mz: Math.cos(faceGoal) };
-    const inBox = Math.abs(p.x - goal.x) <= f.boxL && Math.abs(p.z) <= f.boxHalfW;
+    const inBox = Math.abs(p.x - goal.x) <= f.boxL * SHOOT_RANGE && Math.abs(p.z) <= f.boxHalfW;
     const marked = m.players.some((q) => q.side !== p.side && q.role === "linha" && !q.sentOff && dist(q, p) <= par.markDist);
     const mate = freestMate(m.players, p);
 

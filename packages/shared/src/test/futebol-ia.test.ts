@@ -6,11 +6,11 @@ import {
   fieldFor,
   keeperInput,
   keeperReach,
-  mulberry32,
   resolveTouches,
   stepBall,
   stepPlayer,
 } from "../index";
+import { makeFutMatch } from "./futebol-helpers";
 import type { Ball, BotLevel, FutInput, FutMatch, FutPlayer } from "../index";
 
 const DT = 1000 / 30;
@@ -27,7 +27,7 @@ function ball(over: Partial<Ball> = {}): Ball {
   return { x: 0, y: FUT.ballRadius, z: 0, vx: 0, vy: 0, vz: 0, ownerId: null, lastTouch: null, prevTouch: null, ...over };
 }
 function match(players: FutPlayer[], b: Ball = ball(), seed = 7): FutMatch {
-  return { field, players, ball: b, restart: null, connected: new Set(), rng: mulberry32(seed) } as FutMatch;
+  return makeFutMatch(players, { field, ball: b, seed });
 }
 
 /** Dispara a bola de (x, z) rumo a (tx, tz) com a velocidade dada e vê se o goleiro 0 pega. */

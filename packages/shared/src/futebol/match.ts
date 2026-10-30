@@ -2,7 +2,7 @@ import type { BotLevel } from "../botLevels";
 import { DEFAULT_AVATAR } from "../data/avatar";
 import { mulberry32 } from "../rng";
 import type { AvatarDNA } from "../types";
-import { FUT } from "./balance";
+import { FUT, FUT_COLORS, FUT_KITS } from "./balance";
 import { ballOut } from "./ball";
 import { attackDir } from "./bots";
 import { fieldFor } from "./field";
@@ -66,7 +66,7 @@ export function createFutebol(opts: {
     info.set(p.id, { ...i, goals: 0, assists: 0 });
   };
   for (const side of [0, 1] as const) {
-    const mine = opts.players.filter((p) => p.side === side);
+    const mine = opts.players.filter((p) => p.side === side).slice(0, opts.format);
     for (const p of mine) {
       add(newPlayer(p.id, side, "linha", p.isBot), { name: p.name, avatar: p.avatar, accountId: p.accountId, human: !p.isBot });
       if (!p.isBot) {
@@ -94,21 +94,27 @@ export function createFutebol(opts: {
     botLevel: opts.botLevel,
     seed: opts.seed,
     score: [0, 0],
-    teams: opts.teams,
+    teams: [safeTeam(opts.teams[0]), safeTeam(opts.teams[1])],
     info,
     inputs: new Map(),
     ack: new Map(),
     events: [],
     kickoffSide: rng() < 0.5 ? 0 : 1,
     halfDone: false,
-    touchAt: new Map(),
-    lastTouchId: null,
+    beaten: null,
     shootout: null,
     winner: null,
   };
   resetPositions(m);
   return m;
 }
+
+const validIndex = (i: number, n: number): number => (Number.isInteger(i) && i >= 0 && i < n ? i : 0);
+const safeTeam = (t: FutTeamConfig): FutTeamConfig => ({
+  name: t.name,
+  kit: validIndex(t.kit, FUT_KITS.length),
+  color: validIndex(t.color, FUT_COLORS.length),
+});
 
 const clampIn = (v: number): number => (Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0);
 const PHASES = ["none", "charge", "release"] as const;
@@ -188,7 +194,6 @@ function endRegulation(m: FutMatch): void {
   if (m.score[0] !== m.score[1]) {
     endMatch(m, m.score[0] > m.score[1] ? 0 : 1);
   } else {
-    m.events.push({ type: "whistle", kind: "end" });
     startShootout(m);
   }
 }
@@ -252,7 +257,7 @@ function scoreGoal(m: FutMatch, defending: TeamSide): void {
   let assistId: string | null = null;
   if (lt && !own) {
     const pt = m.ball.prevTouch;
-    if (pt && pt.side === lt.side && pt.id !== lt.id && (m.touchAt.get(pt.id) ?? -Infinity) >= m.now - ASSIST_WINDOW_MS) {
+    if (pt && pt.side === lt.side && pt.id !== lt.id && pt.at !== undefined && pt.at >= m.now - ASSIST_WINDOW_MS) {
       assistId = pt.id;
     }
     const s = m.info.get(lt.id);

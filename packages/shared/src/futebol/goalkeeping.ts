@@ -1,3 +1,4 @@
+import type { BotLevel } from "../botLevels";
 import { FUT } from "./balance";
 import { kickBall } from "./ball";
 import { attackDir } from "./bots";
@@ -12,6 +13,13 @@ const HAND = 0.5;
 /** Bola solta que se afasta do último toque do goleiro mais rápido que isso não é retomada (m/s). */
 const AWAY_EPS = 0.5;
 
+/** Acima desta velocidade (m/s) a bola é chute e o goleiro pode não chegar a tempo. */
+const SHOT_SPEED = 12;
+/** Chance base de o goleiro alcançar o chute (por nível) e quanto ela cai por m/s acima de SHOT_SPEED. */
+const SAVE_BASE: Record<BotLevel, number> = { easy: 0.35, normal: 0.5, hard: 0.65 };
+const SAVE_DROP = 0.01;
+const saveChance = (level: BotLevel, speed: number): number => SAVE_BASE[level] - (speed - SHOT_SPEED) * SAVE_DROP;
+
 /** Registra o toque como o último (e o anterior vira prevTouch). */
 export function touchBall(ball: Ball, p: FutPlayer): void {
   if (ball.lastTouch?.id === p.id) {
@@ -24,7 +32,18 @@ export function touchBall(ball: Ball, p: FutPlayer): void {
 /** Defesa do goleiro: bola solta a até keeperReach e abaixo da trave vira posse (lenta) ou desvio (forte). */
 export function keeperSave(m: FutMatch, k: FutPlayer): void {
   const b = m.ball;
-  if (b.ownerId !== null || b.y > m.field.goalH) {
+  if (b.y > m.field.goalH) {
+    return;
+  }
+  if (b.ownerId !== null) {
+    // Atacante conduzindo a bola ao alcance do goleiro: ele sai e toma.
+    const owner = m.players.find((p) => p.id === b.ownerId);
+    if (owner && owner.role === "linha" && owner.side !== k.side && Math.hypot(b.x - k.x, b.z - k.z) <= keeperReach(m.botLevel)) {
+      touchBall(b, k);
+      b.ownerId = k.id;
+      b.vx = 0;
+      b.vz = 0;
+    }
     return;
   }
   const speed = Math.hypot(b.vx, b.vy, b.vz);
@@ -32,6 +51,14 @@ export function keeperSave(m: FutMatch, k: FutPlayer): void {
     return;
   }
   if (Math.hypot(b.x - k.x, b.z - k.z) > keeperReach(m.botLevel)) {
+    return;
+  }
+  if (b.lastTouch !== null && m.beaten === b.lastTouch) {
+    return;
+  }
+  if (speed > SHOT_SPEED && m.rng() >= saveChance(m.botLevel, speed)) {
+    // Chute que o goleiro não alcança: a bola passa por ele (uma só chance por chute).
+    m.beaten = b.lastTouch;
     return;
   }
   touchBall(b, k);

@@ -35,25 +35,14 @@ function inputFor(m: FutMatch, p: FutPlayer, o: WorldOpts): FutInput {
   return o.aimOnly ? { ...raw, mx: 0, mz: 0, sprint: false } : raw;
 }
 
-/** Guarda quando cada jogador tocou na bola (base da assistência). */
+/** Carimba o tempo no toque atual (e o mantém fresco enquanto o dono conduz ou chuta); prevTouch guarda o carimbo que tinha. */
 function trackTouches(m: FutMatch, events: TouchEvent[]): void {
   const lt = m.ball.lastTouch;
-  if (lt) {
-    if (lt.id !== m.lastTouchId) {
-      m.lastTouchId = lt.id;
-      m.touchAt.set(lt.id, m.now);
-    } else if (m.ball.ownerId === lt.id) {
-      m.touchAt.set(lt.id, m.now);
-    }
+  if (!lt) {
+    return;
   }
-  for (const e of events) {
-    if (e.t === "kick" || e.t === "pass") {
-      m.touchAt.set(e.id, m.now);
-    }
-  }
-  const pt = m.ball.prevTouch;
-  if (pt && !m.touchAt.has(pt.id)) {
-    m.touchAt.set(pt.id, m.now);
+  if (lt.at === undefined || m.ball.ownerId === lt.id || events.some((e) => (e.t === "kick" || e.t === "pass") && e.id === lt.id)) {
+    lt.at = m.now;
   }
 }
 

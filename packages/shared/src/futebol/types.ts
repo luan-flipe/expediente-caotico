@@ -50,6 +50,8 @@ export interface FutPlayer {
 export interface BallTouch {
   id: string;
   side: TeamSide;
+  /** Quando (tempo da partida, ms) o toque aconteceu; a partida carimba (assistência). */
+  at?: number;
 }
 
 /** Bola em 3D: y é a altura do centro; no chão y = ballRadius. */
@@ -143,9 +145,8 @@ export interface FutMatch {
   /** Time que sofreu o último gol (faz a saída do meio). */
   kickoffSide: TeamSide;
   halfDone: boolean;
-  /** Quando (m.now) cada jogador tocou na bola pela última vez (para a assistência). */
-  touchAt: Map<string, number>;
-  lastTouchId: string | null;
+  /** Toque cujo chute o goleiro já deixou passar (não tenta de novo). */
+  beaten: BallTouch | null;
   shootout: Shootout | null;
   winner: TeamSide | null;
 }

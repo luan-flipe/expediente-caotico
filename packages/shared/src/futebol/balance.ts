@@ -20,3 +20,18 @@ export const FUT = {
   groundFrictionPerSec: 0.35,
   ballStopSpeed: 0.05,
 } as const;
+
+/** Modelos de uniforme (kit = índice). */
+export const FUT_KITS = ["Lisa", "Listrada", "Faixa"] as const;
+
+/** Cores de uniforme (color = índice). */
+export const FUT_COLORS = [
+  { name: "Vermelho", hex: "#d62828" },
+  { name: "Azul", hex: "#1d4ed8" },
+  { name: "Verde", hex: "#16a34a" },
+  { name: "Amarelo", hex: "#facc15" },
+  { name: "Laranja", hex: "#f97316" },
+  { name: "Roxo", hex: "#7e22ce" },
+  { name: "Preto", hex: "#1f2937" },
+  { name: "Branco", hex: "#f3f4f6" },
+] as const;

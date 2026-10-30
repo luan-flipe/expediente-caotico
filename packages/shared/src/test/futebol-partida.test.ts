@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_AVATAR } from "../data/avatar";
-import { createFutebol, dropFutPlayer, FUT, getFutResults, getFutScore, setFutInput, stepFutebol } from "../index";
+import { createFutebol, dropFutPlayer, FUT, FUT_COLORS, FUT_KITS, getFutResults, getFutScore, setFutInput, stepFutebol } from "../index";
 import type { FutFormat, FutInput, FutMatch, TeamSide } from "../index";
 
 const DT = 1000 / 30;
@@ -77,7 +77,7 @@ describe("partida de futebol", () => {
     const m = make(2);
     toPlay(m);
     const [a1, a2] = m.players.filter((p) => p.side === 0 && p.role === "linha");
-    m.ball.prevTouch = { id: a1.id, side: 0 };
+    m.ball.prevTouch = { id: a1.id, side: 0, at: m.now };
     m.ball.lastTouch = { id: a2.id, side: 0 };
     shootAtGoal(m, 1);
     run(m, 300);
@@ -192,5 +192,87 @@ describe("partida de futebol", () => {
     expect(a.ball).toEqual(b.ball);
     expect(a.players).toEqual(b.players);
     expect(a.elapsedMs).toBe(b.elapsedMs);
+  });
+
+  it("passe de mais de 6 s antes do gol não dá assistência", () => {
+    const m = make(2);
+    toPlay(m);
+    const [a1, a2] = m.players.filter((p) => p.side === 0 && p.role === "linha");
+    m.ball.prevTouch = { id: a1.id, side: 0, at: m.now };
+    m.ball.lastTouch = { id: a2.id, side: 0 };
+    m.now += 7000;
+    shootAtGoal(m, 1);
+    run(m, 300);
+    expect(m.events.find((e) => e.type === "goal")).toMatchObject({ scorerId: a2.id, assistId: null });
+    expect(getFutResults(m).every((r) => r.assists === 0)).toBe(true);
+  });
+
+  it("passe sem carimbo de tempo não dá assistência", () => {
+    const m = make(2);
+    toPlay(m);
+    const [a1, a2] = m.players.filter((p) => p.side === 0 && p.role === "linha");
+    m.ball.prevTouch = { id: a1.id, side: 0 };
+    m.ball.lastTouch = { id: a2.id, side: 0 };
+    shootAtGoal(m, 1);
+    run(m, 300);
+    expect(m.events.find((e) => e.type === "goal")).toMatchObject({ assistId: null });
+  });
+
+  it("uniforme fora da lista vira o primeiro", () => {
+    expect(FUT_KITS).toEqual(["Lisa", "Listrada", "Faixa"]);
+    expect(FUT_COLORS).toHaveLength(8);
+    const m = createFutebol({
+      seed: 1, format: 1, durationMs: 60000, botLevel: "normal", players: [],
+      teams: [{ name: "A", kit: 7, color: -1 }, { name: "B", kit: 2, color: 7 }],
+    });
+    expect(m.teams[0]).toEqual({ name: "A", kit: 0, color: 0 });
+    expect(m.teams[1]).toEqual({ name: "B", kit: 2, color: 7 });
+  });
+
+  it("apito de fim sai uma vez só, mesmo com pênaltis", () => {
+    const m = make(1, [], 1000);
+    const ends: number[] = [];
+    for (let t = 0; t < 400000 && m.phase !== "over"; t += DT) {
+      stepFutebol(m, DT);
+      ends.push(m.events.filter((e) => e.type === "whistle" && e.kind === "end").length);
+      m.events = [];
+    }
+    expect(m.phase).toBe("over");
+    expect(ends.reduce((a, b) => a + b, 0)).toBe(1);
+  });
+
+  it("jogadores além do formato por lado são ignorados", () => {
+    const m = make(1, [human("h1", 0), human("h2", 0), human("h3", 1)]);
+    const linha = (s: TeamSide) => m.players.filter((p) => p.side === s && p.role === "linha");
+    expect(linha(0).map((p) => p.id)).toEqual(["h1"]);
+    expect(linha(1)).toHaveLength(1);
+    expect(m.players.some((p) => p.id === "h2")).toBe(false);
+  });
+
+  it("depois que o goleiro segura, a bola volta a circular em até 4 s", () => {
+    const m = make(2);
+    toPlay(m);
+    const gk = m.players.find((p) => p.role === "goleiro" && p.side === 1)!;
+    Object.assign(m.ball, { x: gk.x - 0.6, z: gk.z, vx: 0, vz: 0, ownerId: null });
+    let held = false;
+    let freeAt = -1;
+    for (let i = 0; i < 30 * 8; i++) {
+      stepFutebol(m, DT);
+      if (m.ball.ownerId === gk.id) held = true;
+      if (held && m.ball.ownerId !== gk.id && freeAt < 0) freeAt = i;
+    }
+    expect(held).toBe(true);
+    expect(freeAt).toBeGreaterThanOrEqual(0);
+    expect(freeAt * DT).toBeLessThanOrEqual(4000);
+  });
+
+  it("partida de 3 min só com bots no normal fica entre 1 e 8 gols", () => {
+    for (const [format, seed] of [[1, 1], [4, 1]] as const) {
+      const m = make(format, [], 180000, seed);
+      for (let i = 0; i < 30 * 400 && m.phase !== "over" && m.phase !== "penalties"; i++) stepFutebol(m, DT);
+      const goals = m.score[0] + m.score[1];
+      expect(goals).toBeGreaterThanOrEqual(1);
+      expect(goals).toBeLessThanOrEqual(8);
+    }
   });
 });
