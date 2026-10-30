@@ -50,11 +50,11 @@ input {
   background:
     linear-gradient(var(--paper-2) 1px, transparent 1px) 0 0 / 100% 32px,
     var(--paper);
-  padding: 32px 24px 48px;
+  padding: clamp(12px, 3vh, 32px) clamp(12px, 2.5vw, 40px) 48px;
 }
 
 .wrap {
-  max-width: 1080px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -139,6 +139,14 @@ input {
 
 .home-head .brand {
   margin: 0;
+  align-items: center;
+}
+
+.brand-logo {
+  display: block;
+  flex: none;
+  width: clamp(48px, min(8vw, 11vh), 96px);
+  height: auto;
 }
 
 .home-head .brand h1 {
