@@ -83,7 +83,7 @@ export function Lobby() {
   };
 
   return (
-    <div className="screen">
+    <div className="screen lobby">
       <div className="wrap stack">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
           <div className="brand" style={{ marginBottom: 0 }}>
