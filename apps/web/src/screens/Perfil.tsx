@@ -29,7 +29,7 @@ function Stat({ value, label }: { value: number; label: string }) {
   );
 }
 
-const detalhe = (m: MatchSummary) => (m.mode === "shooter" ? `${m.kills ?? 0} eliminações` : m.bestLapMs ? `melhor volta ${fmtRace(m.bestLapMs)}` : "sem volta completa");
+const detalhe = (m: MatchSummary) => (m.mode === "futebol" ? "partida de futebol" : m.mode === "shooter" ? `${m.kills ?? 0} eliminações` : m.bestLapMs ? `melhor volta ${fmtRace(m.bestLapMs)}` : "sem volta completa");
 
 /** Perfil público de um jogador: boneco, totais, recordes, mês, desafios, prêmios e últimas partidas. */
 export function Perfil({ id }: { id: string }) {
@@ -88,7 +88,7 @@ export function Perfil({ id }: { id: string }) {
                 </div>
                 <AvatarPreview dna={p.avatar} chair={p.chair} className="badge-preview" />
                 <div className="badge-name">{p.name}</div>
-                <div className="badge-cargo">{cargoDe(p.stats.shooterWins + p.stats.raceWins)}</div>
+                <div className="badge-cargo">{cargoDe(p.stats.shooterWins + p.stats.raceWins + p.stats.futWins)}</div>
                 <div style={{ padding: "0 16px 16px" }}>
                   <button className="btn" onClick={() => void copy()}>
                     {copied ? "Copiado!" : "Copiar link do perfil"}
@@ -121,6 +121,16 @@ export function Perfil({ id }: { id: string }) {
                     <Stat value={p.stats.racePodiums} label="Pódios" />
                     <Stat value={p.stats.raceMatches} label="Corridas" />
                   </div>
+                </div>
+              </div>
+
+              <div className="card stack">
+                <p className="label">Futebol</p>
+                <div className="perfil-stats" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+                  <Stat value={p.stats.futWins} label="Vitórias" />
+                  <Stat value={p.stats.futGoals} label="Gols" />
+                  <Stat value={p.stats.futAssists} label="Assistências" />
+                  <Stat value={p.stats.futMatches} label="Partidas" />
                 </div>
               </div>
 
@@ -199,8 +209,8 @@ export function Perfil({ id }: { id: string }) {
                         {p.history.slice(0, 10).map((h, i) => (
                           <tr key={`${h.at}-${i}`}>
                             <td>{quando(h.at)}</td>
-                            <td>{h.mode === "shooter" ? "Tiroteio" : `Rally${h.trackName ? `, ${h.trackName}` : ""}`}</td>
-                            <td className="num">{h.place}º</td>
+                            <td>{h.mode === "futebol" ? "Futebol" : h.mode === "shooter" ? "Tiroteio" : `Rally${h.trackName ? `, ${h.trackName}` : ""}`}</td>
+                            <td className="num">{h.mode === "futebol" ? (h.place === 1 ? "Vitória" : "Derrota") : `${h.place}º`}</td>
                             <td>{detalhe(h)}</td>
                           </tr>
                         ))}

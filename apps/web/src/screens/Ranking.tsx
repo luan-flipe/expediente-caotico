@@ -5,7 +5,7 @@ import { fmtRace } from "../race/RaceHud";
 import { setState, useStore } from "../store";
 import { ChallengeCard } from "./ChallengeCard";
 
-type TabId = "mes" | "tiroteio" | "rally" | "voltas";
+type TabId = "mes" | "tiroteio" | "rally" | "futebol" | "voltas";
 
 interface Column<R> {
   title: string;
@@ -22,6 +22,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "mes", label: "Funcionário do mês" },
   { id: "tiroteio", label: "Tiroteio" },
   { id: "rally", label: "Rally" },
+  { id: "futebol", label: "Futebol" },
   { id: "voltas", label: "Recordes de volta" },
 ];
 
@@ -79,7 +80,7 @@ function Board<R extends RankingRowBase>({ tab, cols, empty, action }: { tab: Ra
 let lastTab: TabId = "mes";
 let lastPista: string = MAIN_TRACK_ID;
 
-/** Ranking da firma: abas do mês, tiroteio, rally e recordes de volta. */
+/** Ranking da firma: abas do mês, tiroteio, rally, futebol e recordes de volta. */
 export function Ranking() {
   const account = useStore((s) => s.account);
   const [tab, setTabNow] = useState<TabId>(lastTab);
@@ -185,6 +186,18 @@ export function Ranking() {
                   { title: "Corridas", value: (r) => r.matches },
                 ]}
                 empty="Nenhuma corrida registrada ainda."
+              />
+            )}
+            {tab === "futebol" && (
+              <Board
+                tab={view.futebol}
+                cols={[
+                  { title: "Vitórias", value: (r) => r.wins },
+                  { title: "Gols", value: (r) => r.goals },
+                  { title: "Assistências", value: (r) => r.assists },
+                  { title: "Partidas", value: (r) => r.matches },
+                ]}
+                empty="Nenhuma partida de futebol registrada ainda."
               />
             )}
             {tab === "voltas" && pistaView && (
