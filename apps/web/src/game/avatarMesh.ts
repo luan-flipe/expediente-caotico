@@ -15,7 +15,26 @@ export interface AvatarRig {
   browL?: THREE.Mesh;
   browR?: THREE.Mesh;
   mouth?: THREE.Mesh;
+  // Articulações dinâmicas de vento secundário
+  tiePivot?: THREE.Group;
+  badgePivot?: THREE.Group;
+  hairPivot?: THREE.Group;
+  hairPonytail?: THREE.Object3D;
+  beardPivot?: THREE.Group;
+  capVisor?: THREE.Mesh;
   materials: THREE.MeshStandardMaterial[];
+}
+
+export interface AvatarWindState {
+  tieRotX: number;
+  tieRotZ: number;
+  badgeRotX: number;
+  badgeRotZ: number;
+  badgeBounceY: number;
+  hairRotX: number;
+  hairRotZ: number;
+  beardRotX: number;
+  capLift: number;
 }
 
 export interface EmotionWeights {
@@ -31,14 +50,14 @@ function mat(color: string, rough = 0.85): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color, roughness: rough, flatShading: true });
 }
 
-function box(w: number, h: number, d: number, m: THREE.Material, rounded = 0): THREE.Mesh {
+export function box(w: number, h: number, d: number, m: THREE.Material, rounded = 0): THREE.Mesh {
   const g = rounded > 0 ? new RoundedBoxGeometry(w, h, d, 2, rounded) : new THREE.BoxGeometry(w, h, d);
   const mesh = new THREE.Mesh(g, m);
   mesh.castShadow = true;
   return mesh;
 }
 
-function at<T extends THREE.Object3D>(o: T, x: number, y: number, z: number): T {
+export function at<T extends THREE.Object3D>(o: T, x: number, y: number, z: number): T {
   o.position.set(x, y, z);
   return o;
 }
@@ -50,8 +69,14 @@ function limb(w: number, h: number, d: number, m: THREE.Material, endMat?: THREE
   return g;
 }
 
-function addHair(head: THREE.Group, style: number, m: THREE.Material): void {
+interface HairPivots {
+  hairPivot?: THREE.Group;
+  hairPonytail?: THREE.Object3D;
+}
+
+function addHair(head: THREE.Group, style: number, m: THREE.Material): HairPivots {
   const top = 0.56;
+  const pivots: HairPivots = {};
   switch (style) {
     case 1:
       head.add(at(box(0.56, 0.14, 0.54, m, 0.05), 0, top - 0.02, -0.01));
@@ -59,35 +84,71 @@ function addHair(head: THREE.Group, style: number, m: THREE.Material): void {
       break;
     case 2:
       head.add(at(box(0.58, 0.16, 0.56, m, 0.06), 0, top - 0.01, -0.01));
-      head.add(at(box(0.6, 0.42, 0.14, m, 0.05), 0, top - 0.24, -0.23));
+      {
+        const hp = new THREE.Group();
+        hp.name = "Cabelo_Pivo";
+        hp.position.set(0, top - 0.01, -0.16);
+        hp.add(at(box(0.6, 0.42, 0.14, m, 0.05), 0, -0.23, -0.07));
+        head.add(hp);
+        pivots.hairPivot = hp;
+      }
       head.add(at(box(0.08, 0.3, 0.4, m, 0.03), -0.29, top - 0.17, -0.04));
       head.add(at(box(0.08, 0.3, 0.4, m, 0.03), 0.29, top - 0.17, -0.04));
       break;
     case 3:
       head.add(at(box(0.58, 0.16, 0.56, m, 0.06), 0, top - 0.01, -0.01));
-      head.add(at(box(0.6, 0.85, 0.14, m, 0.05), 0, top - 0.42, -0.24));
+      {
+        const hp = new THREE.Group();
+        hp.name = "Cabelo_Pivo";
+        hp.position.set(0, top - 0.01, -0.17);
+        hp.add(at(box(0.6, 0.85, 0.14, m, 0.05), 0, -0.41, -0.07));
+        head.add(hp);
+        pivots.hairPivot = hp;
+      }
       head.add(at(box(0.08, 0.6, 0.36, m, 0.03), -0.29, top - 0.3, -0.06));
       head.add(at(box(0.08, 0.6, 0.36, m, 0.03), 0.29, top - 0.3, -0.06));
       break;
     case 4:
       head.add(at(box(0.56, 0.13, 0.54, m, 0.05), 0, top - 0.02, -0.01));
       head.add(at(box(0.56, 0.3, 0.1, m, 0.04), 0, top - 0.16, -0.24));
-      head.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.15, 1), m), 0, top + 0.07, -0.22));
+      {
+        const hp = new THREE.Group();
+        hp.name = "Coque_Pivo";
+        hp.position.set(0, top + 0.07, -0.22);
+        hp.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.15, 1), m), 0, 0, 0));
+        head.add(hp);
+        pivots.hairPonytail = hp;
+      }
       break;
     case 5:
-      head.add(at(box(0.12, 0.2, 0.56, m, 0.04), 0, top + 0.06, -0.02));
+      {
+        const hp = new THREE.Group();
+        hp.name = "Moicano_Pivo";
+        hp.position.set(0, top - 0.04, -0.02);
+        hp.add(at(box(0.12, 0.2, 0.56, m, 0.04), 0, 0.10, 0));
+        head.add(hp);
+        pivots.hairPivot = hp;
+      }
       break;
     case 6:
-      for (let i = 0; i < 14; i++) {
-        const a = (i / 14) * Math.PI * 2;
-        const r = i % 2 ? 0.2 : 0.12;
-        head.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.11, 0), m), Math.cos(a) * r, top + 0.03, Math.sin(a) * r - 0.04));
+      {
+        const hp = new THREE.Group();
+        hp.name = "Afro_Pivo";
+        hp.position.set(0, top, 0);
+        for (let i = 0; i < 14; i++) {
+          const a = (i / 14) * Math.PI * 2;
+          const r = i % 2 ? 0.2 : 0.12;
+          hp.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.11, 0), m), Math.cos(a) * r, 0.03, Math.sin(a) * r - 0.04));
+        }
+        hp.add(at(box(0.58, 0.32, 0.12, m, 0.05), 0, -0.15, -0.24));
+        head.add(hp);
+        pivots.hairPivot = hp;
       }
-      head.add(at(box(0.58, 0.32, 0.12, m, 0.05), 0, top - 0.15, -0.24));
       break;
     default:
       break;
   }
+  return pivots;
 }
 
 /** Monta o boneco procedural a partir do "Crachá". Olha para +z. */
@@ -146,10 +207,16 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
   mouth.name = "Boca";
   head.add(mouth);
 
-  addHair(head, dna.hair, hair);
+  const hairPivots = addHair(head, dna.hair, hair);
 
+  let beardPivot: THREE.Group | undefined;
   if (dna.beard) {
-    head.add(at(box(0.5, 0.16, 0.08, beard, 0.03), 0, 0.12, 0.22));
+    beardPivot = new THREE.Group();
+    beardPivot.name = "Barba_Pivo";
+    beardPivot.position.set(0, 0.2, 0.22);
+    const chin = at(box(0.5, 0.16, 0.08, beard, 0.03), 0, -0.08, 0);
+    beardPivot.add(chin);
+    head.add(beardPivot);
     head.add(at(box(0.08, 0.2, 0.36, beard, 0.02), -0.25, 0.17, 0.06));
     head.add(at(box(0.08, 0.2, 0.36, beard, 0.02), 0.25, 0.17, 0.06));
   }
@@ -169,6 +236,10 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
     head.add(at(box(0.06, 0.02, 0.02, frame), 0, 0.34, 0.255));
   }
 
+  let tiePivot: THREE.Group | undefined;
+  let badgePivot: THREE.Group | undefined;
+  let capVisor: THREE.Mesh | undefined;
+
   switch (dna.accessory) {
     case 1: {
       const band = mat("#2b2b2b", 0.5);
@@ -187,24 +258,62 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
     case 2: {
       const cap = mat(SHIRTS[(dna.shirt + 3) % SHIRTS.length]);
       head.add(at(box(0.56, 0.16, 0.54, cap, 0.06), 0, 0.6, -0.01));
-      head.add(at(box(0.5, 0.04, 0.24, cap, 0.02), 0, 0.53, 0.33));
+      capVisor = at(box(0.5, 0.04, 0.24, cap, 0.02), 0, 0.53, 0.33);
+      capVisor.name = "Bone_Aba";
+      head.add(capVisor);
       break;
     }
-    case 3:
-      torso.add(at(box(0.09, 0.42, 0.03, mat("#b8242c")), 0, -0.04, 0.17));
+    case 3: {
+      // Nó da gravata na gola
       torso.add(at(box(0.13, 0.08, 0.035, mat("#b8242c")), 0, 0.2, 0.17));
+      // Lâmina suspensa com pivô dinâmico de vento
+      tiePivot = new THREE.Group();
+      tiePivot.name = "Gravata_Pivo";
+      tiePivot.position.set(0, 0.2, 0.17);
+      const blade = at(box(0.09, 0.42, 0.03, mat("#b8242c")), 0, -0.24, 0);
+      tiePivot.add(blade);
+      torso.add(tiePivot);
       break;
-    case 4:
-      torso.add(at(box(0.16, 0.2, 0.02, white), 0.12, 0.02, 0.17));
-      torso.add(at(box(0.16, 0.05, 0.022, mat("#2f6fdf")), 0.12, 0.09, 0.172));
-      torso.add(at(box(0.02, 0.22, 0.02, mat("#2f6fdf")), 0.06, 0.2, 0.165));
-      torso.add(at(box(0.02, 0.22, 0.02, mat("#2f6fdf")), 0.18, 0.2, 0.165));
+    }
+    case 4: {
+      const cordMat = mat("#2f6fdf");
+      torso.add(at(box(0.02, 0.22, 0.02, cordMat), 0.06, 0.2, 0.165));
+      torso.add(at(box(0.02, 0.22, 0.02, cordMat), 0.18, 0.2, 0.165));
+
+      badgePivot = new THREE.Group();
+      badgePivot.name = "Cracha_Pivo";
+      badgePivot.position.set(0.12, 0.09, 0.17);
+      const clip = at(box(0.16, 0.05, 0.022, cordMat), 0, 0, 0.002);
+      const card = at(box(0.16, 0.2, 0.02, white), 0, -0.07, 0);
+      badgePivot.add(clip, card);
+      torso.add(badgePivot);
       break;
+    }
     default:
       break;
   }
 
-  return { root, body, legL, legR, armL, armR, head, eyeL, eyeR, browL, browR, mouth, materials };
+  return {
+    root,
+    body,
+    legL,
+    legR,
+    armL,
+    armR,
+    head,
+    eyeL,
+    eyeR,
+    browL,
+    browR,
+    mouth,
+    tiePivot,
+    badgePivot,
+    hairPivot: hairPivots.hairPivot,
+    hairPonytail: hairPivots.hairPonytail,
+    beardPivot,
+    capVisor,
+    materials,
+  };
 }
 
 /** Aplica os pesos das expressões e estados emocionais no rig procedural (zero allocations). */
@@ -372,4 +481,40 @@ export function disposeAvatar(rig: AvatarRig): void {
     if (o instanceof THREE.Mesh) o.geometry.dispose();
   });
   for (const m of rig.materials) m.dispose();
+}
+
+/** Aplica a física secundária do vento e inércia em gravata, crachá, cabelos e barba (zero GC). */
+export function applyAvatarWindPhysics(rig: AvatarRig, wind: AvatarWindState): void {
+  // 1. Gravata (Articulação do nó até a lâmina)
+  if (rig.tiePivot) {
+    rig.tiePivot.rotation.x = wind.tieRotX;
+    rig.tiePivot.rotation.z = wind.tieRotZ;
+  }
+
+  // 2. Crachá (Balanço do cordão e pulo contra o tórax)
+  if (rig.badgePivot) {
+    rig.badgePivot.rotation.x = wind.badgeRotX;
+    rig.badgePivot.rotation.z = wind.badgeRotZ;
+    rig.badgePivot.position.y = 0.09 + wind.badgeBounceY;
+  }
+
+  // 3. Cabelos (Mechas e coque/ponytail)
+  if (rig.hairPivot) {
+    rig.hairPivot.rotation.x = wind.hairRotX;
+    rig.hairPivot.rotation.z = wind.hairRotZ;
+  }
+  if (rig.hairPonytail) {
+    rig.hairPonytail.rotation.x = wind.hairRotX * 1.32;
+    rig.hairPonytail.rotation.z = wind.hairRotZ * 0.78;
+  }
+
+  // 4. Barba no queixo
+  if (rig.beardPivot) {
+    rig.beardPivot.rotation.x = wind.beardRotX;
+  }
+
+  // 5. Aba do boné
+  if (rig.capVisor) {
+    rig.capVisor.position.y = 0.53 + wind.capLift;
+  }
 }

@@ -3,7 +3,15 @@ import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shared";
-import { animateAvatar, applyAvatarEmotion, buildAvatar, disposeAvatar } from "./avatarMesh";
+import {
+  animateAvatar,
+  applyAvatarEmotion,
+  applyAvatarWindPhysics,
+  at,
+  box,
+  buildAvatar,
+  disposeAvatar,
+} from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
 import { dressFace } from "./rosto";
 import { BEARDS_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
@@ -245,6 +253,99 @@ export class CharacterPhysicsInertia {
       this.chatterY *= Math.max(0, 1 - dt * 12);
       this.chatterRot *= Math.max(0, 1 - dt * 12);
     }
+  }
+}
+
+/**
+ * Física de Vento Secundária nos Personagens (Mario Kart 8 style)
+ * Simulação física de arrasto aerodinâmico, inércia centrífuga e turbulência harmônica em:
+ * 1. Gravata (elevação para trás com airspeed e flutuação em alta frequência)
+ * 2. Crachá (afastamento do peito e balanço com as curvas da pista)
+ * 3. Cabelos (mechas esvoaçantes e oscilação de rabo de cavalo / moicano)
+ * 4. Barbas (vibração no queixo contra o fluxo de ar frontal)
+ * 5. Boné (sustentação aerodinâmica na aba)
+ */
+export class CharacterWindPhysics {
+  public tieRotX = 0;
+  public tieRotZ = 0;
+  public badgeRotX = 0;
+  public badgeRotZ = 0;
+  public badgeBounceY = 0;
+  public hairRotX = 0;
+  public hairRotZ = 0;
+  public beardRotX = 0;
+  public capLift = 0;
+
+  private time = 0;
+
+  public reset(): void {
+    this.tieRotX = 0;
+    this.tieRotZ = 0;
+    this.badgeRotX = 0;
+    this.badgeRotZ = 0;
+    this.badgeBounceY = 0;
+    this.hairRotX = 0;
+    this.hairRotZ = 0;
+    this.beardRotX = 0;
+    this.capLift = 0;
+    this.time = 0;
+  }
+
+  public update(
+    dt: number,
+    speed: number,
+    steer: number,
+    driftDir: number,
+    boosting: boolean,
+    inAir = false,
+  ): void {
+    this.time += dt;
+    const absSpeed = Math.abs(speed);
+    // Vento relativo frontal com bônus de boost e sustentação aérea
+    const effectiveSpeed = boosting ? absSpeed * 1.45 + 5.0 : inAir ? absSpeed * 1.15 : absSpeed;
+    const dynamicPressure = Math.min(1.0, Math.pow(effectiveSpeed / 16.0, 1.35));
+
+    // 1. Gravata: elevação aerodinâmica para trás e ondulação em turbulência
+    const targetTieX = -0.78 * dynamicPressure;
+    const targetTieZ = -steer * 0.32 - driftDir * 0.44;
+    const flutterFreq = 22.0 + effectiveSpeed * 2.2;
+    const tieFlutterX = Math.sin(this.time * flutterFreq) * 0.12 * dynamicPressure;
+    const tieFlutterZ = Math.cos(this.time * (flutterFreq * 0.8) + 0.6) * 0.08 * dynamicPressure;
+
+    const tieK = Math.min(1, dt * 16);
+    this.tieRotX += (targetTieX + tieFlutterX - this.tieRotX) * tieK;
+    this.tieRotZ += (targetTieZ + tieFlutterZ - this.tieRotZ) * tieK;
+
+    // 2. Crachá: inclinação no vento e pulo contra o tórax em ondulações
+    const targetBadgeX = -0.42 * dynamicPressure;
+    const targetBadgeZ = -steer * 0.26 - driftDir * 0.36;
+    const badgeFlutter = Math.sin(this.time * 28.0) * 0.04 * dynamicPressure;
+    const badgeBounce = Math.abs(Math.sin(this.time * 16.0)) * 0.016 * dynamicPressure;
+
+    const badgeK = Math.min(1, dt * 14);
+    this.badgeRotX += (targetBadgeX + badgeFlutter - this.badgeRotX) * badgeK;
+    this.badgeRotZ += (targetBadgeZ - this.badgeRotZ) * badgeK;
+    this.badgeBounceY += (badgeBounce - this.badgeBounceY) * badgeK;
+
+    // 3. Cabelos: esvoaçar contínuo para trás com ondas secundárias
+    const targetHairX = -0.68 * dynamicPressure;
+    const targetHairZ = -steer * 0.22 - driftDir * 0.30;
+    const hairWave = Math.sin(this.time * (18.0 + effectiveSpeed * 1.5)) * 0.14 * dynamicPressure;
+
+    const hairK = Math.min(1, dt * 13);
+    this.hairRotX += (targetHairX + hairWave - this.hairRotX) * hairK;
+    this.hairRotZ += (targetHairZ - this.hairRotZ) * hairK;
+
+    // 4. Barba: vibração na ponta do queixo
+    const targetBeardX = -0.20 * dynamicPressure;
+    const beardTremble = Math.sin(this.time * 30.0) * 0.035 * dynamicPressure;
+    const beardK = Math.min(1, dt * 15);
+    this.beardRotX += (targetBeardX + beardTremble - this.beardRotX) * beardK;
+
+    // 5. Boné: aba erguendo com a sustentação do ar
+    const targetCapLift = 0.06 * dynamicPressure;
+    const capK = Math.min(1, dt * 12);
+    this.capLift += (targetCapLift - this.capLift) * capK;
   }
 }
 
@@ -575,11 +676,17 @@ function retargetWearable(src: THREE.SkinnedMesh, samples: LimbSample[][], body:
  * Prende a peça aos ossos do boneco, pelo nome, para ela seguir as animações. Peça sem textura (cabelo e
  * barba modelados, o desenho vem do relevo) ganha a cor do crachá, num material só deste boneco.
  */
-function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THREE.SkinnedMesh, color?: string, mats?: THREE.Material[]): void {
+function attachWearable(
+  inner: THREE.Object3D,
+  body: THREE.SkinnedMesh,
+  src: THREE.SkinnedMesh,
+  color?: string,
+  mats?: THREE.Material[],
+): THREE.SkinnedMesh | undefined {
   const bones = src.skeleton.bones.map((b) => inner.getObjectByName(b.name));
   if (bones.some((b) => !(b as THREE.Bone | undefined)?.isBone)) {
     console.warn(`peça ${src.name}: esqueleto diferente do boneco, ignorada`);
-    return;
+    return undefined;
   }
   const piece = src.clone();
   piece.castShadow = true;
@@ -592,6 +699,7 @@ function attachWearable(inner: THREE.Object3D, body: THREE.SkinnedMesh, src: THR
   }
   piece.bind(new THREE.Skeleton(bones as THREE.Bone[], src.skeleton.boneInverses), src.bindMatrix);
   body.parent?.add(piece);
+  return piece;
 }
 
 let loaded: Loaded | null = null;
@@ -669,15 +777,66 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const syncFace = dressFace(inner, dna, mats);
   const hairColor = HAIR_COLORS[dna.hairColor] ?? HAIR_COLORS[0];
   const beardColor = HAIR_COLORS[dna.beardColor] ?? hairColor;
-  const pieces: [THREE.SkinnedMesh[] | undefined, string?][] = [
-    [model.hairs[dna.hair - 1], hairColor],
-    [model.beards[dna.beard - 1], beardColor],
+  const attachedHairMeshes: THREE.SkinnedMesh[] = [];
+  const attachedBeardMeshes: THREE.SkinnedMesh[] = [];
+
+  for (const piece of model.hairs[dna.hair - 1] ?? []) {
+    if (body) {
+      const att = attachWearable(inner, body, piece, hairColor, mats);
+      if (att) attachedHairMeshes.push(att);
+    }
+  }
+  for (const piece of model.beards[dna.beard - 1] ?? []) {
+    if (body) {
+      const att = attachWearable(inner, body, piece, beardColor, mats);
+      if (att) attachedBeardMeshes.push(att);
+    }
+  }
+  for (const [list, color] of [
     [model.shirts[dna.shirt - 1]],
     [model.pants[dna.pants - 1]],
     [model.shoes[dna.shoes - 1]],
-  ];
-  for (const [list, color] of pieces) {
+  ] as [THREE.SkinnedMesh[] | undefined, string?][]) {
     for (const piece of list ?? []) if (body) attachWearable(inner, body, piece, color, mats);
+  }
+
+  // Acessórios procedurais no modelo GLB (gravata, crachá, boné)
+  const troncoNode = inner.getObjectByName("tronco");
+  const cabecaNode = inner.getObjectByName("cabeca");
+  let glbTiePivot: THREE.Group | undefined;
+  let glbBadgePivot: THREE.Group | undefined;
+  let glbCapVisor: THREE.Mesh | undefined;
+
+  if (troncoNode) {
+    if (dna.accessory === 3) {
+      const redMat = new THREE.MeshStandardMaterial({ color: "#b8242c", roughness: 0.85, flatShading: true });
+      mats.push(redMat);
+      troncoNode.add(at(box(0.12, 0.08, 0.04, redMat, 0.02), 0, 0.22, 0.18));
+      glbTiePivot = new THREE.Group();
+      glbTiePivot.name = "Glb_Gravata_Pivo";
+      glbTiePivot.position.set(0, 0.22, 0.18);
+      glbTiePivot.add(at(box(0.10, 0.42, 0.03, redMat, 0.02), 0, -0.23, 0));
+      troncoNode.add(glbTiePivot);
+    } else if (dna.accessory === 4) {
+      const blueMat = new THREE.MeshStandardMaterial({ color: "#2f6fdf", roughness: 0.85, flatShading: true });
+      const whiteMat = new THREE.MeshStandardMaterial({ color: "#f7f5f0", roughness: 0.85, flatShading: true });
+      mats.push(blueMat, whiteMat);
+      troncoNode.add(at(box(0.02, 0.22, 0.02, blueMat), 0.06, 0.22, 0.175));
+      troncoNode.add(at(box(0.02, 0.22, 0.02, blueMat), 0.18, 0.22, 0.175));
+      glbBadgePivot = new THREE.Group();
+      glbBadgePivot.name = "Glb_Cracha_Pivo";
+      glbBadgePivot.position.set(0.12, 0.11, 0.18);
+      glbBadgePivot.add(at(box(0.16, 0.05, 0.022, blueMat), 0, 0, 0.002));
+      glbBadgePivot.add(at(box(0.16, 0.20, 0.02, whiteMat), 0, -0.07, 0));
+      troncoNode.add(glbBadgePivot);
+    }
+  }
+  if (cabecaNode && dna.accessory === 2) {
+    const capMat = new THREE.MeshStandardMaterial({ color: "#2e86de", roughness: 0.85, flatShading: true });
+    mats.push(capMat);
+    cabecaNode.add(at(box(0.48, 0.15, 0.48, capMat, 0.05), 0, 0.25, -0.01));
+    glbCapVisor = at(box(0.44, 0.04, 0.22, capMat, 0.02), 0, 0.20, 0.28);
+    cabecaNode.add(glbCapVisor);
   }
 
   // Peças de expressão facial do GLB e suas transformações base
@@ -710,6 +869,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
 
   const emotion = new CharacterEmotionManager();
   const inertia = new CharacterPhysicsInertia();
+  const wind = new CharacterWindPhysics();
 
   const mixer = new THREE.AnimationMixer(inner);
   let activeItemGesture: { item: ItemId; timer: number; duration: number } | null = null;
@@ -785,6 +945,18 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         return;
       }
       emotion.update(dt, speed01);
+      wind.update(dt, speed01 * 6.0, 0, 0, false, false);
+      if (glbTiePivot) {
+        glbTiePivot.rotation.x = wind.tieRotX;
+        glbTiePivot.rotation.z = wind.tieRotZ;
+      }
+      if (glbBadgePivot) {
+        glbBadgePivot.rotation.x = wind.badgeRotX;
+        glbBadgePivot.rotation.z = wind.badgeRotZ;
+      }
+      if (glbCapVisor) {
+        glbCapVisor.position.y = 0.20 + wind.capLift;
+      }
       const busy = [...actions.values()].some((a) => a.isRunning());
       // até a metade da velocidade o boneco anda; dali em diante passa a correr
       const s = busy ? 0 : speed01;
@@ -810,6 +982,27 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         if (activeTaunt.timer >= activeTaunt.duration) activeTaunt = null;
       }
       inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking, !!options?.isTricking);
+      wind.update(dt, speed, steer, driftDir, boosting, !!options?.inAir);
+
+      if (glbTiePivot) {
+        glbTiePivot.rotation.x = wind.tieRotX;
+        glbTiePivot.rotation.z = wind.tieRotZ;
+      }
+      if (glbBadgePivot) {
+        glbBadgePivot.rotation.x = wind.badgeRotX;
+        glbBadgePivot.rotation.z = wind.badgeRotZ;
+        glbBadgePivot.position.y = 0.11 + wind.badgeBounceY;
+      }
+      if (glbCapVisor) {
+        glbCapVisor.position.y = 0.20 + wind.capLift;
+      }
+      for (const p of attachedHairMeshes) {
+        p.rotation.x = wind.hairRotX * 0.14;
+        p.rotation.z = wind.hairRotZ * 0.08;
+      }
+      for (const p of attachedBeardMeshes) {
+        p.rotation.x = wind.beardRotX * 0.12;
+      }
 
       // 1. Postura corporal do tronco (inércia centrífuga nas curvas e transferência de peso longitudinal)
       inner.position.x = inertia.bodyShiftX;
@@ -849,8 +1042,8 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       let stareWeight = 0;
       if (cabeca) {
         let targetHeadY = -steer * 0.40 - driftDir * 0.46;
-        let targetHeadZ = -inertia.bodyRoll * 0.35 + steer * 0.08 + driftDir * 0.12;
-        let targetHeadX = inertia.bodyPitch * 0.35 + (boosting ? -0.22 : options?.isBraking ? 0.24 : speed > 2 ? -0.08 : 0);
+        let targetHeadZ = -inertia.bodyRoll * 0.35 + wind.hairRotZ * 0.06 + steer * 0.08 + driftDir * 0.12;
+        let targetHeadX = inertia.bodyPitch * 0.35 + wind.hairRotX * 0.08 + (boosting ? -0.22 : options?.isBraking ? 0.24 : speed > 2 ? -0.08 : 0);
 
         if (rivalDir) {
           const rivalDist = Math.hypot(rivalDir.x, rivalDir.z);
@@ -1086,6 +1279,7 @@ function proceduralCharacter(dna: AvatarDNA): Character {
   const rig = buildAvatar(dna);
   const emotion = new CharacterEmotionManager();
   const inertia = new CharacterPhysicsInertia();
+  const wind = new CharacterWindPhysics();
   let t = 0;
   let aimUntil = 0;
   let seated = false;
@@ -1121,6 +1315,8 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       aimUntil -= dt;
       animateAvatar(rig, speed01, t, aimUntil > 0);
       emotion.update(dt, speed01);
+      wind.update(dt, speed01 * 6.0, 0, 0, false, false);
+      applyAvatarWindPhysics(rig, wind);
       applyAvatarEmotion(
         rig,
         {
@@ -1149,6 +1345,8 @@ function proceduralCharacter(dna: AvatarDNA): Character {
         if (activeTaunt.timer >= activeTaunt.duration) activeTaunt = null;
       }
       inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking, !!options?.isTricking);
+      wind.update(dt, speed, steer, driftDir, boosting, !!options?.inAir);
+      applyAvatarWindPhysics(rig, wind);
 
       rig.body.position.x = inertia.bodyShiftX;
       rig.body.position.y = inertia.squashY * 0.22 + inertia.chatterY;
@@ -1183,8 +1381,8 @@ function proceduralCharacter(dna: AvatarDNA): Character {
       rig.legL.rotation.x += (legE - rig.legL.rotation.x) * k;
 
       let targetHeadY = -steer * 0.40 - driftDir * 0.46;
-      let targetHeadZ = -inertia.bodyRoll * 0.35 + steer * 0.08 + driftDir * 0.12;
-      let targetHeadX = inertia.bodyPitch * 0.35 + (boosting ? -0.22 : options?.isBraking ? 0.24 : speed > 2 ? -0.08 : 0);
+      let targetHeadZ = -inertia.bodyRoll * 0.35 + wind.hairRotZ * 0.06 + steer * 0.08 + driftDir * 0.12;
+      let targetHeadX = inertia.bodyPitch * 0.35 + wind.hairRotX * 0.08 + (boosting ? -0.22 : options?.isBraking ? 0.24 : speed > 2 ? -0.08 : 0);
       let stareWeight = 0;
 
       if (rivalDir) {

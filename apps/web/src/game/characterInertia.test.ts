@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CharacterPhysicsInertia, createCharacter } from "./character";
+import { CharacterPhysicsInertia, CharacterWindPhysics, createCharacter } from "./character";
 import { DEFAULT_AVATAR, ITEM_IDS } from "@ec/shared";
 
 describe("CharacterPhysicsInertia", () => {
@@ -92,6 +92,80 @@ describe("CharacterPhysicsInertia", () => {
   });
 });
 
+describe("CharacterWindPhysics (Secondary Wind Simulation)", () => {
+  it("initializes with zeroed wind physics variables", () => {
+    const wind = new CharacterWindPhysics();
+    expect(wind.tieRotX).toBe(0);
+    expect(wind.tieRotZ).toBe(0);
+    expect(wind.badgeRotX).toBe(0);
+    expect(wind.badgeRotZ).toBe(0);
+    expect(wind.badgeBounceY).toBe(0);
+    expect(wind.hairRotX).toBe(0);
+    expect(wind.hairRotZ).toBe(0);
+    expect(wind.beardRotX).toBe(0);
+    expect(wind.capLift).toBe(0);
+  });
+
+  it("lifts tie and sweeps hair backward proportional to airspeed, boosted during turbo", () => {
+    const windCruising = new CharacterWindPhysics();
+    for (let i = 0; i < 20; i++) {
+      windCruising.update(0.016, 12, 0, 0, false, false);
+    }
+    expect(windCruising.tieRotX).toBeLessThan(-0.2); // Tie lifts backwards
+    expect(windCruising.hairRotX).toBeLessThan(-0.2); // Hair streams back
+
+    const windBoosting = new CharacterWindPhysics();
+    for (let i = 0; i < 20; i++) {
+      windBoosting.update(0.016, 12, 0, 0, true, false);
+    }
+    // Boosting produces stronger backward wind deflection
+    expect(windBoosting.tieRotX).toBeLessThan(windCruising.tieRotX);
+    expect(windBoosting.hairRotX).toBeLessThan(windCruising.hairRotX);
+  });
+
+  it("swings tie, badge and hair laterally outward during turns and drift", () => {
+    // Steer right (driftDir = 1, steer = 0.5): centrifugal force swings tie and badge to the left (negative Z)
+    const windRight = new CharacterWindPhysics();
+    for (let i = 0; i < 20; i++) {
+      windRight.update(0.016, 14, 0.5, 1, false, false);
+    }
+    expect(windRight.tieRotZ).toBeLessThan(0);
+    expect(windRight.badgeRotZ).toBeLessThan(0);
+    expect(windRight.hairRotZ).toBeLessThan(0);
+
+    // Steer left (driftDir = -1, steer = -0.5): swings tie and badge to the right (positive Z)
+    const windLeft = new CharacterWindPhysics();
+    for (let i = 0; i < 20; i++) {
+      windLeft.update(0.016, 14, -0.5, -1, false, false);
+    }
+    expect(windLeft.tieRotZ).toBeGreaterThan(0);
+    expect(windLeft.badgeRotZ).toBeGreaterThan(0);
+    expect(windLeft.hairRotZ).toBeGreaterThan(0);
+  });
+
+  it("simulates badge bounce, beard flutter and cap lift at racing speeds", () => {
+    const wind = new CharacterWindPhysics();
+    for (let i = 0; i < 30; i++) {
+      wind.update(0.016, 16, 0, 0, false, false);
+    }
+    expect(wind.badgeBounceY).toBeGreaterThanOrEqual(0);
+    expect(wind.beardRotX).toBeLessThan(0);
+    expect(wind.capLift).toBeGreaterThan(0);
+  });
+
+  it("resets all wind physics variables cleanly", () => {
+    const wind = new CharacterWindPhysics();
+    wind.update(0.1, 16, 1, 1, true, false);
+    wind.reset();
+    expect(wind.tieRotX).toBe(0);
+    expect(wind.tieRotZ).toBe(0);
+    expect(wind.badgeRotX).toBe(0);
+    expect(wind.hairRotX).toBe(0);
+    expect(wind.beardRotX).toBe(0);
+    expect(wind.capLift).toBe(0);
+  });
+});
+
 describe("Character seated with inertia & tricks", () => {
   it("renders procedural character and executes updateSeated with all trick types cleanly", () => {
     const char = createCharacter(DEFAULT_AVATAR);
@@ -142,6 +216,48 @@ describe("Character seated with inertia & tricks", () => {
       char.update(0.016, 15);
 
       expect(Number.isFinite(char.root.position.x)).toBe(true);
+    }
+  });
+
+  it("animates characters with tie, badge, long hair and beard with secondary wind physics", () => {
+    // Avatar with tie (accessory 3), beard 1, hair 3 (long hair)
+    const tieChar = createCharacter({
+      ...DEFAULT_AVATAR,
+      hair: 3,
+      beard: 1,
+      accessory: 3,
+    });
+    tieChar.sit?.();
+    for (let i = 0; i < 20; i++) {
+      tieChar.updateSeated?.(0.016, 16, 0.4, 1, true, undefined);
+      tieChar.update(0.016, 16);
+      expect(Number.isFinite(tieChar.root.position.x)).toBe(true);
+    }
+
+    // Avatar with badge (accessory 4), hair 4 (ponytail)
+    const badgeChar = createCharacter({
+      ...DEFAULT_AVATAR,
+      hair: 4,
+      accessory: 4,
+    });
+    badgeChar.sit?.();
+    for (let i = 0; i < 20; i++) {
+      badgeChar.updateSeated?.(0.016, 14, -0.4, -1, false, undefined);
+      badgeChar.update(0.016, 14);
+      expect(Number.isFinite(badgeChar.root.position.x)).toBe(true);
+    }
+
+    // Avatar with cap (accessory 2), hair 5 (mohawk)
+    const capChar = createCharacter({
+      ...DEFAULT_AVATAR,
+      hair: 5,
+      accessory: 2,
+    });
+    capChar.sit?.();
+    for (let i = 0; i < 20; i++) {
+      capChar.updateSeated?.(0.016, 15, 0, 0, false, undefined);
+      capChar.update(0.016, 15);
+      expect(Number.isFinite(capChar.root.position.x)).toBe(true);
     }
   });
 });
