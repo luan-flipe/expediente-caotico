@@ -63,9 +63,14 @@ export function applyFresnelRimLight(
 ): THREE.MeshStandardMaterial {
   if (material.userData.hasFresnelRim) {
     if (material.userData.rimUniforms) {
-      material.userData.rimUniforms.uRimColor.value.set(rimColor);
-      material.userData.rimUniforms.uRimIntensity.value = intensity;
-      material.userData.rimUniforms.uRimPower.value = power;
+      const col = material.userData.rimUniforms.uRimColor?.value;
+      if (col && typeof col.set === "function") {
+        col.set(rimColor);
+      } else {
+        material.userData.rimUniforms.uRimColor = { value: new THREE.Color(rimColor) };
+      }
+      if (material.userData.rimUniforms.uRimIntensity) material.userData.rimUniforms.uRimIntensity.value = intensity;
+      if (material.userData.rimUniforms.uRimPower) material.userData.rimUniforms.uRimPower.value = power;
     }
     return material;
   }

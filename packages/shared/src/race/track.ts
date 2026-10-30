@@ -11,6 +11,7 @@ interface Ctrl {
   x: number;
   z: number;
   w: number;
+  y?: number;
 }
 
 /** Circuito Corporativo: a pista original, com o escritório inteiro. */
@@ -129,32 +130,32 @@ const COPA_CUPS = [3, 8.5, 10.5];
 
 /** Parque Ipanema: circuito aberto e panorâmico contornando o lago, o moinho e os jardins. */
 const PARQUE: Ctrl[] = [
-  { x: -105, z: -10, w: 13 }, // 0 reta das arquibancadas, linha de chegada
-  { x: -101, z: -28, w: 13 }, // 1 entrada da curva sul
-  { x: -84, z: -40, w: 13 }, // 2 curva da orla
-  { x: -60, z: -38, w: 13 }, // 3 orla do lago
-  { x: -38, z: -43, w: 13 }, // 4 lago sul
-  { x: -16, z: -49, w: 13 }, // 5 reta das palmeiras
-  { x: 8, z: -49.5, w: 13 }, // 6 bosque sul
-  { x: 32, z: -52, w: 13 }, // 7 reta dos carrinhos de picolé
-  { x: 55, z: -54.5, w: 13 }, // 8 picolé
-  { x: 78, z: -55, w: 13 }, // 9 reta dos ipês
-  { x: 100, z: -53.5, w: 13 }, // 10 curva leste
-  { x: 117, z: -40, w: 13 }, // 11 mirante
-  { x: 119.5, z: -20, w: 13 }, // 12 retorno do mirante
-  { x: 112, z: 0, w: 13 }, // 13 descida do mirante
-  { x: 92, z: 5, w: 13 }, // 14 curva do moinho
-  { x: 74, z: -8, w: 13 }, // 15 chicane do moinho
-  { x: 54, z: -4, w: 13 }, // 16 saída do moinho
-  { x: 34, z: 7, w: 13 }, // 17 reta do caramanchão
-  { x: 12, z: 15, w: 13 }, // 18 lago norte
-  { x: -8, z: 22, w: 13 }, // 19 curva da ponte
-  { x: -26, z: 35, w: 13 }, // 20 bosque
-  { x: -44, z: 47, w: 13 }, // 21 curva norte
-  { x: -66, z: 48, w: 13 }, // 22 reta dos eucaliptos
-  { x: -88, z: 43, w: 13 }, // 23 curva da torcida
-  { x: -104, z: 30, w: 13 }, // 24 entrada da reta principal
-  { x: -106, z: 10, w: 13 }, // 25 reta principal
+  { x: -105, z: -10, w: 13, y: 1.09 }, // 0 reta das arquibancadas, linha de chegada
+  { x: -101, z: -28, w: 13, y: 1.23 }, // 1 entrada da curva sul
+  { x: -84, z: -40, w: 13, y: 1.62 }, // 2 curva da orla
+  { x: -60, z: -38, w: 13, y: 1.17 }, // 3 orla do lago
+  { x: -38, z: -43, w: 13, y: 1.78 }, // 4 lago sul
+  { x: -16, z: -49, w: 13, y: 2.33 }, // 5 reta das palmeiras
+  { x: 8, z: -49.5, w: 13, y: 1.29 }, // 6 bosque sul
+  { x: 32, z: -52, w: 13, y: 1.42 }, // 7 reta dos carrinhos de picolé
+  { x: 55, z: -54.5, w: 13, y: 2.42 }, // 8 picolé
+  { x: 78, z: -55, w: 13, y: 2.63 }, // 9 reta dos ipês
+  { x: 100, z: -53.5, w: 13, y: 1.27 }, // 10 curva leste
+  { x: 117, z: -40, w: 13, y: 1.77 }, // 11 mirante
+  { x: 119.5, z: -20, w: 13, y: 1.74 }, // 12 retorno do mirante
+  { x: 112, z: 0, w: 13, y: 2.64 }, // 13 descida do mirante
+  { x: 92, z: 5, w: 13, y: 2.26 }, // 14 curva do moinho
+  { x: 74, z: -8, w: 13, y: 1.67 }, // 15 chicane do moinho
+  { x: 54, z: -4, w: 13, y: 1.46 }, // 16 saída do moinho
+  { x: 34, z: 7, w: 13, y: 2.68 }, // 17 reta do caramanchão
+  { x: 12, z: 15, w: 13, y: 2.41 }, // 18 lago norte
+  { x: -8, z: 22, w: 13, y: 1.43 }, // 19 curva da ponte
+  { x: -26, z: 35, w: 13, y: 1.25 }, // 20 bosque
+  { x: -44, z: 47, w: 13, y: 0.61 }, // 21 curva norte
+  { x: -66, z: 48, w: 13, y: 1.25 }, // 22 reta dos eucaliptos
+  { x: -88, z: 43, w: 13, y: 1.4 }, // 23 curva da torcida
+  { x: -104, z: 30, w: 13, y: 0.79 }, // 24 entrada da reta principal
+  { x: -106, z: 10, w: 13, y: 1.45 }, // 25 reta principal
 ];
 
 const PARQUE_ROOMS: TrackRoom[] = [
@@ -251,6 +252,8 @@ export interface Track {
   branches: Branch[];
   /** Rampas (vazio nas pistas sem). */
   ramps: Ramp[];
+  /** Alturas ao longo da linha central (opcional, para pistas com relevo 3D). */
+  heights?: number[];
 }
 
 /** Corredor do atalho: linha aberta de sFrom a sTo (s da pista principal), com bs próprio em cum. */
@@ -371,14 +374,20 @@ function buildBranch(track: Track, def: BranchDef, sAtCtrl: (c: number) => numbe
 function buildTrack(def: TrackDef): Track {
   const ctrl = def.ctrl;
   const n = ctrl.length;
-  const dense: { x: number; z: number; w: number }[] = [];
+  const hasY = ctrl.some((c) => c.y !== undefined);
+  const dense: { x: number; z: number; w: number; y?: number }[] = [];
   const ctrlDense: number[] = [];
   for (let i = 0; i < n; i++) {
     const [a, b, c, d] = [ctrl[wrapIdx(i - 1, n)], ctrl[i], ctrl[wrapIdx(i + 1, n)], ctrl[wrapIdx(i + 2, n)]];
     ctrlDense.push(dense.length);
     for (let k = 0; k < DENSE; k++) {
       const t = k / DENSE;
-      dense.push({ x: catmull(a.x, b.x, c.x, d.x, t), z: catmull(a.z, b.z, c.z, d.z, t), w: b.w + (c.w - b.w) * t });
+      dense.push({
+        x: catmull(a.x, b.x, c.x, d.x, t),
+        z: catmull(a.z, b.z, c.z, d.z, t),
+        w: b.w + (c.w - b.w) * t,
+        y: hasY ? catmull(a.y ?? 0, b.y ?? 0, c.y ?? 0, d.y ?? 0, t) : undefined,
+      });
     }
   }
   const dcum = [0];
@@ -393,6 +402,7 @@ function buildTrack(def: TrackDef): Track {
   const points: Vec2[] = [];
   const widths: number[] = [];
   const cum: number[] = [];
+  const heights: number[] = [];
   let j = 0;
   for (let k = 0; k < count; k++) {
     const s = k * spacing;
@@ -403,6 +413,11 @@ function buildTrack(def: TrackDef): Track {
     points.push({ x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t });
     widths.push(p.w + (q.w - p.w) * t);
     cum.push(s);
+    if (hasY) {
+      const py = p.y ?? 0;
+      const qy = q.y ?? 0;
+      heights.push(py + (qy - py) * t);
+    }
   }
   const ctrlS = ctrlDense.map((d) => dcum[d]);
   const sAtCtrl = (c: number) => {
@@ -413,7 +428,7 @@ function buildTrack(def: TrackDef): Track {
     if (b < a) b += length;
     return (a + (b - a) * f) % length;
   };
-  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl), cupRows: def.cups.map(sAtCtrl), branches: [], ramps: [] };
+  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl), cupRows: def.cups.map(sAtCtrl), branches: [], ramps: [], heights: hasY ? heights : undefined };
   if (def.branch) track.branches.push(buildBranch(track, def.branch, sAtCtrl));
   if (def.ramp) {
     const r = def.ramp;
@@ -613,17 +628,44 @@ export function deltaS(track: Track, from: number, to: number): number {
   return d;
 }
 
-/** Altura do chão sob a posição projetada em pr (rampa) e se ali é vão. */
+/** Altura do asfalto / relevo da pista na distância s (0 nas pistas planas). */
+export function heightAt(track: Track, s: number): number {
+  if (!track.heights || track.heights.length === 0) return 0;
+  const L = track.length;
+  const ss = ((s % L) + L) % L;
+  const n = track.heights.length;
+  const i = Math.min(n - 1, Math.floor(ss / track.spacing));
+  const t = (ss - track.cum[i]) / track.spacing;
+  const h1 = track.heights[i];
+  const h2 = track.heights[(i + 1) % n];
+  return h1 + (h2 - h1) * t;
+}
+
+/** Altura do chão sob a posição projetada em pr (relevo da pista e rampas) e se ali é vão. */
 export function groundAt(track: Track, pr: TrackProgress): { y: number; gap: boolean } {
+  let baseY = 0;
+  if (track.heights) {
+    if (pr.path === -1) {
+      baseY = heightAt(track, pr.s);
+    } else {
+      const b = track.branches[pr.path];
+      if (b) {
+        const yFrom = heightAt(track, b.sFrom);
+        const yTo = heightAt(track, b.sTo);
+        const f = Math.max(0, Math.min(1, pr.s / (b.length || 1)));
+        baseY = yFrom + (yTo - yFrom) * f;
+      }
+    }
+  }
   for (const r of track.ramps) {
     if (r.path !== pr.path) continue;
     const b = track.branches[r.path];
     // no atalho a rampa é medida no bs dele; na principal, no s
     const s = b ? project(b.points, b.widths, b.cum, b.spacing, false, pr.closest).s : r.sFrom + deltaS(track, r.sFrom, pr.s);
-    if (s >= r.sFrom && s <= r.sTo) return { y: (r.height * (s - r.sFrom)) / (r.sTo - r.sFrom), gap: false };
+    if (s >= r.sFrom && s <= r.sTo) return { y: baseY + (r.height * (s - r.sFrom)) / (r.sTo - r.sFrom), gap: false };
     if (r.gap && s >= r.gap.sFrom && s <= r.gap.sTo) return { y: 0, gap: true };
   }
-  return { y: 0, gap: false };
+  return { y: baseY, gap: false };
 }
 
 export function inCarpet(track: Track, pr: TrackProgress): boolean {
@@ -685,14 +727,15 @@ export function checkpoints(track: Track): number[] {
 }
 
 /** Posições de largada atrás da linha, em fileiras de 2. */
-export function gridSlots(track: Track, n: number): { pos: Vec2; heading: number }[] {
-  const out: { pos: Vec2; heading: number }[] = [];
+export function gridSlots(track: Track, n: number): { pos: Vec2; heading: number; s: number }[] {
+  const out: { pos: Vec2; heading: number; s: number }[] = [];
   for (let i = 0; i < n; i++) {
     const row = Math.floor(i / 2);
     const side = i % 2 === 0 ? 1 : -1;
-    const at = pointAt(track, track.length - 5 - row * 4 - (i % 2) * 1.5);
+    const s = track.length - 5 - row * 4 - (i % 2) * 1.5;
+    const at = pointAt(track, s);
     const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-    out.push({ pos: { x: at.pos.x + nrm.x * 2.3 * side, z: at.pos.z + nrm.z * 2.3 * side }, heading: at.heading });
+    out.push({ pos: { x: at.pos.x + nrm.x * 2.3 * side, z: at.pos.z + nrm.z * 2.3 * side }, heading: at.heading, s });
   }
   return out;
 }

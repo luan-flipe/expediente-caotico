@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { branchEdges, gridSlots, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
+import { branchEdges, gridSlots, heightAt, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
 import { applyWaxedFloorSheen } from "./vfxJuice";
 import parqueUrl from "../assets/itens/parque-ipanema-3d.glb?url";
 import { createGltfLoader } from "../game/gltfLoader";
@@ -782,7 +782,7 @@ function mergeStatic(group: THREE.Group): THREE.Mesh[] {
 }
 
 /** Faixa no chão entre duas listas de pontos (mesmo tamanho). UV: u ao longo do caminho (uScale por metro), v de a para b. */
-function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, closed: boolean, uScale = 0.25): THREE.BufferGeometry {
+function ribbon(a: Vec2[], b: Vec2[], y: number | number[], colors: THREE.Color[] | null, closed: boolean, uScale = 0.25): THREE.BufferGeometry {
   const n = a.length;
   const pos: number[] = [];
   const col: number[] = [];
@@ -790,7 +790,8 @@ function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, c
   const idx: number[] = [];
   let dist = 0;
   for (let i = 0; i < n; i++) {
-    pos.push(a[i].x, y, a[i].z, b[i].x, y, b[i].z);
+    const yi = Array.isArray(y) ? y[i] : y;
+    pos.push(a[i].x, yi, a[i].z, b[i].x, yi, b[i].z);
     if (colors) col.push(colors[i].r, colors[i].g, colors[i].b, colors[i].r, colors[i].g, colors[i].b);
     if (i > 0) dist += Math.hypot(a[i].x - a[i - 1].x, a[i].z - a[i - 1].z);
     uvs.push(dist * uScale, 0, dist * uScale, 1);
@@ -855,12 +856,16 @@ function rampMesh(track: Track, r: Ramp): THREE.Mesh {
     pos.push(...a, ...b, ...c, ...a, ...c, ...d);
     for (let k = 0; k < 6; k++) col.push(color.r, color.g, color.b);
   };
-  const h = (i: number) => (r.height * i) / (n - 1) + 0.02;
+  const base = (i: number) => {
+    const s = r.sFrom + ((r.sTo - r.sFrom) * i) / (n - 1);
+    return r.path === -1 ? heightAt(track, s) : 0;
+  };
+  const h = (i: number) => base(i) + (r.height * i) / (n - 1) + 0.02;
   for (let i = 0; i + 1 < n; i++) {
     const [p0, p1, m0, m1] = [e.plus[i], e.plus[i + 1], e.minus[i], e.minus[i + 1]];
     quad([p0.x, h(i), p0.z], [p1.x, h(i + 1), p1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], gray);
-    quad([p0.x, 0, p0.z], [p1.x, 0, p1.z], [p1.x, h(i + 1), p1.z], [p0.x, h(i), p0.z], stripe(i));
-    quad([m0.x, 0, m0.z], [m1.x, 0, m1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], stripe(i));
+    quad([p0.x, base(i), p0.z], [p1.x, base(i + 1), p1.z], [p1.x, h(i + 1), p1.z], [p0.x, h(i), p0.z], stripe(i));
+    quad([m0.x, base(i), m0.z], [m1.x, base(i + 1), m1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], stripe(i));
   }
   // queda do topo: faixas em diagonal
   const top = n - 1;
@@ -868,7 +873,7 @@ function rampMesh(track: Track, r: Ramp): THREE.Mesh {
   for (let k = 0; k < parts; k++) {
     const a = { x: e.plus[top].x + ((e.minus[top].x - e.plus[top].x) * k) / parts, z: e.plus[top].z + ((e.minus[top].z - e.plus[top].z) * k) / parts };
     const b = { x: e.plus[top].x + ((e.minus[top].x - e.plus[top].x) * (k + 1)) / parts, z: e.plus[top].z + ((e.minus[top].z - e.plus[top].z) * (k + 1)) / parts };
-    quad([a.x, 0, a.z], [b.x, 0, b.z], [b.x, h(top), b.z], [a.x, h(top), a.z], stripe(k));
+    quad([a.x, base(top), a.z], [b.x, base(top), b.z], [b.x, h(top), b.z], [a.x, h(top), a.z], stripe(k));
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
@@ -950,7 +955,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   for (const p of pits) scene.add(p.group);
   for (const r of track.ramps) scene.add(rampMesh(track, r));
   ground.castShadow = false;
-  scene.add(ground);
+  if (!isParque) scene.add(ground);
   if (parking) {
     const grid = new THREE.GridHelper(Math.max(gw, gd), Math.round(Math.max(gw, gd) / 2), "#000000", "#000000");
     grid.position.set(cx, 0, cz);
@@ -962,13 +967,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   if (isParque) {
     const addParqueModel = (model: THREE.Group) => {
       const clone = model.clone(true);
-      clone.position.set(0, -1.2, 0);
-      const root = clone.children[0] || clone;
-      if (root.children && root.children.length > 16) {
-        for (let i = 2; i <= 16; i++) {
-          if (root.children[i]) root.children[i].visible = false;
-        }
-      }
+      clone.position.set(0, 0, 0);
       scene.add(clone);
     };
     if (parqueModel) {
@@ -1009,18 +1008,20 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     aoPlus.push(at(hw - 0.22, 1));
     aoMinus.push(at(hw - 0.22, -1));
   }
-  const floor = new THREE.Mesh(ribbon(innerPlus, innerMinus, 0.01, colors, true), floorMat());
-  floor.receiveShadow = true;
-  scene.add(floor);
-  const curbMat = new THREE.MeshStandardMaterial({ map: curbTexture(textures), roughness: 0.42, metalness: 0.05 });
-  for (const [a, b] of [[edges.plus, innerPlus], [innerMinus, edges.minus]]) {
-    const curb = new THREE.Mesh(ribbon(a, b, 0.016, null, true, 0.5), curbMat);
-    curb.receiveShadow = true;
-    scene.add(curb);
+  if (!isParque) {
+    const floor = new THREE.Mesh(ribbon(innerPlus, innerMinus, 0.01, colors, true), floorMat());
+    floor.receiveShadow = true;
+    scene.add(floor);
+    const curbMat = new THREE.MeshStandardMaterial({ map: curbTexture(textures), roughness: 0.42, metalness: 0.05 });
+    for (const [a, b] of [[edges.plus, innerPlus], [innerMinus, edges.minus]]) {
+      const curb = new THREE.Mesh(ribbon(a, b, 0.016, null, true, 0.5), curbMat);
+      curb.receiveShadow = true;
+      scene.add(curb);
+    }
+    const aoMat = new THREE.MeshBasicMaterial({ color: "#0a0f18", transparent: true, opacity: 0.38, depthWrite: false });
+    scene.add(new THREE.Mesh(ribbon(edges.plus, aoPlus, 0.018, null, true, 0.1), aoMat));
+    scene.add(new THREE.Mesh(ribbon(aoMinus, edges.minus, 0.018, null, true, 0.1), aoMat));
   }
-  const aoMat = new THREE.MeshBasicMaterial({ color: "#0a0f18", transparent: true, opacity: 0.38, depthWrite: false });
-  scene.add(new THREE.Mesh(ribbon(edges.plus, aoPlus, 0.018, null, true, 0.1), aoMat));
-  scene.add(new THREE.Mesh(ribbon(aoMinus, edges.minus, 0.018, null, true, 0.1), aoMat));
   // atalhos: piso um pouco acima da principal para não brigar com ela nas bocas
   track.branches.forEach((br, j) => {
     const e = branchEdges(track, j);
@@ -1049,27 +1050,35 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
         minus.push(ed.minus[0]);
         cc.push(cc[cc.length - 1]);
       }
-      const m = new THREE.Mesh(ribbon(plus, minus, 0.012, cc, false), floorMat());
+      const yFrom = heightAt(track, br.sFrom);
+      const yTo = heightAt(track, br.sTo);
+      const hy = isParque
+        ? plus.map((_, idx) => yFrom + (yTo - yFrom) * (idx / Math.max(1, plus.length - 1)) + 0.03)
+        : 0.012;
+      const m = new THREE.Mesh(ribbon(plus, minus, hy, cc, false), floorMat());
       m.receiveShadow = true;
       scene.add(m);
     }
   });
 
-  // fita amarela tracejada no meio
-  const tape = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.45, metalness: 0.05 });
-  const tapeGeo = new THREE.BoxGeometry(0.24, 0.024, 1.9);
-  for (let s = 4; s < track.length - 2; s += 4) {
-    const at = pointAt(track, s);
-    const m = mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading);
-    m.castShadow = false;
-    stat.add(m);
+  if (!isParque) {
+    // fita amarela tracejada no meio
+    const tape = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.45, metalness: 0.05 });
+    const tapeGeo = new THREE.BoxGeometry(0.24, 0.024, 1.9);
+    for (let s = 4; s < track.length - 2; s += 4) {
+      const at = pointAt(track, s);
+      const m = mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading);
+      m.castShadow = false;
+      stat.add(m);
+    }
   }
 
   // marcas brancas do grid de largada (mesmas posições da simulação)
   const gridMat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.4, metalness: 0.1 });
   for (const slot of gridSlots(track, 8)) {
     const g = new THREE.Group();
-    g.position.set(slot.pos.x, 0.022, slot.pos.z);
+    const slotY = heightAt(track, slot.s);
+    g.position.set(slot.pos.x, slotY + 0.022, slot.pos.z);
     g.rotation.y = slot.heading;
     g.add(mesh(new THREE.BoxGeometry(1.5, 0.022, 0.14), gridMat, 0, 0, 0));
     for (const x of [-0.75, 0.75]) g.add(mesh(new THREE.BoxGeometry(0.12, 0.022, 1.4), gridMat, x, 0, 0));
@@ -1078,28 +1087,30 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     stat.add(g);
   }
 
-  // curvas fechadas: zebra vermelha e branca na beira e grama sintética atrás (a faixa lenta da simulação)
-  const kerbRed = new THREE.MeshStandardMaterial({ color: "#e74c3c", roughness: 0.5, metalness: 0.05 });
-  const kerbWhite = new THREE.MeshStandardMaterial({ color: "#f8f9fa", roughness: 0.5, metalness: 0.05 });
-  const grass = new THREE.MeshStandardMaterial({ color: "#27ae60", roughness: 0.85 });
-  const kerbW = 0.65;
-  const grassW = RACE.carpetWidth - kerbW;
-  const step = 1.1;
-  const kerbGeo = createKerbGeometry(kerbW, 0.048, step * 1.04);
-  for (const c of track.carpet) {
-    const len = c.to >= c.from ? c.to - c.from : c.to + track.length - c.from;
-    let k = 0;
-    for (let d = 0; d < len; d += step) {
-      const at = pointAt(track, c.from + Math.min(len, d + step / 2));
-      const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-      const off = (r: number) => ({ x: at.pos.x + nrm.x * r * c.side, z: at.pos.z + nrm.z * r * c.side });
-      const kp = off(at.halfWidth - kerbW / 2);
-      const kerbHeading = at.heading + (c.side === 1 ? 0 : Math.PI);
-      stat.add(mesh(kerbGeo, k++ % 2 === 0 ? kerbRed : kerbWhite, kp.x, 0.038, kp.z, kerbHeading));
-      const gp = off(at.halfWidth - kerbW - grassW / 2);
-      const gm = mesh(new THREE.BoxGeometry(grassW, 0.032, step * 1.04), grass, gp.x, 0.028, gp.z, at.heading);
-      gm.castShadow = false;
-      stat.add(gm);
+  if (!isParque) {
+    // curvas fechadas: zebra vermelha e branca na beira e grama sintética atrás (a faixa lenta da simulação)
+    const kerbRed = new THREE.MeshStandardMaterial({ color: "#e74c3c", roughness: 0.5, metalness: 0.05 });
+    const kerbWhite = new THREE.MeshStandardMaterial({ color: "#f8f9fa", roughness: 0.5, metalness: 0.05 });
+    const grass = new THREE.MeshStandardMaterial({ color: "#27ae60", roughness: 0.85 });
+    const kerbW = 0.65;
+    const grassW = RACE.carpetWidth - kerbW;
+    const step = 1.1;
+    const kerbGeo = createKerbGeometry(kerbW, 0.048, step * 1.04);
+    for (const c of track.carpet) {
+      const len = c.to >= c.from ? c.to - c.from : c.to + track.length - c.from;
+      let k = 0;
+      for (let d = 0; d < len; d += step) {
+        const at = pointAt(track, c.from + Math.min(len, d + step / 2));
+        const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+        const off = (r: number) => ({ x: at.pos.x + nrm.x * r * c.side, z: at.pos.z + nrm.z * r * c.side });
+        const kp = off(at.halfWidth - kerbW / 2);
+        const kerbHeading = at.heading + (c.side === 1 ? 0 : Math.PI);
+        stat.add(mesh(kerbGeo, k++ % 2 === 0 ? kerbRed : kerbWhite, kp.x, 0.038, kp.z, kerbHeading));
+        const gp = off(at.halfWidth - kerbW - grassW / 2);
+        const gm = mesh(new THREE.BoxGeometry(grassW, 0.032, step * 1.04), grass, gp.x, 0.028, gp.z, at.heading);
+        gm.castShadow = false;
+        stat.add(gm);
+      }
     }
   }
 
@@ -1128,9 +1139,6 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const baseboard = new THREE.MeshStandardMaterial({ color: "#18202c", roughness: 0.75, metalness: 0.1 });
   const column = new THREE.MeshStandardMaterial({ color: "#222a36", roughness: 0.6, metalness: 0.2 });
   const reflector = new THREE.MeshBasicMaterial({ color: "#ffd23f" });
-  const parkFenceWood = new THREE.MeshStandardMaterial({ color: "#5d4037", roughness: 0.85, metalness: 0.05 });
-  const parkFenceRail = new THREE.MeshStandardMaterial({ color: "#8d6e63", roughness: 0.8, metalness: 0.05 });
-  const parkPostWood = new THREE.MeshStandardMaterial({ color: "#4e342e", roughness: 0.9, metalness: 0.05 });
   // parede de a até b, sem os trechos que caem dentro de outro corredor (boca do atalho fica aberta)
   const wall = (a: Vec2, b: Vec2, room: string, open: (p: Vec2) => boolean) => {
     const len = Math.hypot(b.x - a.x, b.z - a.z);
@@ -1147,17 +1155,12 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
         const ry = Math.atan2(q.x - p.x, q.z - p.z);
         const mx = (p.x + q.x) / 2;
         const mz = (p.z + q.z) / 2;
-        if (isParque) {
-          stat.add(mesh(new THREE.BoxGeometry(0.18, 0.42, l + 0.1), parkFenceWood, mx, 0.21, mz, ry));
-          stat.add(mesh(new THREE.BoxGeometry(0.22, 0.10, l + 0.15), parkFenceRail, mx, 0.38, mz, ry));
-        } else {
-          stat.add(mesh(new THREE.BoxGeometry(0.24, 0.95, l + 0.25), wallMat(room), mx, 0.475, mz, ry));
-          if (ROOM_WALL[room] !== "glass") stat.add(mesh(new THREE.BoxGeometry(0.26, 0.22, l + 0.25), stripeMat(room), mx, 0.56, mz, ry));
-          stat.add(mesh(new THREE.BoxGeometry(0.28, 0.16, l + 0.25), baseboard, mx, 0.08, mz, ry));
-          const capGeo = new THREE.CylinderGeometry(0.065, 0.065, l + 0.25, 12);
-          capGeo.rotateX(Math.PI / 2);
-          stat.add(mesh(capGeo, cap, mx, 0.97, mz, ry));
-        }
+        stat.add(mesh(new THREE.BoxGeometry(0.24, 0.95, l + 0.25), wallMat(room), mx, 0.475, mz, ry));
+        if (ROOM_WALL[room] !== "glass") stat.add(mesh(new THREE.BoxGeometry(0.26, 0.22, l + 0.25), stripeMat(room), mx, 0.56, mz, ry));
+        stat.add(mesh(new THREE.BoxGeometry(0.28, 0.16, l + 0.25), baseboard, mx, 0.08, mz, ry));
+        const capGeo = new THREE.CylinderGeometry(0.065, 0.065, l + 0.25, 12);
+        capGeo.rotateX(Math.PI / 2);
+        stat.add(mesh(capGeo, cap, mx, 0.97, mz, ry));
         from = -1;
       }
     }
@@ -1167,17 +1170,12 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     return pr.dist < pr.halfWidth - 0.15;
   };
   const inBranch = (p: Vec2) => track.branches.some((_, j) => inPath(j, p));
-  for (const side of [edges.plus, edges.minus]) {
-    for (let i = 0; i < n; i++) {
-      wall(side[i], side[(i + 1) % n], roomAt(track, track.cum[i]), inBranch);
-      // pilar com faixa refletiva a cada 4 pontos do traçado, fora das bocas de atalho
-      if (i % 4 === 0 && !inBranch(side[i])) {
-        if (isParque) {
-          stat.add(mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.6, 8), parkPostWood, side[i].x, 0.3, side[i].z));
-          const r = mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.08, 8), reflector, side[i].x, 0.48, side[i].z);
-          r.castShadow = false;
-          stat.add(r);
-        } else {
+  if (!isParque) {
+    for (const side of [edges.plus, edges.minus]) {
+      for (let i = 0; i < n; i++) {
+        wall(side[i], side[(i + 1) % n], roomAt(track, track.cum[i]), inBranch);
+        // pilar com faixa refletiva a cada 4 pontos do traçado, fora das bocas de atalho
+        if (i % 4 === 0 && !inBranch(side[i])) {
           stat.add(mesh(new THREE.CylinderGeometry(0.20, 0.22, 1.08, 14), column, side[i].x, 0.54, side[i].z));
           const r = mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.12, 14), reflector, side[i].x, 0.78, side[i].z);
           r.castShadow = false;
@@ -1185,29 +1183,32 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
         }
       }
     }
+    track.branches.forEach((br, j) => {
+      const e = branchEdges(track, j);
+      const room = roomAt(track, br.sFrom + br.sOff[Math.floor(br.points.length / 2)]);
+      const open = (p: Vec2) => inPath(-1, p) || track.branches.some((_, o) => o !== j && inPath(o, p));
+      for (const side of [e.plus, e.minus]) {
+        for (let k = 0; k + 1 < side.length; k++) wall(side[k], side[k + 1], room, open);
+      }
+    });
   }
-  track.branches.forEach((br, j) => {
-    const e = branchEdges(track, j);
-    const room = roomAt(track, br.sFrom + br.sOff[Math.floor(br.points.length / 2)]);
-    const open = (p: Vec2) => inPath(-1, p) || track.branches.some((_, o) => o !== j && inPath(o, p));
-    for (const side of [e.plus, e.minus]) {
-      for (let k = 0; k + 1 < side.length; k++) wall(side[k], side[k + 1], room, open);
-    }
-  });
 
   // largada
   const start = pointAt(track, 0);
-  const line = mesh(new THREE.PlaneGeometry(start.halfWidth * 2, 1.4), new THREE.MeshStandardMaterial({ map: checkerTexture(textures), roughness: 0.5, metalness: 0.05 }), start.pos.x, 0.03, start.pos.z);
+  const startY = heightAt(track, 0);
+  const line = mesh(new THREE.PlaneGeometry(start.halfWidth * 2, 1.4), new THREE.MeshStandardMaterial({ map: checkerTexture(textures), roughness: 0.5, metalness: 0.05 }), start.pos.x, startY + 0.03, start.pos.z);
   line.rotation.set(-Math.PI / 2, 0, 0);
   line.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), start.heading);
   line.castShadow = false;
   scene.add(line);
-  startGantry(scene, stat, start, textures, isParque);
+  startGantry(scene, stat, start, textures, isParque, startY);
 
   for (const r of track.rooms.slice(1, -1)) {
-    const at = pointAt(track, track.ctrlS[r.ctrl] + 4);
+    const s = track.ctrlS[r.ctrl] + 4;
+    const at = pointAt(track, s);
+    const signY = heightAt(track, s);
     const sign = textSprite(r.name, textures, isParque ? "Parque Ipanema" : "Setor corporativo");
-    sign.position.set(at.pos.x, 3.6, at.pos.z);
+    sign.position.set(at.pos.x, signY + 3.6, at.pos.z);
     scene.add(sign);
   }
 
@@ -1267,13 +1268,13 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
 }
 
 /** Pórtico de largada: pilares, travessa alta, semáforo de 3 luzes e a faixa do Rally. */
-function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<typeof pointAt>, textures: THREE.Texture[], isParque = false): void {
+function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<typeof pointAt>, textures: THREE.Texture[], isParque = false, startY = 0): void {
   const truss = new THREE.MeshStandardMaterial({ color: "#1d4ed8", roughness: 0.45, metalness: 0.25 });
   const deco = new THREE.MeshStandardMaterial({ color: "#f59e0b", roughness: 0.5, metalness: 0.1 });
   const housing = new THREE.MeshStandardMaterial({ color: "#181d24", roughness: 0.6, metalness: 0.2 });
   const span = start.halfWidth + 0.6;
   const g = new THREE.Group();
-  g.position.set(start.pos.x, 0, start.pos.z);
+  g.position.set(start.pos.x, startY, start.pos.z);
   g.rotation.y = start.heading;
   for (const s of [-1, 1]) {
     g.add(mesh(new THREE.BoxGeometry(0.42, 5.2, 0.42), truss, span * s, 2.6, 0));
@@ -1296,7 +1297,7 @@ function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<ty
   const banner = textSprite(isParque ? "Parque Ipanema" : "Rally da Firma", textures, isParque ? "Grande Prêmio da Cidade" : "Grande prêmio");
   // a faixa termina logo abaixo da caixa do semáforo (base em 4.42 m)
   const bannerH = start.halfWidth * 0.48;
-  banner.position.set(start.pos.x, 4.35 - bannerH / 2, start.pos.z);
+  banner.position.set(start.pos.x, startY + 4.35 - bannerH / 2, start.pos.z);
   banner.scale.set(start.halfWidth * 1.9, bannerH, 1);
   scene.add(banner);
 }

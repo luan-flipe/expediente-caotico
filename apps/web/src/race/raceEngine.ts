@@ -7,6 +7,8 @@ import {
   pointAt,
   HOLDABLE_ITEMS,
   RACE,
+  groundAt,
+  progressOf,
   newKart,
   stepKart,
   type AvatarDNA,
@@ -81,6 +83,7 @@ interface KartView {
   slideYaw: number;
   roll: number;
   pitch: number;
+  roadPitch: number;
   hopY: number;
   hopVel: number;
   wasDrifting: boolean;
@@ -705,10 +708,13 @@ export class RaceEngine {
       if (!m) {
         m = new THREE.Mesh(this.boxGeo, this.boxMat);
         m.castShadow = true;
-        m.position.set(b.x, 0.9, b.z);
+        const gy = groundAt(this.track, progressOf(this.track, { x: b.x, z: b.z }, 0)).y;
+        const baseY = gy + 0.9;
+        m.position.set(b.x, baseY, b.z);
+        m.userData.baseY = baseY;
         this.scene.add(m);
         this.boxes.set(b.id, m);
-        this.interactive.registerItemBox(m, 0.9);
+        this.interactive.registerItemBox(m, baseY);
       }
       m.visible = b.ready;
     }
@@ -720,10 +726,13 @@ export class RaceEngine {
         let m = this.cups.get(c.id);
         if (!m) {
           m = this.buildCupMesh();
-          m.position.set(c.x, 0.38, c.z);
+          const gy = groundAt(this.track, progressOf(this.track, { x: c.x, z: c.z }, 0)).y;
+          const baseY = gy + 0.38;
+          m.position.set(c.x, baseY, c.z);
+          m.userData.baseY = baseY;
           this.scene.add(m);
           this.cups.set(c.id, m);
-          this.interactive.registerCup(m, 0.38);
+          this.interactive.registerCup(m, baseY);
         }
         m.visible = c.ready;
       }
@@ -942,6 +951,7 @@ export class RaceEngine {
       slideYaw: 0,
       roll: 0,
       pitch: 0,
+      roadPitch: 0,
       hopY: 0,
       hopVel: 0,
       wasDrifting: false,
@@ -1209,7 +1219,7 @@ export class RaceEngine {
 
     for (const b of this.boxes.values()) {
       b.rotation.y += dt * 1.6;
-      b.position.y = 0.9 + Math.sin(ms / 400 + b.position.x) * 0.12;
+      b.position.y = ((b.userData.baseY as number | undefined) ?? 0.9) + Math.sin(ms / 400 + b.position.x) * 0.12;
     }
 
     // Atualização das partículas de efeitos dos power-ups
@@ -1313,7 +1323,7 @@ export class RaceEngine {
     for (const [id, cup] of this.cups) {
       if (cup.visible) {
         cup.rotation.y += dt * 3.2;
-        cup.position.y = 0.36 + Math.sin(now * 0.005 + id * 1.5) * 0.05;
+        cup.position.y = ((cup.userData.baseY as number | undefined) ?? 0.36) + Math.sin(now * 0.005 + id * 1.5) * 0.05;
       }
     }
 
@@ -1600,6 +1610,17 @@ export class RaceEngine {
     v.r3d.update(dt, speed, steerInput, driftDir, boosting, rivalDir, inAir, TMP_SEATED_OPTIONS);
     v.r3d.root.position.set(x, y, z);
     v.r3d.root.rotation.y = heading;
+    if (this.track.heights && !inAir) {
+      const fx = Math.sin(heading);
+      const fz = Math.cos(heading);
+      const yAhead = groundAt(this.track, progressOf(this.track, { x: x + fx * 1.2, z: z + fz * 1.2 }, 0)).y;
+      const yBehind = groundAt(this.track, progressOf(this.track, { x: x - fx * 1.2, z: z - fz * 1.2 }, 0)).y;
+      const targetSlope = Math.atan2(yAhead - yBehind, 2.4);
+      v.roadPitch += (targetSlope - v.roadPitch) * Math.min(1, dt * 10);
+    } else {
+      v.roadPitch += (0 - v.roadPitch) * Math.min(1, dt * 8);
+    }
+    v.r3d.root.rotation.x = v.roadPitch;
 
     // Voo da rampa: paraquedas abre depois do pico e some ao pousar; a sombra fica no chão
     const chuteOn = own ? air && (own.vy ?? 0) < 0 : flags.has("chute");
@@ -1817,10 +1838,10 @@ export class RaceEngine {
     if (this.lookBackActive) {
       // Câmera retrovisor (KeyC ou botão do meio do mouse): olha para trás 180°
       _camWant.set(p.x + fx * camDist, camHeight + this.camY, p.z + fz * camDist);
-      _camLook.set(p.x - fx * 10, 0.6 + this.camY * 0.6, p.z - fz * 10);
+      _camLook.set(p.x - fx * 10, 0.6 + this.camY, p.z - fz * 10);
     } else {
       _camWant.set(p.x - fx * camDist + rx * this.camDriftOffset, camHeight + this.camY, p.z - fz * camDist + rz * this.camDriftOffset);
-      _camLook.set(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY * 0.6, p.z + fz * 10 + rz * this.camLookOffset);
+      _camLook.set(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY, p.z + fz * 10 + rz * this.camLookOffset);
     }
 
     // saindo da cena de abertura ou ao alternar retrovisor instantaneamente
