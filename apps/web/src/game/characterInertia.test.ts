@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CharacterPhysicsInertia, createCharacter } from "./character";
-import { DEFAULT_AVATAR } from "@ec/shared";
+import { DEFAULT_AVATAR, ITEM_IDS } from "@ec/shared";
 
 describe("CharacterPhysicsInertia", () => {
   it("initializes with zeroed inertia values", () => {
@@ -115,6 +115,33 @@ describe("Character seated with inertia & tricks", () => {
 
       expect(Number.isFinite(char.root.position.x)).toBe(true);
       expect(Number.isFinite(char.root.scale.y)).toBe(true);
+    }
+  });
+
+  it("executes dedicated item gestures for every item type cleanly", () => {
+    const char = createCharacter(DEFAULT_AVATAR);
+    char.sit?.();
+
+    for (const item of ITEM_IDS) {
+      char.playItemGesture?.(item);
+      char.updateSeated?.(0.016, 15, 0, 0, false, undefined);
+      char.update(0.016, 15);
+
+      expect(Number.isFinite(char.root.position.x)).toBe(true);
+    }
+  });
+
+  it("executes taunt gestures (wave, point, fist, cheer) cleanly", () => {
+    const char = createCharacter(DEFAULT_AVATAR);
+    char.sit?.();
+
+    const taunts = ["wave", "point", "fist", "cheer"] as const;
+    for (const kind of taunts) {
+      char.playTaunt?.(kind, 1.2);
+      char.updateSeated?.(0.016, 15, 0, 0, false, undefined);
+      char.update(0.016, 15);
+
+      expect(Number.isFinite(char.root.position.x)).toBe(true);
     }
   });
 });

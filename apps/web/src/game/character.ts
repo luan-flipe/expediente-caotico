@@ -27,6 +27,8 @@ export interface CharacterSeatedOptions {
 }
 
 /** Boneco renderizado: GLB do romulo-h quando carregado, boneco procedural enquanto isso. */
+export type TauntKind = "wave" | "point" | "fist" | "cheer";
+
 export interface Character {
   root: THREE.Group;
   update(dt: number, speed01: number): void;
@@ -45,6 +47,8 @@ export interface Character {
   play(action: CharacterAction): void;
   /** Executa um gesto animado ao usar um item/power-up na corrida de cadeiras. */
   playItemGesture?(item: ItemId): void;
+  /** Executa uma provocação cômica aos rivais (tchauzinho, apontar dedo, punho com raiva). */
+  playTaunt?(kind?: TauntKind, duration?: number): void;
   /**
    * Pose sentada (modo corrida): pernas para a frente e braços no apoio. Para as animações.
    * Devolve a altura da parte de baixo das coxas, para apoiá-las no assento.
@@ -708,6 +712,8 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const inertia = new CharacterPhysicsInertia();
 
   const mixer = new THREE.AnimationMixer(inner);
+  let activeItemGesture: { item: ItemId; timer: number; duration: number } | null = null;
+  let activeTaunt: { kind: TauntKind; timer: number; duration: number } | null = null;
   const loop = (name: string) => {
     const clip = model.clips.get(name);
     const a = clip ? mixer.clipAction(clip) : null;
@@ -744,6 +750,24 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     setEmotion(state, duration) {
       emotion.setEmotion(state, duration);
     },
+    playItemGesture(item: ItemId) {
+      activeItemGesture = { item, timer: 0, duration: 0.75 };
+      if (item === "expresso" || item === "triplo") {
+        emotion.setEmotion("adrenaline", 1.5);
+      } else if (item === "aviao" || item === "postit") {
+        emotion.setEmotion("victory", 1.2);
+      } else {
+        emotion.setEmotion("victory", 1.0);
+      }
+    },
+    playTaunt(kind: TauntKind = "wave", duration = 1.4) {
+      activeTaunt = { kind, timer: 0, duration };
+      if (kind === "fist") {
+        emotion.setEmotion("panic", duration);
+      } else {
+        emotion.setEmotion("victory", duration);
+      }
+    },
     getEmotion() {
       return emotion.getEmotion();
     },
@@ -777,6 +801,14 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
       if (!seated || cheer?.isRunning()) return;
       emotion.update(dt, speed, options, boosting);
+      if (activeItemGesture) {
+        activeItemGesture.timer += dt;
+        if (activeItemGesture.timer >= activeItemGesture.duration) activeItemGesture = null;
+      }
+      if (activeTaunt) {
+        activeTaunt.timer += dt;
+        if (activeTaunt.timer >= activeTaunt.duration) activeTaunt = null;
+      }
       inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking, !!options?.isTricking);
 
       // 1. Postura corporal do tronco (inércia centrífuga nas curvas e transferência de peso longitudinal)
@@ -895,6 +927,68 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
           _qArmTemp.setFromEuler(_eArmTemp);
           ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.88);
         }
+      } else if (activeItemGesture && ombroD && ombroE) {
+        const item = activeItemGesture.item;
+        const p = Math.min(1, activeItemGesture.timer / activeItemGesture.duration);
+        if (item === "expresso" || item === "triplo") {
+          const drink = Math.sin(p * Math.PI);
+          _eArmTemp.set(-1.45 * drink - 0.75 * (1 - drink), 0.45 * drink, -0.65 * drink);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.92);
+          if (cabeca) cabeca.rotation.x -= drink * 0.22;
+        } else if (item === "aviao") {
+          if (p < 0.35) {
+            _eArmTemp.set(-1.85, 0.25, -0.22);
+          } else {
+            _eArmTemp.set(-1.52, 0.04, 0.12);
+          }
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.92);
+        } else if (item === "grampeador") {
+          _eArmTemp.set(p < 0.2 ? -1.55 : -1.85, 0, -0.15);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.92);
+        } else if (item === "poca" || item === "resma") {
+          _eArmTemp.set(-0.35, -0.4, 0.45);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.88);
+          if (cabeca) cabeca.rotation.y -= (1 - p) * 0.65;
+        } else if (item === "pasta") {
+          _eArmTemp.set(-1.25, 0, -0.42);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.9);
+          _eArmTemp.set(-1.25, 0, 0.42);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.9);
+        } else {
+          _eArmTemp.set(-1.6, 0.35, 0.25);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.92);
+        }
+      } else if (activeTaunt && ombroD && ombroE) {
+        const kind = activeTaunt.kind;
+        if (kind === "wave") {
+          const wave = Math.sin(activeTaunt.timer * 22) * 0.35;
+          _eArmTemp.set(-1.95 + wave * 0.15, -0.2, 0.45 + wave);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.92);
+        } else if (kind === "point") {
+          _eArmTemp.set(-1.55, 0.3, -0.2);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.92);
+        } else if (kind === "fist") {
+          const shake = Math.sin(activeTaunt.timer * 28) * 0.15;
+          _eArmTemp.set(-2.05 + shake, 0, -0.3);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.92);
+        } else {
+          _eArmTemp.set(-2.05, 0, -0.45);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroD.quaternion.slerpQuaternions(restQuatD, _qArmTemp, 0.9);
+          _eArmTemp.set(-2.05, 0, 0.45);
+          _qArmTemp.setFromEuler(_eArmTemp);
+          ombroE.quaternion.slerpQuaternions(restQuatE, _qArmTemp, 0.9);
+        }
       } else {
         const pArm = emotion.panicArmTimer > 0 ? Math.min(1, emotion.panicArmTimer / 0.4) : 0;
         if (pArm > 0 && ombroD && ombroE) {
@@ -995,10 +1089,28 @@ function proceduralCharacter(dna: AvatarDNA): Character {
   let t = 0;
   let aimUntil = 0;
   let seated = false;
+  let activeItemGesture: { item: ItemId; timer: number; duration: number } | null = null;
+  let activeTaunt: { kind: TauntKind; timer: number; duration: number } | null = null;
   return {
     root: rig.root,
     setEmotion(state, duration) {
       emotion.setEmotion(state, duration);
+    },
+    playItemGesture(item: ItemId) {
+      activeItemGesture = { item, timer: 0, duration: 0.75 };
+      if (item === "expresso" || item === "triplo") {
+        emotion.setEmotion("adrenaline", 1.5);
+      } else {
+        emotion.setEmotion("victory", 1.2);
+      }
+    },
+    playTaunt(kind: TauntKind = "wave", duration = 1.4) {
+      activeTaunt = { kind, timer: 0, duration };
+      if (kind === "fist") {
+        emotion.setEmotion("panic", duration);
+      } else {
+        emotion.setEmotion("victory", duration);
+      }
     },
     getEmotion() {
       return emotion.getEmotion();
@@ -1028,6 +1140,14 @@ function proceduralCharacter(dna: AvatarDNA): Character {
     updateSeated(dt, speed, steer, driftDir, boosting = false, rivalDir, options) {
       if (!seated) return;
       emotion.update(dt, speed, options, boosting);
+      if (activeItemGesture) {
+        activeItemGesture.timer += dt;
+        if (activeItemGesture.timer >= activeItemGesture.duration) activeItemGesture = null;
+      }
+      if (activeTaunt) {
+        activeTaunt.timer += dt;
+        if (activeTaunt.timer >= activeTaunt.duration) activeTaunt = null;
+      }
       inertia.update(dt, speed, steer, driftDir, boosting, !!options?.inAir, !!options?.isBraking, !!options?.isTricking);
 
       rig.body.position.x = inertia.bodyShiftX;
@@ -1136,6 +1256,58 @@ function proceduralCharacter(dna: AvatarDNA): Character {
           rig.armR.rotation.x = -0.45;
           rig.armR.rotation.z = -0.45;
           rig.armR.rotation.y = 0;
+        }
+      } else if (activeItemGesture) {
+        const item = activeItemGesture.item;
+        const p = Math.min(1, activeItemGesture.timer / activeItemGesture.duration);
+        if (item === "expresso" || item === "triplo") {
+          const drink = Math.sin(p * Math.PI);
+          rig.armR.rotation.x = -1.45 * drink - 0.75 * (1 - drink);
+          rig.armR.rotation.y = 0.45 * drink;
+          rig.armR.rotation.z = -0.65 * drink;
+          rig.head.rotation.x -= drink * 0.22;
+        } else if (item === "aviao") {
+          rig.armR.rotation.x = p < 0.35 ? -1.85 : -1.52;
+          rig.armR.rotation.y = 0.12;
+          rig.armR.rotation.z = 0.08;
+        } else if (item === "grampeador") {
+          rig.armR.rotation.x = p < 0.2 ? -1.55 : -1.85;
+          rig.armR.rotation.z = -0.15;
+        } else if (item === "poca" || item === "resma") {
+          rig.armR.rotation.x = -0.35;
+          rig.armR.rotation.y = -0.4;
+          rig.armR.rotation.z = 0.45;
+          rig.head.rotation.y -= (1 - p) * 0.65;
+        } else if (item === "pasta") {
+          rig.armR.rotation.x = -1.25;
+          rig.armR.rotation.z = -0.42;
+          rig.armL.rotation.x = -1.25;
+          rig.armL.rotation.z = 0.42;
+        } else {
+          rig.armR.rotation.x = -1.6;
+          rig.armR.rotation.y = 0.35;
+          rig.armR.rotation.z = 0.25;
+        }
+      } else if (activeTaunt) {
+        const kind = activeTaunt.kind;
+        if (kind === "wave") {
+          const wave = Math.sin(activeTaunt.timer * 22) * 0.35;
+          rig.armL.rotation.x = -1.95 + wave * 0.15;
+          rig.armL.rotation.y = -0.2;
+          rig.armL.rotation.z = 0.45 + wave;
+        } else if (kind === "point") {
+          rig.armR.rotation.x = -1.55;
+          rig.armR.rotation.y = 0.3;
+          rig.armR.rotation.z = -0.2;
+        } else if (kind === "fist") {
+          const shake = Math.sin(activeTaunt.timer * 28) * 0.15;
+          rig.armR.rotation.x = -2.05 + shake;
+          rig.armR.rotation.z = -0.3;
+        } else {
+          rig.armR.rotation.x = -2.05;
+          rig.armR.rotation.z = -0.45;
+          rig.armL.rotation.x = -2.05;
+          rig.armL.rotation.z = 0.45;
         }
       } else {
         const pArm = emotion.panicArmTimer > 0 ? Math.min(1, emotion.panicArmTimer / 0.4) : 0;

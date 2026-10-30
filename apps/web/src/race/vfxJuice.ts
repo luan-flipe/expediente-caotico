@@ -485,6 +485,15 @@ const COMIC_PALETTES: Record<string, { bg: string; text: string; stroke: string;
   "RAD!": { bg: "#ec4899", text: "#fef08a", stroke: "#500724", burst: true },
   "UHUU!": { bg: "#8b5cf6", text: "#fef08a", stroke: "#2e1065", burst: true },
   "PERFEITO!": { bg: "#10b981", text: "#ffffff", stroke: "#064e3b", burst: false },
+  "GLUB!": { bg: "#0284c7", text: "#f0fdf4", stroke: "#082f49", burst: false },
+  "ZAPT!": { bg: "#f59e0b", text: "#ffffff", stroke: "#451a03", burst: true },
+  "TCHAC!": { bg: "#e11d48", text: "#fef08a", stroke: "#020617", burst: true },
+  "TCHAU!": { bg: "#8b5cf6", text: "#fef08a", stroke: "#2e1065", burst: true },
+  "VALEU!": { bg: "#10b981", text: "#ffffff", stroke: "#064e3b", burst: false },
+  "HA HA!": { bg: "#f43f5e", text: "#fef08a", stroke: "#881337", burst: true },
+  "BLINDADO!": { bg: "#3b82f6", text: "#ffffff", stroke: "#172554", burst: false },
+  "COLOU!": { bg: "#eab308", text: "#422006", stroke: "#713f12", burst: true },
+  "TOMA!": { bg: "#ea580c", text: "#fef08a", stroke: "#431407", burst: true },
 };
 
 function createComicWordTexture(word: string): THREE.Texture {

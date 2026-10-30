@@ -537,3 +537,101 @@ export function playLandingBoostSound(): void {
   osc.start(t);
   osc.stop(t + 0.32);
 }
+
+
+/**
+ * Toca um assovio/slide cômico de provocação (Taunt whistle) ao ultrapassar um rival.
+ */
+export function playTauntSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(520, t);
+  osc.frequency.exponentialRampToValueAtTime(960, t + 0.16);
+  osc.frequency.exponentialRampToValueAtTime(840, t + 0.24);
+
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+
+  osc.connect(g);
+  g.connect(effectsGain!);
+
+  osc.start(t);
+  osc.stop(t + 0.3);
+}
+
+/**
+ * Toca o som cômico de gole de café rápido (Drink Gulp).
+ */
+export function playCoffeeGulpSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(240, t);
+  osc.frequency.exponentialRampToValueAtTime(420, t + 0.08);
+
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.24, t + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+
+  osc.connect(g);
+  g.connect(effectsGain!);
+
+  osc.start(t);
+  osc.stop(t + 0.16);
+}
+
+/**
+ * Toca o estalo mecânico duplo de grampeador disparado.
+ */
+export function playStaplerClickSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  [0, 0.04].forEach((offset) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(1400, t + offset);
+    osc.frequency.exponentialRampToValueAtTime(300, t + offset + 0.03);
+
+    g.gain.setValueAtTime(0.0001, t + offset);
+    g.gain.exponentialRampToValueAtTime(0.18, t + offset + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + offset + 0.035);
+
+    osc.connect(g);
+    g.connect(effectsGain!);
+    osc.start(t + offset);
+    osc.stop(t + offset + 0.04);
+  });
+}
