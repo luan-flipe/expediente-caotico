@@ -6,7 +6,7 @@ import { CLOTH_COLORS, HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shar
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
 import { dressFace, preloadFaces } from "./rosto";
-import { BEARDS_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
+import { BEARDS_3D, GLASSES_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
 export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
 
@@ -74,6 +74,7 @@ interface Loaded {
   /** Malhas de cada peça das pastas, na ordem de HAIRS, BEARDS_3D, SHIRTS_3D, PANTS_3D e SHOES_3D; vazio se o arquivo não serviu. */
   hairs: THREE.SkinnedMesh[][];
   beards: THREE.SkinnedMesh[][];
+  glasses: THREE.SkinnedMesh[][];
   shirts: THREE.SkinnedMesh[][];
   pants: THREE.SkinnedMesh[][];
   shoes: THREE.SkinnedMesh[][];
@@ -416,6 +417,7 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
     loader.loadAsync(MODEL_URL, onProgress),
     load(HAIRS),
     load(BEARDS_3D),
+    load(GLASSES_3D),
     load(SHIRTS_3D),
     load(PANTS_3D),
     load(SHOES_3D),
@@ -423,7 +425,7 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
     // as texturas das expressões do rosto
     preloadFaces(),
   ])
-    .then(([gltf, hairs, beards, shirts, pants, shoes, party]) => {
+    .then(([gltf, hairs, beards, glasses, shirts, pants, shoes, party]) => {
       const scene = gltf.scene;
       let skeleton: THREE.Skeleton | null = null;
       scene.traverse((o) => {
@@ -431,7 +433,7 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
       });
       if (skeleton) {
         const samples = limbSamples(scene);
-        for (const piece of [hairs, beards, shirts, pants, shoes].flat(2)) retargetWearable(piece, samples, skeleton);
+        for (const piece of [hairs, beards, glasses, shirts, pants, shoes].flat(2)) retargetWearable(piece, samples, skeleton);
       }
       const h = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
       loaded = {
@@ -440,6 +442,7 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
         scale: TARGET_HEIGHT / h,
         hairs,
         beards,
+        glasses,
         shirts,
         pants,
         shoes,
@@ -480,6 +483,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const pieces: [THREE.SkinnedMesh[] | undefined, string | undefined, number?][] = [
     [model.hairs[dna.hair - 1], hairColor],
     [model.beards[dna.beard - 1], beardColor],
+    [model.glasses[dna.glasses - 1], undefined],
     [skirt && shirt ? shirt.map((m) => tuckShirt(m, skirt)) : shirt, undefined, dna.shirtColor],
     [pants, undefined, dna.pantsColor],
     [model.shoes[dna.shoes - 1], undefined, dna.shoesColor],

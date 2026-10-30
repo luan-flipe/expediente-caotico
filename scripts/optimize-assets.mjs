@@ -46,16 +46,20 @@ const WEARABLES = [
   "cabelos/06_topete.glb",
   "barbas/01_barba.glb",
   "barbas/02_barba_longa.glb",
+  "oculos/01_redondo.glb",
+  "oculos/02_quadrado.glb",
   "camisetas/01_camiseta.glb",
   "camisetas/02_polo.glb",
   "camisetas/03_moletom.glb",
   "camisetas/04_corta_vento.glb",
+  "camisetas/05_jaqueta_jeans_do_romarinho.glb",
   "calcas/01_calca.glb",
   "calcas/02_saia.glb",
   "tenis/01_tenis.glb",
   "tenis/02_galocha.glb",
   "tenis/03_salto_alto.glb",
   "tenis/04_crocs.glb",
+  "tenis/05_adidas_do_thaythay.glb",
 ];
 const wearablesOut = join(root, "apps", "web", "src", "assets");
 const MUSIC = "audio/turbo_pixel_drift.mp3";

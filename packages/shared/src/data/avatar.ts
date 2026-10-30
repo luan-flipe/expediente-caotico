@@ -94,7 +94,7 @@ export function sanitizeAvatar(raw: unknown): AvatarDNA {
     beard: beardIdx(r.beard),
     // antes a barba usava a cor do cabelo: sem o campo, continua igual
     beardColor: idx(r.beardColor, HAIR_COLORS.length, hairColor),
-    glasses: idx(r.glasses, GLASSES.length, d.glasses),
+    glasses: idx(r.glasses, MAX_WEARABLES, d.glasses),
     top: idx(r.top, TOPS.length, d.top),
     bottom: idx(r.bottom, BOTTOMS.length, d.bottom),
     shirt: idx(r.shirt, MAX_WEARABLES, d.shirt),
