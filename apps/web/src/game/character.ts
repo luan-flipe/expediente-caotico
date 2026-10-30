@@ -5,7 +5,7 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { HAIR_COLORS, type AvatarDNA, type ItemId } from "@ec/shared";
 import { animateAvatar, buildAvatar, disposeAvatar } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
-import { dressFace } from "./rosto";
+import { dressFace, preloadFaces } from "./rosto";
 import { BEARDS_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
 export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
@@ -291,7 +291,17 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
     console.warn("boneco_comemora.glb não carregou, sem comemoração", err);
     return null;
   });
-  loading ??= Promise.all([loader.loadAsync(MODEL_URL, onProgress), load(HAIRS), load(BEARDS_3D), load(SHIRTS_3D), load(PANTS_3D), load(SHOES_3D), cheer])
+  loading ??= Promise.all([
+    loader.loadAsync(MODEL_URL, onProgress),
+    load(HAIRS),
+    load(BEARDS_3D),
+    load(SHIRTS_3D),
+    load(PANTS_3D),
+    load(SHOES_3D),
+    cheer,
+    // as texturas das expressões do rosto
+    preloadFaces(),
+  ])
     .then(([gltf, hairs, beards, shirts, pants, shoes, party]) => {
       const scene = gltf.scene;
       let skeleton: THREE.Skeleton | null = null;
@@ -338,7 +348,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   });
   // pele, olhos e rosto do crachá; os materiais tingidos são só deste boneco
   const mats: THREE.Material[] = [];
-  const syncFace = dressFace(inner, dna, mats);
+  dressFace(inner, dna, mats);
   const hairColor = HAIR_COLORS[dna.hairColor] ?? HAIR_COLORS[0];
   const beardColor = HAIR_COLORS[dna.beardColor] ?? hairColor;
   const pieces: [THREE.SkinnedMesh[] | undefined, string?][] = [
@@ -389,7 +399,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (seated) {
         if (!cheer?.isRunning()) return;
         mixer.update(dt);
-        syncFace();
         if (cheer.isRunning()) return;
         for (const [o, p, q, s] of pose) {
           o.position.copy(p);
@@ -408,7 +417,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       run?.setEffectiveWeight(r);
       if (walk) walk.timeScale = 0.6 + speed01 * (run ? 1.6 : 0.8);
       mixer.update(dt);
-      syncFace();
     },
     updateSeated(dt, speed, _steer, driftDir) {
       if (!seated || cheer?.isRunning()) return;
@@ -443,7 +451,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         const o = inner.getObjectByName(n);
         if (o) o.rotation.x = x;
       }
-      syncFace();
       if (!body) return 0;
       // a caixa da malha com pele é calculada na pose atual dos ossos
       inner.updateMatrixWorld(true);

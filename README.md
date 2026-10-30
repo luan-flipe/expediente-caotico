@@ -152,11 +152,11 @@ O servidor é a autoridade: o cliente só manda intenções (movimento, mira, bo
   | Aba | De onde vem |
   | --- | --- |
   | Começo | nome e os funcionários prontos (`PRESETS`) |
-  | Pele e olhos | cores em `SKINS` e `EYE_COLORS`, pintadas por shader; rostos em `apps/web/src/game/itens/pele-e-olhos.ts` (`ROSTOS`), montados com as peças de expressão do próprio boneco em `apps/web/src/game/rosto.ts` |
+  | Pele e olhos | cores em `SKINS` e `EYE_COLORS`, pintadas por shader; rostos são texturas do corpo pintadas pelo designer em `apps/web/src/assets/rostos/`, listadas em `ROSTOS` (`apps/web/src/game/itens/pele-e-olhos.ts`) e trocadas em `apps/web/src/game/rosto.ts` |
   | Cabelo e barba | GLBs em `apps/web/src/assets/cabelos/` e `apps/web/src/assets/barbas/`; peça sem textura pega a cor do crachá |
   | Roupas | altura e os GLBs de `apps/web/src/assets/{camisetas,calcas,tenis}/` |
 
-  Peça nova: o original em `assets-src/roupas/<pasta>/` com prefixo numérico no fim da lista (`06_moicano.glb`), uma linha em `WEARABLES` no `scripts/optimize-assets.mjs` e `node scripts/optimize-assets.mjs`. O README de cada pasta explica como exportar. Rosto novo: uma linha em `ROSTOS` e o nome no fim de `FACES`.
+  Peça nova: o original em `assets-src/roupas/<pasta>/` com prefixo numérico no fim da lista (`06_moicano.glb`), uma linha em `WEARABLES` no `scripts/optimize-assets.mjs` e `node scripts/optimize-assets.mjs`. O README de cada pasta explica como exportar. Rosto novo: a textura pintada em `assets-src/rostos/`, `node scripts/optimize-assets.mjs`, uma linha em `ROSTOS` e o nome no fim de `FACES` (o README de `apps/web/src/assets/rostos/` explica).
 - **Ranking:** pontos por colocação e bônus de recorde em `packages/shared/src/ranking/rules.ts`. A regra de "partida conta" (2 ou mais logados) fica no mesmo arquivo, com teste em `packages/shared/src/test/ranking.test.ts`.
 - **Teclas padrão:** `apps/web/src/settings.ts` (`DEFAULT_SETTINGS`). É a única fonte, o jogo e os textos de ajuda leem de lá.
 - **Modelos e música:** coloque o original em `assets-src/` e rode `node scripts/optimize-assets.mjs`. O script comprime a malha dos GLB (meshopt) e tira a capa embutida do MP3. O código procura nós e materiais pelo nome, então não use `gltf-transform optimize` direto: ele renomeia peças.

@@ -9,8 +9,11 @@ export const HAIR_ORDER = [0, 1, 7, 2, 3, 4, 5, 6];
 export const HAIR_COLORS = ["#1b1410", "#3b2416", "#6b4226", "#a8743f", "#d9b26a", "#9a9a9a", "#b8442f", "#3a5bd9"];
 export const SHIRTS = ["#2f6fdf", "#e2483c", "#24a06b", "#f2b632", "#7b4bd6", "#f4f1ea", "#232323", "#ef7aa8", "#3fb8c4", "#8a6a4a"];
 /** O primeiro é o castanho escuro original do boneco do romulo-h. */
-/** Rostos feitos com as peças de expressão do boneco; o 0 é o rosto como veio. Item novo entra no fim. */
-export const FACES = ["Feliz", "Furioso", "Surpreso", "Preocupado", "Desconfiado", "Sonolento", "Entediado"];
+/**
+ * Expressões do boneco, uma textura do rosto pintada pelo designer cada (apps/web/src/assets/rostos, na
+ * mesma ordem); o 0 é o rosto neutro, o da textura do boneco. Item novo entra no fim.
+ */
+export const FACES = ["Neutro", "Feliz", "Triste", "Preocupado", "Desconfiado", "Sonolento"];
 export const EYE_COLORS = ["#3a2430", "#5b3a1e", "#9a6a2a", "#3f7a45", "#3a6fc4", "#7d8b95", "#111111"];
 /** Modelos da parte de cima, na cor de SHIRTS. O Vestido também cobre o quadril (a parte de baixo some). */
 export const TOPS = ["Camiseta", "Camisa", "Camisa social", "Polo", "Regata", "Moletom", "Vestido"];
@@ -131,15 +134,15 @@ const p = (n: number, dna: PresetDNA) => ({
 /** Pontos de partida editáveis. Os nomes reais entram depois. Cabelo e barba são das pastas de peças. */
 export const PRESETS: { id: string; dna: AvatarDNA }[] = [
   p(1, { skin: 1, hair: 1, hairColor: 0, beard: 0, glasses: 0, shirt: 0, pants: 0, accessory: 4, height: 1, face: 0 }),
-  p(2, { top: 1, bottom: 3, skin: 3, hair: 4, hairColor: 1, beard: 0, glasses: 1, shirt: 7, pants: 1, accessory: 0, height: 0, face: 2 }),
-  p(3, { skin: 5, hair: 3, hairColor: 0, beard: 2, glasses: 0, shirt: 2, pants: 3, accessory: 1, height: 2, face: 1 }),
+  p(2, { top: 1, bottom: 3, skin: 3, hair: 4, hairColor: 1, beard: 0, glasses: 1, shirt: 7, pants: 1, accessory: 0, height: 0, face: 1 }),
+  p(3, { skin: 5, hair: 3, hairColor: 0, beard: 2, glasses: 0, shirt: 2, pants: 3, accessory: 1, height: 2, face: 4 }),
   p(4, { top: 6, skin: 0, hair: 5, hairColor: 4, beard: 0, glasses: 2, shirt: 5, pants: 6, accessory: 0, height: 1, face: 3 }),
-  p(5, { top: 2, shoes: 3, skin: 2, hair: 0, hairColor: 5, beard: 1, glasses: 2, shirt: 6, pants: 1, accessory: 3, height: 2, face: 4 }),
-  p(6, { skin: 6, hair: 2, hairColor: 7, beard: 0, glasses: 0, shirt: 4, pants: 0, accessory: 1, height: 1, face: 5 }),
+  p(5, { top: 2, shoes: 3, skin: 2, hair: 0, hairColor: 5, beard: 1, glasses: 2, shirt: 6, pants: 1, accessory: 3, height: 2, face: 5 }),
+  p(6, { skin: 6, hair: 2, hairColor: 7, beard: 0, glasses: 0, shirt: 4, pants: 0, accessory: 1, height: 1, face: 1 }),
   p(7, { top: 3, bottom: 4, skin: 1, hair: 4, hairColor: 6, beard: 0, glasses: 1, shirt: 3, pants: 7, accessory: 4, height: 0, face: 0 }),
-  p(8, { top: 5, skin: 4, hair: 3, hairColor: 0, beard: 2, glasses: 0, shirt: 9, pants: 4, accessory: 2, height: 1, face: 6 }),
-  p(9, { skin: 7, hair: 5, hairColor: 1, beard: 0, glasses: 2, shirt: 8, pants: 2, accessory: 0, height: 2, face: 0 }),
-  p(10, { top: 4, bottom: 2, skin: 0, hair: 2, hairColor: 3, beard: 0, glasses: 0, shirt: 1, pants: 0, accessory: 1, height: 1, face: 2 }),
+  p(8, { top: 5, skin: 4, hair: 3, hairColor: 0, beard: 2, glasses: 0, shirt: 9, pants: 4, accessory: 2, height: 1, face: 2 }),
+  p(9, { skin: 7, hair: 5, hairColor: 1, beard: 0, glasses: 2, shirt: 8, pants: 2, accessory: 0, height: 2, face: 1 }),
+  p(10, { top: 4, bottom: 2, skin: 0, hair: 2, hairColor: 3, beard: 0, glasses: 0, shirt: 1, pants: 0, accessory: 1, height: 1, face: 0 }),
   p(11, { top: 3, skin: 3, hair: 1, hairColor: 5, beard: 1, glasses: 1, shirt: 5, pants: 2, accessory: 3, height: 1, face: 4 }),
   p(12, { bottom: 1, skin: 2, hair: 5, hairColor: 2, beard: 0, glasses: 0, shirt: 2, pants: 5, accessory: 2, height: 0, face: 3 }),
 ];

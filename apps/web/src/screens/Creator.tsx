@@ -80,6 +80,23 @@ export function Creator() {
   const [step, setStep] = useState<Step>("start");
   const [start, setStart] = useState<Start>("custom");
   const [preset, setPreset] = useState(-1);
+  // giro automático da prévia; a escolha fica guardada para a próxima vez
+  const [spin, setSpin] = useState(() => {
+    try {
+      return localStorage.getItem("ec.creatorSpin") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggleSpin = () => {
+    const next = !spin;
+    setSpin(next);
+    try {
+      localStorage.setItem("ec.creatorSpin", next ? "1" : "0");
+    } catch {
+      // sem storage a escolha vale só nesta sessão
+    }
+  };
   const set = (k: keyof AvatarDNA) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
   const ready = useStore((s) => s.modelReady);
   // ready refaz as miniaturas quando o boneco termina de carregar
@@ -216,9 +233,17 @@ export function Creator() {
             <div className="badge">
               <div className="badge-top">
                 <span>CRACHÁ</span>
-                <span>ARRASTE PARA GIRAR</span>
+                <button type="button" className="badge-spin" aria-pressed={spin} title="Arraste o boneco para girar à mão" onClick={toggleSpin}>
+                  {spin ? "■ PAUSAR GIRO" : "▶ GIRO AUTOMÁTICO"}
+                </button>
               </div>
-              <AvatarPreview dna={dna} chair={tab === 1 ? chair : undefined} action={tab === 1 ? cheer : undefined} className="badge-preview" />
+              <AvatarPreview
+                dna={dna}
+                chair={tab === 1 ? chair : undefined}
+                action={tab === 1 ? cheer : undefined}
+                spin={spin}
+                className="badge-preview"
+              />
               <div className="badge-name">{dna.name}</div>
             </div>
             <div className="row">
