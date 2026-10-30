@@ -10,6 +10,16 @@ import {
   applyRaceResult,
   applyShooterResult,
   applyWeeklyLap,
+  buildFutPrivate,
+  buildFutSnapshot,
+  createFutebol,
+  dropFutPlayer,
+  FUT_COLORS,
+  FUT_KITS,
+  getFutResults,
+  getFutScore,
+  setFutInput,
+  stepFutebol,
   challengeOfWeek,
   weekKey,
   DEFAULT_CHAIR,
@@ -42,6 +52,9 @@ import {
   stepMatch,
   stepRace,
   type AvatarDNA,
+  type FutMatch,
+  type FutResultRow,
+  type TeamSide,
   type ChairDNA,
   type GameMode,
   type GhostLap,
@@ -60,6 +73,8 @@ import {
 import { readSession } from "./auth";
 import { TokenBucket } from "./ratelimit";
 import type { Store } from "./store";
+
+type FutScore = ReturnType<typeof getFutScore>;
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const BOT_NAMES = ["Estagiário Kevin", "Estagiária Bia", "Estagiário Davi", "Estagiária Lu", "Estagiário Téo", "Estagiária Mel", "Estagiário Juca"];
@@ -91,6 +106,8 @@ interface Member {
   chair: ChairDNA;
   ready: boolean;
   isBot: boolean;
+  /** Futebol: time do jogador (bots da sala não têm). */
+  side?: TeamSide;
   /** Id da conta (Google) quando entrou com sessão válida; null para visitante e bot. */
   accountId: string | null;
   /** Melhor volta da sessão de quem não tem conta (visitante): só em memória. */
@@ -122,6 +139,9 @@ export class Room {
   members = new Map<string, Member>();
   match: Match | null = null;
   race: RaceMatch | null = null;
+  futebol: FutMatch | null = null;
+  futResults: FutResultRow[] | null = null;
+  futScore: FutScore | null = null;
   results: ResultRow[] | null = null;
   awards: Award[] = [];
   raceResults: RaceResultRow[] | null = null;
@@ -140,7 +160,7 @@ export class Room {
     private readonly raceOpts: { laps?: number; graceMs?: number } = {},
     private readonly store?: Store,
   ) {
-    this.options = { ...DEFAULT_ROOM_OPTIONS, laps: raceOpts.laps ?? DEFAULT_ROOM_OPTIONS.laps };
+    this.options = { ...DEFAULT_ROOM_OPTIONS, laps: raceOpts.laps ?? DEFAULT_ROOM_OPTIONS.laps, futTeams: DEFAULT_ROOM_OPTIONS.futTeams.map((t) => ({ ...t })) as RoomOptions["futTeams"] };
   }
 
   humans(): Member[] {
@@ -165,8 +185,30 @@ export class Room {
         isBot: m.isBot,
         connected: m.isBot || m.conn !== null,
         ranked: m.accountId !== null,
+        ...(m.side !== undefined ? { side: m.side } : {}),
       })),
     };
+  }
+
+  /** Time com menos humanos (empate fica com o 0). */
+  private lighterSide(): TeamSide {
+    const count = [0, 0];
+    for (const h of this.humans()) if (h.side !== undefined) count[h.side]++;
+    return count[0] <= count[1] ? 0 : 1;
+  }
+
+  /** Ao entrar no modo futebol: distribui os humanos alternando entre os times. */
+  private distributeSides(): void {
+    this.humans().forEach((h, i) => {
+      h.side = (i % 2) as TeamSide;
+    });
+  }
+
+  /** Só o anfitrião ou o primeiro humano do time mexe no uniforme dele. */
+  private canConfigTeam(member: Member, side: TeamSide): boolean {
+    if (member.id === this.hostId) return true;
+    const first = this.humans().find((h) => h.side === side);
+    return first?.id === member.id;
   }
 
   broadcast(msg: ServerMsg): void {
@@ -183,6 +225,7 @@ export class Room {
     const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, sessionLaps: {}, conn, leftAt: null, lastChatAt: 0 };
     this.members.set(id, m);
     if (!this.hostId && !isBot) this.hostId = id;
+    if (!isBot && this.mode === "futebol") m.side = this.lighterSide();
     return m;
   }
 
@@ -217,21 +260,39 @@ export class Room {
 
   start(): string | null {
     if (this.phase !== "lobby") return "A partida já começou";
+    const fut = this.mode === "futebol";
     const trial = this.mode === "timetrial";
     const zombies = this.mode === "shooter" && this.shooterSubmode === "zombies";
-    if (!trial && !zombies && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
+    if (!trial && !zombies && !fut && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
     const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
     if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
+    if (fut) {
+      const size = [0, 0];
+      for (const h of this.humans()) size[h.side ?? 0]++;
+      if (size[0] > this.options.futFormat || size[1] > this.options.futFormat) return "Time com gente demais para o formato";
+    }
     const seed = randomInt(1, 2 ** 31);
     const players = [...this.members.values()]
       .filter((m) => !trial || !m.isBot)
       .map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
     const { laps, items, botLevel, track } = this.options;
-    if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial, track });
+    if (fut) {
+      this.futebol = createFutebol({
+        seed,
+        format: this.options.futFormat,
+        durationMs: this.durationMs,
+        botLevel,
+        // bots da sala não jogam: o createFutebol completa os times sozinho
+        players: this.humans().map((h) => ({ id: h.id, name: h.name, avatar: h.avatar, side: h.side ?? 0, isBot: false, accountId: h.accountId })),
+        teams: this.options.futTeams,
+      });
+    } else if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial, track });
     else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel, submode: this.shooterSubmode });
     this.phase = "match";
     this.results = null;
     this.raceResults = null;
+    this.futResults = null;
+    this.futScore = null;
     this.tickCount = 0;
     this.broadcastLobby();
     if (this.race) for (const m of this.members.values()) this.sendGhosts(m);
@@ -239,7 +300,7 @@ export class Room {
     this.pendingMs = 0;
     // intervalo menor que o passo: no Windows o timer arredonda para ~16 ms e a partida andaria mais devagar
     this.timer = setInterval(() => this.tick(), TICK_MS / 2);
-    log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida") : "corrida"} iniciada com ${this.members.size} participantes`);
+    log(`[${this.code}] ${this.mode === "futebol" ? "futebol" : this.mode === "shooter" ? (this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida") : "corrida"} iniciada com ${this.members.size} participantes`);
     return null;
   }
 
@@ -264,6 +325,7 @@ export class Room {
     this.dispose();
     this.match = null;
     this.race = null;
+    this.futebol = null;
     this.phase = "lobby";
     for (const mem of this.members.values()) mem.ready = false;
     this.broadcast({ t: "error", msg: "A partida travou e foi encerrada. Tentem de novo." });
@@ -272,6 +334,7 @@ export class Room {
 
   private step(): void {
     if (this.race) return this.stepRace(this.race);
+    if (this.futebol) return this.stepFut(this.futebol);
     const m = this.match;
     if (!m) return;
     stepMatch(m, TICK_MS);
@@ -390,10 +453,31 @@ export class Room {
     if (r.phase === "finished") this.finish();
   }
 
+  private stepFut(f: FutMatch): void {
+    stepFutebol(f, TICK_MS);
+    this.tickCount++;
+    if (this.tickCount % BALANCE.snapshotEvery === 0 || f.phase === "over") {
+      const s = JSON.stringify(buildFutSnapshot(f));
+      // o snapshot leva só os eventos do tick
+      f.events = [];
+      for (const mem of this.members.values()) {
+        if (!mem.conn) continue;
+        send(mem.conn, `{"t":"fsnap","s":${s},"me":${JSON.stringify(buildFutPrivate(f, mem.id))}}`);
+      }
+    }
+    if (f.phase === "over") this.finish();
+  }
+
   private finish(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (this.race) {
+    if (this.futebol) {
+      this.futResults = getFutResults(this.futebol);
+      this.futScore = getFutScore(this.futebol);
+      this.awards = [];
+      this.results = null;
+      this.raceResults = null;
+    } else if (this.race) {
       this.raceResults = getRaceResults(this.race);
       this.awards = getRaceAwards(this.race);
       this.results = null;
@@ -405,13 +489,15 @@ export class Room {
     this.recordRanking();
     this.match = null;
     this.race = null;
+    this.futebol = null;
     this.phase = "results";
     for (const mem of this.members.values()) mem.ready = false;
     for (const id of [...this.members.keys()]) {
       const mem = this.members.get(id)!;
       if (!mem.isBot && !mem.conn) this.removeMember(id);
     }
-    if (this.raceResults) this.broadcast({ t: "rresults", rows: this.raceResults, awards: this.awards });
+    if (this.futResults && this.futScore) this.broadcast({ t: "fresults", rows: this.futResults, score: this.futScore, awards: this.awards });
+    else if (this.raceResults) this.broadcast({ t: "rresults", rows: this.raceResults, awards: this.awards });
     else if (this.results) this.broadcast({ t: "results", rows: this.results, awards: this.awards });
     this.broadcastLobby();
     log(`[${this.code}] partida finalizada`);
@@ -421,6 +507,8 @@ export class Room {
   private recordRanking(): void {
     const store = this.store;
     if (!store) return;
+    // TODO(Tarefa 10): futebol entra aqui (aba própria, só com 2+ humanos; derrota não pontua; gols de pênalti não contam)
+    if (this.futResults) return this.recordFutebolRanking();
     try {
       const accountOf = (id: string) => this.members.get(id)?.accountId ?? null;
       const now = Date.now();
@@ -446,6 +534,9 @@ export class Room {
       console.error(`[${this.code}] falha ao registrar o ranking`, err);
     }
   }
+
+  /** Ponto de entrada do ranking do futebol (Tarefa 10). Vazio de propósito. */
+  private recordFutebolRanking(): void {}
 
   /** Avisa quem acabou de cumprir o desafio da semana (todas as conexões da conta nesta sala). */
   private notifyChallenge(accountIds: string[]): void {
@@ -493,6 +584,7 @@ export class Room {
       }
       case "mode":
         if (!isHost || this.phase !== "lobby") return;
+        if (msg.mode === "futebol" && this.mode !== "futebol") this.distributeSides();
         this.mode = msg.mode;
         // contra o relógio é só de humanos
         if (this.mode === "timetrial") for (const x of [...this.members.values()]) if (x.isBot) this.members.delete(x.id);
@@ -511,6 +603,7 @@ export class Room {
         if (msg.items !== undefined) this.options.items = msg.items;
         if (msg.botLevel !== undefined) this.options.botLevel = msg.botLevel;
         if (msg.track !== undefined) this.options.track = msg.track;
+        if (msg.futFormat !== undefined) this.options.futFormat = msg.futFormat;
         return this.broadcastLobby();
       case "start": {
         if (!isHost) return;
@@ -518,6 +611,26 @@ export class Room {
         if (err) send(conn, { t: "error", msg: err });
         return;
       }
+      case "futTeam":
+        if (this.phase !== "lobby" || this.mode !== "futebol") return;
+        member.side = msg.side;
+        return this.broadcastLobby();
+      case "futTeamConfig": {
+        if (this.phase !== "lobby" || this.mode !== "futebol" || !this.canConfigTeam(member, msg.side)) return;
+        const team = this.options.futTeams[msg.side];
+        const rival = this.options.futTeams[msg.side === 0 ? 1 : 0];
+        if (msg.color !== undefined && msg.color === rival.color) return send(conn, { t: "error", msg: "Essa cor já é do outro time" });
+        if (msg.name !== undefined) {
+          const name = sanitizeName(msg.name, "");
+          if (name) team.name = name;
+        }
+        if (msg.kit !== undefined && msg.kit < FUT_KITS.length) team.kit = msg.kit;
+        if (msg.color !== undefined && msg.color < FUT_COLORS.length) team.color = msg.color;
+        return this.broadcastLobby();
+      }
+      case "futInput":
+        if (this.futebol) setFutInput(this.futebol, member.id, msg, msg.seq);
+        return;
       case "chat":
       case "emote": {
         // limite por jogador: o que chega antes do intervalo é descartado em silêncio
@@ -571,6 +684,16 @@ export class Room {
       if (!racer.connected) {
         racer.input = { ...NO_INPUT };
         racer.inputQueue = [];
+      }
+    }
+    const fut = this.futebol;
+    const fp = fut?.players.find((q) => q.id === member.id);
+    if (fut && fp && fut.info.get(member.id)?.human) {
+      if (member.conn === null) dropFutPlayer(fut, member.id);
+      else {
+        // reconexão com o mesmo token devolve o controle ao humano
+        fp.isBot = false;
+        fut.connected.add(member.id);
       }
     }
     const p = this.match?.players.get(member.id);
@@ -642,6 +765,7 @@ export class RoomManager {
     send(conn, { t: "welcome", id: member.id, token: member.token, code: room.code });
     if (room.results && room.phase === "results") send(conn, { t: "results", rows: room.results, awards: room.awards });
     if (room.raceResults && room.phase === "results") send(conn, { t: "rresults", rows: room.raceResults, awards: room.awards });
+    if (room.futResults && room.futScore && room.phase === "results") send(conn, { t: "fresults", rows: room.futResults, score: room.futScore, awards: room.awards });
     if (room.race && room.phase === "match") room.sendGhosts(member);
     room.broadcastLobby();
   }
