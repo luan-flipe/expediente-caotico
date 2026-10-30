@@ -15,6 +15,7 @@ import {
   buildFutSnapshot,
   createFutebol,
   dropFutPlayer,
+  reviveFutPlayer,
   FUT_COLORS,
   FUT_KITS,
   getFutResults,
@@ -55,6 +56,7 @@ import {
   type AvatarDNA,
   type FutMatch,
   type FutResultRow,
+  type FutResultRowFull,
   type TeamSide,
   type ChairDNA,
   type GameMode,
@@ -125,6 +127,11 @@ function send(conn: Conn | null, msg: ServerMsg | string): void {
   conn.ws.send(typeof msg === "string" ? msg : JSON.stringify(msg));
 }
 
+/** Linhas do placar para os clientes: sem a conta de ninguém. */
+function futPublicRows(rows: FutResultRowFull[]): FutResultRow[] {
+  return rows.map((r) => ({ id: r.id, name: r.name, side: r.side, isBot: r.isBot, goals: r.goals, assists: r.assists, yellow: r.yellow, red: r.red }));
+}
+
 function log(...args: unknown[]): void {
   if (process.env.NODE_ENV !== "test") console.log(new Date().toISOString(), ...args);
 }
@@ -141,7 +148,7 @@ export class Room {
   match: Match | null = null;
   race: RaceMatch | null = null;
   futebol: FutMatch | null = null;
-  futResults: FutResultRow[] | null = null;
+  futResults: FutResultRowFull[] | null = null;
   futScore: FutScore | null = null;
   results: ResultRow[] | null = null;
   awards: Award[] = [];
@@ -497,7 +504,7 @@ export class Room {
       const mem = this.members.get(id)!;
       if (!mem.isBot && !mem.conn) this.removeMember(id);
     }
-    if (this.futResults && this.futScore) this.broadcast({ t: "fresults", rows: this.futResults, score: this.futScore, awards: this.awards });
+    if (this.futResults && this.futScore) this.broadcast({ t: "fresults", rows: futPublicRows(this.futResults), score: this.futScore, awards: this.awards });
     else if (this.raceResults) this.broadcast({ t: "rresults", rows: this.raceResults, awards: this.awards });
     else if (this.results) this.broadcast({ t: "results", rows: this.results, awards: this.awards });
     this.broadcastLobby();
@@ -542,6 +549,7 @@ export class Room {
     try {
       const { winner } = this.futScore;
       const rows = this.futResults.map((r) => ({ accountId: r.accountId, won: winner !== null && r.side === winner, goals: r.goals, assists: r.assists }));
+      if (!matchCounts(rows)) return;
       const humans = this.futResults.filter((r) => !r.isBot).length;
       applyFutebolResult(store.data, rows, humans, Date.now());
       store.save();
@@ -598,8 +606,8 @@ export class Room {
         if (!isHost || this.phase !== "lobby") return;
         if (msg.mode === "futebol" && this.mode !== "futebol") this.distributeSides();
         this.mode = msg.mode;
-        // contra o relógio é só de humanos
-        if (this.mode === "timetrial") for (const x of [...this.members.values()]) if (x.isBot) this.members.delete(x.id);
+        // contra o relógio e futebol: o servidor completa as vagas, sem bots na sala
+        if (this.mode === "timetrial" || this.mode === "futebol") for (const x of [...this.members.values()]) if (x.isBot) this.members.delete(x.id);
         return this.broadcastLobby();
       case "shooterSubmode":
         if (!isHost || this.phase !== "lobby") return;
@@ -704,8 +712,7 @@ export class Room {
       if (member.conn === null) dropFutPlayer(fut, member.id);
       else {
         // reconexão com o mesmo token devolve o controle ao humano
-        fp.isBot = false;
-        fut.connected.add(member.id);
+        reviveFutPlayer(fut, member.id);
       }
     }
     const p = this.match?.players.get(member.id);
@@ -777,7 +784,7 @@ export class RoomManager {
     send(conn, { t: "welcome", id: member.id, token: member.token, code: room.code });
     if (room.results && room.phase === "results") send(conn, { t: "results", rows: room.results, awards: room.awards });
     if (room.raceResults && room.phase === "results") send(conn, { t: "rresults", rows: room.raceResults, awards: room.awards });
-    if (room.futResults && room.futScore && room.phase === "results") send(conn, { t: "fresults", rows: room.futResults, score: room.futScore, awards: room.awards });
+    if (room.futResults && room.futScore && room.phase === "results") send(conn, { t: "fresults", rows: futPublicRows(room.futResults), score: room.futScore, awards: room.awards });
     if (room.race && room.phase === "match") room.sendGhosts(member);
     room.broadcastLobby();
   }

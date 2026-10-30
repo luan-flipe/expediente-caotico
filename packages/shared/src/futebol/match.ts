@@ -17,7 +17,7 @@ import type {
   FutPlayer,
   FutPlayerInfo,
   FutPrivate,
-  FutResultRow,
+  FutResultRowFull,
   FutSnapshot,
   FutTeamConfig,
   RestartKind,
@@ -146,6 +146,15 @@ export function dropFutPlayer(m: FutMatch, id: string): void {
   const p = m.players.find((q) => q.id === id);
   if (p && p.role === "linha") {
     p.isBot = true;
+  }
+}
+
+/** Humano que voltou (mesmo token): reassume o controle do seu jogador. */
+export function reviveFutPlayer(m: FutMatch, id: string): void {
+  m.connected.add(id);
+  const p = m.players.find((q) => q.id === id);
+  if (p && p.role === "linha") {
+    p.isBot = false;
   }
 }
 
@@ -391,7 +400,7 @@ export function buildFutPrivate(m: FutMatch, id: string): FutPrivate | null {
   return { chargeMs: Math.round(p.chargeMs), ackSeq: m.ack.get(id) ?? 0 };
 }
 
-export function getFutResults(m: FutMatch): FutResultRow[] {
+export function getFutResults(m: FutMatch): FutResultRowFull[] {
   return m.players
     .filter((p) => p.role === "linha")
     .map((p) => {

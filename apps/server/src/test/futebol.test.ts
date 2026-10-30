@@ -73,6 +73,17 @@ describe("modo futebol no servidor", () => {
     b.close();
   });
 
+  it("trocar para futebol remove os bots da sala", async () => {
+    const { a, b } = await twoPlayers();
+    a.send({ t: "addBot" });
+    await a.waitFor("lobby", (m) => m.state.players.some((p) => p.isBot));
+    a.send({ t: "mode", mode: "futebol" });
+    const lob = await a.waitFor("lobby", (m) => m.state.mode === "futebol");
+    expect(lob.state.players.some((p) => p.isBot)).toBe(false);
+    a.close();
+    b.close();
+  });
+
   it("jogador escolhe o time", async () => {
     const { a, b, wb } = await twoPlayers();
     a.send({ t: "mode", mode: "futebol" });
@@ -203,6 +214,7 @@ describe("modo futebol no servidor", () => {
     a.send({ t: "mode", mode: "futebol" });
     b.send({ t: "ready", ready: true });
     await a.waitFor("lobby", (m) => m.state.players.find((p) => p.id === wb.id)?.ready === true);
+    room.members.get(wb.id)!.accountId = "conta-secreta";
     a.send({ t: "start" });
     await a.waitFor("fsnap");
     const fut = room.futebol!;
@@ -213,6 +225,10 @@ describe("modo futebol no servidor", () => {
     expect(res.score.winner).toBe(0);
     expect(res.score.score).toEqual([1, 0]);
     expect(res.rows.length).toBe(4);
+    // a conta de ninguém vai para os clientes; o servidor guarda para o ranking
+    expect(JSON.stringify(res.rows)).not.toContain("accountId");
+    expect(JSON.stringify(res.rows)).not.toContain("conta-secreta");
+    expect(room.futResults!.find((r) => r.id === wb.id)!.accountId).toBe("conta-secreta");
     expect(res.awards).toEqual([]);
     const after = await b.waitFor("fresults");
     expect(after.rows).toEqual(res.rows);

@@ -194,9 +194,13 @@ export interface FutResultRow {
   name: string;
   side: TeamSide;
   isBot: boolean;
-  accountId: string | null;
   goals: number;
   assists: number;
   yellow: number;
   red: number;
+}
+
+/** Linha com a conta do jogador: fica só no servidor (ranking), nunca vai para os clientes. */
+export interface FutResultRowFull extends FutResultRow {
+  accountId: string | null;
 }

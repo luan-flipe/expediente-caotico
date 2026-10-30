@@ -126,7 +126,7 @@ export function Perfil({ id }: { id: string }) {
 
               <div className="card stack">
                 <p className="label">Futebol</p>
-                <div className="perfil-stats" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+                <div className="perfil-stats" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
                   <Stat value={p.stats.futWins} label="Vitórias" />
                   <Stat value={p.stats.futGoals} label="Gols" />
                   <Stat value={p.stats.futAssists} label="Assistências" />

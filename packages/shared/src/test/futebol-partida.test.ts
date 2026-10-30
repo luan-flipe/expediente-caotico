@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_AVATAR } from "../data/avatar";
-import { createFutebol, dropFutPlayer, FUT, FUT_COLORS, FUT_KITS, getFutResults, getFutScore, setFutInput, stepFutebol } from "../index";
+import { createFutebol, dropFutPlayer, reviveFutPlayer, FUT, FUT_COLORS, FUT_KITS, getFutResults, getFutScore, setFutInput, stepFutebol } from "../index";
 import type { FutFormat, FutInput, FutMatch, TeamSide } from "../index";
 
 const DT = 1000 / 30;
@@ -156,6 +156,14 @@ describe("partida de futebol", () => {
     expect(getFutScore(m).winner).toBe(1);
     expect(m.events.some((e) => e.type === "card" && e.card === "red" && e.id === "h0")).toBe(true);
     expect(getFutResults(m).find((r) => r.id === "h0")?.red).toBe(1);
+  });
+
+  it("jogador que volta reassume o controle", () => {
+    const m = make(2, [human("h1", 0), human("h2", 1)]);
+    dropFutPlayer(m, "h1");
+    reviveFutPlayer(m, "h1");
+    expect(m.players.find((q) => q.id === "h1")!.isBot).toBe(false);
+    expect(m.connected.has("h1")).toBe(true);
   });
 
   it("jogador que sai vira bot sem travar", () => {

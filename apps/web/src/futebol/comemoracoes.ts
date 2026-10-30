@@ -256,11 +256,13 @@ export class Comemoracoes {
     this.mates = [];
     this.badge = null;
     this.stamp = null;
+    this.paper?.mesh.dispose();
     for (const p of this.props) {
       p.removeFromParent();
       p.traverse((o) => {
         const m = o as THREE.Mesh | THREE.Sprite;
-        (m as THREE.Mesh).geometry?.dispose();
+        // a geometria do Sprite é compartilhada pelo three: só a de malha própria morre aqui
+        if (!(o as THREE.Sprite).isSprite) (m as THREE.Mesh).geometry?.dispose();
         const mat = m.material as (THREE.Material & { map?: THREE.Texture | null }) | undefined;
         mat?.map?.dispose();
         mat?.dispose();
