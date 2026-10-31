@@ -86,3 +86,23 @@ export function adIndex(slot: number, step: number, n: number): number {
 export function adStep(t: number, everyS: number): number {
   return Math.max(0, Math.floor(t / everyS));
 }
+
+export type CrewKind = "ombro" | "tripe" | "boom";
+
+export interface CrewSpot {
+  x: number;
+  z: number;
+  kind: CrewKind;
+  /** Giro em y de repouso: olhando para o centro do campo. */
+  yaw: number;
+}
+
+/** Folga atrás das placas laterais para a equipe de filmagem. */
+export const CREW_BEHIND = 1;
+
+/** Equipe de filmagem atrás das placas das laterais, fora das linhas e do caminho das placas. */
+export function crewSpots(f: Field): CrewSpot[] {
+  const z = f.halfW + BOARD_OFF_SIDE + CREW_BEHIND;
+  const at = (fx: number, s: -1 | 1, kind: CrewKind): CrewSpot => ({ x: fx * f.halfL, z: s * z, kind, yaw: s < 0 ? 0 : Math.PI });
+  return [at(-0.5, -1, "ombro"), at(0.3, -1, "tripe"), at(0.55, 1, "ombro"), at(-0.2, 1, "tripe"), at(-0.8, 1, "boom")];
+}

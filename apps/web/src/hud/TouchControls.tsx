@@ -267,8 +267,10 @@ function RaceControls() {
 
 /** Futebol: analógico à esquerda (a borda corre) e, à direita, Chute e Passe (segurar carrega); sem a bola viram Carrinho e Disputa. A mira é a direção do analógico. */
 function FutebolControls() {
-  const snap = useStore((s) => s.fsnap);
-  const myId = useStore((s) => s.myId);
+  const ball = useStore((s) => {
+    const me = s.fsnap?.players.find((p) => p.id === s.myId);
+    return !!s.fsnap && !!me && hasBallReach(s.fsnap.ball, me);
+  });
   const stick = useDrag(
     (dx, dy) => {
       touchInput.move = stickVector(dx, dy, STICK_R, STICK_DEAD);
@@ -278,8 +280,6 @@ function FutebolControls() {
     },
   );
   const knob = stick.origin ? stickVector(stick.origin.dx, stick.origin.dy, STICK_R, 0) : null;
-  const me = snap?.players.find((p) => p.id === myId);
-  const ball = !!snap && !!me && hasBallReach(snap.ball, me);
 
   return (
     <>

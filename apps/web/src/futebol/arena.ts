@@ -6,18 +6,18 @@ import { BOARD_H, BOARD_LEN, BOARD_TILT, adIndex, adStep, boardSlots, frameRects
 const FRAME_Y = 0.012;
 const TILE_M = 5;
 
-/** Piso do entorno: grama escura sem cortes nem linhas, gerada por código. */
+/** Piso do entorno: terra batida clara, bem diferente do gramado, para a área sem uso não parecer parte do campo. Gerada por código. */
 function groundTexture(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = c.height = 256;
   const g = c.getContext("2d")!;
-  g.fillStyle = "#2b5f2c";
+  g.fillStyle = "#b8976a";
   g.fillRect(0, 0, 256, 256);
   let seed = 7;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   for (let i = 0; i < 2600; i++) {
-    const l = 26 + rnd() * 18;
-    g.fillStyle = `hsl(${100 + rnd() * 25} ${35 + rnd() * 15}% ${l}%)`;
+    const l = 48 + rnd() * 20;
+    g.fillStyle = `hsl(${30 + rnd() * 12} ${28 + rnd() * 14}% ${l}%)`;
     g.fillRect(rnd() * 256, rnd() * 256, 1 + rnd() * 2, 2 + rnd() * 4);
   }
   const t = new THREE.CanvasTexture(c);

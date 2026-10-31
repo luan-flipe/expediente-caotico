@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FUT_FORMATS, fieldFor } from "@ec/shared";
-import { BOARD_LEN, BOARD_OFF_END, BOARD_OFF_SIDE, GRASS_EDGE, adIndex, adStep, boardSlots, boardsFit, frameRects } from "./arenaLayout";
+import { BOARD_LEN, BOARD_OFF_END, BOARD_OFF_SIDE, GRASS_EDGE, adIndex, adStep, boardSlots, boardsFit, crewSpots, frameRects } from "./arenaLayout";
 import { ANUNCIANTES } from "./anunciantes";
 import { MAX_CROWD, STANDS, bounce, cellKey, crowdCount, crowdEnergy, ringCandidate, rng } from "./torcidaLayout";
 
@@ -123,10 +123,26 @@ describe("torcida", () => {
     expect(wild).toBeGreaterThan(0.4);
   });
 
-  it("modo Leve usa metade e a grade evita sobreposição", () => {
-    expect(crowdCount(MAX_CROWD, "leve")).toBe(MAX_CROWD / 2);
-    expect(crowdCount(MAX_CROWD, "alta")).toBe(MAX_CROWD);
+  it("modo Leve usa menos torcedores e a grade evita sobreposição", () => {
+    expect(crowdCount(MAX_CROWD, "leve")).toBe(400);
+    expect(crowdCount(MAX_CROWD, "alta")).toBe(900);
+    expect(crowdCount(300, "alta")).toBe(300);
     expect(cellKey(0, 0)).toBe(cellKey(0.2, 0.2));
     expect(cellKey(0, 0)).not.toBe(cellKey(3, 0));
+  });
+});
+
+describe("equipe de filmagem", () => {
+  it("fica atrás das placas, longe da área de jogo, dentro do gramado do mapa", () => {
+    for (const fm of formats) {
+      const f = fieldFor(fm);
+      const spots = crewSpots(f);
+      expect(spots.length).toBeGreaterThanOrEqual(4);
+      expect(spots.length).toBeLessThanOrEqual(6);
+      for (const p of spots) {
+        expect(Math.abs(p.z)).toBeGreaterThan(f.halfW + BOARD_OFF_SIDE + 0.3);
+        expect(Math.abs(p.x)).toBeLessThan(f.halfL);
+      }
+    }
   });
 });

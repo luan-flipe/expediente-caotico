@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState, type RefObject } from "react";
 import { FUT, FUT_COLORS, type FutEvent, type FutSnapshot, type RestartKind, type TeamSide } from "@ec/shared";
 import { keyLabel, useSettings } from "../settings";
-import { useStore } from "../store";
+import { net, useStore } from "../store";
 import { IS_TOUCH } from "../touch";
 
 const fmt = (ms: number) => {
@@ -68,104 +68,157 @@ function Dots({ goals, taken }: { goals: number; taken: number }) {
   );
 }
 
-export function FutebolHud({ myId, locked, powerRef, fillRef }: { myId: string; locked: boolean; powerRef: RefObject<HTMLDivElement | null>; fillRef: RefObject<HTMLDivElement | null> }) {
-  const snap = useStore((s) => s.fsnap);
-  const scoreboard = useStore((s) => s.scoreboard);
-  const keys = useSettings().keys.futebol;
+/** Seleciona um pedaço do snapshot e só re-renderiza quando ele muda de verdade (comparação por valor; as partes são pequenas). */
+function useFut<T>(sel: (s: FutSnapshot) => T): T | null {
+  const last = useRef<T | null>(null);
+  return useStore((st) => {
+    const v = st.fsnap ? sel(st.fsnap) : null;
+    if (JSON.stringify(v) === JSON.stringify(last.current)) return last.current;
+    last.current = v;
+    return v;
+  });
+}
+
+const FutBanners = memo(function FutBanners({ myId }: { myId: string }) {
   const [banners, setBanners] = useState<Banner[]>([]);
   const lastT = useRef(-1);
 
   // eventos chegam uma vez por snapshot; os avisos expiram sozinhos
   useEffect(() => {
-    if (!snap || snap.t === lastT.current) return;
-    lastT.current = snap.t;
-    const add = bannersFor(snap, myId, performance.now());
-    if (add.length) setBanners((b) => [...b, ...add].slice(-4));
-  }, [snap, myId]);
+    return net.listen((m) => {
+      if (m.t !== "fsnap" || m.s.t === lastT.current) return;
+      lastT.current = m.s.t;
+      const add = bannersFor(m.s, myId, performance.now());
+      if (add.length) setBanners((b) => [...b, ...add].slice(-4));
+    });
+  }, [myId]);
   useEffect(() => {
     const t = setInterval(() => setBanners((b) => (b.some((x) => x.until < performance.now()) ? b.filter((x) => x.until >= performance.now()) : b)), 250);
     return () => clearInterval(t);
   }, []);
 
-  if (!snap) return <div className="hud center-msg">Entrando no campo...</div>;
+  return (
+    <div className="fut-banners">
+      {banners.map((b) => (
+        <div key={b.id} className={`fut-banner ${b.kind}`}>
+          {(b.kind === "card-yellow" || b.kind === "card-red") && <i className="card" />}
+          <strong>{b.text}</strong>
+          {b.sub && <span>{b.sub}</span>}
+        </div>
+      ))}
+    </div>
+  );
+});
 
-  const [t0, t1] = snap.teams;
-  const hex = (side: TeamSide) => FUT_COLORS[snap.teams[side].color]?.hex ?? "#888";
-  const me = snap.players.find((p) => p.id === myId);
-  const r = snap.restart;
-  const counting = r !== null && r.leftMs <= FUT.restartCountdownMs && snap.phase !== "penalties";
-  const iTake = r?.takerId === myId;
-  const penTaker = snap.phase === "penalties" ? snap.pens?.takerId : null;
-  const half = snap.elapsedMs < snap.durationMs / 2 ? "1º tempo" : "2º tempo";
-  const clock = snap.phase === "penalties" ? "Pênaltis" : snap.elapsedMs >= snap.durationMs ? "Acabou" : `${fmt(snap.durationMs - snap.elapsedMs)} · ${half}`;
+/** Placar e relógio: o relógio muda por segundo, não por snapshot. */
+const FutTop = memo(function FutTop() {
+  const d = useFut((s) => {
+    const half = s.elapsedMs < s.durationMs / 2 ? "1º tempo" : "2º tempo";
+    const clock = s.phase === "penalties" ? "Pênaltis" : s.elapsedMs >= s.durationMs ? "Acabou" : `${fmt(s.durationMs - s.elapsedMs)} · ${half}`;
+    return { teams: s.teams, score: s.score, clock };
+  });
+  if (!d) return null;
+  const hex = (side: TeamSide) => FUT_COLORS[d.teams[side].color]?.hex ?? "#888";
+  const [t0, t1] = d.teams;
+  return (
+    <div className="fut-top">
+      <div className="fut-team" style={{ background: hex(0), color: inkOn(hex(0)) }}>
+        <span className="n">{t0.name}</span>
+        <b>{d.score[0]}</b>
+      </div>
+      <div className="panel fut-clock">{d.clock}</div>
+      <div className="fut-team right" style={{ background: hex(1), color: inkOn(hex(1)) }}>
+        <b>{d.score[1]}</b>
+        <span className="n">{t1.name}</span>
+      </div>
+    </div>
+  );
+});
+
+const FutPens = memo(function FutPens() {
+  const d = useFut((s) => ({ pens: s.pens, names: [s.teams[0].name, s.teams[1].name] }));
+  if (!d?.pens) return null;
+  const { pens, names } = d;
+  return (
+    <div className="panel fut-pens">
+      {([0, 1] as const).map((i) => (
+        <div key={i}>
+          <span>{names[i]}</span>
+          <Dots goals={pens.goals[i]} taken={pens.taken[i]} />
+          <b>{pens.goals[i]}</b>
+        </div>
+      ))}
+    </div>
+  );
+});
+
+/** Avisos de cobrança, contagem e estado do jogador: só texto e números, que mudam pouco. */
+const FutNotices = memo(function FutNotices({ myId }: { myId: string }) {
+  const d = useFut((s) => {
+    const name = (id: string | undefined) => s.players.find((p) => p.id === id)?.name;
+    const r = s.restart;
+    const me = s.players.find((p) => p.id === myId);
+    const counting = r !== null && r.leftMs <= FUT.restartCountdownMs && s.phase !== "penalties";
+    const penTaker = s.phase === "penalties" ? s.pens?.takerId : null;
+    return {
+      restart: r && s.phase !== "penalties" ? `${RESTART_TEXT[r.kind]}${r.takerId === myId ? " (você cobra)" : ` (${name(r.takerId) ?? "alguém"} cobra)`}` : null,
+      pen: penTaker ? (penTaker === myId ? "Sua vez de bater o pênalti" : `${name(penTaker) ?? "Alguém"} vai bater`) : null,
+      count: counting && r ? Math.max(1, Math.ceil(r.leftMs / 1000)) : 0,
+      down: !!me?.down,
+      sentOff: !!me?.sentOff,
+      over: s.phase === "over",
+    };
+  });
+  const locked = useLocked();
+  if (!d) return null;
+  return (
+    <>
+      {d.restart && <div className="panel fut-restart">{d.restart}</div>}
+      {d.pen && <div className="panel fut-restart">{d.pen}</div>}
+      {d.count > 0 && <div className="fut-count">{d.count}</div>}
+      {d.down && <div className="panel fut-state">No chão...</div>}
+      {d.sentOff && <div className="panel fut-state">Você foi expulso. Seu time joga com um a menos.</div>}
+      {!locked && !IS_TOUCH && !d.over && <div className="panel lock-hint">Clique na tela para jogar com o mouse</div>}
+    </>
+  );
+});
+
+const LockedContext = createContext(false);
+const useLocked = () => useContext(LockedContext);
+
+export function FutebolHud({ myId, locked, powerRef, fillRef }: { myId: string; locked: boolean; powerRef: RefObject<HTMLDivElement | null>; fillRef: RefObject<HTMLDivElement | null> }) {
+  const hasSnap = useStore((s) => !!s.fsnap);
+  const scoreboard = useStore((s) => s.scoreboard);
+  const keys = useSettings().keys.futebol;
+
+  if (!hasSnap) return <div className="hud center-msg">Entrando no campo...</div>;
 
   return (
-    <div className="hud fut-hud">
-      <div className="fut-top">
-        <div className="fut-team" style={{ background: hex(0), color: inkOn(hex(0)) }}>
-          <span className="n">{t0.name}</span>
-          <b>{snap.score[0]}</b>
-        </div>
-        <div className="panel fut-clock">{clock}</div>
-        <div className="fut-team right" style={{ background: hex(1), color: inkOn(hex(1)) }}>
-          <b>{snap.score[1]}</b>
-          <span className="n">{t1.name}</span>
-        </div>
-      </div>
+    <LockedContext.Provider value={locked}>
+      <div className="hud fut-hud">
+        <FutTop />
+        <FutPens />
+        <FutNotices myId={myId} />
+        <FutBanners myId={myId} />
 
-      {snap.pens && (
-        <div className="panel fut-pens">
-          <div>
-            <span>{t0.name}</span>
-            <Dots goals={snap.pens.goals[0]} taken={snap.pens.taken[0]} />
-            <b>{snap.pens.goals[0]}</b>
+        <div className="fut-power" ref={powerRef} style={{ display: "none" }}>
+          <div className="fill" ref={fillRef} />
+        </div>
+
+        {!IS_TOUCH && (
+          <div className="fut-keys">
+            {keyLabel(keys.frente)} {keyLabel(keys.esquerda)} {keyLabel(keys.tras)} {keyLabel(keys.direita)} andar · {keyLabel(keys.frente)} duas vezes corre · esquerdo chuta (segure para força) · direito passa · sem a bola: carrinho e disputa
           </div>
-          <div>
-            <span>{t1.name}</span>
-            <Dots goals={snap.pens.goals[1]} taken={snap.pens.taken[1]} />
-            <b>{snap.pens.goals[1]}</b>
-          </div>
-        </div>
-      )}
-
-      {r && snap.phase !== "penalties" && (
-        <div className="panel fut-restart">
-          {RESTART_TEXT[r.kind]}
-          {iTake ? " (você cobra)" : ` (${snap.players.find((p) => p.id === r.takerId)?.name ?? "alguém"} cobra)`}
-        </div>
-      )}
-      {penTaker && <div className="panel fut-restart">{penTaker === myId ? "Sua vez de bater o pênalti" : `${snap.players.find((p) => p.id === penTaker)?.name ?? "Alguém"} vai bater`}</div>}
-      {counting && r && <div className="fut-count">{Math.max(1, Math.ceil(r.leftMs / 1000))}</div>}
-
-      <div className="fut-banners">
-        {banners.map((b) => (
-          <div key={b.id} className={`fut-banner ${b.kind}`}>
-            {(b.kind === "card-yellow" || b.kind === "card-red") && <i className="card" />}
-            <strong>{b.text}</strong>
-            {b.sub && <span>{b.sub}</span>}
-          </div>
-        ))}
+        )}
+        {scoreboard && <FutScoreboard myId={myId} />}
       </div>
-
-      {me?.down && <div className="panel fut-state">No chão...</div>}
-      {me?.sentOff && <div className="panel fut-state">Você foi expulso. Seu time joga com um a menos.</div>}
-
-      <div className="fut-power" ref={powerRef} style={{ display: "none" }}>
-        <div className="fill" ref={fillRef} />
-      </div>
-
-      {!IS_TOUCH && (
-        <div className="fut-keys">
-          {keyLabel(keys.frente)} {keyLabel(keys.esquerda)} {keyLabel(keys.tras)} {keyLabel(keys.direita)} andar · {keyLabel(keys.frente)} duas vezes corre · esquerdo chuta (segure para força) · direito passa · sem a bola: carrinho e disputa
-        </div>
-      )}
-      {!locked && !IS_TOUCH && snap.phase !== "over" && <div className="panel lock-hint">Clique na tela para jogar com o mouse</div>}
-      {scoreboard && <FutScoreboard snap={snap} myId={myId} />}
-    </div>
+    </LockedContext.Provider>
   );
 }
 
-function FutScoreboard({ snap, myId }: { snap: FutSnapshot; myId: string }) {
+function FutScoreboard({ myId }: { myId: string }) {
+  const snap = useStore((s) => s.fsnap);
+  if (!snap) return null;
   return (
     <div className="panel scoreboard fut-board">
       {([0, 1] as const).map((side) => {

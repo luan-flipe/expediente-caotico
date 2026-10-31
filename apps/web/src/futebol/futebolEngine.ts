@@ -31,6 +31,7 @@ import { reconcileDrawn } from "./reconcile";
 import { TOUCH_KICK, TOUCH_PASS, newControlState, newMouse, readFutInput, type FutKeys } from "./controls";
 import { Arena } from "./arena";
 import { Comemoracoes } from "./comemoracoes";
+import { EquipeFilmagem } from "./equipe";
 import { Torcida } from "./torcida";
 import { uniformDNA } from "./uniforme";
 
@@ -102,6 +103,12 @@ function makeTag(name: string, hex: string): THREE.Sprite {
   return s;
 }
 
+/** Libera o material e todas as texturas que ele guarda (mapa, normal, rugosidade, emissivo...). */
+function disposeMaterial(m: THREE.Material): void {
+  for (const v of Object.values(m)) if ((v as THREE.Texture | null)?.isTexture) (v as THREE.Texture).dispose();
+  m.dispose();
+}
+
 /** Plano fino no chão (linha do campo). */
 function flat(w: number, d: number, x: number, z: number, mat: THREE.Material): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
@@ -170,6 +177,7 @@ export class FutebolEngine {
   private lines: THREE.Group | null = null;
   private arena: Arena | null = null;
   private crowd: Torcida | null = null;
+  private crew: EquipeFilmagem | null = null;
   private clock = 0;
   private goals: THREE.Object3D[] = [];
   private lineMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.92 });
@@ -210,6 +218,18 @@ export class FutebolEngine {
   private chargeSince = 0;
   private chargeKind: "kick" | "pass" | null = null;
   private myPos = new THREE.Vector3();
+  // temporários do quadro (nada de new por frame)
+  private tmpFwd = new THREE.Vector3();
+  private tmpRight = new THREE.Vector3();
+  private tmpWant = new THREE.Vector3();
+  private tmpLook = new THREE.Vector3();
+  private tmpAxis = new THREE.Vector3();
+  private tmpQuat = new THREE.Quaternion();
+  private finalBuf: { char: Character; side: TeamSide }[] = [];
+  // cache do visual de cada jogador: só recalcula quando times, avatares, papel ou modelo mudam
+  private teamsSig = "";
+  private avatarVer = 0;
+  private looks = new Map<string, { sig: string; key: string }>();
 
   /** Barra de força (DOM do HUD): o motor posiciona e preenche a cada quadro. */
   powerEl: HTMLElement | null = null;
@@ -275,6 +295,7 @@ export class FutebolEngine {
 
   setAvatars(list: { id: string; avatar: AvatarDNA }[]): void {
     for (const p of list) this.avatars.set(p.id, p.avatar);
+    this.avatarVer++;
   }
 
   private async loadAssets(): Promise<void> {
@@ -294,9 +315,18 @@ export class FutebolEngine {
       return;
     }
     if (pitch.status === "fulfilled") {
-      shadows(pitch.value.scene, false);
-      this.scene.add(pitch.value.scene);
-      this.crowd = new Torcida(this.scene, pitch.value.scene, getSettings().quality);
+      const map = pitch.value.scene;
+      // só o gramado (textura 340x520) recebe sombra: o volume de sombra cobre o campo e o resto do mapa fica fora dele
+      map.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (m.isMesh) m.receiveShadow = ((m.material as THREE.MeshStandardMaterial).map?.image as { width?: number } | undefined)?.width === 340;
+        // mapa parado: as matrizes são calculadas uma vez
+        c.updateMatrix();
+        c.matrixAutoUpdate = false;
+      });
+      this.scene.add(map);
+      map.updateMatrixWorld(true);
+      this.crowd = new Torcida(this.scene, getSettings().quality);
     } else {
       console.warn("ipatingao.glb não carregou", pitch.reason);
     }
@@ -329,8 +359,7 @@ export class FutebolEngine {
       m.geometry?.dispose();
       const mat = m.material as (THREE.Material & { map?: THREE.Texture | null }) | (THREE.Material & { map?: THREE.Texture | null })[] | undefined;
       for (const x of Array.isArray(mat) ? mat : mat ? [mat] : []) {
-        x.map?.dispose();
-        x.dispose();
+        disposeMaterial(x);
       }
     });
   }
@@ -346,6 +375,7 @@ export class FutebolEngine {
     this.lines = buildLines(this.field, this.lineMat);
     this.scene.add(this.lines);
     this.arena = new Arena(this.scene, this.field);
+    this.crew = new EquipeFilmagem(this.scene, this.field);
     this.placeGoals();
     const f = this.field;
     Object.assign(this.sun.shadow.camera, { left: -f.halfL - 12, right: f.halfL + 12, top: f.halfW + 12, bottom: -f.halfW - 12 });
@@ -357,6 +387,12 @@ export class FutebolEngine {
     const q = getSettings().quality;
     if (q === this.quality) return;
     this.quality = q;
+    // no Leve o mapa de sombra é menor e o filtro mais simples (os materiais são recompilados logo abaixo)
+    const leve = q === "leve";
+    this.renderer.shadowMap.type = leve ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    this.sun.shadow.mapSize.set(leve ? 1024 : 2048, leve ? 1024 : 2048);
+    this.sun.shadow.map?.dispose();
+    this.sun.shadow.map = null;
     applyQuality(this.renderer, this.scene, this.sun, q);
     this.crowd?.setQuality(q);
   }
@@ -455,6 +491,7 @@ export class FutebolEngine {
     const now = performance.now();
     this.snap = s;
     this.me = me;
+    this.teamsSig = s.teams.map((t) => `${t.name}|${t.kit}|${t.color}`).join("/");
     if (!this.field) this.buildField(s.format);
 
     const seen = new Set<string>();
@@ -469,6 +506,7 @@ export class FutebolEngine {
       if (seen.has(id)) continue;
       this.dropView(v);
       this.views.delete(id);
+      this.looks.delete(id);
     }
     this.ballBuf.push({ t: now, x: s.ball.x, y: s.ball.y, z: s.ball.z, f: 0 });
     if (this.ballBuf.length > 20) this.ballBuf.shift();
@@ -592,13 +630,20 @@ export class FutebolEngine {
   }
 
   private viewFor(p: FutSnapshot["players"][number], teams: [FutTeamConfig, FutTeamConfig]): View {
-    const dna = this.teamDna(p, teams);
-    const key = JSON.stringify(dna) + (modelReady() ? "|glb" : "");
+    const glb = modelReady();
+    const sig = `${this.teamsSig}|${this.avatarVer}|${p.side}|${p.role}|${glb}`;
+    let look = this.looks.get(p.id);
+    if (look?.sig !== sig) {
+      look = { sig, key: JSON.stringify(this.teamDna(p, teams)) + (glb ? "|glb" : "") };
+      this.looks.set(p.id, look);
+    }
+    const key = look.key;
     let v = this.views.get(p.id);
     if (v && v.key === key) {
       this.refreshTag(v, p, teams);
       return v;
     }
+    const dna = this.teamDna(p, teams);
     const buf = v?.buf ?? [];
     if (v) this.dropView(v);
     const char = createCharacter(dna);
@@ -801,7 +846,15 @@ export class FutebolEngine {
       const sn = this.snap;
       const [a, b] = sn.pens ? sn.pens.goals : sn.score;
       const winner = sn.score[0] !== sn.score[1] ? (sn.score[0] > sn.score[1] ? 0 : 1) : a !== b ? (a > b ? 0 : 1) : null;
-      this.fx.final(dt, winner, [...this.views.values()].map((v) => ({ char: v.char, side: v.last.side })));
+      let n = 0;
+      for (const v of this.views.values()) {
+        const e = (this.finalBuf[n] ??= { char: v.char, side: v.last.side });
+        e.char = v.char;
+        e.side = v.last.side;
+        n++;
+      }
+      this.finalBuf.length = n;
+      this.fx.final(dt, winner, this.finalBuf);
     } else {
       this.fx.update(dt);
     }
@@ -817,8 +870,8 @@ export class FutebolEngine {
         const dz = bs.z - this.ballPrev.z;
         const dist = Math.hypot(dx, dz);
         if (dist > 1e-4 && dist < 5) {
-          const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(dz, 0, -dx).normalize(), dist / FUT.ballRadius);
-          this.ball.quaternion.premultiply(q);
+          this.tmpQuat.setFromAxisAngle(this.tmpAxis.set(dz, 0, -dx).normalize(), dist / FUT.ballRadius);
+          this.ball.quaternion.premultiply(this.tmpQuat);
         }
       }
       (this.ballPrev ??= new THREE.Vector3()).set(bs.x, bs.y, bs.z);
@@ -827,6 +880,7 @@ export class FutebolEngine {
     this.clock += dt;
     this.arena?.update(this.clock);
     this.crowd?.update(dt);
+    this.crew?.update(dt, this.ball.position.x, this.ball.position.z);
     this.updateAim(now);
     this.updateCamera(dt);
     this.updatePower(now);
@@ -860,7 +914,7 @@ export class FutebolEngine {
       return;
     }
     const power = Math.min(1, (now - this.chargeSince) / FUT.chargeMaxMs);
-    const p = new THREE.Vector3(this.myPos.x, 2.3, this.myPos.z).project(this.camera);
+    const p = this.tmpWant.set(this.myPos.x, 2.3, this.myPos.z).project(this.camera);
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     el.style.display = "block";
@@ -886,8 +940,8 @@ export class FutebolEngine {
       // comemoração: câmera curta de frente para o autor do gol
       const f = focus.last.facing;
       const p = focus.char.root.position;
-      const want = new THREE.Vector3(p.x + Math.sin(f) * 3.4, 1.7, p.z + Math.cos(f) * 3.4);
-      const look = new THREE.Vector3(p.x, 1.3, p.z);
+      const want = this.tmpWant.set(p.x + Math.sin(f) * 3.4, 1.7, p.z + Math.cos(f) * 3.4);
+      const look = this.tmpLook.set(p.x, 1.3, p.z);
       this.camPos.lerp(want, 1 - Math.exp(-dt * 5));
       this.camLook.lerp(look, 1 - Math.exp(-dt * 8));
       this.camera.position.copy(this.camPos);
@@ -895,12 +949,11 @@ export class FutebolEngine {
       return;
     }
     const cp = Math.cos(this.pitch);
-    const fwd = new THREE.Vector3(Math.sin(yaw) * cp, Math.sin(this.pitch), Math.cos(yaw) * cp);
-    const right = new THREE.Vector3(-Math.cos(yaw), 0, Math.sin(yaw));
-    const head = new THREE.Vector3(base.x, HEAD_Y, base.z);
-    const want = head.clone().add(fwd.clone().multiplyScalar(-CAM_DIST)).addScaledVector(right, CAM_SIDE).add(new THREE.Vector3(0, 0.6, 0));
+    const fwd = this.tmpFwd.set(Math.sin(yaw) * cp, Math.sin(this.pitch), Math.cos(yaw) * cp);
+    const right = this.tmpRight.set(-Math.cos(yaw), 0, Math.sin(yaw));
+    const want = this.tmpWant.set(base.x, HEAD_Y + 0.6, base.z).addScaledVector(fwd, -CAM_DIST).addScaledVector(right, CAM_SIDE);
     want.y = Math.max(0.6, want.y);
-    const targetLook = want.clone().add(fwd);
+    const targetLook = this.tmpLook.copy(want).add(fwd);
     if (!this.camReady) {
       this.camPos.copy(want);
       this.camLook.copy(targetLook);
@@ -924,6 +977,7 @@ export class FutebolEngine {
     this.chat.dispose();
     this.fx.dispose();
     this.arena?.dispose();
+    this.crew?.dispose();
     this.crowd?.dispose();
     for (const v of this.views.values()) this.dropView(v);
     this.views.clear();
@@ -934,8 +988,7 @@ export class FutebolEngine {
       m.geometry?.dispose();
       const mat = m.material as (THREE.Material & { map?: THREE.Texture | null }) | (THREE.Material & { map?: THREE.Texture | null })[] | undefined;
       for (const x of Array.isArray(mat) ? mat : mat ? [mat] : []) {
-        x.map?.dispose();
-        x.dispose();
+        disposeMaterial(x);
       }
     });
     this.renderer.dispose();

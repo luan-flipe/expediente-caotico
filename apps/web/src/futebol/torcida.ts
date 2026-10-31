@@ -1,74 +1,68 @@
 import * as THREE from "three";
 import type { Quality } from "../settings";
-import { MAX_CROWD, bounce, cellKey, crowdCount, crowdEnergy, ringCandidate, rng } from "./torcidaLayout";
+import seatData from "./assentosTorcida.json";
+import { crowdCount, crowdEnergy, rng } from "./torcidaLayout";
 
 const SHIRTS = ["#d83a2e", "#1f5fbf", "#ffd21f", "#2c8a57", "#f4f1ea", "#7a3fb0", "#ff8a1f", "#1c1a17", "#3bb6c4"];
 const SKINS = ["#f2c9a5", "#d9a074", "#a8704a", "#7a4a2e", "#4d2f1c"];
 
-interface Seat {
-  x: number;
-  y: number;
-  z: number;
-  yaw: number;
+/** Sombreado fixo no vértice (mais claro em cima): o material não usa luz, então isso dá volume à caixa e à cabeça. */
+function shade(geo: THREE.BufferGeometry, lo: number, hi: number): THREE.BufferGeometry {
+  const pos = geo.attributes.position;
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const k = 0.7 + 0.3 * Math.min(1, Math.max(0, (pos.getY(i) - lo) / (hi - lo)));
+    col.set([k, k, k], i * 3);
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  return geo;
 }
 
 /**
- * Torcida animada nas arquibancadas do mapa. Os torcedores sentam em pontos achados por raio
- * contra a geometria do .glb (que não é alterada), então não flutuam nem atravessam os degraus.
- * Dois InstancedMesh (corpo e cabeça) dividem a mesma matriz: dois draw calls.
+ * Torcida animada nas arquibancadas do mapa. Os assentos vêm de assentosTorcida.json (gerado por
+ * scripts/gerar-assentos-torcida.mjs a partir da geometria do .glb), então não há varredura do mapa ao abrir a partida.
+ * Dois InstancedMesh (corpo e cabeça, caixa e esfera de poucos vértices, material sem luz e sem sombra) dividem a mesma
+ * matriz, escrita uma única vez. O balanço e o pulo rodam no vertex shader (uTime, uEnergy e fase por instância).
  */
 export class Torcida {
   private body: THREE.InstancedMesh | null = null;
   private head: THREE.InstancedMesh | null = null;
   private disposables: { dispose(): void }[] = [];
   private n = 0;
-  private x = new Float32Array(0);
-  private y = new Float32Array(0);
-  private z = new Float32Array(0);
-  private yaw = new Float32Array(0);
-  private k = new Float32Array(0);
-  private ph = new Float32Array(0);
   private t = 0;
   private cheerAt = -100;
-  /** Tempo de findSeats, para medir. */
-  seatMs = 0;
+  private uTime = { value: 0 };
+  private uEnergy = { value: 0 };
 
   constructor(
     private readonly scene: THREE.Scene,
-    stadium: THREE.Object3D,
     quality: Quality,
   ) {
-    const t0 = performance.now();
-    const seats = this.findSeats(stadium);
-    this.seatMs = performance.now() - t0;
-    const total = seats.length;
+    const total = Math.floor(seatData.length / 4);
     this.n = total;
     if (!total) return;
-    this.x = new Float32Array(total);
-    this.y = new Float32Array(total);
-    this.z = new Float32Array(total);
-    this.yaw = new Float32Array(total);
-    this.k = new Float32Array(total);
-    this.ph = new Float32Array(total);
     const r = rng(99);
-    const bodyGeo = this.own(new THREE.CylinderGeometry(0.26, 0.3, 0.8, 7));
-    bodyGeo.translate(0, 0.4, 0);
-    const headGeo = this.own(new THREE.SphereGeometry(0.2, 8, 6));
-    headGeo.translate(0, 1.0, 0);
-    const body = this.own(new THREE.InstancedMesh(bodyGeo, this.own(new THREE.MeshLambertMaterial({ color: "#ffffff" })), total));
-    const head = this.own(new THREE.InstancedMesh(headGeo, this.own(new THREE.MeshLambertMaterial({ color: "#ffffff" })), total));
+    const ph = new THREE.InstancedBufferAttribute(new Float32Array(total), 1);
+    const bodyGeo = this.own(shade(new THREE.BoxGeometry(0.5, 0.8, 0.36).translate(0, 0.4, 0), 0, 0.8));
+    const headGeo = this.own(shade(new THREE.SphereGeometry(0.2, 5, 3).translate(0, 1.0, 0), 0.8, 1.2));
+    bodyGeo.setAttribute("aPh", ph);
+    headGeo.setAttribute("aPh", ph);
+    const body = this.own(new THREE.InstancedMesh(bodyGeo, this.own(this.material()), total));
+    const head = this.own(new THREE.InstancedMesh(headGeo, this.own(this.material()), total));
     head.instanceMatrix = body.instanceMatrix;
     const c = new THREE.Color();
-    seats.forEach((s, i) => {
-      this.x[i] = s.x;
-      this.y[i] = s.y;
-      this.z[i] = s.z;
-      this.yaw[i] = s.yaw;
-      this.k[i] = 0.9 + r() * 0.35;
-      this.ph[i] = r() * Math.PI * 2;
+    const o = new THREE.Object3D();
+    for (let i = 0; i < total; i++) {
+      const k = 0.9 + r() * 0.35;
+      ph.setX(i, r() * Math.PI * 2);
+      o.position.set(seatData[i * 4], seatData[i * 4 + 1], seatData[i * 4 + 2]);
+      o.rotation.y = seatData[i * 4 + 3];
+      o.scale.setScalar(k);
+      o.updateMatrix();
+      body.setMatrixAt(i, o.matrix);
       body.setColorAt(i, c.set(SHIRTS[Math.floor(r() * SHIRTS.length)]));
       head.setColorAt(i, c.set(SKINS[Math.floor(r() * SKINS.length)]));
-    });
+    }
     for (const m of [body, head]) {
       m.frustumCulled = false;
       this.scene.add(m);
@@ -76,7 +70,6 @@ export class Torcida {
     this.body = body;
     this.head = head;
     this.setQuality(quality);
-    this.write();
   }
 
   private own<T extends { dispose(): void }>(x: T): T {
@@ -84,98 +77,27 @@ export class Torcida {
     return x;
   }
 
-  /**
-   * Acha assentos nas arquibancadas sem raycast: as malhas do anel (caixa que cobre a elipse toda, baixas, sem o teto)
-   * viram triângulos em coordenadas do mundo; só os que olham para cima entram em uma grade de 2 m e cada candidato
-   * consulta os triângulos da sua célula (ponto no triângulo em XZ, altura por interpolação). A normal é calculada
-   * em espaço do mundo a partir dos vértices já transformados.
-   */
-  private findSeats(stadium: THREE.Object3D): Seat[] {
-    stadium.updateMatrixWorld(true);
-    const box = new THREE.Box3();
-    const tris: number[] = [];
-    const cells = new Map<number, number[]>();
-    const CELL = 2;
-    const cellId = (cx: number, cz: number) => cx * 4096 + cz;
-    const a = new THREE.Vector3();
-    const b = new THREE.Vector3();
-    const c = new THREE.Vector3();
-    const e1 = new THREE.Vector3();
-    const e2 = new THREE.Vector3();
-    stadium.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      box.setFromObject(m);
-      // só as malhas que cobrem o anel inteiro das arquibancadas (sem o teto, que passa de 30 m)
-      if (!(box.max.y < 30 && box.max.y > 0.3 && box.max.x > 115 && box.min.x < -115 && box.max.z > 95 && box.min.z < -95)) return;
-      const pos = m.geometry.attributes.position;
-      const idx = m.geometry.index;
-      const count = idx ? idx.count : pos.count;
-      for (let i = 0; i + 2 < count; i += 3) {
-        a.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(m.matrixWorld);
-        b.fromBufferAttribute(pos, idx ? idx.getX(i + 1) : i + 1).applyMatrix4(m.matrixWorld);
-        c.fromBufferAttribute(pos, idx ? idx.getX(i + 2) : i + 2).applyMatrix4(m.matrixWorld);
-        e1.subVectors(b, a);
-        e2.subVectors(c, a);
-        const ny = e1.z * e2.x - e1.x * e2.z;
-        const len = e1.cross(e2).length();
-        // degrau voltado para cima (normal no mundo com y >= 0,6) e acima do chão do estádio
-        if (len < 1e-9 || ny / len < 0.6 || Math.max(a.y, b.y, c.y) < 0.3) continue;
-        const t = tris.length / 9;
-        tris.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
-        const x0 = Math.floor(Math.min(a.x, b.x, c.x) / CELL);
-        const x1 = Math.floor(Math.max(a.x, b.x, c.x) / CELL);
-        const z0 = Math.floor(Math.min(a.z, b.z, c.z) / CELL);
-        const z1 = Math.floor(Math.max(a.z, b.z, c.z) / CELL);
-        for (let cx = x0; cx <= x1; cx++) {
-          for (let cz = z0; cz <= z1; cz++) {
-            const k = cellId(cx, cz);
-            const list = cells.get(k);
-            if (list) list.push(t);
-            else cells.set(k, [t]);
-          }
-        }
-      }
-    });
-    const heightAt = (x: number, z: number): number => {
-      let best = -1;
-      for (const t of cells.get(cellId(Math.floor(x / CELL), Math.floor(z / CELL))) ?? []) {
-        const o = t * 9;
-        const ax = tris[o];
-        const az = tris[o + 2];
-        const v0x = tris[o + 3] - ax;
-        const v0z = tris[o + 5] - az;
-        const v1x = tris[o + 6] - ax;
-        const v1z = tris[o + 8] - az;
-        const px = x - ax;
-        const pz = z - az;
-        const den = v0x * v1z - v1x * v0z;
-        if (Math.abs(den) < 1e-12) continue;
-        const u = (px * v1z - v1x * pz) / den;
-        const w = (v0x * pz - px * v0z) / den;
-        if (u < 0 || w < 0 || u + w > 1) continue;
-        const y = tris[o + 1] + u * (tris[o + 4] - tris[o + 1]) + w * (tris[o + 7] - tris[o + 1]);
-        // só assentos abaixo do teto das arquibancadas (12 m)
-        if (y > best && y <= 12) best = y;
-      }
-      return best;
+  /** Material sem luz; o balanço (rolagem) e o pulo (altura) saem do tempo e da fase de cada torcedor, como em bounce(). */
+  private material(): THREE.MeshBasicMaterial {
+    const mat = new THREE.MeshBasicMaterial({ color: "#ffffff", vertexColors: true });
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.uTime;
+      shader.uniforms.uEnergy = this.uEnergy;
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nattribute float aPh;\nuniform float uTime;\nuniform float uEnergy;")
+        .replace(
+          "#include <begin_vertex>",
+          `float roll = sin(uTime * 1.6 + aPh) * (0.05 + uEnergy * 0.1);
+float cr = cos(roll);
+float sr = sin(roll);
+vec3 transformed = vec3(cr * position.x - sr * position.y, sr * position.x + cr * position.y, position.z);
+transformed.y += 0.025 * (1.0 + sin(uTime * 1.7 + aPh)) + uEnergy * 0.6 * abs(sin(uTime * 7.5 + aPh * 0.6));`,
+        );
     };
-    const out: Seat[] = [];
-    const used = new Set<string>();
-    const r = rng(7);
-    for (let tries = 0; tries < MAX_CROWD * 4 && out.length < MAX_CROWD; tries++) {
-      const s = ringCandidate(r);
-      const key = cellKey(s.x, s.z);
-      if (used.has(key)) continue;
-      const y = heightAt(s.x, s.z);
-      if (y < 0.3) continue;
-      used.add(key);
-      out.push({ x: s.x, y, z: s.z, yaw: s.yaw });
-    }
-    return out;
+    return mat;
   }
 
-  /** Metade dos torcedores no modo Leve. */
+  /** Menos torcedores no modo Leve. */
   setQuality(q: Quality): void {
     const c = crowdCount(this.n, q);
     if (this.body) this.body.count = c;
@@ -187,42 +109,10 @@ export class Torcida {
     this.cheerAt = this.t;
   }
 
-  private write(): void {
-    if (!this.body) return;
-    const e = crowdEnergy(this.t - this.cheerAt);
-    const arr = this.body.instanceMatrix.array as Float32Array;
-    for (let i = 0, end = this.body.count; i < end; i++) {
-      const ph = this.ph[i];
-      const roll = Math.sin(this.t * 1.6 + ph) * (0.05 + e * 0.1);
-      const cr = Math.cos(roll);
-      const sr = Math.sin(roll);
-      const c = Math.cos(this.yaw[i]);
-      const s = Math.sin(this.yaw[i]);
-      const k = this.k[i];
-      const o = i * 16;
-      arr[o] = c * cr * k;
-      arr[o + 1] = sr * k;
-      arr[o + 2] = -s * cr * k;
-      arr[o + 3] = 0;
-      arr[o + 4] = -c * sr * k;
-      arr[o + 5] = cr * k;
-      arr[o + 6] = s * sr * k;
-      arr[o + 7] = 0;
-      arr[o + 8] = s * k;
-      arr[o + 9] = 0;
-      arr[o + 10] = c * k;
-      arr[o + 11] = 0;
-      arr[o + 12] = this.x[i];
-      arr[o + 13] = this.y[i] + bounce(this.t, ph, e) * k;
-      arr[o + 14] = this.z[i];
-      arr[o + 15] = 1;
-    }
-    this.body.instanceMatrix.needsUpdate = true;
-  }
-
   update(dt: number): void {
     this.t += dt;
-    this.write();
+    this.uTime.value = this.t;
+    this.uEnergy.value = crowdEnergy(this.t - this.cheerAt);
   }
 
   dispose(): void {

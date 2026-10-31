@@ -54,7 +54,11 @@ export function bounce(t: number, phase: number, energy: number): number {
   return idle + jump;
 }
 
-/** Quantidade de torcedores conforme a qualidade gráfica (Leve = metade). */
+/** Torcedores desenhados por qualidade gráfica (dos MAX_CROWD assentos achados). */
+export const CROWD_ALTA = 900;
+export const CROWD_LEVE = 400;
+
+/** Quantidade de torcedores conforme a qualidade gráfica. */
 export function crowdCount(total: number, quality: string): number {
-  return quality === "leve" ? Math.floor(total / 2) : total;
+  return Math.min(total, quality === "leve" ? CROWD_LEVE : CROWD_ALTA);
 }
