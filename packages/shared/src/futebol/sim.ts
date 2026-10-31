@@ -73,11 +73,13 @@ export function stepWorld(m: FutMatch, dtMs: number, o: WorldOpts = {}): WorldSt
       continue;
     }
     if (m.ball.ownerId === k.id) {
+      k.holdMs = (k.holdMs ?? 0) + dtMs;
       const ev = keeperKick(m, k, inputs.get(k.id)!, dtMs);
       if (ev) {
         events.push(ev);
       }
     } else {
+      k.holdMs = 0;
       k.chargeMs = 0;
       k.chargeKind = null;
       keeperSave(m, k);

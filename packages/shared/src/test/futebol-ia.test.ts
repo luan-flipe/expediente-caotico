@@ -100,6 +100,7 @@ describe("goleiro", () => {
     const foe = mk({ id: "b1", side: 1, x: 1, z: 8 });
     const players = [k, free, marked, foe];
     const b = ball({ ownerId: "ga", x: k.x + 0.5, z: 0 });
+    k.holdMs = 3000;
     const first = keeperInput(k, b, field, "normal", players);
     expect(first.pass).toBe("charge");
     k.chargeKind = "pass";
@@ -127,7 +128,7 @@ describe("bots de linha", () => {
 
   it("bot disputa de verdade: carrega, solta e a disputa acontece", () => {
     const bot = mk({ id: "a1", x: 0, z: 0 });
-    const dono = mk({ id: "b1", side: 1, x: 0.6, z: 0 });
+    const dono = mk({ id: "b1", side: 1, x: 0.6, z: 0, facing: -Math.PI / 2 });
     const b = ball({ x: 0.3, z: 0, ownerId: "b1" });
     const m = match([bot, dono], b);
     const eventos: string[] = [];

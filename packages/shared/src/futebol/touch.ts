@@ -22,6 +22,8 @@ const SPRINT_BALL_SPEED = 0.8;
 const MOVING_EPS = 0.1;
 /** Bola solta que se afasta do último toque mais rápido que isso não é retomada (m/s). */
 const AWAY_EPS = 0.5;
+/** Parado com a bola, ela descansa a essa distância (m) à frente do boneco, na direção em que ele olha. */
+const REST_OFFSET = 0.55;
 /** Carrinho: comprimento do deslize (m), raio de contato (m), recarga e tempo no chão da vítima (ms), toque na bola (m/s). */
 const TACKLE_LEN = 2;
 const TACKLE_REACH = 0.8;
@@ -198,31 +200,6 @@ export function resolveTouches(
     }
   }
 
-  // Condução: o dono empurra a bola à frente. Em corrida o toque é longo e a
-  // bola sai do raio por instantes (o adversário pode tomar).
-  const owner = ball.ownerId === null ? null : ordered.find((q) => q.id === ball.ownerId);
-  if (owner) {
-    const speed = Math.hypot(owner.vx, owner.vz);
-    if (speed <= MOVING_EPS) {
-      ball.vx = 0;
-      ball.vz = 0;
-    }
-    if (speed > MOVING_EPS) {
-      const sprint = (inputs.get(owner.id) ?? NO_INPUT).sprint;
-      const d = sprint ? FUT.sprintTouch : FUT.dribbleTouch;
-      const k = sprint ? SPRINT_BALL_SPEED : 1;
-      ball.x = owner.x + (owner.vx / speed) * d;
-      ball.z = owner.z + (owner.vz / speed) * d;
-      ball.y = FUT.ballRadius;
-      ball.vx = owner.vx * k;
-      ball.vz = owner.vz * k;
-      ball.vy = 0;
-      if (d > FUT.controlRadius) {
-        ball.ownerId = null;
-      }
-    }
-  }
-
   // Bola solta: o mais perto dentro do raio fica com ela (empate: menor id).
   if (ball.ownerId === null && ball.y <= REACH_Y) {
     let best: FutPlayer | null = null;
@@ -249,6 +226,34 @@ export function resolveTouches(
       ball.vx = 0;
       ball.vz = 0;
       touch(ball, best);
+    }
+  }
+
+  // Condução: o dono empurra a bola à frente. Em corrida o toque é longo e a
+  // bola sai do raio por instantes (o adversário pode tomar).
+  const owner = ball.ownerId === null ? null : ordered.find((q) => q.id === ball.ownerId);
+  if (owner) {
+    const speed = Math.hypot(owner.vx, owner.vz);
+    if (speed <= MOVING_EPS) {
+      ball.x = owner.x + Math.sin(owner.facing) * REST_OFFSET;
+      ball.z = owner.z + Math.cos(owner.facing) * REST_OFFSET;
+      ball.y = FUT.ballRadius;
+      ball.vx = 0;
+      ball.vz = 0;
+    }
+    if (speed > MOVING_EPS) {
+      const sprint = (inputs.get(owner.id) ?? NO_INPUT).sprint;
+      const d = sprint ? FUT.sprintTouch : FUT.dribbleTouch;
+      const k = sprint ? SPRINT_BALL_SPEED : 1;
+      ball.x = owner.x + (owner.vx / speed) * d;
+      ball.z = owner.z + (owner.vz / speed) * d;
+      ball.y = FUT.ballRadius;
+      ball.vx = owner.vx * k;
+      ball.vz = owner.vz * k;
+      ball.vy = 0;
+      if (d > FUT.controlRadius) {
+        ball.ownerId = null;
+      }
     }
   }
 

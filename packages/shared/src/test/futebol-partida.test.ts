@@ -69,7 +69,7 @@ describe("partida de futebol", () => {
     expect(m.restart?.kind).toBe("saida");
     expect(m.restart?.side).toBe(1);
     expect(m.phase).toBe("restart");
-    expect(m.ball.x).toBe(0);
+    expect(Math.abs(m.ball.x)).toBeLessThanOrEqual(0.7);
     expect(getFutResults(m).find((r) => r.id === a.id)?.goals).toBe(1);
   });
 

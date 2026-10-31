@@ -139,11 +139,13 @@ export function stepRestart(m: FutMatch, dtMs: number): void {
     return;
   }
   const mate = freestMate(m, taker);
-  const tx = mate ? mate.x : taker.side === 0 ? m.field.halfL : -m.field.halfL;
-  const tz = mate ? mate.z : 0;
+  // saída sem companheiro: recua para o goleiro em vez de entregar a bola ao adversário
+  const gk = !mate && r.kind === "saida" ? m.players.find((p) => p.side === taker.side && p.role === "goleiro") : undefined;
+  const tx = mate ? mate.x : gk ? gk.x : taker.side === 0 ? m.field.halfL : -m.field.halfL;
+  const tz = mate ? mate.z : gk ? gk.z : 0;
   const yaw = Math.atan2(tx - m.ball.x, tz - m.ball.z);
   taker.facing = yaw;
-  kickBall(m.ball, yaw, AI_PASS_POWER, "pass");
+  kickBall(m.ball, yaw, gk ? Math.min(AI_PASS_POWER, 0.5) : AI_PASS_POWER, "pass");
   m.ball.prevTouch = m.ball.lastTouch;
   m.ball.lastTouch = { id: taker.id, side: taker.side };
 }

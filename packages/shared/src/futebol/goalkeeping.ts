@@ -16,8 +16,8 @@ const AWAY_EPS = 0.5;
 /** Acima desta velocidade (m/s) a bola é chute e o goleiro pode não chegar a tempo. */
 const SHOT_SPEED = 12;
 /** Chance base de o goleiro alcançar o chute (por nível) e quanto ela cai por m/s acima de SHOT_SPEED. */
-const SAVE_BASE: Record<BotLevel, number> = { easy: 0.35, normal: 0.5, hard: 0.65 };
-const SAVE_DROP = 0.01;
+const SAVE_BASE: Record<BotLevel, number> = { easy: 0.6, normal: 0.85, hard: 0.92 };
+const SAVE_DROP = 0.007;
 const saveChance = (level: BotLevel, speed: number): number => SAVE_BASE[level] - (speed - SHOT_SPEED) * SAVE_DROP;
 
 /** Registra o toque como o último (e o anterior vira prevTouch). */

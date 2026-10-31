@@ -27,6 +27,11 @@ const SPRINT_HOME = 6;
 const BALL_FOLLOW = 0.35;
 /** Recuo mínimo do ponto de formação à linha de fundo (m). */
 const HOME_MARGIN = 2;
+/** Margem (m) fora da área do goleiro que os adversários respeitam enquanto ele segura a bola. */
+const KEEPER_BOX_PAD = 1.5;
+/** Quanto o apoio de quem tem o goleiro com a bola oscila (m) e a que ritmo (ms). */
+const SUPPORT_SWAY = 2;
+const SUPPORT_MS = 900;
 const NEUTRAL = (): number => 0.5;
 
 const IDLE: FutInput = { mx: 0, mz: 0, aim: 0, sprint: false, kick: "none", pass: "none" };
@@ -113,6 +118,60 @@ function moveTo(p: FutPlayer, to: { x: number; z: number }, sprint: boolean): Fu
   return { ...IDLE, mx: (to.x - p.x) / d, mz: (to.z - p.z) / d, aim: aimTo(p, to), sprint };
 }
 
+/** Goleiro (de qualquer time) com a bola nas mãos, ou null. */
+function keeperHolding(m: FutMatch): FutPlayer | null {
+  const o = m.ball.ownerId === null ? undefined : m.players.find((q) => q.id === m.ball.ownerId);
+  return o && o.role === "goleiro" ? o : null;
+}
+
+/** Empurra o ponto para fora da área do goleiro que segura a bola. */
+function outsideBox(spot: { x: number; z: number }, gk: FutPlayer, f: FutMatch["field"]): { x: number; z: number } {
+  const dir = -attackDir(gk.side);
+  const gx = dir * f.halfL;
+  const lim = f.boxL + KEEPER_BOX_PAD;
+  if (Math.abs(spot.x - gx) < lim && Math.abs(spot.z) < f.boxHalfW + KEEPER_BOX_PAD) {
+    return { x: gx - dir * lim, z: spot.z };
+  }
+  return spot;
+}
+
+/** Adversário do goleiro com a bola: cobre um receptor por trás (sem cortar o passe), fora da área. */
+function markReceiver(p: FutPlayer, m: FutMatch, gk: FutPlayer): FutInput {
+  const mates = activeOutfield(m.players, gk.side);
+  const rivals = activeOutfield(m.players, p.side).map((q) => q.id).sort();
+  const mate = mates.length ? mates[Math.max(0, rivals.indexOf(p.id)) % mates.length] : undefined;
+  const toward = attackDir(p.side);
+  const spot = mate ? { x: mate.x - toward * 3, z: mate.z } : formationSpot(p, m);
+  const to = outsideBox(spot, gk, m.field);
+  return moveTo(p, to, dist(p, to) > SPRINT_HOME);
+}
+
+/** Apoio de quem tem o goleiro com a bola: um recua curto, outros abrem pelas laterais e pelo meio, sempre se mexendo. */
+function supportSpot(p: FutPlayer, m: FutMatch, gk: FutPlayer): { x: number; z: number } {
+  const f = m.field;
+  const dir = attackDir(p.side);
+  const ids = activeOutfield(m.players, p.side)
+    .map((q) => q.id)
+    .sort();
+  const n = ids.length;
+  const k = Math.max(0, ids.indexOf(p.id));
+  const t = m.now / SUPPORT_MS + k * 2;
+  const gx = -dir * f.halfL;
+  // k 0 recua para receber curto, depois alternam laterais e meio
+  const slots: [number, number][] = [
+    [gx + dir * (f.boxL + 4), 0],
+    [gx + dir * f.halfL * 0.7, -f.halfW * 0.7],
+    [gx + dir * f.halfL * 0.7, f.halfW * 0.7],
+    [gx + dir * f.halfL * 1, 0],
+  ];
+  const [sx, sz] = n === 1 ? [gx + dir * f.halfL * 0.7, gk.z >= 0 ? -f.halfW * 0.6 : f.halfW * 0.6] : slots[k % slots.length];
+  const lim = f.halfW - 1;
+  return {
+    x: Math.max(-f.halfL + 2, Math.min(f.halfL - 2, sx + Math.cos(t) * SUPPORT_SWAY)),
+    z: Math.max(-lim, Math.min(lim, sz + Math.sin(t) * SUPPORT_SWAY)),
+  };
+}
+
 /** Intenção do bot de linha, como se fosse um humano (chuta e passa em duas fases). */
 export function botInput(p: FutPlayer, m: FutMatch, level: BotLevel): FutInput {
   if (p.sentOff || p.downMs > 0 || p.role !== "linha") {
@@ -127,6 +186,15 @@ export function botInput(p: FutPlayer, m: FutMatch, level: BotLevel): FutInput {
 
   if (m.restart && !taker) {
     return { ...IDLE, aim: p.facing };
+  }
+
+  const holder = keeperHolding(m);
+  if (holder && b.ownerId !== p.id && !taker) {
+    if (holder.side !== p.side) {
+      return markReceiver(p, m, holder);
+    }
+    const spot = supportSpot(p, m, holder);
+    return moveTo(p, spot, dist(p, spot) > SPRINT_HOME);
   }
 
   if (b.ownerId === p.id || taker) {

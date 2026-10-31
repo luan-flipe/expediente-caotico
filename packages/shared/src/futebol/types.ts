@@ -44,6 +44,8 @@ export interface FutPlayer {
   yellow: number;
   sentOff: boolean;
   isBot: boolean;
+  /** Há quanto tempo (ms) o goleiro segura a bola nas mãos (0 fora da posse). */
+  holdMs?: number;
 }
 
 /** Quem tocou na bola (para saber de quem foi o último toque). */
