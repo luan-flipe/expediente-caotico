@@ -6,8 +6,8 @@ import type { FutInput, FutMatch, FutPlayer, TeamSide } from "./types";
 /** Parâmetros por nível: erro de mira (rad), chance por tick de tentar a disputa e
  *  distância (m) em que um adversário passa a "marcar" quem tem a bola. */
 const BOT: Record<BotLevel, { aimNoise: number; stealChance: number; markDist: number }> = {
-  easy: { aimNoise: 0.25, stealChance: 0.05, markDist: 1.8 },
-  normal: { aimNoise: 0.12, stealChance: 0.12, markDist: 2.4 },
+  easy: { aimNoise: 0.35, stealChance: 0.05, markDist: 1.8 },
+  normal: { aimNoise: 0.2, stealChance: 0.12, markDist: 2.4 },
   hard: { aimNoise: 0.04, stealChance: 0.25, markDist: 3 },
 };
 

@@ -34,9 +34,9 @@ function idleHuman(seed: number, level: BotLevel = "normal"): { goals: number[];
 describe("bot Normal contra humano parado no 1v1", () => {
   const rows = Array.from({ length: 60 }, (_, s) => idleHuman(s + 1));
 
-  it("marca em média no máximo 4 gols em 3 min (o humano parado não defende nem segura a bola)", () => {
+  it("marca em média no máximo 3 gols em 3 min (o humano parado não defende nem segura a bola)", () => {
     const avg = rows.reduce((a, r) => a + r.goals.length, 0) / rows.length;
-    expect(avg).toBeLessThanOrEqual(4);
+    expect(avg).toBeLessThanOrEqual(3);
   });
 
   it("depois de um gol demora pelo menos 8 s de jogo para marcar de novo", () => {

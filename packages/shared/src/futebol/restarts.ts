@@ -70,6 +70,14 @@ export function startRestart(m: FutMatch, kind: RestartKind, side: TeamSide, x: 
   m.ball.vy = 0;
   m.ball.vz = 0;
   m.ball.ownerId = null;
+  if (kind === "meta") {
+    // o goleiro já começa com a bola nas mãos (a defesa antiga do chute não o impede) e cobra em 2 a 3,5 s
+    m.beaten = null;
+    m.ball.ownerId = taker.id;
+    m.ball.prevTouch = m.ball.lastTouch;
+    m.ball.lastTouch = { id: taker.id, side: taker.side };
+    taker.holdMs = 0;
+  }
   m.restart = { kind, side, x, z, takerId: taker.id, leftMs: FUT.restartWaitMs };
 }
 
