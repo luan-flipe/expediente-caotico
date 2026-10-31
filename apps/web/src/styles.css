@@ -2386,6 +2386,19 @@ html.daltonico .error::before {
   min-width: 0;
 }
 
+/* o .fut-team do placar (mais abaixo) centraliza e espalha; no lobby os controles ficam no topo, alinhados entre os dois times */
+.fut-teams .fut-team {
+  align-items: stretch;
+  justify-content: flex-start;
+  min-width: 0;
+  padding: 10px 16px;
+  font-size: inherit;
+}
+
+.fut-teams .fut-bottom {
+  margin-top: auto;
+}
+
 .fut-team-name {
   margin: 0;
   font: inherit;

@@ -69,7 +69,7 @@ function FutTeams({ lobby, myId, isHost }: { lobby: LobbyState; myId: string | n
                       key={c.hex}
                       className={"fut-swatch" + (team.color === i ? " on" : "")}
                       style={{ background: c.hex }}
-                      title={i === rival.color ? c.name + " (já é do outro time)" : c.name}
+                      title={i === rival.color ? "Cor do outro time" : c.name}
                       aria-label={c.name}
                       disabled={i === rival.color}
                       onClick={() => config(side, { color: i })}
