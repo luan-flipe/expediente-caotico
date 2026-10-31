@@ -57,7 +57,9 @@ export function stepRaceBot(race: RaceMatch, r: Racer, dtMs: number): void {
   };
   const turn = turnOn(3, 18);
 
-  const drift = k.drifting
+  const drift = k.air
+    ? !k.trick && k.speed >= 9
+    : k.drifting
     ? Math.abs(turnOn(0.1, 10)) > 0.15 && k.driftMs < RACE.driftLevel2Ms + 150
     : Math.abs(turn) > 0.6 && k.speed > 10 && Math.abs(steer) > 0.35;
   const throttle = Math.abs(turn) > 1.3 && k.speed > 12 && !k.drifting ? P.cornerThrottle : P.throttleMax;

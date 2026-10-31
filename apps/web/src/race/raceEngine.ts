@@ -7,6 +7,8 @@ import {
   pointAt,
   HOLDABLE_ITEMS,
   RACE,
+  groundAt,
+  progressOf,
   newKart,
   stepKart,
   type AvatarDNA,
@@ -21,7 +23,7 @@ import {
   type Track,
 } from "@ec/shared";
 import { loadMusic } from "../assets";
-import { nextRaceTrack, RaceMusic } from "../sound";
+import { nextRaceTrack, playCoffeeGulpSound, playFinalLapChime, playLandingBoostSound, playStaplerClickSound, playTauntSound, playTrickChime, RaceMusic } from "../sound";
 import { modelReady } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
@@ -30,12 +32,15 @@ import { inputBlocked } from "../pause";
 import { resetTouchInput, touchInput } from "../touch";
 import { ChatBubbles, chatText } from "../chatBubbles";
 import { buildRacer, chairModelReady, type Racer3D } from "./chairMesh";
+import type { CharacterSeatedOptions } from "../game/character";
 import { createCommander, type Commander } from "./commander";
 import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, GHOST_RIVAL, nameTag } from "./ghosts";
 import type { Ghosts } from "../store";
 import { buildTrack } from "./trackScene";
 import { buildParachute, parachuteFor } from "./parachute";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
+import { applyFresnelRimToHierarchy, applyStylizedToonToHierarchy, calculateDynamicFov, CasterBlobShadows, RaceVfxManager, type DriftLevel } from "./vfxJuice";
+import { TrackInteractiveManager, type KartInteractiveInfo } from "./trackInteractive";
 
 interface Sample {
   t: number;
@@ -78,6 +83,7 @@ interface KartView {
   slideYaw: number;
   roll: number;
   pitch: number;
+  roadPitch: number;
   hopY: number;
   hopVel: number;
   wasDrifting: boolean;
@@ -86,14 +92,28 @@ interface KartView {
   lastSteer: number;
   bubbleScale: number;
   wasAirborne?: boolean;
+  trickActive: boolean;
+  trickTimer: number;
+  trickDuration: number;
+  trickType: number;
+  trickRotX: number;
+  trickRotY: number;
+  trickRotZ: number;
+  trickPosY: number;
+  performedTrick: boolean;
+  trickCount: number;
+  wasInAir?: boolean;
+  lastTauntAt?: number;
   heldItem: THREE.Group;
-  shadowDisc: THREE.Mesh;
+  blobShadows: CasterBlobShadows;
   /** Paraquedas de escritório (aparece com o flag chute). */
   chute: THREE.Group;
   chuteOpen: number;
   heldItemKind?: ItemId | null;
   /** Treino: devolve os materiais originais da cadeira semitransparente. */
   restore: (() => void) | null;
+  lastPlace?: number;
+  lastLap?: number;
 }
 
 interface HazardView {
@@ -113,6 +133,12 @@ const INTERP_MS = 110;
 const SPARK_COLORS = ["#f2f2f2", "#3cc8ff", "#ff9a1f", "#bd34fe"];
 /** Treino: os outros pilotos aparecem assim (sem colisão entre cadeiras). */
 const TRIAL_OTHERS_OPACITY = 0.4;
+const TMP_RIVAL_DIR = new THREE.Vector3();
+const _camWant = new THREE.Vector3();
+const _camLook = new THREE.Vector3();
+const _cutWant = new THREE.Vector3();
+const _cutLook = new THREE.Vector3();
+const TMP_SEATED_OPTIONS: CharacterSeatedOptions = {};
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -201,6 +227,11 @@ export class RaceEngine {
   private itemMatFlash = new THREE.MeshBasicMaterial({ color: "#eef6ff", transparent: true, opacity: 0.9 });
   private cups = new Map<number, THREE.Object3D>();
   private holdingRear = false;
+  private lookBackActive = false;
+  private lookBackSnap = false;
+  private localDraftMs = 0;
+  private localDraftRatio = 0;
+  private finalLapTriggered = false;
   private cupGeo = {
     body: new THREE.CylinderGeometry(0.18, 0.14, 0.28, 12),
     coffee: new THREE.CircleGeometry(0.16, 12),
@@ -223,6 +254,9 @@ export class RaceEngine {
   private raf = 0;
   private lastFrame = performance.now();
   private cleanup: (() => void)[] = [];
+  private vfx: RaceVfxManager;
+  private interactive: TrackInteractiveManager;
+  private kartsForInteractive: KartInteractiveInfo[] = [];
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -245,6 +279,16 @@ export class RaceEngine {
     Object.assign(this.sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 2, far: 120 });
     this.scene.add(this.sun.target);
     this.disposeTrack = buildTrack(this.scene, track);
+    this.vfx = new RaceVfxManager(this.scene, this.camera);
+    const isParque = track.id === "parque";
+    this.interactive = new TrackInteractiveManager({
+      track,
+      enableCoffeeCalcinha: !isParque,
+      enableRoombas: !isParque,
+      enableAutomaticDoors: !isParque,
+      enableAirVents: !isParque,
+    });
+    this.interactive.init(this.scene);
 
     const skidGeo = new THREE.PlaneGeometry(0.18, 0.4);
     skidGeo.rotateX(-Math.PI / 2);
@@ -384,7 +428,10 @@ export class RaceEngine {
       window.addEventListener(t, fn as EventListener);
       this.cleanup.push(() => window.removeEventListener(t, fn as EventListener));
     };
-    on("blur", () => this.keys.clear());
+    on("blur", () => {
+      this.keys.clear();
+      this.lookBackActive = false;
+    });
     // o navegador só libera som depois de um gesto do jogador
     const unlock = () => {
       void this.listener.context.resume();
@@ -395,9 +442,18 @@ export class RaceEngine {
     on("pointerdown", unlock);
     on<MouseEvent>("mousedown", (e) => {
       if (e.button === 0 && e.target === this.canvas) this.startItemUse();
+      if (e.button === 1) {
+        e.preventDefault();
+        this.lookBackActive = true;
+        this.lookBackSnap = true;
+      }
     });
     on<MouseEvent>("mouseup", (e) => {
       if (e.button === 0) this.releaseItemUse();
+      if (e.button === 1) {
+        this.lookBackActive = false;
+        this.lookBackSnap = true;
+      }
     });
     on<KeyboardEvent>("keydown", (e) => {
       // com as configurações ou o chat rápido abertos o teclado é deles, não do jogo
@@ -408,6 +464,19 @@ export class RaceEngine {
       if (k === map.placar) setState({ scoreboard: true });
       this.keys.add(k);
       if (e.repeat) return;
+      if (k === "KeyC") {
+        if (!this.lookBackActive) {
+          this.lookBackActive = true;
+          this.lookBackSnap = true;
+        }
+      }
+      if (k === "KeyF" && this.snap?.phase === "active") {
+        const mine = this.views.get(this.myId);
+        if (mine) {
+          mine.r3d.char.playTaunt?.("wave", 1.5);
+          playTauntSound();
+        }
+      }
       if (k === map.item) this.startItemUse();
       if (k === map.voltar && this.snap?.phase === "active") net.send({ t: "krespawn" });
       if (k === map.mudo) {
@@ -418,6 +487,10 @@ export class RaceEngine {
     });
     on<KeyboardEvent>("keyup", (e) => {
       this.keys.delete(e.code);
+      if (e.code === "KeyC") {
+        this.lookBackActive = false;
+        this.lookBackSnap = true;
+      }
       if (e.code === getSettings().keys.race.placar) setState({ scoreboard: false });
       if (e.code === getSettings().keys.race.item) this.releaseItemUse();
     });
@@ -477,7 +550,6 @@ export class RaceEngine {
 
     switch (item) {
       case "resma":
-        // Sem pulinho na cadeira: o kart fica firme na pista ao soltar a resma
         spawn(this.itemGeoPaper, 4, () => ({
           x: p.x - fx * 0.7 + rx * ((Math.random() - 0.5) * 0.3),
           y: 0.65,
@@ -513,6 +585,7 @@ export class RaceEngine {
         break;
 
       case "grampeador":
+        if (v.last.id === this.myId) playStaplerClickSound();
         v.pitch = 0.09;
         spawn(this.itemGeoFlash, 1, () => ({
           x: p.x + fx * 0.65,
@@ -561,6 +634,7 @@ export class RaceEngine {
       case "expresso":
       case "triplo":
         if (v.last.id === this.myId) {
+          playCoffeeGulpSound();
           this.shake = Math.min(0.5, this.shake + 0.22);
         }
         break;
@@ -568,6 +642,7 @@ export class RaceEngine {
   }
 
   private spawnPaperImpact(x: number, z: number): void {
+    this.vfx?.spawnImpactShockwave(x, z, 0.02, "paper");
     if (this.quality === "leve") return;
     let count = 0;
     for (const pt of this.itemParticles) {
@@ -610,6 +685,17 @@ export class RaceEngine {
     this.snap = s;
     this.snapAt = now;
     this.me = me;
+
+    if (s.phase === "countdown" && this.finalLapTriggered) {
+      this.finalLapTriggered = false;
+      this.music.setFinalLap(false);
+    }
+    if (s.phase === "active" && !s.timeTrial && s.laps > 1 && me && me.lap === s.laps && !me.finished && !this.finalLapTriggered) {
+      this.finalLapTriggered = true;
+      this.music.setFinalLap(true);
+      playFinalLapChime();
+      window.dispatchEvent(new CustomEvent("ec:finallap"));
+    }
     const seen = new Set<string>();
     for (const k of s.karts) {
       seen.add(k.id);
@@ -630,9 +716,13 @@ export class RaceEngine {
       if (!m) {
         m = new THREE.Mesh(this.boxGeo, this.boxMat);
         m.castShadow = true;
-        m.position.set(b.x, 0.9, b.z);
+        const gy = groundAt(this.track, progressOf(this.track, { x: b.x, z: b.z }, 0)).y;
+        const baseY = gy + 0.9;
+        m.position.set(b.x, baseY, b.z);
+        m.userData.baseY = baseY;
         this.scene.add(m);
         this.boxes.set(b.id, m);
+        this.interactive.registerItemBox(m, baseY);
       }
       m.visible = b.ready;
     }
@@ -644,9 +734,13 @@ export class RaceEngine {
         let m = this.cups.get(c.id);
         if (!m) {
           m = this.buildCupMesh();
-          m.position.set(c.x, 0.38, c.z);
+          const gy = groundAt(this.track, progressOf(this.track, { x: c.x, z: c.z }, 0)).y;
+          const baseY = gy + 0.38;
+          m.position.set(c.x, baseY, c.z);
+          m.userData.baseY = baseY;
           this.scene.add(m);
           this.cups.set(c.id, m);
+          this.interactive.registerCup(m, baseY);
         }
         m.visible = c.ready;
       }
@@ -654,6 +748,7 @@ export class RaceEngine {
         if (!liveCups.has(id)) {
           this.scene.remove(m);
           this.cups.delete(id);
+          this.interactive.removeCup(id);
         }
       }
     }
@@ -694,21 +789,33 @@ export class RaceEngine {
     }
 
     for (const e of s.events) {
-      if (e.type === "wall" && e.id === this.myId) this.shake = Math.min(1, this.shake + 0.4);
+      if (e.type === "wall" && e.id === this.myId) {
+        this.shake = Math.min(1, this.shake + 0.4);
+        const v = this.views.get(this.myId);
+        v?.r3d.char.setEmotion?.("panic", 0.6);
+      }
       if (e.type === "hit" && e.id === this.myId) {
         if (e.kind === "blocked") {
           this.shake = Math.min(0.5, this.shake + 0.25);
           this.holdingRear = false;
         } else {
           this.shake = Math.min(1, this.shake + 0.5);
+          const v = this.views.get(this.myId);
+          v?.r3d.char.setEmotion?.("panic", 0.8);
         }
       }
-      if (e.type === "boost" && e.id === this.myId) this.shake = Math.min(0.4, this.shake + 0.15);
+      if (e.type === "boost" && e.id === this.myId) {
+        this.shake = Math.min(0.4, this.shake + 0.15);
+        const v = this.views.get(this.myId);
+        v?.r3d.char.setEmotion?.("adrenaline", 1.2);
+      }
       if (e.type === "cup" && e.id === this.myId) this.shake = Math.min(0.25, this.shake + 0.08);
       if (e.type === "stunt" && e.id === this.myId) this.shake = Math.min(0.5, this.shake + 0.25);
       if (e.type === "draft" && e.id === this.myId) {
         this.shake = Math.min(0.5, this.shake + 0.3);
         this.camera.fov = 76;
+        const v = this.views.get(this.myId);
+        v?.r3d.char.setEmotion?.("adrenaline", 1.5);
       }
       if (e.type === "item") {
         if (e.id !== this.myId) {
@@ -787,6 +894,7 @@ export class RaceEngine {
     const r3d = buildRacer(person?.avatar ?? { ...DEFAULT_AVATAR, name: k.name }, person?.chair ?? DEFAULT_CHAIR);
     const faded = !!this.snap?.timeTrial && k.id !== this.myId;
     const restore = faded ? fadeMaterials(r3d.root, { opacity: TRIAL_OTHERS_OPACITY }) : null;
+    if (!faded) applyFresnelRimToHierarchy(r3d.root, "#ffffff", 0.65, 2.5);
     // r3d.root fica no chão; body inclina e gira por cima dele
     const body = new THREE.Group();
     while (r3d.root.children.length) body.add(r3d.root.children[0]);
@@ -810,14 +918,16 @@ export class RaceEngine {
     bubble.visible = false;
     r3d.root.add(bubble);
     // Sombra de contato suave sob as 5 rodinhas para pregar a cadeira no chão
-    const shadowMat = new THREE.MeshBasicMaterial({ color: "#050608", transparent: true, opacity: 0.38, depthWrite: false });
-    const shadowDisc = new THREE.Mesh(new THREE.CircleGeometry(0.52, 16), shadowMat);
-    shadowDisc.rotation.x = -Math.PI / 2;
-    shadowDisc.position.y = 0.015;
-    r3d.root.add(shadowDisc);
+    const blobShadows = new CasterBlobShadows(r3d.root);
+    applyStylizedToonToHierarchy(r3d.root);
+    applyFresnelRimToHierarchy(r3d.root, "#ffffff", 0.65, 2.5);
+
+
+
+
     const tag = k.id === this.myId ? null : nameTag(k.name);
     if (tag) r3d.root.add(tag);
-    r3d.root.traverse((o) => (o.castShadow = !faded && o instanceof THREE.Mesh && o !== bubble && o !== shadowDisc));
+    r3d.root.traverse((o) => (o.castShadow = !faded && o instanceof THREE.Mesh && o !== bubble && o.name !== "blobShadows" && !o.parent?.name?.includes("blobShadows")));
     const chute = buildParachute(parachuteFor(person?.chair ?? DEFAULT_CHAIR));
     r3d.root.add(chute);
     const heldItem = new THREE.Group();
@@ -849,15 +959,28 @@ export class RaceEngine {
       slideYaw: 0,
       roll: 0,
       pitch: 0,
+      roadPitch: 0,
       hopY: 0,
       hopVel: 0,
       wasDrifting: false,
+      trickActive: false,
+      trickTimer: 0,
+      trickDuration: 0.72,
+      trickType: 0,
+      trickRotX: 0,
+      trickRotY: 0,
+      trickRotZ: 0,
+      trickPosY: 0,
+      performedTrick: false,
+      trickCount: 0,
+      wasInAir: false,
+      lastTauntAt: 0,
       smokePuffs,
       smokeTimer: 0,
       lastSteer: 0,
       bubbleScale: 0.2,
       heldItem,
-      shadowDisc,
+      blobShadows,
       chute,
       chuteOpen: 0,
     };
@@ -900,8 +1023,7 @@ export class RaceEngine {
     // fumaça fica solta na cena; a geometria é da corrida, o material é desta cadeira
     for (const p of v.smokePuffs) this.scene.remove(p.mesh);
     (v.smokePuffs[0]?.mesh.material as THREE.Material | undefined)?.dispose();
-    v.shadowDisc.geometry.dispose();
-    (v.shadowDisc.material as THREE.Material).dispose();
+    v.blobShadows.dispose();
     v.restore?.();
     // geometria da faísca, da chama e da bolha é própria; a do sprite do nome é compartilhada pelo three
     for (const m of [...v.sparks, v.flame, v.bubble]) {
@@ -1060,9 +1182,55 @@ export class RaceEngine {
       this.updateView(v, x, z, heading, y, dt, mine ? this.pred! : null, steer);
     }
 
+    this.kartsForInteractive.length = 0;
+    for (const vk of this.views.values()) {
+      this.kartsForInteractive.push({
+        pos: { x: vk.r3d.root.position.x, z: vk.r3d.root.position.z },
+        speed: vk.last.speed,
+        id: vk.key,
+        isLocalPlayer: vk.key === this.myId,
+        heading: vk.last.heading,
+      });
+    }
+    const interactionOutputs = this.interactive?.update(dt, this.kartsForInteractive);
+
+    if (this.pred && interactionOutputs) {
+      for (let i = 0; i < this.kartsForInteractive.length; i++) {
+        if (this.kartsForInteractive[i].isLocalPlayer) {
+          const out = interactionOutputs[i];
+          if (out) {
+            if (out.boost) {
+              const bSpeed = out.boostSpeed ?? 24;
+              const bDur = (out.boostDuration ?? 1.25) * 1000;
+              this.pred.boostUntil = Math.max(this.pred.boostUntil, now + bDur);
+              this.pred.boostSpeed = Math.max(this.pred.boostSpeed ?? 0, bSpeed);
+              this.shake = Math.min(0.4, this.shake + 0.12);
+            }
+            if (out.bonk) {
+              if (out.bonkImpulse) {
+                this.pred.pos.x += out.bonkImpulse.x * dt;
+                this.pred.pos.z += out.bonkImpulse.z * dt;
+              }
+              this.pred.speed *= 0.5;
+              this.shake = Math.min(0.5, this.shake + 0.25);
+            }
+            if (out.spin) {
+              this.pred.spinUntil = Math.max(this.pred.spinUntil, now + 800);
+            }
+            if (out.airCushionLift !== undefined && out.airCushionLift > 0) {
+              this.pred.y = Math.max(this.pred.y ?? 0, out.airCushionLift);
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    this.vfx?.update(dt, now, this.camera);
+
     for (const b of this.boxes.values()) {
       b.rotation.y += dt * 1.6;
-      b.position.y = 0.9 + Math.sin(ms / 400 + b.position.x) * 0.12;
+      b.position.y = ((b.userData.baseY as number | undefined) ?? 0.9) + Math.sin(ms / 400 + b.position.x) * 0.12;
     }
 
     // Atualização das partículas de efeitos dos power-ups
@@ -1146,6 +1314,10 @@ export class RaceEngine {
         }
 
         case "poca": {
+          if (!h.impacted) {
+            h.impacted = true;
+            this.vfx?.spawnImpactShockwave(h.obj.position.x, h.obj.position.z, 0.02, "coffee");
+          }
           // Poça de café: expande do centro ao se formar no piso
           const expand = Math.min(1, age / 0.18);
           h.obj.scale.set(expand, 1, expand);
@@ -1162,7 +1334,7 @@ export class RaceEngine {
     for (const [id, cup] of this.cups) {
       if (cup.visible) {
         cup.rotation.y += dt * 3.2;
-        cup.position.y = 0.36 + Math.sin(now * 0.005 + id * 1.5) * 0.05;
+        cup.position.y = ((cup.userData.baseY as number | undefined) ?? 0.36) + Math.sin(now * 0.005 + id * 1.5) * 0.05;
       }
     }
 
@@ -1201,10 +1373,10 @@ export class RaceEngine {
     const lite = this.quality === "leve";
     const braking = !!own && this.keys.has(getSettings().keys.race.frear);
 
-    // 1. Salto de entrada no drift (hop característico do Mario Kart)
+    // 1. Salto de entrada no drift (hop suave e contido)
     if (drift >= 0 && !v.wasDrifting) {
-      v.hopY = 0.03;
-      v.hopVel = 2.4;
+      v.hopY = 0.012;
+      v.hopVel = 0.9;
       v.wasDrifting = true;
     } else if (drift < 0) {
       v.wasDrifting = false;
@@ -1212,36 +1384,149 @@ export class RaceEngine {
 
     if (v.hopY > 0 || v.hopVel > 0) {
       v.hopY += v.hopVel * dt;
-      v.hopVel -= 18 * dt;
+      v.hopVel -= 24 * dt;
       if (v.hopY <= 0) {
         v.hopY = 0;
         v.hopVel = 0;
       }
     }
 
-    // Micro-trepidação física do piso e das juntas nas rodinhas
-    const roadChatter = Math.abs(speed) > 1.2 ? Math.sin(this.clock * 0.08 + x * 5) * 0.007 * Math.min(1, Math.abs(speed) / 10) : 0;
-    v.body.position.y = v.hopY + roadChatter;
+    // Voo da rampa ou chasm
+    const air = own ? !!own.air : flags.has("air");
+    const inAir = air || v.hopY > 0;
+    const isMine = own !== null && v.last.id === this.myId;
+    const driftKey = isMine && this.keys.has(getSettings().keys.race.derrapar);
+    const wantsTrick = isMine ? (driftKey || !!own?.trick) : flags.has("trick");
 
-    // 2. Ângulo dinâmico de derrapagem (slide yaw) com transição progressiva e contra-esterço
+    // Sistema de Manobras no Ar (Trick System estilo Mario Kart):
+    // Acionado apenas ao decolar de rampas no ar (air), nunca no drift hop terrestre
+    if (air && wantsTrick && !v.trickActive && !v.performedTrick) {
+      v.trickActive = true;
+      v.performedTrick = true;
+      v.trickTimer = 0;
+      v.trickDuration = 0.72;
+      v.trickCount++;
+
+      // Seleção da acrobacia 3D:
+      if (steerInput > 0.25) {
+        v.trickType = 2; // Corkscrew direita
+      } else if (steerInput < -0.25) {
+        v.trickType = 2; // Corkscrew esquerda
+      } else if (braking) {
+        v.trickType = 1; // Backflip vertical
+      } else if (isMine && (this.keys.has("ArrowUp") || this.keys.has("KeyW"))) {
+        v.trickType = 3; // Super Kick-Out pop
+      } else {
+        v.trickType = v.trickCount % 4;
+      }
+
+      // VFX: explosão estelar multicolorida / dourada ao redor do piloto
+      this.vfx?.spawnTrickBurst(x, y + 0.9, z);
+
+      if (isMine) {
+        playTrickChime();
+        this.shake = Math.min(0.4, this.shake + 0.15);
+      }
+
+      v.r3d.char.setEmotion?.("victory", 1.4);
+    }
+
+    // Animação procedimental da manobra 3D
+    if (v.trickActive) {
+      v.trickTimer += dt;
+      const p = Math.min(1, v.trickTimer / v.trickDuration);
+      // Quintic smoothstep: 10p^3 - 15p^4 + 6p^5
+      const s = 10 * p * p * p - 15 * p * p * p * p + 6 * p * p * p * p * p;
+
+      if (v.trickType === 0) {
+        // Manobra 1: Spin 360° horizontal
+        const spinDir = steerInput < -0.1 ? -1 : 1;
+        v.trickRotY = spinDir * s * Math.PI * 2;
+        v.trickRotX = Math.sin(p * Math.PI) * 0.14;
+        v.trickRotZ = Math.sin(p * Math.PI) * 0.12 * spinDir;
+        v.trickPosY = Math.sin(p * Math.PI) * 0.18;
+      } else if (v.trickType === 1) {
+        // Manobra 2: Backflip empinado vertical
+        v.trickRotX = -s * Math.PI * 2;
+        v.trickRotY = 0;
+        v.trickRotZ = 0;
+        v.trickPosY = Math.sin(p * Math.PI) * 0.24;
+      } else if (v.trickType === 2) {
+        // Manobra 3: Parafuso 360° (Corkscrew roll)
+        const rollDir = steerInput < 0 ? -1 : 1;
+        v.trickRotZ = -rollDir * s * Math.PI * 2;
+        v.trickRotY = Math.sin(p * Math.PI) * 0.2 * rollDir;
+        v.trickRotX = Math.sin(p * Math.PI) * 0.1;
+        v.trickPosY = Math.sin(p * Math.PI) * 0.16;
+      } else {
+        // Manobra 4: Super Kick-Out com T-Pose pop
+        v.trickRotX = Math.sin(p * Math.PI) * -0.52;
+        v.trickRotY = Math.sin(p * Math.PI * 2) * 0.22;
+        v.trickRotZ = Math.sin(p * Math.PI * 2) * 0.18;
+        v.trickPosY = Math.sin(p * Math.PI) * 0.28;
+      }
+
+      if (p >= 1) {
+        v.trickActive = false;
+        v.trickRotX = 0;
+        v.trickRotY = 0;
+        v.trickRotZ = 0;
+        v.trickPosY = 0;
+      }
+    } else {
+      v.trickRotX *= Math.max(0, 1 - dt * 14);
+      v.trickRotY *= Math.max(0, 1 - dt * 14);
+      v.trickRotZ *= Math.max(0, 1 - dt * 14);
+      v.trickPosY *= Math.max(0, 1 - dt * 14);
+    }
+
+    // Aterrissagem com Landing Boost e Squash & Stretch (somente ao sair de voo aéreo)
+    const justLanded = v.wasInAir && !air;
+    v.wasInAir = air;
+
+    if (justLanded) {
+      if (v.performedTrick) {
+        // Shockwave no solo, faíscas de empuxo e fumaça simétrica
+        this.vfx?.spawnLandingBoost(x, y, z, heading);
+
+        v.flame.visible = true;
+        v.flame.scale.set(1.4, 1.8, 1.4);
+
+        if (isMine) {
+          playLandingBoostSound();
+          this.camera.fov = Math.min(80, this.camera.fov + 4.5);
+          this.shake = Math.min(0.55, this.shake + 0.28);
+        }
+
+        v.r3d.char.setEmotion?.("adrenaline", 1.2);
+      }
+      v.performedTrick = false;
+      v.trickActive = false;
+    }
+
+    // Micro-trepidação física do piso e das juntas nas rodinhas
+    const roadChatter = Math.abs(speed) > 1.2 && !air ? Math.sin(this.clock * 0.08 + x * 5) * 0.007 * Math.min(1, Math.abs(speed) / 10) : 0;
+    v.body.position.y = v.hopY + roadChatter + v.trickPosY;
+
+    // 2. Ângulo dinâmico de derrapagem (slide yaw) suave e progressivo
     let targetSlideYaw = 0;
     if (drift >= 0 && driftDir !== 0) {
       const steerFactor = steerInput * driftDir;
-      const driftProgress = own ? Math.min(1, own.driftMs / 220) : 1;
-      const baseSlide = -0.24 + (steerFactor > 0 ? 0.07 * steerFactor : -0.10 * Math.abs(steerFactor));
-      targetSlideYaw = driftDir * baseSlide * (0.35 + 0.65 * driftProgress);
+      const driftProgress = own ? Math.min(1, own.driftMs / 260) : 1;
+      const baseSlide = -0.16 + (steerFactor > 0 ? 0.04 * steerFactor : -0.06 * Math.abs(steerFactor));
+      targetSlideYaw = driftDir * baseSlide * (0.4 + 0.6 * driftProgress);
     }
-    v.slideYaw += (targetSlideYaw - v.slideYaw) * Math.min(1, dt * 9);
+    v.slideYaw += (targetSlideYaw - v.slideYaw) * Math.min(1, dt * 8);
     if (!Number.isFinite(v.slideYaw)) v.slideYaw = 0;
 
-    // 3. Inclinação lateral da cadeira no amortecedor (roll)
+    // 3. Inclinação lateral suave da cadeira no amortecedor (roll)
     let targetRoll = 0;
     if (drift >= 0 && driftDir !== 0) {
-      targetRoll = driftDir * 0.16 + (v.hopY > 0 ? driftDir * 0.06 : 0);
+      targetRoll = driftDir * 0.10 + (v.hopY > 0 ? driftDir * 0.02 : 0);
     } else if (Math.abs(speed) > 2) {
-      targetRoll = -steerInput * 0.08 * Math.min(1, Math.abs(speed) / 10);
+      targetRoll = -steerInput * 0.06 * Math.min(1, Math.abs(speed) / 10);
     }
-    v.roll += (targetRoll - v.roll) * Math.min(1, dt * 12);
+    v.roll += (targetRoll - v.roll) * Math.min(1, dt * 10);
     if (!Number.isFinite(v.roll)) v.roll = 0;
 
     // 4. Mergulho e empinada (pitch) no pistão a gás
@@ -1256,19 +1541,100 @@ export class RaceEngine {
     v.pitch += (targetPitch - v.pitch) * Math.min(1, dt * 10);
     if (!Number.isFinite(v.pitch)) v.pitch = 0;
 
-    // 5. Rotações finais no corpo da cadeira
+    // 5. Rotações finais no corpo da cadeira incluindo acrobacias aéreas (tricks)
     v.spin = spinning ? v.spin + dt * 12 : 0;
-    v.body.rotation.y = v.spin + v.slideYaw;
-    v.body.rotation.z = v.roll;
-    v.body.rotation.x = v.pitch;
+    v.body.rotation.y = v.spin + v.slideYaw + v.trickRotY;
+    v.body.rotation.z = v.roll * 0.25 + v.trickRotZ;
+    v.body.rotation.x = v.pitch + v.trickRotX;
 
     // 6. Atualização do boneco e rodas
-    v.r3d.update(dt, speed, steerInput, driftDir, boosting);
+
+    // Detecção do rival mais próximo para o "Luigi Death Stare" (< 4.5m)
+    let nearestDistSq = 4.5 * 4.5;
+    let foundRival = false;
+    let rivalLocalX = 0;
+    let rivalLocalY = 0;
+    let rivalLocalZ = 0;
+
+    for (const [otherId, otherView] of this.views) {
+      if (otherId === v.last.id) continue;
+      const ox = otherView.r3d.root.position.x;
+      const oy = otherView.r3d.root.position.y;
+      const oz = otherView.r3d.root.position.z;
+      const dx = ox - x;
+      const dy = oy - y;
+      const dz = oz - z;
+      const dSq = dx * dx + dz * dz;
+      if (dSq < nearestDistSq) {
+        nearestDistSq = dSq;
+        foundRival = true;
+        rivalLocalX = dx * Math.cos(heading) - dz * Math.sin(heading);
+        rivalLocalY = dy;
+        rivalLocalZ = dx * Math.sin(heading) + dz * Math.cos(heading);
+      }
+    }
+
+    let rivalDir: THREE.Vector3 | undefined;
+    if (foundRival) {
+      TMP_RIVAL_DIR.set(rivalLocalX, rivalLocalY, rivalLocalZ);
+      rivalDir = TMP_RIVAL_DIR;
+    }
+
+    TMP_SEATED_OPTIONS.driftLevel = drift;
+    TMP_SEATED_OPTIONS.draft = flags.has("slipstream");
+    TMP_SEATED_OPTIONS.spinning = spinning;
+    TMP_SEATED_OPTIONS.countdown = this.snap?.phase === "countdown" || (this.snap?.countdownMs ?? 0) > 0;
+    TMP_SEATED_OPTIONS.isBraking = braking || speed < -0.5;
+    TMP_SEATED_OPTIONS.inAir = air;
+    TMP_SEATED_OPTIONS.isTricking = v.trickActive;
+    TMP_SEATED_OPTIONS.trickType = v.trickType;
+    TMP_SEATED_OPTIONS.trickProgress = v.trickTimer / v.trickDuration;
+    if (v.lastPlace !== undefined) {
+      if (k.place < v.lastPlace) {
+        // ULTRAPASSOU UM RIVAL! Taunt debochado
+        v.r3d.char.playTaunt?.("wave", 1.5);
+        if (v.last.id === this.myId) {
+          playTauntSound();
+        }
+      } else if (k.place > v.lastPlace) {
+        // FOI ULTRAPASSADO POR UM RIVAL! Frustração / punho cerrado
+        v.r3d.char.playTaunt?.("fist", 1.2);
+      } else if (k.place <= 2 && v.lastPlace > 2) {
+        v.r3d.char.setEmotion?.("victory", 1.8);
+      } else if (k.lap > (v.lastLap ?? 0) && k.place <= 2) {
+        v.r3d.char.setEmotion?.("victory", 1.8);
+      }
+    }
+    v.lastPlace = k.place;
+    v.lastLap = k.lap;
+
+    // Provocação de ultrapassagem rasante veloz (< 3.2m de rival durante boost)
+    if (foundRival && rivalDir) {
+      const rivalDist = Math.hypot(rivalDir.x, rivalDir.z);
+      if (rivalDist < 3.2 && boosting && (!v.lastTauntAt || this.clock - v.lastTauntAt > 4000)) {
+        v.lastTauntAt = this.clock;
+        v.r3d.char.playTaunt?.("point", 1.3);
+        if (v.last.id === this.myId) {
+          playTauntSound();
+        }
+      }
+    }
+    v.r3d.update(dt, speed, steerInput, driftDir, boosting, rivalDir, inAir, TMP_SEATED_OPTIONS);
     v.r3d.root.position.set(x, y, z);
     v.r3d.root.rotation.y = heading;
+    if (this.track.heights && !inAir) {
+      const fx = Math.sin(heading);
+      const fz = Math.cos(heading);
+      const yAhead = groundAt(this.track, progressOf(this.track, { x: x + fx * 1.2, z: z + fz * 1.2 }, 0)).y;
+      const yBehind = groundAt(this.track, progressOf(this.track, { x: x - fx * 1.2, z: z - fz * 1.2 }, 0)).y;
+      const targetSlope = Math.atan2(yAhead - yBehind, 2.4);
+      v.roadPitch += (targetSlope - v.roadPitch) * Math.min(1, dt * 10);
+    } else {
+      v.roadPitch += (0 - v.roadPitch) * Math.min(1, dt * 8);
+    }
+    v.r3d.root.rotation.x = v.roadPitch;
 
     // Voo da rampa: paraquedas abre depois do pico e some ao pousar; a sombra fica no chão
-    const air = own ? !!own.air : flags.has("air");
     const chuteOn = own ? air && (own.vy ?? 0) < 0 : flags.has("chute");
     v.chuteOpen = chuteOn ? Math.min(1, v.chuteOpen + dt * 5) : Math.max(0, v.chuteOpen - dt * 8);
     v.chute.visible = v.chuteOpen > 0.01;
@@ -1276,8 +1642,7 @@ export class RaceEngine {
       v.chute.scale.set(v.chuteOpen, 0.4 + 0.6 * v.chuteOpen, v.chuteOpen);
       v.chute.rotation.z = Math.sin(this.clock * 0.004) * 0.08;
     }
-    v.shadowDisc.position.y = air ? 0.015 - y : 0.015;
-    v.shadowDisc.visible = y > -0.2;
+    v.blobShadows.update(v.r3d.chair?.pistonOffset ?? 0, y, inAir);
 
     // Áudio procedural para o jogador local (rolamento e drift screech)
     if (v.last.id === this.myId) {
@@ -1342,6 +1707,12 @@ export class RaceEngine {
       boosting;
     if (!lite && shouldSmoke && v.smokeTimer >= (boosting ? 0.03 : 0.045)) {
       v.smokeTimer = 0;
+      const fwdX = Math.sin(heading);
+      const fwdZ = Math.cos(heading);
+      this.vfx?.spawnDriftSmoke(x, y + 0.08, z, fwdX, fwdZ, speed, boosting);
+      if (drift >= 1) {
+        this.vfx?.spawnDriftSparks(x, y + 0.08, z, heading, drift as DriftLevel, driftDir);
+      }
       const puff = v.smokePuffs.find((p) => !p.mesh.visible);
       if (puff) {
         puff.mesh.visible = true;
@@ -1407,28 +1778,38 @@ export class RaceEngine {
       }
       this.skidMesh.instanceMatrix.needsUpdate = true;
     }
+    if (own) {
+      const slipstreaming = flags.has("slipstream");
+      if (slipstreaming) {
+        this.localDraftMs += dt * 1000;
+        this.localDraftRatio = Math.min(1, this.localDraftRatio + dt * 3);
+      } else {
+        this.localDraftMs = Math.max(0, this.localDraftMs - dt * 2000);
+        this.localDraftRatio = Math.max(0, this.localDraftRatio - dt * 2);
+      }
+      const activeStreaks = (boosting || slipstreaming) && !lite;
+      this.vfx?.setSpeedStreaks(activeStreaks, boosting ? 1.0 : 0.65, x, y, z, heading, speed);
+    }
   }
 
   /** Abertura: primeiro segue o Comandante pela reta final, depois mostra o grid com ele chegando. */
   private cutsceneCamera(u: number, dt: number): void {
     const start = pointAt(this.track, 0).pos;
     const c = this.commander?.root.position ?? new THREE.Vector3(start.x, 5.5, start.z);
-    let want: THREE.Vector3;
-    let look: THREE.Vector3;
     if (u < 0.55) {
       const h = pointAt(this.track, -40).heading;
-      want = new THREE.Vector3(c.x - Math.sin(h) * 11 + Math.cos(h) * 4, c.y + 3, c.z - Math.cos(h) * 11 - Math.sin(h) * 4);
-      look = new THREE.Vector3(c.x, c.y + 1.6, c.z);
+      _cutWant.set(c.x - Math.sin(h) * 11 + Math.cos(h) * 4, c.y + 3, c.z - Math.cos(h) * 11 - Math.sin(h) * 4);
+      _cutLook.set(c.x, c.y + 1.6, c.z);
     } else {
       // atrás do grid: as cadeiras de costas e o Comandante sobre o pórtico, de frente para elas
       const back = pointAt(this.track, this.track.length - 17);
-      want = new THREE.Vector3(back.pos.x, 2.4, back.pos.z);
-      look = new THREE.Vector3(c.x, c.y - 1.2, c.z);
+      _cutWant.set(back.pos.x, 2.4, back.pos.z);
+      _cutLook.set(c.x, c.y - 1.2, c.z);
     }
     const snap = !this.camReady || u < 0.02 || Math.abs(u - 0.55) < 0.02;
     const k = snap ? 1 : 1 - Math.exp(-dt * 4);
-    this.camPos.lerp(want, k);
-    this.camLook.lerp(look, k);
+    this.camPos.lerp(_cutWant, k);
+    this.camLook.lerp(_cutLook, k);
     this.camReady = true;
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
@@ -1461,23 +1842,31 @@ export class RaceEngine {
     const camDist = 5.6 + speedRatio * 0.35 + (boosting ? 0.3 : 0);
 
     // Suave movimento dinâmico da câmera para o exterior da curva em drift com interpolação de mola
-    const targetCamSwing = driftDir * -0.42;
-    const targetLookSwing = driftDir * 0.55;
-    this.camDriftOffset += (targetCamSwing - this.camDriftOffset) * Math.min(1, dt * 5);
-    this.camLookOffset += (targetLookSwing - this.camLookOffset) * Math.min(1, dt * 5);
+    const targetCamSwing = driftDir * -0.20;
+    const targetLookSwing = driftDir * 0.25;
+    this.camDriftOffset += (targetCamSwing - this.camDriftOffset) * Math.min(1, dt * 4.5);
+    this.camLookOffset += (targetLookSwing - this.camLookOffset) * Math.min(1, dt * 4.5);
 
-    const want = new THREE.Vector3(p.x - fx * camDist + rx * this.camDriftOffset, camHeight + this.camY, p.z - fz * camDist + rz * this.camDriftOffset);
-    const look = new THREE.Vector3(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY * 0.6, p.z + fz * 10 + rz * this.camLookOffset);
-    // saindo da cena de abertura, a câmera vai direto para trás do kart em vez de deslizar de onde estava
-    if (!this.camReady || this.wasInCutscene) {
-      this.camPos.copy(want);
-      this.camLook.copy(look);
+    if (this.lookBackActive) {
+      // Câmera retrovisor (KeyC ou botão do meio do mouse): olha para trás 180°
+      _camWant.set(p.x + fx * camDist, camHeight + this.camY, p.z + fz * camDist);
+      _camLook.set(p.x - fx * 10, 0.6 + this.camY, p.z - fz * 10);
+    } else {
+      _camWant.set(p.x - fx * camDist + rx * this.camDriftOffset, camHeight + this.camY, p.z - fz * camDist + rz * this.camDriftOffset);
+      _camLook.set(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY, p.z + fz * 10 + rz * this.camLookOffset);
+    }
+
+    // saindo da cena de abertura ou ao alternar retrovisor instantaneamente
+    if (!this.camReady || this.wasInCutscene || this.lookBackSnap) {
+      this.camPos.copy(_camWant);
+      this.camLook.copy(_camLook);
       this.camReady = true;
       this.wasInCutscene = false;
+      this.lookBackSnap = false;
     }
-    const k = 1 - Math.exp(-dt * 7.5);
-    this.camPos.lerp(want, k);
-    this.camLook.lerp(look, k);
+    const k = this.lookBackActive ? 1 - Math.exp(-dt * 15) : 1 - Math.exp(-dt * 7.5);
+    this.camPos.lerp(_camWant, k);
+    this.camLook.lerp(_camLook, k);
 
     this.shake = Math.max(0, this.shake - dt * 4);
     let sx = 0;
@@ -1505,10 +1894,20 @@ export class RaceEngine {
     this.sun.target.position.set(p.x, 0.5, p.z);
     this.sun.target.updateMatrixWorld();
 
-    // FOV dinâmico elástico que abre suavemente de 66° a 82° com a velocidade e o turbo
-    const fov = 66 + speedRatio * 7 + (boosting ? 9 : 0);
-    if (Math.abs(this.camera.fov - fov) > 0.05) {
-      this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 6);
+    // FOV dinâmico elástico que abre suavemente de 60° a 74° com velocidade, boost, vácuo e café (e 56° ao frear)
+    const isBraking = this.keys.has("ArrowDown") || this.keys.has("KeyS");
+    const isDrafting = v.last.flags?.includes("slipstream") ?? false;
+    const hasCoffee = boosting && (this.pred?.boostSpeed ?? 0) > 23;
+    const targetFov = calculateDynamicFov({
+      speed,
+      isBoosting: boosting,
+      isBraking,
+      isDrafting,
+      draftRatio: this.localDraftRatio,
+      hasCoffee,
+    });
+    if (Math.abs(this.camera.fov - targetFov) > 0.05) {
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 6);
       this.camera.updateProjectionMatrix();
     }
   }
@@ -1578,6 +1977,8 @@ export class RaceEngine {
     this.boxMat.map?.dispose();
     this.boxMat.dispose();
     for (const m of this.hazardMats.values()) m.dispose();
+    this.vfx?.dispose();
+    this.interactive?.dispose();
     this.disposeTrack?.();
     this.disposeTrack = null;
     this.renderer.dispose();

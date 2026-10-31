@@ -3,7 +3,6 @@
 // Baseado no esqueleto de assets-src/roupas/barbas/01_barba.glb (preso ao osso 'cabeca')
 // Roda à mão:  node scripts/gerar-oculos.mjs  (depois: node scripts/optimize-assets.mjs)
 
-import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeIO } from "@gltf-transform/core";

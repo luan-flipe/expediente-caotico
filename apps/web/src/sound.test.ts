@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSettings } from "./settings";
 import {
+  playFinalLapChime,
   getLobbyMusicEnabled,
   getLobbyMusicVolume,
   nextRaceTrack,
@@ -100,7 +101,8 @@ function fakeCtx() {
     return p;
   };
   const gain = { gain: param(), connect: vi.fn(), disconnect: vi.fn() };
-  const src = { buffer: null as unknown, loop: false, onended: null as null | (() => void), connect: vi.fn(), disconnect: vi.fn(), start: vi.fn(), stop: vi.fn() };
+  const rateParam = { value: 1.0, cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn((v: number) => { rateParam.value = v; }) };
+  const src = { buffer: null as unknown, loop: false, playbackRate: rateParam, onended: null as null | (() => void), connect: vi.fn(), disconnect: vi.fn(), start: vi.fn(), stop: vi.fn() };
   Object.assign(ctx, { createGain: () => gain, createBufferSource: () => src });
   return { ctx: ctx as unknown as BaseAudioContext, gain, src };
 }
@@ -167,6 +169,29 @@ describe("música da corrida", () => {
     expect(done).toHaveBeenCalledOnce();
     m.play(RACE_TRACKS[0], buffer);
     expect(src.start).not.toHaveBeenCalled();
+  });
+  it("acelera a música para 1.15x na última volta e reseta ao parar", () => {
+    const { ctx, src } = fakeCtx();
+    const m = new RaceMusic(ctx, out);
+    m.play(RACE_TRACKS[0], buffer);
+    expect(m.finalLap).toBe(false);
+
+    m.setFinalLap(true);
+    expect(m.finalLap).toBe(true);
+    expect(src.playbackRate.setTargetAtTime).toHaveBeenCalledWith(1.15, 10, 0.12);
+    expect(src.playbackRate.value).toBe(1.15);
+
+    m.setFinalLap(false);
+    expect(m.finalLap).toBe(false);
+    expect(src.playbackRate.setTargetAtTime).toHaveBeenCalledWith(1.0, 10, 0.12);
+
+    m.setFinalLap(true);
+    m.stop();
+    expect(m.finalLap).toBe(false);
+  });
+
+  it("playFinalLapChime roda sem lançar exceções", () => {
+    expect(() => playFinalLapChime()).not.toThrow();
   });
 });
 

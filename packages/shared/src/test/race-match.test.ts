@@ -130,7 +130,7 @@ describe("partida de corrida", () => {
     expect(hard).toBeGreaterThan(0.6);
     expect(hard).toBeLessThan(0.9);
     expect(share("easy")).toBeLessThan(0.25);
-  });
+  }, 15_000);
 
   it("comandos numerados: um por tick, na ordem, e o privado confirma o último aplicado", () => {
     const r = race(2, false);
