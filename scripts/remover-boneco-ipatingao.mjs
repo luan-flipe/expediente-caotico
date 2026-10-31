@@ -61,7 +61,12 @@ function medir() {
         const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
         const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
         g.area += 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
-        for (const p of [a, b, c]) for (let k = 0; k < 3; k++) (g.min[k] = Math.min(g.min[k], p[k])), (g.max[k] = Math.max(g.max[k], p[k]));
+        for (const p of [a, b, c]) {
+          for (let k = 0; k < 3; k++) {
+            g.min[k] = Math.min(g.min[k], p[k]);
+            g.max[k] = Math.max(g.max[k], p[k]);
+          }
+        }
       }
       out.push(g);
     }
