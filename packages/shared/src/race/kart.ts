@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 import { RACE } from "./balance";
-import { branchPointAt, clampToTrack, corkscrewRoll, deltaS, groundAt, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
+import { branchPointAt, clampToTrack, corkscrewRoll, corkscrewTransform, deltaS, groundAt, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
 
 export interface KartState {
   pos: Vec2;
@@ -198,8 +198,11 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
     if (c.hit && Math.abs(s.speed) > 0.01) {
       const into = (vx * c.normal.x + vz * c.normal.z) / Math.abs(s.speed);
       if (into > 0) {
-        wall = into > 0.3;
-        s.speed *= 1 - (1 - RACE.wallSpeedKeep) * into;
+        const inCork = corkscrewRoll(track, c.progress.s) > 0;
+        wall = into > 0.3 && !inCork;
+        if (!inCork) {
+          s.speed *= 1 - (1 - RACE.wallSpeedKeep) * into;
+        }
       }
     }
   } else {
@@ -223,7 +226,8 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
     const y0 = s.y ?? 0;
     if (roll > 0) {
       // No saca-rolhas a pista se mantém colada ao solo com anti-gravidade
-      s.y = g.y;
+      const tr = corkscrewTransform(track, progress.s, progress.lateral, 0);
+      s.y = g.y + tr.y;
     } else if (!s.air) {
       if (y0 > g.y + 0.05 && s.speed >= RACE.minLaunchSpeed) {
         // saiu do topo da rampa: decola com a inclinação dela

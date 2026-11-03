@@ -828,6 +828,19 @@ export function corkscrewTransform(track: Track, s: number, lateral: number, y: 
   };
 }
 
+/** Posição 3D de um ponto da seção da pista com relevo e transformação do saca-rolhas. */
+export function trackPoint3D(track: Track, s: number, off: number, yRel = 0): { x: number; y: number; z: number } {
+  const at = pointAt(track, s);
+  const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+  const baseY = heightAt(track, s);
+  const tr = corkscrewTransform(track, s, off, yRel);
+  return {
+    x: at.pos.x + nrm.x * tr.lateral,
+    y: baseY + tr.y,
+    z: at.pos.z + nrm.z * tr.lateral,
+  };
+}
+
 export function inCarpet(track: Track, pr: TrackProgress): boolean {
   if (pr.path >= 0) return false;
   for (const c of track.carpet) {

@@ -3462,8 +3462,8 @@ export class TrackInteractiveManager {
       return;
     }
 
-    // Padrão: 4 redemoinhos de areia posicionados ao longo dos setores abertos e dunas da pista (s ~180, ~280, ~440, ~610)
-    const defaultS = [180, 280, 440, 610];
+    // Padrão: 4 redemoinhos de areia posicionados ao longo dos setores abertos e dunas da pista (s ~180, ~235, ~440, ~610)
+    const defaultS = [180, 235, 440, 610];
     if (this.track) {
       for (let i = 0; i < defaultS.length; i++) {
         const s = defaultS[i];
@@ -3482,7 +3482,7 @@ export class TrackInteractiveManager {
     } else {
       const fallbackPositions = [
         { x: 20, y: 0, z: 30, s: 180 },
-        { x: 50, y: 0, z: 70, s: 280 },
+        { x: 50, y: 0, z: 70, s: 235 },
         { x: 90, y: 0, z: 120, s: 440 },
         { x: 140, y: 0, z: 180, s: 610 },
       ];

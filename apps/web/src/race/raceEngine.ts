@@ -11,6 +11,8 @@ import {
   progressOf,
   newKart,
   stepKart,
+  corkscrewRoll,
+  trackPoint3D,
   type AvatarDNA,
   type ChairDNA,
   type HazardKind,
@@ -139,6 +141,13 @@ const _camLook = new THREE.Vector3();
 const _cutWant = new THREE.Vector3();
 const _cutLook = new THREE.Vector3();
 const TMP_SEATED_OPTIONS: CharacterSeatedOptions = {};
+const _corkP = new THREE.Vector3();
+const _corkQ = new THREE.Vector3();
+const _corkU = new THREE.Vector3();
+const _corkFwd = new THREE.Vector3();
+const _corkNorm = new THREE.Vector3();
+const _corkRight = new THREE.Vector3();
+const _corkMat = new THREE.Matrix4();
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -229,6 +238,7 @@ export class RaceEngine {
   private holdingRear = false;
   private lookBackActive = false;
   private lookBackSnap = false;
+  private camUp = new THREE.Vector3(0, 1, 0);
   private localDraftMs = 0;
   private localDraftRatio = 0;
   private finalLapTriggered = false;
@@ -1658,19 +1668,42 @@ export class RaceEngine {
       }
     }
     v.r3d.update(dt, speed, steerInput, driftDir, boosting, rivalDir, inAir, TMP_SEATED_OPTIONS);
-    v.r3d.root.position.set(x, y, z);
-    v.r3d.root.rotation.y = heading;
-    if (this.track.heights && !inAir) {
-      const fx = Math.sin(heading);
-      const fz = Math.cos(heading);
-      const yAhead = groundAt(this.track, progressOf(this.track, { x: x + fx * 1.2, z: z + fz * 1.2 }, 0)).y;
-      const yBehind = groundAt(this.track, progressOf(this.track, { x: x - fx * 1.2, z: z - fz * 1.2 }, 0)).y;
-      const targetSlope = Math.atan2(yAhead - yBehind, 2.4);
-      v.roadPitch += (targetSlope - v.roadPitch) * Math.min(1, dt * 10);
+    const pr = progressOf(this.track, { x, z }, 0);
+    const roll = this.track.corkscrew ? corkscrewRoll(this.track, pr.s) : 0;
+    if (roll > 0) {
+      const p3 = trackPoint3D(this.track, pr.s, pr.lateral, 0.02);
+      const aheadS = (pr.s + 2.0) % this.track.length;
+      const q3 = trackPoint3D(this.track, aheadS, pr.lateral, 0.02);
+      const up3 = trackPoint3D(this.track, pr.s, pr.lateral, 1.02);
+
+      _corkP.set(p3.x, p3.y, p3.z);
+      _corkQ.set(q3.x, q3.y, q3.z);
+      _corkU.set(up3.x, up3.y, up3.z);
+
+      _corkFwd.subVectors(_corkQ, _corkP).normalize();
+      const rawNorm = _corkU.sub(_corkP).normalize();
+      _corkRight.crossVectors(_corkFwd, rawNorm).normalize();
+      _corkNorm.crossVectors(_corkRight, _corkFwd).normalize();
+
+      _corkMat.makeBasis(_corkRight, _corkNorm, _corkFwd);
+
+      v.r3d.root.position.copy(_corkP);
+      v.r3d.root.quaternion.setFromRotationMatrix(_corkMat);
     } else {
-      v.roadPitch += (0 - v.roadPitch) * Math.min(1, dt * 8);
+      v.r3d.root.position.set(x, y, z);
+      v.r3d.root.up.set(0, 1, 0);
+      if (this.track.heights && !inAir) {
+        const fx = Math.sin(heading);
+        const fz = Math.cos(heading);
+        const yAhead = groundAt(this.track, progressOf(this.track, { x: x + fx * 1.2, z: z + fz * 1.2 }, 0)).y;
+        const yBehind = groundAt(this.track, progressOf(this.track, { x: x - fx * 1.2, z: z - fz * 1.2 }, 0)).y;
+        const targetSlope = Math.atan2(yAhead - yBehind, 2.4);
+        v.roadPitch += (targetSlope - v.roadPitch) * Math.min(1, dt * 10);
+      } else {
+        v.roadPitch += (0 - v.roadPitch) * Math.min(1, dt * 8);
+      }
+      v.r3d.root.rotation.set(v.roadPitch, heading, 0, "YXZ");
     }
-    v.r3d.root.rotation.x = v.roadPitch;
 
     // Voo da rampa: paraquedas abre depois do pico e some ao pousar; a sombra fica no chão
     const chuteOn = own ? air && (own.vy ?? 0) < 0 : flags.has("chute");
@@ -1849,6 +1882,8 @@ export class RaceEngine {
     this.camPos.lerp(_cutWant, k);
     this.camLook.lerp(_cutLook, k);
     this.camReady = true;
+    this.camera.up.set(0, 1, 0);
+    this.camUp.set(0, 1, 0);
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
     // zoom na tomada do grid para o Comandante aparecer sobre o pórtico
@@ -1864,8 +1899,6 @@ export class RaceEngine {
     if (!v) return;
     const p = v.r3d.root.position;
     const h = v.r3d.root.rotation.y;
-    // a câmera sobe com o salto, suavizada; na queda do vão ela não afunda junto
-    this.camY += (Math.max(0, p.y) - this.camY) * Math.min(1, dt * 4);
     const fx = Math.sin(h);
     const fz = Math.cos(h);
     const rx = Math.cos(h);
@@ -1875,23 +1908,57 @@ export class RaceEngine {
     const boosting = this.pred ? this.clock < this.pred.boostUntil : false;
     const speed = this.pred ? this.pred.speed : v.last.speed;
     const speedRatio = Math.min(1, Math.max(0, (speed - 4) / 12));
-    // Em alta velocidade e durante o boost, a câmera desce e recua ligeiramente para aumentar a sensação de escala e vácuo
     const camHeight = 3.3 - speedRatio * 0.32 - (boosting ? 0.22 : 0);
     const camDist = 5.6 + speedRatio * 0.35 + (boosting ? 0.3 : 0);
 
-    // Suave movimento dinâmico da câmera para o exterior da curva em drift com interpolação de mola
     const targetCamSwing = driftDir * -0.20;
     const targetLookSwing = driftDir * 0.25;
     this.camDriftOffset += (targetCamSwing - this.camDriftOffset) * Math.min(1, dt * 4.5);
     this.camLookOffset += (targetLookSwing - this.camLookOffset) * Math.min(1, dt * 4.5);
 
-    if (this.lookBackActive) {
-      // Câmera retrovisor (KeyC ou botão do meio do mouse): olha para trás 180°
-      _camWant.set(p.x + fx * camDist, camHeight + this.camY, p.z + fz * camDist);
-      _camLook.set(p.x - fx * 10, 0.6 + this.camY, p.z - fz * 10);
+    const pr = progressOf(this.track, { x: p.x, z: p.z }, 0);
+    const roll = this.track.corkscrew ? corkscrewRoll(this.track, pr.s) : 0;
+    const targetUp = new THREE.Vector3(0, 1, 0);
+
+    if (roll > 0) {
+      const p3 = trackPoint3D(this.track, pr.s, pr.lateral, 0.02);
+      const aheadS = (pr.s + 2.0) % this.track.length;
+      const q3 = trackPoint3D(this.track, aheadS, pr.lateral, 0.02);
+      const up3 = trackPoint3D(this.track, pr.s, pr.lateral, 1.02);
+
+      const fwd = new THREE.Vector3(q3.x - p3.x, q3.y - p3.y, q3.z - p3.z).normalize();
+      const rawNorm = new THREE.Vector3(up3.x - p3.x, up3.y - p3.y, up3.z - p3.z).normalize();
+      const right = new THREE.Vector3().crossVectors(fwd, rawNorm).normalize();
+      const norm = new THREE.Vector3().crossVectors(right, fwd).normalize();
+      targetUp.copy(norm);
+
+      if (this.lookBackActive) {
+        _camWant.copy(p)
+          .addScaledVector(fwd, camDist)
+          .addScaledVector(norm, camHeight);
+        _camLook.copy(p)
+          .addScaledVector(fwd, -10)
+          .addScaledVector(norm, 0.6);
+      } else {
+        _camWant.copy(p)
+          .addScaledVector(fwd, -camDist)
+          .addScaledVector(norm, camHeight)
+          .addScaledVector(right, this.camDriftOffset);
+        _camLook.copy(p)
+          .addScaledVector(fwd, 10)
+          .addScaledVector(norm, 0.6)
+          .addScaledVector(right, this.camLookOffset);
+      }
     } else {
-      _camWant.set(p.x - fx * camDist + rx * this.camDriftOffset, camHeight + this.camY, p.z - fz * camDist + rz * this.camDriftOffset);
-      _camLook.set(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY, p.z + fz * 10 + rz * this.camLookOffset);
+      this.camY += (Math.max(0, p.y) - this.camY) * Math.min(1, dt * 4);
+      if (this.lookBackActive) {
+        // Câmera retrovisor (KeyC ou botão do meio do mouse): olha para trás 180°
+        _camWant.set(p.x + fx * camDist, camHeight + this.camY, p.z + fz * camDist);
+        _camLook.set(p.x - fx * 10, 0.6 + this.camY, p.z - fz * 10);
+      } else {
+        _camWant.set(p.x - fx * camDist + rx * this.camDriftOffset, camHeight + this.camY, p.z - fz * camDist + rz * this.camDriftOffset);
+        _camLook.set(p.x + fx * 10 + rx * this.camLookOffset, 0.6 + this.camY, p.z + fz * 10 + rz * this.camLookOffset);
+      }
     }
 
     // saindo da cena de abertura ou ao alternar retrovisor instantaneamente
@@ -1905,6 +1972,8 @@ export class RaceEngine {
     const k = this.lookBackActive ? 1 - Math.exp(-dt * 15) : 1 - Math.exp(-dt * 7.5);
     this.camPos.lerp(_camWant, k);
     this.camLook.lerp(_camLook, k);
+    this.camUp.lerp(targetUp, k);
+    this.camera.up.copy(this.camUp);
 
     this.shake = Math.max(0, this.shake - dt * 4);
     let sx = 0;

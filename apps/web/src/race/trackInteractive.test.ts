@@ -492,7 +492,7 @@ describe("TrackInteractiveManager", () => {
       const devils = manager.dustDevils;
       expect(devils.length).toBe(4);
       expect(devils[0].s).toBe(180);
-      expect(devils[1].s).toBe(280);
+      expect(devils[1].s).toBe(235);
       expect(devils[2].s).toBe(440);
       expect(devils[3].s).toBe(610);
 

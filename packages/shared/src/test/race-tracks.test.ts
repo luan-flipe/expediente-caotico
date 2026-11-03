@@ -301,7 +301,8 @@ describe("Pista do Deserto: mecânicas específicas (salto do cânion e boost pa
       expect(res.state.air).toBeFalsy();
       expect(res.state.fell).toBeFalsy();
       expect(res.state.roll).toBeGreaterThan(0);
-      expect(res.state.y).toBe(groundAt(t, res.progress!).y);
+      const tr = corkscrewTransform(t, res.progress!.s, res.progress!.lateral, 0);
+      expect(res.state.y).toBeCloseTo(groundAt(t, res.progress!).y + tr.y, 4);
     });
 
     it("kart atravessa o saca-rolhas 360° inteiro sem cair nem decolar", () => {
