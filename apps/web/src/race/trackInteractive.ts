@@ -3645,7 +3645,7 @@ export class TrackInteractiveManager {
         const dz = kart.pos.z - devil.currentPos.z;
         const dist = Math.hypot(dx, dz);
 
-        if (dist < devil.radius) {
+        if (dist < devil.radius && devil.hitCooldown <= 0) {
           const out = this.kartOutputs[k];
           out.spin = true;
           out.bonk = true;
@@ -3657,10 +3657,8 @@ export class TrackInteractiveManager {
           out.bonkImpulse = { x: (nx * 0.7 + devil.normal.x * 0.7) * 14.0, z: (nz * 0.7 + devil.normal.z * 0.7) * 14.0 };
           out.soundCue = "sand_tornado";
 
-          if (devil.hitCooldown <= 0) {
-            devil.hitCooldown = 0.5;
-            this.triggerDustDevilBurst(devil.currentPos.x, devil.currentPos.y + 0.8, devil.currentPos.z);
-          }
+          devil.hitCooldown = 2.0;
+          this.triggerDustDevilBurst(devil.currentPos.x, devil.currentPos.y + 0.8, devil.currentPos.z);
         }
       }
     }

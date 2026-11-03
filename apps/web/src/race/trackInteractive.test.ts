@@ -568,6 +568,17 @@ describe("TrackInteractiveManager", () => {
       expect(out.shake).toBe(0.6);
       expect(out.bonkImpulse).toBeDefined();
       expect(out.soundCue).toBe("sand_tornado");
+
+      // No frame seguinte, o redemoinho entra em cooldown de 2s e não re-aplica spin/bonk em loop
+      const nextOutputs = manager.update(0.016, [
+        {
+          pos: { x: devil.currentPos.x + 1.2, z: devil.currentPos.z },
+          speed: 8.0,
+        },
+      ]);
+      const nextOut = nextOutputs[0];
+      expect(nextOut.spin).toBe(false);
+      expect(nextOut.bonk).toBe(false);
     });
 
     it("kart a mais de 2.6m do redemoinho de areia não sofre colisão", () => {

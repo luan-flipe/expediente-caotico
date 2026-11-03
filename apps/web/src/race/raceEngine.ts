@@ -866,8 +866,8 @@ export class RaceEngine {
       driftDir: k.driftDir,
       driftMs: k.driftMs,
       boostUntil: base + k.boostMs,
-      spinUntil: this.pred ? Math.max(this.pred.spinUntil, base + k.spinMs) : base + k.spinMs,
-      slipUntil: this.pred ? Math.max(this.pred.slipUntil, base + k.slipMs) : base + k.slipMs,
+      spinUntil: isSpinning ? this.pred!.spinUntil : base + k.spinMs,
+      slipUntil: isSlipping ? this.pred!.slipUntil : base + k.slipMs,
       frozenUntil: base + k.frozenMs,
       // mesmo teto de turbo e mesmas xícaras do servidor, senão a previsão diverge e a cadeira dá tranco
       boostSpeed: k.boostMs > 0 ? k.boostSpeed : undefined,
@@ -1226,7 +1226,7 @@ export class RaceEngine {
             if (out.boost) {
               const bSpeed = out.boostSpeed ?? 24;
               const bDur = (out.boostDuration ?? 1.25) * 1000;
-              this.pred.boostUntil = Math.max(this.pred.boostUntil, now + bDur);
+              this.pred.boostUntil = Math.max(this.pred.boostUntil, this.clock + bDur);
               this.pred.boostSpeed = Math.max(this.pred.boostSpeed ?? 0, bSpeed);
               this.shake = Math.min(0.4, this.shake + 0.12);
             }
@@ -1239,14 +1239,14 @@ export class RaceEngine {
               this.shake = Math.min(0.6, this.shake + (out.shake ?? 0.25));
             }
             if (out.spin) {
-              this.pred.spinUntil = Math.max(this.pred.spinUntil, now + (out.spinUntil ?? 900));
+              this.pred.spinUntil = Math.max(this.pred.spinUntil, this.clock + (out.spinUntil ?? 900));
               if (out.speedMultiplier !== undefined) {
                 this.pred.speed *= out.speedMultiplier;
               }
               this.shake = Math.min(0.8, this.shake + (out.shake ?? 0.35));
             }
             if (out.slip) {
-              this.pred.slipUntil = Math.max(this.pred.slipUntil, now + (out.slipUntil ?? 700));
+              this.pred.slipUntil = Math.max(this.pred.slipUntil, this.clock + (out.slipUntil ?? 700));
               this.pred.drifting = false;
             }
             if (out.shake && !out.bonk && !out.spin) {
