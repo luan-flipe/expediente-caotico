@@ -17,6 +17,6 @@ salve o arquivo aqui e recarregue o jogo.
 - O nome do arquivo vira o rótulo: `moicano_alto.glb` aparece como "Moicano alto".
 - A ordem é a do nome do arquivo. O boneco salvo guarda a **posição** do cabelo na lista,
   então um arquivo novo no meio troca o cabelo de quem já escolheu. Para evitar isso, use
-  prefixo numérico e acrescente sempre no fim: `01_cabelo.glb`, `02_moicano.glb`... O prefixo
+  prefixo numérico e acrescente sempre no fim: `01_romarinho.glb`, `02_moicano.glb`... O prefixo
   não aparece no rótulo.
 - Máximo de 31 cabelos.
