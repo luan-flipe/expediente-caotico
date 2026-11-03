@@ -3,6 +3,17 @@ export const FUT = {
   restartCountdownMs: 3000,
   walkSpeed: 6,
   sprintSpeed: 8.5,
+  /** Inércia: aceleração (m/s2) até a velocidade de andar e daí até a de corrida, frenagem, e aderência lateral ao virar (andando e correndo). */
+  accelWalk: 14.5,
+  accelSprint: 5,
+  brake: 22,
+  gripWalk: 24,
+  gripRun: 14,
+  /** Multiplicadores da aceleração: conduzindo a bola, goleiro, e logo depois de perder a bola (por recoverMs). */
+  carryAccel: 0.85,
+  keeperAccel: 1.15,
+  recoverAccel: 0.1,
+  recoverMs: 400,
   doubleTapMs: 250,
   controlRadius: 0.9,
   dribbleTouch: 0.7,

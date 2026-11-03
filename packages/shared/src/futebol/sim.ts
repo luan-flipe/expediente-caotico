@@ -54,6 +54,7 @@ export function stepWorld(m: FutMatch, dtMs: number, o: WorldOpts = {}): WorldSt
     inputs.set(p.id, inputFor(m, p, o));
   }
   for (const p of active) {
+    p.carry = m.ball.ownerId === p.id;
     stepPlayer(p, inputs.get(p.id)!, m.field, dtMs);
   }
 

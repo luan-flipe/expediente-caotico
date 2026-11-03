@@ -112,6 +112,7 @@ function steal(p: FutPlayer, players: FutPlayer[], ball: Ball): TouchEvent {
     ball.ownerId = p.id;
     ball.vx = 0;
     ball.vz = 0;
+    owner.slowMs = FUT.recoverMs;
     touch(ball, p);
     return { t: "steal", id: p.id, ok: true, victimId: owner.id, ballFirst: true };
   }

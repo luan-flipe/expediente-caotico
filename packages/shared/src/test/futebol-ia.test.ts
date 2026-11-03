@@ -31,10 +31,10 @@ function match(players: FutPlayer[], b: Ball = ball(), seed = 7): FutMatch {
 }
 
 /** Dispara a bola de (x, z) rumo a (tx, tz) com a velocidade dada e vê se o goleiro 0 pega. */
-function shoot(level: BotLevel, tz: number, speed = 20): "defendeu" | "gol" {
+function shoot(level: BotLevel, tz: number, speed = 20, from = -8): "defendeu" | "gol" {
   const gx = -field.halfL;
   const k = mk({ id: "ga", role: "goleiro", x: gx + 1.2, z: 0, isBot: true });
-  const b = ball({ x: -8, z: 0 });
+  const b = ball({ x: from, z: 0 });
   const dx = gx - b.x;
   const dz = tz - b.z;
   const len = Math.hypot(dx, dz);
@@ -75,12 +75,12 @@ describe("goleiro", () => {
   });
 
   it("goleiro fácil deixa passar chute no canto", () => {
-    expect(shoot("easy", 1.8, 24)).toBe("gol");
+    expect(shoot("easy", 1.8, 24, -14)).toBe("gol");
   });
 
   it("goleiro difícil e normal defendem o canto que o fácil deixa passar", () => {
-    expect(shoot("hard", 1.8, 24)).toBe("defendeu");
-    expect(shoot("normal", 1.8, 24)).toBe("defendeu");
+    expect(shoot("hard", 1.8, 24, -14)).toBe("defendeu");
+    expect(shoot("normal", 1.8, 24, -14)).toBe("defendeu");
   });
 
   it("goleiro sai do gol para bola solta e lenta dentro da área", () => {
@@ -100,6 +100,7 @@ describe("goleiro", () => {
     const foe = mk({ id: "b1", side: 1, x: 1, z: 8 });
     const players = [k, free, marked, foe];
     const b = ball({ ownerId: "ga", x: k.x + 0.5, z: 0 });
+    k.holdMs = 3000;
     k.holdMs = 3000;
     const first = keeperInput(k, b, field, "normal", players);
     expect(first.pass).toBe("charge");

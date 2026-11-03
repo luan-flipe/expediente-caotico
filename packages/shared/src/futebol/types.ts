@@ -46,6 +46,10 @@ export interface FutPlayer {
   isBot: boolean;
   /** Há quanto tempo (ms) o goleiro segura a bola nas mãos (0 fora da posse). */
   holdMs?: number;
+  /** Conduzindo a bola neste tick (a sim marca; acelera menos). */
+  carry?: boolean;
+  /** Tempo (ms) de reação reduzida depois de perder a bola para um desarme. */
+  slowMs?: number;
 }
 
 /** Quem tocou na bola (para saber de quem foi o último toque). */
