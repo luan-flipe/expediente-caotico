@@ -517,7 +517,7 @@ const SEATED_KNEE = Math.PI / 2;
 const ACTION_SECONDS: Record<CharacterAction, number> = { throw: 0.45, cafe: 0.7, dash: 0.3, tchau: 3.2, carrinho: 0.8 };
 const CLIP_OF: Record<CharacterAction, string> = { throw: "jogar_bolinha", cafe: "jogar_cafe", dash: "dash", tchau: "tchau", carrinho: "carrinho" };
 /** Trecho útil de cada clipe em segundos: o resto é a volta para a pose parada. */
-const CLIP_RANGE: Record<CharacterAction, [number, number]> = { throw: [0, 0.9], cafe: [0, 1.5], dash: [0, 1.1], tchau: [0, 3.2], carrinho: [0, 0.8] };
+const CLIP_RANGE: Record<CharacterAction, [number, number]> = { throw: [0, 0.9], cafe: [0, 1.5], dash: [0, 1.1], tchau: [0, 3.2], carrinho: [0, 1.933] };
 const FPS = 30;
 
 interface Loaded {
