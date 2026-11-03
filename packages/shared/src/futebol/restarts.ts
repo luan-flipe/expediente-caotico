@@ -1,12 +1,17 @@
 import { FUT } from "./balance";
 import { ballOut, kickBall } from "./ball";
-import { advancedFreeMate, keeperPassPower } from "./bots";
+import { advancedFreeMate, attackDir, keeperPassPower } from "./bots";
+import { wallDistance } from "./assist";
 import { activeOutfield } from "./fouls";
 import { LOB_POWER } from "./goalkeeping";
-import type { Ball, Field, FutMatch, FutPlayer, RestartKind, TeamSide } from "./types";
+import type { Ball, Field, FutMatch, FutPlayer, Restart, RestartKind, TeamSide } from "./types";
 
 /** Distância mínima (m) dos outros jogadores ao ponto da cobrança. */
 const KEEP_AWAY = 4;
+/** Distância (m) dos adversários na falta (um pouco menos que a da barreira, que fica a wallDistance). */
+const FREE_KICK_CLEAR = FUT.wallDist - 0.1;
+/** Espaço (m) entre os jogadores da barreira. */
+const WALL_GAP = 0.9;
 /** Potência (0..1) do passe da IA na cobrança. */
 const AI_PASS_POWER = 0.4;
 /** Recuo do ponto do tiro de meta em relação à linha de fundo (m). */
@@ -81,6 +86,42 @@ export function startRestart(m: FutMatch, kind: RestartKind, side: TeamSide, x: 
     taker.holdMs = 0;
   }
   m.restart = { kind, side, x, z, takerId: taker.id, leftMs: FUT.restartWaitMs };
+  if (kind === "falta") {
+    m.restart.wall = buildWall(m, side, x, z);
+  }
+}
+
+/** Quantos defensores formam a barreira, por número de jogadores de linha do time que defende. */
+const WALL_SIZE = [0, 1, 1, 2, 2, 3];
+
+/** Barreira da falta: bots do time que defende, em fila a wallDistance da bola, na linha bola-gol. Só há barreira com o gol ao alcance. */
+function buildWall(m: FutMatch, taking: TeamSide, x: number, z: number): string[] {
+  const f = m.field;
+  const gx = attackDir(taking) * f.halfL;
+  const dGoal = Math.hypot(gx - x, z);
+  if (dGoal > FUT.assistRange) {
+    return [];
+  }
+  const defenders = activeOutfield(m.players, taking === 0 ? 1 : 0);
+  const size = WALL_SIZE[Math.min(defenders.length, WALL_SIZE.length - 1)];
+  const wd = wallDistance(dGoal);
+  const ux = (gx - x) / dGoal;
+  const uz = -z / dGoal;
+  const cx = x + ux * wd;
+  const cz = z + uz * wd;
+  const bots = defenders
+    .filter((p) => p.isBot || !m.connected.has(p.id))
+    .sort((a, b) => dist(a, { x: cx, z: cz }) - dist(b, { x: cx, z: cz }) || (a.id < b.id ? -1 : 1))
+    .slice(0, size);
+  bots.forEach((p, i) => {
+    const off = (i - (bots.length - 1) / 2) * WALL_GAP;
+    p.x = Math.max(-f.halfL, Math.min(f.halfL, cx - uz * off));
+    p.z = Math.max(-f.halfW, Math.min(f.halfW, cz + ux * off));
+    p.vx = 0;
+    p.vz = 0;
+    p.facing = Math.atan2(x - p.x, z - p.z);
+  });
+  return bots.map((p) => p.id);
 }
 
 /** true = este jogador não pode tocar na bola agora (há cobrança e ele não é o cobrador). */
@@ -88,25 +129,38 @@ export function restartBlocks(m: FutMatch, id: string): boolean {
   return m.restart !== null && m.restart.takerId !== id;
 }
 
-/** Afasta (só a posição) quem estiver a menos de 4 m do ponto, exceto o cobrador. */
+/** Distância (m) mínima do ponto da cobrança para este jogador: o cobrador não tem; na falta, os adversários ficam a 9 m
+ *  (a barreira escolhida pela IA é exceção); nas demais, todos a 4 m. */
+export function clearanceFor(r: Pick<Restart, "kind" | "side" | "takerId" | "wall">, p: { id: string; side: TeamSide }): number {
+  if (p.id === r.takerId || r.wall?.includes(p.id)) {
+    return 0;
+  }
+  return r.kind === "falta" && p.side !== r.side ? FREE_KICK_CLEAR : KEEP_AWAY;
+}
+
+/** Afasta (só a posição) o jogador que estiver mais perto do ponto da cobrança que a folga dele (ver clearanceFor).
+ *  A predição do cliente usa a mesma regra para o próprio boneco. */
+export function keepClear(p: { id: string; side: TeamSide; x: number; z: number }, r: Pick<Restart, "kind" | "side" | "takerId" | "wall" | "x" | "z">): void {
+  const keep = clearanceFor(r, p);
+  const d = dist(p, r);
+  if (keep <= 0 || d >= keep) {
+    return;
+  }
+  // Sobreposto ao ponto: empurra para o próprio lado do campo (time 0 = x negativo).
+  const nx = d > 1e-6 ? (p.x - r.x) / d : p.side === 0 ? -1 : 1;
+  const nz = d > 1e-6 ? (p.z - r.z) / d : 0;
+  p.x = r.x + nx * keep;
+  p.z = r.z + nz * keep;
+}
+
+/** Afasta (só a posição) quem estiver perto demais do ponto da cobrança. */
 export function pushAway(m: FutMatch): void {
   const r = m.restart;
   if (!r) {
     return;
   }
   for (const p of m.players) {
-    if (p.id === r.takerId) {
-      continue;
-    }
-    const d = dist(p, r);
-    if (d >= KEEP_AWAY) {
-      continue;
-    }
-    // Sobreposto ao ponto: empurra para o próprio lado do campo (time 0 = x negativo).
-    const nx = d > 1e-6 ? (p.x - r.x) / d : p.side === 0 ? -1 : 1;
-    const nz = d > 1e-6 ? (p.z - r.z) / d : 0;
-    p.x = r.x + nx * KEEP_AWAY;
-    p.z = r.z + nz * KEEP_AWAY;
+    keepClear(p, r);
   }
 }
 

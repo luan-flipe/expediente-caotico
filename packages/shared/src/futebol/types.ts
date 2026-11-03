@@ -50,6 +50,8 @@ export interface FutPlayer {
   carry?: boolean;
   /** Tempo (ms) de reação reduzida depois de perder a bola para um desarme. */
   slowMs?: number;
+  /** Faltas cometidas na partida (a reincidência dá cartão). */
+  fouls?: number;
 }
 
 /** Quem tocou na bola (para saber de quem foi o último toque). */
@@ -71,6 +73,8 @@ export interface Ball {
   ownerId: string | null;
   lastTouch: BallTouch | null;
   prevTouch: BallTouch | null;
+  /** Efeito: taxa (rad/s) com que a direção horizontal gira enquanto a bola está no ar (cobrança de falta). */
+  curve?: number;
 }
 
 export type RestartKind = "lateral" | "escanteio" | "meta" | "falta" | "penalti" | "saida";
@@ -83,6 +87,8 @@ export interface Restart {
   z: number;
   takerId: string;
   leftMs: number;
+  /** Falta: ids dos jogadores que formam a barreira (a IA os posiciona; ninguém mais chega a menos de 9 m). */
+  wall?: string[];
 }
 
 export type FutPhase = "kickoff" | "play" | "restart" | "goal" | "penalties" | "over";
@@ -90,7 +96,7 @@ export type FutPhase = "kickoff" | "play" | "restart" | "goal" | "penalties" | "
 export type FutEvent =
   | { type: "goal"; side: TeamSide; scorerId: string | null; assistId: string | null; own: boolean }
   | { type: "card"; id: string; card: "yellow" | "red" }
-  | { type: "foul"; id: string }
+  | { type: "foul"; id: string; victimId?: string; x?: number; z?: number }
   | { type: "restart"; kind: RestartKind }
   | { type: "whistle"; kind: "start" | "half" | "end" }
   | { type: "pen"; side: TeamSide; takerId: string; scored: boolean };
@@ -167,7 +173,7 @@ export interface FutSnapshot {
   score: [number, number];
   pens: { goals: [number, number]; taken: [number, number]; takerId: string } | null;
   teams: [FutTeamConfig, FutTeamConfig];
-  restart: { kind: RestartKind; side: TeamSide; x: number; z: number; takerId: string; leftMs: number } | null;
+  restart: { kind: RestartKind; side: TeamSide; x: number; z: number; takerId: string; leftMs: number; wall?: string[] } | null;
   ball: { x: number; y: number; z: number; vx: number; vy: number; vz: number; ownerId: string | null };
   players: {
     id: string;

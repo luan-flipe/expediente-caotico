@@ -42,6 +42,15 @@ export const FUT = {
   assistHighFrom: 0.55,
   assistHighY: 1.6,
   assistPressureDist: 3,
+  /** Falta: distância (m) da barreira à bola, efeito (rad/s) da cobrança, altura (m) que a bola precisa ter na barreira e folga (m) sob o travessão. */
+  wallDist: 9,
+  freeKickCurve: 0.3,
+  wallClear: 2.25,
+  barSlack: 0.35,
+  /** Disputa em pé com velocidade de encontro acima disso (m/s) é tranco forte (falta se vier por trás ou for em corrida). */
+  shoveSpeed: 6,
+  /** A cada tantas faltas o jogador leva amarelo. */
+  foulsForYellow: 3,
   goalCelebrateMs: 4000,
   kickoffWaitMs: 2000,
   gravity: 9.8,

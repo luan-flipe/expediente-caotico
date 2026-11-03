@@ -2926,6 +2926,15 @@ input.fut-team-name {
   vertical-align: middle;
 }
 
+.fut-banner.card-yellow .card,
+.fut-banner.card-red .card {
+  width: 24px;
+  height: 34px;
+  border-radius: 3px;
+  margin: 0 4px 0 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
 .fut-banner.card-red .card,
 .fut-board .card.r {
   background: #e2483c;

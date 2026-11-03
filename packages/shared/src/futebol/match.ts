@@ -6,7 +6,7 @@ import { FUT, FUT_COLORS, FUT_KITS } from "./balance";
 import { ballOut } from "./ball";
 import { attackDir } from "./bots";
 import { fieldFor } from "./field";
-import { activeOutfield, applyCard, isPenaltyFoul, judgeTackle } from "./fouls";
+import { activeOutfield, applyCard, isPenaltyFoul, judgeShove, judgeTackle, repeatCard } from "./fouls";
 import { startShootout, stepShootout } from "./penalties";
 import { restartForOut, startRestart } from "./restarts";
 import { stepWorld, type WorldStep } from "./sim";
@@ -230,14 +230,17 @@ function judgeContacts(m: FutMatch, step: WorldStep): void {
       continue;
     }
     const sprint = step.inputs.get(tackler.id)?.sprint ?? false;
-    const j = judgeTackle(tackler, victim, m.ball, ev.t === "tackle" ? "carrinho" : "disputa", sprint, ev.ballFirst);
+    // disputa em pé só é falta se foi tranco forte; carrinho é julgado pela bola (e por trás ou em corrida vira cartão)
+    const j = ev.t === "steal" ? judgeShove(tackler, victim, ev.hard === true) : judgeTackle(tackler, victim, m.ball, "carrinho", sprint, ev.ballFirst);
     if (!j.foul) {
       continue;
     }
-    m.events.push({ type: "foul", id: tackler.id });
-    if (j.card !== "none") {
-      applyCard(tackler, j.card);
-      if (j.card === "yellow") {
+    m.events.push({ type: "foul", id: tackler.id, victimId: victim.id, x: r2(victim.x), z: r2(victim.z) });
+    // reincidência: a cada foulsForYellow faltas sem cartão o árbitro mostra o amarelo
+    const card = repeatCard(tackler, j.card);
+    if (card !== "none") {
+      applyCard(tackler, card);
+      if (card === "yellow") {
         m.events.push({ type: "card", id: tackler.id, card: "yellow" });
       }
       if (tackler.sentOff) {
@@ -369,7 +372,7 @@ export function buildFutSnapshot(m: FutMatch): FutSnapshot {
     score: [m.score[0], m.score[1]],
     pens: s ? { goals: [s.goals[0], s.goals[1]], taken: [s.taken[0], s.taken[1]], takerId: s.takerId } : null,
     teams: m.teams,
-    restart: r ? { kind: r.kind, side: r.side, x: r2(r.x), z: r2(r.z), takerId: r.takerId, leftMs: Math.round(r.leftMs) } : null,
+    restart: r ? { kind: r.kind, side: r.side, x: r2(r.x), z: r2(r.z), takerId: r.takerId, leftMs: Math.round(r.leftMs), wall: r.wall } : null,
     ball: { x: r2(b.x), y: r2(b.y), z: r2(b.z), vx: r2(b.vx), vy: r2(b.vy), vz: r2(b.vz), ownerId: b.ownerId },
     players: m.players.map((p) => ({
       id: p.id,

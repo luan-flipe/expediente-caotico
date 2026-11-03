@@ -5,6 +5,7 @@ import {
   FUT_COLORS,
   PRESETS,
   fieldFor,
+  keepClear,
   markCarry,
   stepPlayer,
   type AvatarDNA,
@@ -34,6 +35,7 @@ import { TOUCH_KICK, TOUCH_PASS, cancelCharges, chargePower, hasBallReach, mouse
 import { Arena } from "./arena";
 import { Comemoracoes } from "./comemoracoes";
 import { EquipeFilmagem } from "./equipe";
+import { Juiz } from "./juiz";
 import { Torcida } from "./torcida";
 import { uniformDNA } from "./uniforme";
 
@@ -180,6 +182,7 @@ export class FutebolEngine {
   private arena: Arena | null = null;
   private crowd: Torcida | null = null;
   private crew: EquipeFilmagem | null = null;
+  private ref: Juiz | null = null;
   private clock = 0;
   private goals: THREE.Object3D[] = [];
   private lineMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.92 });
@@ -511,6 +514,10 @@ export class FutebolEngine {
     this.me = me;
     this.teamsSig = s.teams.map((t) => `${t.name}|${t.kit}|${t.color}`).join("/");
     if (!this.field) this.buildField(s.format);
+    if (this.field && (!this.ref || this.ref.retint(s.teams))) {
+      this.ref?.dispose();
+      this.ref = new Juiz(this.scene, this.field, s.teams);
+    }
 
     const seen = new Set<string>();
     for (const p of s.players) {
@@ -561,7 +568,10 @@ export class FutebolEngine {
       if (e.type === "whistle") {
         playWhistle(e.kind);
         if (e.kind === "end") this.crowd?.cheer();
-      } else if (e.type === "foul") playWhistle("foul");
+      } else if (e.type === "foul") {
+        playWhistle("foul");
+        this.ref?.foul(e.x ?? s.ball.x, e.z ?? s.ball.z);
+      } else if (e.type === "card") this.ref?.showCard(e.card);
       else if (e.type === "goal") this.celebrateGoal(e, s);
     }
   }
@@ -601,7 +611,11 @@ export class FutebolEngine {
     }
     while (this.pending.length && this.pending[0].seq <= me.ackSeq) this.pending.shift();
     const next = predictedPlayer(p, me, this.snap?.ball.ownerId ?? null);
-    for (const q of this.pending) stepPlayer(next, q.input, this.field, DT);
+    const hold = this.restartHold();
+    for (const q of this.pending) {
+      stepPlayer(next, q.input, this.field, DT);
+      if (hold) keepClear(next, hold);
+    }
     const old = this.pred;
     if (old) {
       // a posição desenhada agora (interpolada) não pode pular: o desvio absorve a diferença e some aos poucos
@@ -775,7 +789,15 @@ export class FutebolEngine {
       this.prevZ = this.pred.z;
       markCarry(this.pred, s.ball.ownerId);
       stepPlayer(this.pred, input, this.field, DT);
+      const hold = this.restartHold();
+      if (hold) keepClear(this.pred, hold);
     }
+  }
+
+  /** Cobrança em andamento que afasta os jogadores (a sim faz o mesmo; a disputa de pênaltis não afasta). */
+  private restartHold(): NonNullable<FutSnapshot["restart"]> | null {
+    const s = this.snap;
+    return s && s.phase !== "penalties" ? s.restart : null;
   }
 
   private sampleAt(buf: Sample[], rt: number): Sample | null {
@@ -881,6 +903,7 @@ export class FutebolEngine {
     this.arena?.update(this.clock);
     this.crowd?.update(dt);
     this.crew?.update(dt, this.ball.position.x, this.ball.position.z);
+    this.ref?.update(dt, this.ball.position.x, this.ball.position.z);
     this.updateAim(now);
     this.updateCamera(dt);
     this.updatePower(now);
@@ -988,6 +1011,7 @@ export class FutebolEngine {
     this.fx.dispose();
     this.arena?.dispose();
     this.crew?.dispose();
+    this.ref?.dispose();
     this.crowd?.dispose();
     for (const v of this.views.values()) this.dropView(v);
     this.views.clear();

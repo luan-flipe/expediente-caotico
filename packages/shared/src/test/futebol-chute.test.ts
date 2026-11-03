@@ -102,9 +102,9 @@ describe("chute assistido", () => {
     const ms = power01 * FUT.chargeMaxMs;
     const down = new Map([["p1", inp({ aim, kick: "charge" })]]);
     for (let t = 0; t < ms; t += 16) {
-      resolveTouches(players, b, down, 16, field, rng);
+      resolveTouches(players, b, down, 16, field, { rng, freeKick: false });
     }
-    resolveTouches(players, b, new Map([["p1", inp({ aim, kick: "release" })]]), 16, field, rng);
+    resolveTouches(players, b, new Map([["p1", inp({ aim, kick: "release" })]]), 16, field, { rng, freeKick: false });
     return b;
   }
 
@@ -168,6 +168,6 @@ describe("chute assistido", () => {
     const bot = shoot(0.6, Math.atan2(field.halfL - 18, 2), 1, { isBot: true });
     expect(Math.atan2(bot.vx, bot.vz)).toBeCloseTo(Math.atan2(field.halfL - 18, 2), 5);
     const p = mk({ x: 18, z: 1 });
-    expect(assistShot(p, inp({ aim: Math.PI / 2 + 1.2 }), 0.5, ball({ x: 18.7, z: 1 }), field, [p], mulberry32(1))).toBeNull();
+    expect(assistShot(p, inp({ aim: Math.PI / 2 + 1.2 }), 0.5, ball({ x: 18.7, z: 1 }), field, [p], () => 0.5)).toBeNull();
   });
 });

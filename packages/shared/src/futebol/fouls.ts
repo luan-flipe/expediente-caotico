@@ -1,3 +1,4 @@
+import { FUT } from "./balance";
 import type { Ball, Field, FutPlayer, TeamSide } from "./types";
 
 export type Card = "none" | "yellow" | "red";
@@ -36,6 +37,20 @@ export function judgeTackle(
     }
   }
   return { foul: true, card: "none" };
+}
+
+/** Tranco forte (disputa em pé com velocidade de encontro alta) é falta; por trás, falta dura (amarelo). */
+export function judgeShove(tackler: FutPlayer, victim: FutPlayer, hard: boolean): { foul: boolean; card: Card } {
+  if (!hard) {
+    return { foul: false, card: "none" };
+  }
+  return { foul: true, card: angleDiff(tackler.facing, victim.facing) < BEHIND_DIFF ? "yellow" : "none" };
+}
+
+/** Reincidência: a cada foulsForYellow faltas sem cartão o árbitro mostra o amarelo. Conta a falta no jogador. */
+export function repeatCard(p: FutPlayer, card: Card): Card {
+  p.fouls = (p.fouls ?? 0) + 1;
+  return card === "none" && p.fouls % FUT.foulsForYellow === 0 ? "yellow" : card;
 }
 
 /** Segundo amarelo vira vermelho; vermelho expulsa (sentOff). */

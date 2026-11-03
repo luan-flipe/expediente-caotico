@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CLOTH_COLORS, DEFAULT_AVATAR, FUT_COLORS, FUT_KITS, type AvatarDNA } from "@ec/shared";
-import { uniformDNA } from "./uniforme";
+import { keeperColors, refereeColor, uniformDNA } from "./uniforme";
 
 const avatar: AvatarDNA = { ...DEFAULT_AVATAR, name: "Zeca", skin: 4, hair: 3, hairColor: 5, eyes: 2, face: 3, beard: 1, glasses: 2, height: 2, shoes: 3, shoesColor: 4, accessory: 2, top: 6, bottom: 3, shirt: 5, shirtColor: 7, pants: 2, pantsColor: 3 };
 
@@ -46,6 +46,18 @@ describe("uniformDNA", () => {
     FUT_COLORS.forEach((c, color) => {
       expect(CLOTH_COLORS[uniformDNA(avatar, { name: "T", kit: 0, color }).shirtColor - 1]).toBe(c.hex);
     });
+  });
+
+  it("o juiz veste uma cor que não é de time nem de goleiro", () => {
+    const t = (color: number) => ({ name: "T", kit: 0, color });
+    for (let a = 0; a < FUT_COLORS.length; a++) {
+      for (let b = 0; b < FUT_COLORS.length; b++) {
+        const teams: [ReturnType<typeof t>, ReturnType<typeof t>] = [t(a), t(b)];
+        const c = refereeColor(teams);
+        expect([a, b, ...keeperColors(teams)]).not.toContain(c);
+      }
+    }
+    expect(refereeColor([t(0), t(2)])).toBe(1);
   });
 
   it("calça escura fixa e índices inválidos caem no padrão", () => {

@@ -23,6 +23,19 @@ const TEAM_CLOTH: number[] = FUT_COLORS.map((c) => {
   return i + 1;
 });
 
+/** Cores dos dois goleiros (lado 0 e 1): diferentes das duas camisas, na ordem de preferência do jogo. */
+export function keeperColors(teams: readonly [FutTeamConfig, FutTeamConfig]): [number, number] {
+  const taken = new Set<number>([teams[0].color, teams[1].color]);
+  const free = [5, 4, 7, 3, 6, 2].filter((c) => !taken.has(c));
+  return [free[0] ?? 5, free[1 % Math.max(1, free.length)] ?? 5];
+}
+
+/** Cor da camisa do juiz: preta, ou a primeira livre que não seja de time nem de goleiro. */
+export function refereeColor(teams: readonly [FutTeamConfig, FutTeamConfig]): number {
+  const taken = new Set<number>([teams[0].color, teams[1].color, ...keeperColors(teams)]);
+  return [1, 6, 2, 0, 7, 4, 5, 3].find((c) => !taken.has(c)) ?? 1;
+}
+
 const valid = (v: number, len: number): number => (Number.isInteger(v) && v >= 0 && v < len ? v : 0);
 
 /** Boneco com a camisa do time: mantém rosto, cabelo, pele, corpo e tênis; troca camiseta, calça e acessório. */

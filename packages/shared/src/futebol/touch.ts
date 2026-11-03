@@ -11,6 +11,8 @@ export interface TouchEvent {
   ok: boolean;
   victimId?: string;
   ballFirst?: boolean;
+  /** Só em "steal": a disputa foi um tranco forte (velocidade de encontro alta). */
+  hard?: boolean;
 }
 
 /** Bola acima disso (m) não é dominada nem chutada pelo jogador. */
@@ -41,6 +43,7 @@ function touch(ball: Ball, p: FutPlayer): void {
   if (ball.lastTouch?.id === p.id) {
     return;
   }
+  ball.curve = 0;
   ball.prevTouch = ball.lastTouch;
   ball.lastTouch = { id: p.id, side: p.side };
 }
@@ -110,12 +113,21 @@ function tackle(p: FutPlayer, input: FutInput, players: FutPlayer[], ball: Ball,
 function steal(p: FutPlayer, players: FutPlayer[], ball: Ball): TouchEvent {
   const owner = ball.ownerId === null ? null : players.find((o) => o.id === ball.ownerId);
   if (owner && owner.side !== p.side && Math.hypot(owner.x - p.x, owner.z - p.z) <= FUT.controlRadius) {
+    // velocidade de encontro (m/s) na direção do dono: acima de SHOVE_SPEED o desarme é um tranco
+    const dx = owner.x - p.x;
+    const dz = owner.z - p.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const closing = ((p.vx - owner.vx) * dx + (p.vz - owner.vz) * dz) / d;
     ball.ownerId = p.id;
     ball.vx = 0;
     ball.vz = 0;
     owner.slowMs = FUT.recoverMs;
     touch(ball, p);
-    return { t: "steal", id: p.id, ok: true, victimId: owner.id, ballFirst: true };
+    const ev: TouchEvent = { t: "steal", id: p.id, ok: true, victimId: owner.id, ballFirst: true };
+    if (closing > FUT.shoveSpeed) {
+      ev.hard = true;
+    }
+    return ev;
   }
   return { t: "steal", id: p.id, ok: false };
 }
@@ -128,7 +140,7 @@ export function resolveTouches(
   inputs: Map<string, FutInput>,
   dtMs: number,
   field?: Field,
-  rng?: () => number,
+  assist?: { rng: () => number; freeKick: boolean },
 ): TouchEvent[] {
   const events: TouchEvent[] = [];
   const ordered = [...players].sort(byId);
@@ -187,8 +199,9 @@ export function resolveTouches(
     if (hasBall || looseNear) {
       touch(ball, p);
       // chute de humano perto do gol: a sim leva a bola ao canto escolhido (a mira só diz o lado)
-      const help = rng && field && kind === "kick" && !p.isBot ? assistShot(p, input, power01, ball, field, players, rng) : null;
-      kickBall(ball, help?.yaw ?? input.aim, power01, kind, help ? { vy: help.vy } : {});
+      // (na cobrança de falta a assistência vale também para o bot, que passa a barreira do mesmo jeito)
+      const help = assist && field && kind === "kick" && (!p.isBot || assist.freeKick) ? assistShot(p, input, power01, ball, field, players, assist.rng, assist.freeKick) : null;
+      kickBall(ball, help?.yaw ?? input.aim, power01, kind, help ? { vy: help.vy, speed: help.speed, curve: help.curve } : {});
       kicked.add(p.id);
       events.push({ t: kind, id: p.id, ok: true });
     } else if (charged && kind === "kick") {

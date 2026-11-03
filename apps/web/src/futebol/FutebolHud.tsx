@@ -44,9 +44,9 @@ function bannersFor(s: FutSnapshot, myId: string, now: number): Banner[] {
       const team = s.teams[e.side].name;
       out.push({ id: ++bannerId, until: now + 3800, kind: "goal", text: e.own ? "Gol contra!" : "GOOOL!", sub: e.scorerId ? `${name(e.scorerId)} (${team})` : team });
     } else if (e.type === "card") {
-      out.push({ id: ++bannerId, until: now + 3000, kind: e.card === "yellow" ? "card-yellow" : "card-red", text: e.card === "yellow" ? "Cartão amarelo" : "Cartão vermelho", sub: name(e.id) });
+      out.push({ id: ++bannerId, until: now + 3000, kind: e.card === "yellow" ? "card-yellow" : "card-red", text: e.card === "yellow" ? "Juiz mostra o amarelo" : "Juiz mostra o vermelho", sub: name(e.id) });
     } else if (e.type === "foul") {
-      out.push({ id: ++bannerId, until: now + 2000, kind: "info", text: "Falta", sub: e.id === myId ? "Você cometeu a falta" : `de ${name(e.id)}` });
+      out.push({ id: ++bannerId, until: now + 2000, kind: "info", text: "Falta", sub: e.id === myId ? "Você cometeu a falta" : e.victimId === myId ? `${name(e.id)} em você` : `de ${name(e.id)}` });
     } else if (e.type === "whistle") {
       const text = e.kind === "start" ? "Bola rolando!" : e.kind === "half" ? "Fim do primeiro tempo" : "Fim de jogo";
       out.push({ id: ++bannerId, until: now + 2500, kind: "info", text });

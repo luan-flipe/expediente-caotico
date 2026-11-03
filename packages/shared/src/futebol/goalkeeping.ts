@@ -28,6 +28,7 @@ export function touchBall(ball: Ball, p: FutPlayer): void {
   if (ball.lastTouch?.id === p.id) {
     return;
   }
+  ball.curve = 0;
   ball.prevTouch = ball.lastTouch;
   ball.lastTouch = { id: p.id, side: p.side };
 }

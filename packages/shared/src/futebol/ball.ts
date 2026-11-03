@@ -7,6 +7,15 @@ const MIN_BOUNCE_VY = 0.5;
 /** Passo da bola: gravidade, quique, atrito no chão e parada. */
 export function stepBall(b: Ball, dtMs: number): void {
   const dt = dtMs / 1000;
+  if (b.curve && b.y > FUT.ballRadius + 0.02) {
+    // efeito: a direção horizontal gira, a velocidade não muda
+    const a = b.curve * dt;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    const vx = b.vx * c + b.vz * s;
+    b.vz = b.vz * c - b.vx * s;
+    b.vx = vx;
+  }
   b.x += b.vx * dt;
   b.z += b.vz * dt;
   b.vy -= FUT.gravity * dt;
@@ -14,6 +23,7 @@ export function stepBall(b: Ball, dtMs: number): void {
 
   if (b.y <= FUT.ballRadius) {
     b.y = FUT.ballRadius;
+    b.curve = 0;
     if (b.vy < -MIN_BOUNCE_VY) {
       b.vy = -b.vy * FUT.bounce;
     } else {
@@ -52,6 +62,10 @@ export function ballOut(b: Ball, f: Field): { kind: "lateral" | "fundo" | "gol";
 export interface KickOpts {
   vy?: number;
   lob?: number;
+  /** Velocidade horizontal (m/s) em vez da que a força daria. */
+  speed?: number;
+  /** Efeito (rad/s) da direção horizontal enquanto a bola está no ar. */
+  curve?: number;
 }
 
 /** Velocidade vertical (m/s) de um chute forte: cresce de 0 (em loftFrom) a loftMax x velocidade (força total). */
@@ -71,7 +85,8 @@ export function lobSpeedFor(d: number): number {
 export function kickBall(b: Ball, dirYaw: number, power01: number, kind: "kick" | "pass", opts: KickOpts = {}): void {
   const p = Math.min(1, Math.max(0, power01));
   const [min, max] = kind === "kick" ? [FUT.shotMin, FUT.shotMax] : [FUT.passMin, FUT.passMax];
-  const speed = min + (max - min) * p;
+  const speed = opts.speed ?? min + (max - min) * p;
+  b.curve = opts.curve ?? 0;
   b.vx = Math.sin(dirYaw) * speed;
   b.vz = Math.cos(dirYaw) * speed;
   b.vy = opts.vy ?? (opts.lob !== undefined ? speed * opts.lob : kind === "kick" ? loftVy(speed, p) : 0);

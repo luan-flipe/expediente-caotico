@@ -18,6 +18,8 @@ const SHOT_TARGET = 0.75;
 const SHOT_POWER = 0.7;
 /** Alcance do chute dos bots, em comprimentos de área (só chutam com o gol perto o bastante). */
 const SHOOT_RANGE = 2.2;
+/** Força da cobrança de falta direta dos bots (a assistência escolhe a velocidade que passa a barreira). */
+const FREE_KICK_POWER = 0.9;
 /** Força do toque de uma cobrança sem companheiro à vista. */
 const RESTART_POWER = 0.4;
 /** Acima dessa distância (m) da bola o bot corre. */
@@ -235,17 +237,22 @@ export function botInput(p: FutPlayer, m: FutMatch, level: BotLevel): FutInput {
     const faceGoal = aimTo(p, goal);
     const walk = { ...IDLE, mx: Math.sin(faceGoal), mz: Math.cos(faceGoal) };
     const inBox = Math.abs(p.x - goal.x) <= f.boxL * SHOOT_RANGE && Math.abs(p.z) <= f.boxHalfW;
+    // falta ao alcance do gol e sem ângulo fechado: o bot cobra direto (a assistência cuida de barreira e canto)
+    const dx = Math.abs(goal.x - p.x);
+    const freeKick = taker && m.restart?.kind === "falta" && dx >= 1 && Math.hypot(dx, p.z) <= FUT.assistRange && Math.abs(p.z) <= dx * 1.5;
     const marked = m.players.some((q) => q.side !== p.side && q.role === "linha" && !q.sentOff && dist(q, p) <= par.markDist);
     const mate = freestMate(m.players, p);
 
     // Quem já começou a carregar segue até soltar (a decisão não oscila a cada tick).
-    if (inBox && p.chargeKind !== "pass") {
+    if ((inBox || freeKick) && p.chargeKind !== "pass") {
       const keeper = m.players.find((q) => q.side !== p.side && q.role === "goleiro");
       const dodge = keeper && Math.abs(keeper.z) > 0.2 ? -Math.sign(keeper.z) : rng() < 0.5 ? -1 : 1;
-      const ready = p.chargeKind === "kick" && p.chargeMs >= SHOT_POWER * FUT.chargeMaxMs;
-      const noise = ready ? (rng() * 2 - 1) * par.aimNoise : 0;
+      const power = freeKick ? FREE_KICK_POWER : SHOT_POWER;
+      const ready = p.chargeKind === "kick" && p.chargeMs >= power * FUT.chargeMaxMs;
+      const noise = ready && !freeKick ? (rng() * 2 - 1) * par.aimNoise : 0;
       const aim = aimTo(p, { x: goal.x, z: dodge * f.goalHalfW * SHOT_TARGET }) + noise;
-      return chargeThenRelease(p, "kick", SHOT_POWER, { ...walk, aim });
+      // o cobrador fica parado na bola (andar com ela encerraria a cobrança)
+      return chargeThenRelease(p, "kick", power, { ...(taker ? IDLE : walk), aim });
     }
     if (mate && (p.chargeKind === "pass" || marked)) {
       return chargeThenRelease(p, "pass", passPowerFor(dist(p, mate)), { ...walk, aim: aimTo(p, mate) });
