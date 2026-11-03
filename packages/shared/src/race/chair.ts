@@ -9,8 +9,11 @@ export interface ChairDNA {
   trinket: number;
 }
 
-export const VEHICLES = ["Cadeira", "Patinete elétrico"];
+export const VEHICLES = ["Cadeira", "Patinete elétrico", "Cadeira vermelha", "Cadeira gamer"];
+export const CHAIR_CLASSIC = 0;
 export const SCOOTER = 1;
+export const CHAIR_RED = 2;
+export const CHAIR_GAMER = 3;
 
 export const CHAIR_SEATS = [
   "#2b2d42", "#c0392b", "#2e86de", "#27ae60", "#f39c12",
@@ -48,6 +51,6 @@ export function randomChair(rng: () => number): ChairDNA {
     wheels: r(CHAIR_WHEELS.length),
     back: r(CHAIR_BACKS.length),
     trinket: r(CHAIR_TRINKETS.length),
-    vehicle: rng() < 0.3 ? SCOOTER : 0,
+    vehicle: r(VEHICLES.length),
   };
 }

@@ -1,11 +1,13 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { CHAIR_BASES, CHAIR_SEATS, SCOOTER, type AvatarDNA, type ChairDNA } from "@ec/shared";
+import { CHAIR_BASES, CHAIR_GAMER, CHAIR_RED, CHAIR_SEATS, SCOOTER, type AvatarDNA, type ChairDNA } from "@ec/shared";
 import { celebrationExtras, createCharacter, modelReady, type Character, type CharacterSeatedOptions } from "../game/character";
 import { createGltfLoader } from "../game/gltfLoader";
 import { mountScooter } from "./scooterMesh";
 
-const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
+const MODEL_URL_CLASSIC = "/assets/chairs/cadeira_escritorio.glb";
+const MODEL_URL_RED = "/assets/chairs/cadeira_escritorio_vermelho.glb";
+const MODEL_URL_GAMER = "/assets/chairs/cadeira_gamer_ciano.glb";
 
 function shade(hex: string, k: number): THREE.Color {
   const c = new THREE.Color(hex);
@@ -55,24 +57,51 @@ export interface ChairModel extends Vehicle {
 
 // ---------- GLB do romulo-h ----------
 let loaded: THREE.Group | null = null;
+let loadedRed: THREE.Group | null = null;
+let loadedGamer: THREE.Group | null = null;
 let loading: Promise<boolean> | null = null;
 
 export function chairModelReady(): boolean {
   return loaded !== null;
 }
 
-/** Carrega o GLB da cadeira uma vez. Resolve false se falhar (a corrida segue com a cadeira procedural). */
+/** Carrega os GLBs das cadeiras. Resolve true se a clássica carregar (ou segue com procedural). */
 export function preloadChair(onProgress?: (e: ProgressEvent) => void): Promise<boolean> {
-  loading ??= createGltfLoader()
-    .loadAsync(MODEL_URL, onProgress)
-    .then((gltf) => {
-      loaded = gltf.scene;
-      return true;
-    })
-    .catch((err) => {
-      console.warn("cadeira_escritorio.glb não carregou, usando cadeira procedural", err);
-      return false;
-    });
+  if (typeof window === "undefined") return Promise.resolve(false);
+  if (loading) return loading;
+  const loader = createGltfLoader();
+  loading = Promise.all([
+    loader
+      .loadAsync(MODEL_URL_CLASSIC, onProgress)
+      .then((gltf) => {
+        loaded = gltf.scene;
+        return true;
+      })
+      .catch((err) => {
+        console.warn("cadeira_escritorio.glb não carregou, usando cadeira procedural", err);
+        return false;
+      }),
+    loader
+      .loadAsync(MODEL_URL_RED)
+      .then((gltf) => {
+        loadedRed = gltf.scene;
+        return true;
+      })
+      .catch((err) => {
+        console.warn("cadeira_escritorio_vermelho.glb não carregou", err);
+        return false;
+      }),
+    loader
+      .loadAsync(MODEL_URL_GAMER)
+      .then((gltf) => {
+        loadedGamer = gltf.scene;
+        return true;
+      })
+      .catch((err) => {
+        console.warn("cadeira_gamer_ciano.glb não carregou", err);
+        return false;
+      }),
+  ]).then(([classicOk]) => classicOk);
   return loading;
 }
 
@@ -375,6 +404,355 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
     },
     dispose() {
       for (const m of [...mats.values(), ...wheelMats.values()]) m.dispose();
+      for (const e of extras) {
+        e.geometry.dispose();
+        (e.material as THREE.Material).dispose();
+      }
+    },
+  };
+
+  return modelResult;
+}
+
+// ---------- Cadeira Escritório Vermelha (GLB novo) ----------
+function glbRedChair(chair: ChairDNA, model: THREE.Group): ChairModel {
+  const group = new THREE.Group();
+  const inner = model.clone(true);
+  group.add(inner);
+  const seatColor = CHAIR_SEATS[chair.seat] ?? CHAIR_SEATS[0];
+  const baseColor = CHAIR_BASES[chair.base] ?? CHAIR_BASES[0];
+  const extras: THREE.Mesh[] = [];
+  const mats = new Map<THREE.Material, THREE.MeshStandardMaterial>();
+
+  const cadeiraNode = inner.getObjectByName("cadeira") as THREE.Group | undefined;
+  const pontoSentar = inner.getObjectByName("ponto_sentar");
+
+  // Nomeia o nó superior como Assento_Giratorio para girar na comemoração e dinâmica
+  if (cadeiraNode) {
+    cadeiraNode.name = "Assento_Giratorio";
+  }
+
+  inner.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const src = mesh.material as THREE.MeshStandardMaterial;
+    let m = mats.get(src);
+    if (!m) {
+      m = src.clone();
+      const matName = src.name;
+      if (matName === "estofado") {
+        m.color.set(seatColor);
+        m.roughness = 0.65;
+      } else if (matName === "encosto_casco") {
+        m.color.set(shade(seatColor, -0.2));
+        m.roughness = 0.45;
+      } else if (matName === "bracos") {
+        m.color.set(shade(seatColor, -0.1));
+        m.roughness = 0.5;
+      } else if (matName === "base") {
+        m.color.set(baseColor);
+        m.metalness = 0.65;
+        m.roughness = 0.35;
+      } else if (matName === "rodizios") {
+        if (chair.wheels === 1) {
+          m.color.set("#00f0ff");
+          m.emissive.set("#00c8f8");
+          m.emissiveIntensity = 1.6;
+          m.roughness = 0.15;
+        } else if (chair.wheels === 2) {
+          m.color.set("#ff2a85");
+          m.roughness = 0.15;
+          m.metalness = 0.05;
+        } else {
+          m.color.set("#1e293b");
+          m.roughness = 0.3;
+          m.metalness = 0.2;
+        }
+      } else if (matName === "pistao") {
+        m.color.set("#f1f5f9");
+        m.metalness = 0.85;
+        m.roughness = 0.15;
+      } else if (matName === "estrutura" || matName === "mecanismo") {
+        m.color.set("#1e293b");
+        m.metalness = 0.5;
+        m.roughness = 0.4;
+      }
+      mats.set(src, m);
+    }
+    mesh.material = m;
+    mesh.castShadow = true;
+  });
+
+  const anchors: Anchors = {
+    seatTop: pontoSentar?.position.y ?? 0.37,
+    seatZ: pontoSentar?.position.z ?? 0.02,
+    armX: 0.38,
+    armY: 0.61,
+    armZ: -0.03,
+    backTop: 1.025,
+    backZ: -0.38,
+  };
+
+  const exhaust = new THREE.Vector3(0, 0.38, -0.42);
+  addTrinket(group, chair.trinket, anchors, extras, cadeiraNode, cadeiraNode);
+
+  let pistonY = 0;
+  let pistonVy = 0;
+  let wasAir = false;
+  let wasBoosting = false;
+  let prevSpeed = 0;
+  let backRotX = 0;
+  let backRotVel = 0;
+  let seatRoll = 0;
+
+  const modelResult: ChairModel = {
+    group,
+    anchors,
+    exhaust,
+    jet: "#ff5722",
+    pistonOffset: 0,
+    rollAngle: 0,
+    backAngle: 0,
+    update(dt, speed, steer = 0, driftDir = 0, boosting = false, air = false) {
+      const now = performance.now();
+      const justLanded = wasAir && !air;
+      const justBoosted = boosting && !wasBoosting;
+      wasAir = !!air;
+      wasBoosting = !!boosting;
+
+      if (justLanded) {
+        pistonVy -= 1.6;
+        pistonY -= 0.045;
+        backRotVel += 0.35;
+      }
+      if (justBoosted) {
+        pistonVy -= 1.3;
+        pistonY -= 0.035;
+        backRotVel -= 0.6;
+      }
+
+      const targetPistonY = boosting ? -0.024 : Math.min(0, -Math.abs(speed) * 0.001);
+      const pistonForce = (targetPistonY - pistonY) * 200 - pistonVy * 16;
+      pistonVy += pistonForce * dt;
+      pistonY += pistonVy * dt;
+      pistonY = Math.max(-0.085, Math.min(0.025, pistonY));
+
+      const boostJitter = boosting ? Math.sin(now * 0.065) * 0.003 : 0;
+      const curPistonY = pistonY + boostJitter;
+
+      const accel = dt > 0.0001 ? (speed - prevSpeed) / dt : 0;
+      prevSpeed = speed;
+
+      let targetBackRot = 0;
+      if (boosting) {
+        targetBackRot = -0.18;
+      } else if (accel > 1.5) {
+        targetBackRot = -Math.min(0.14, accel * 0.016);
+      } else if (accel < -2.0 || speed < -0.2) {
+        targetBackRot = Math.min(0.12, -accel * 0.012);
+      }
+
+      const backForce = (targetBackRot - backRotX) * 150 - backRotVel * 15;
+      backRotVel += backForce * dt;
+      backRotX += backRotVel * dt;
+      backRotX = Math.max(-0.24, Math.min(0.15, backRotX));
+
+      const targetRoll = driftDir !== 0
+        ? -driftDir * 0.20
+        : steer !== 0
+          ? -steer * 0.10 * Math.min(1, Math.abs(speed) / 6)
+          : 0;
+      seatRoll += (targetRoll - seatRoll) * Math.min(1, dt * 14);
+
+      if (cadeiraNode) {
+        cadeiraNode.position.y = curPistonY;
+        cadeiraNode.rotation.z = seatRoll;
+        cadeiraNode.rotation.x = backRotX * 0.7;
+      }
+
+      modelResult.pistonOffset = curPistonY;
+      modelResult.rollAngle = seatRoll;
+      modelResult.backAngle = backRotX;
+    },
+    dispose() {
+      for (const m of mats.values()) m.dispose();
+      for (const e of extras) {
+        e.geometry.dispose();
+        (e.material as THREE.Material).dispose();
+      }
+    },
+  };
+
+  return modelResult;
+}
+
+// ---------- Cadeira Gamer Ciano (GLB novo) ----------
+function glbGamerChair(chair: ChairDNA, model: THREE.Group): ChairModel {
+  const group = new THREE.Group();
+  const inner = model.clone(true);
+  group.add(inner);
+  const seatColor = CHAIR_SEATS[chair.seat] ?? CHAIR_SEATS[0];
+  const baseColor = CHAIR_BASES[chair.base] ?? CHAIR_BASES[0];
+  const extras: THREE.Mesh[] = [];
+  const mats = new Map<THREE.Material, THREE.MeshStandardMaterial>();
+
+  const estofadoNode = inner.getObjectByName("estofado") as THREE.Group | undefined;
+  const neonNode = inner.getObjectByName("neon") as THREE.Mesh | undefined;
+  const pontoSentar = inner.getObjectByName("ponto_sentar");
+
+  // Cria pivô superior Assento_Giratorio para girar/inclinar estofado e neon juntos
+  const assentoGiratorio = new THREE.Group();
+  assentoGiratorio.name = "Assento_Giratorio";
+  group.add(assentoGiratorio);
+  if (estofadoNode) assentoGiratorio.add(estofadoNode);
+  if (neonNode) assentoGiratorio.add(neonNode);
+
+  inner.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const src = mesh.material as THREE.MeshStandardMaterial;
+    let m = mats.get(src);
+    if (!m) {
+      m = src.clone();
+      const matName = src.name;
+      if (matName === "estofado") {
+        m.color.set(seatColor);
+        m.roughness = 0.6;
+      } else if (matName === "neon") {
+        if (chair.wheels === 1) {
+          m.color.set("#00f0ff");
+          m.emissive.set("#00f0ff");
+          m.emissiveIntensity = 2.4;
+        } else if (chair.wheels === 2) {
+          m.color.set("#ff2a85");
+          m.emissive.set("#ff2a85");
+          m.emissiveIntensity = 2.0;
+        } else {
+          m.color.set("#00d4ff");
+          m.emissive.set("#00d4ff");
+          m.emissiveIntensity = 1.8;
+        }
+      } else if (matName === "base") {
+        m.color.set(baseColor);
+        m.metalness = 0.65;
+        m.roughness = 0.35;
+      } else if (matName === "rodizios") {
+        if (chair.wheels === 1) {
+          m.color.set("#00f0ff");
+          m.emissive.set("#00c8f8");
+          m.emissiveIntensity = 1.6;
+          m.roughness = 0.15;
+        } else if (chair.wheels === 2) {
+          m.color.set("#ff2a85");
+          m.roughness = 0.15;
+          m.metalness = 0.05;
+        } else {
+          m.color.set("#0284c7");
+          m.roughness = 0.3;
+          m.metalness = 0.3;
+        }
+      } else if (matName === "plastico") {
+        m.color.set("#0f172a");
+        m.roughness = 0.45;
+        m.metalness = 0.1;
+      }
+      mats.set(src, m);
+    }
+    mesh.material = m;
+    mesh.castShadow = true;
+  });
+
+  const anchors: Anchors = {
+    seatTop: pontoSentar?.position.y ?? 0.37,
+    seatZ: pontoSentar?.position.z ?? 0.02,
+    armX: 0.38,
+    armY: 0.62,
+    armZ: 0.02,
+    backTop: 1.27,
+    backZ: -0.45,
+  };
+
+  const exhaust = new THREE.Vector3(0, 0.42, -0.50);
+  addTrinket(group, chair.trinket, anchors, extras, assentoGiratorio, assentoGiratorio);
+
+  let pistonY = 0;
+  let pistonVy = 0;
+  let wasAir = false;
+  let wasBoosting = false;
+  let prevSpeed = 0;
+  let backRotX = 0;
+  let backRotVel = 0;
+  let seatRoll = 0;
+
+  const modelResult: ChairModel = {
+    group,
+    anchors,
+    exhaust,
+    jet: "#00f0ff",
+    pistonOffset: 0,
+    rollAngle: 0,
+    backAngle: 0,
+    update(dt, speed, steer = 0, driftDir = 0, boosting = false, air = false) {
+      const now = performance.now();
+      const justLanded = wasAir && !air;
+      const justBoosted = boosting && !wasBoosting;
+      wasAir = !!air;
+      wasBoosting = !!boosting;
+
+      if (justLanded) {
+        pistonVy -= 1.6;
+        pistonY -= 0.045;
+        backRotVel += 0.35;
+      }
+      if (justBoosted) {
+        pistonVy -= 1.3;
+        pistonY -= 0.035;
+        backRotVel -= 0.6;
+      }
+
+      const targetPistonY = boosting ? -0.024 : Math.min(0, -Math.abs(speed) * 0.001);
+      const pistonForce = (targetPistonY - pistonY) * 200 - pistonVy * 16;
+      pistonVy += pistonForce * dt;
+      pistonY += pistonVy * dt;
+      pistonY = Math.max(-0.085, Math.min(0.025, pistonY));
+
+      const boostJitter = boosting ? Math.sin(now * 0.065) * 0.003 : 0;
+      const curPistonY = pistonY + boostJitter;
+
+      const accel = dt > 0.0001 ? (speed - prevSpeed) / dt : 0;
+      prevSpeed = speed;
+
+      let targetBackRot = 0;
+      if (boosting) {
+        targetBackRot = -0.18;
+      } else if (accel > 1.5) {
+        targetBackRot = -Math.min(0.14, accel * 0.016);
+      } else if (accel < -2.0 || speed < -0.2) {
+        targetBackRot = Math.min(0.12, -accel * 0.012);
+      }
+
+      const backForce = (targetBackRot - backRotX) * 150 - backRotVel * 15;
+      backRotVel += backForce * dt;
+      backRotX += backRotVel * dt;
+      backRotX = Math.max(-0.24, Math.min(0.15, backRotX));
+
+      const targetRoll = driftDir !== 0
+        ? -driftDir * 0.20
+        : steer !== 0
+          ? -steer * 0.10 * Math.min(1, Math.abs(speed) / 6)
+          : 0;
+      seatRoll += (targetRoll - seatRoll) * Math.min(1, dt * 14);
+
+      assentoGiratorio.position.y = curPistonY;
+      assentoGiratorio.rotation.z = seatRoll;
+      assentoGiratorio.rotation.x = backRotX * 0.75;
+
+      modelResult.pistonOffset = curPistonY;
+      modelResult.rollAngle = seatRoll;
+      modelResult.backAngle = backRotX;
+    },
+    dispose() {
+      for (const m of mats.values()) m.dispose();
       for (const e of extras) {
         e.geometry.dispose();
         (e.material as THREE.Material).dispose();
@@ -755,8 +1133,19 @@ function addTrinket(
   }
 }
 
-/** GLB do romulo-h quando carregado; procedural enquanto isso. */
+/** GLBs novos e clássico quando carregados; procedural enquanto isso. */
 export function buildChair(chair: ChairDNA): ChairModel {
+  void preloadChair();
+  if (chair.vehicle === CHAIR_RED) {
+    return loadedRed
+      ? glbRedChair(chair, loadedRed)
+      : (loaded ? glbChair(chair, loaded) : proceduralChair({ ...chair, seat: 1 }));
+  }
+  if (chair.vehicle === CHAIR_GAMER) {
+    return loadedGamer
+      ? glbGamerChair(chair, loadedGamer)
+      : (loaded ? glbChair(chair, loaded) : proceduralChair({ ...chair, back: 2, wheels: 1 }));
+  }
   return loaded ? glbChair(chair, loaded) : proceduralChair(chair);
 }
 

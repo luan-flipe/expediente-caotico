@@ -330,7 +330,7 @@ export function Creator() {
                   <p className="label">Rodas</p>
                   <Seg items={scooter ? SCOOTER_WHEELS : CHAIR_WHEELS} value={chair.wheels} onPick={setC("wheels")} />
                 </div>
-                {!scooter && (
+                {!scooter && chair.vehicle === 0 && (
                   <div>
                     <p className="label">Encosto</p>
                     <Seg items={CHAIR_BACKS} value={chair.back} onPick={setC("back")} />

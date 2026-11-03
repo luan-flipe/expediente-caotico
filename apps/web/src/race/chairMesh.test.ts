@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { DEFAULT_AVATAR, DEFAULT_CHAIR } from "@ec/shared";
+import { CHAIR_GAMER, CHAIR_RED, DEFAULT_AVATAR, DEFAULT_CHAIR } from "@ec/shared";
 import { buildChair, seatedRacer } from "./chairMesh";
 import { createCharacter } from "../game/character";
 
@@ -32,6 +32,20 @@ describe("Dinâmica da Cadeira de Escritório e Piloto (Mario Kart 8 style)", ()
     expect(chair.rollAngle).toBeLessThan(0); // inclina para dentro da curva à direita
 
     chair.dispose();
+  });
+
+  it("buildChair suporta Cadeira Vermelha e Cadeira Gamer", () => {
+    const redChair = buildChair({ ...DEFAULT_CHAIR, vehicle: CHAIR_RED });
+    expect(redChair.group).toBeDefined();
+    expect(redChair.anchors.seatTop).toBeGreaterThan(0);
+    expect(redChair.exhaust).toBeDefined();
+    redChair.dispose();
+
+    const gamerChair = buildChair({ ...DEFAULT_CHAIR, vehicle: CHAIR_GAMER });
+    expect(gamerChair.group).toBeDefined();
+    expect(gamerChair.anchors.seatTop).toBeGreaterThan(0);
+    expect(gamerChair.exhaust).toBeDefined();
+    gamerChair.dispose();
   });
 
   it("rodinhas têm materiais de silicone translúcido e cubo central cromado", () => {
