@@ -8,9 +8,11 @@ export function chatText(kind: "phrase" | "emote", index: number): string | null
 
 function makeBubble(text: string, emote: boolean): THREE.Sprite {
   const c = document.createElement("canvas");
-  c.width = 384;
-  c.height = 128;
+  // balão grande: a tela é 1,5x a de antes e o desenho é escalado junto, então o texto ganha o mesmo tamanho
+  c.width = 576;
+  c.height = 192;
   const g = c.getContext("2d")!;
+  g.scale(1.5, 1.5);
   g.fillStyle = "rgba(255,253,247,0.96)";
   g.strokeStyle = "rgba(20,18,15,0.9)";
   g.lineWidth = 6;
@@ -28,7 +30,7 @@ function makeBubble(text: string, emote: boolean): THREE.Sprite {
   g.font = emote ? "56px sans-serif" : "800 40px 'Bricolage Grotesque', sans-serif";
   g.fillText(text, 192, 54, 340);
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
-  s.scale.set(2.4, 0.8, 1);
+  s.scale.set(3.9, 1.3, 1);
   s.renderOrder = 6;
   return s;
 }

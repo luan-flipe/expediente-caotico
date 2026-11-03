@@ -14,6 +14,14 @@ function fakeStorage(initial: Record<string, string> = {}) {
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("modo daltônico", () => {
+  it("começa desligado e só aceita boolean", () => {
+    expect(DEFAULT_SETTINGS.daltonico).toBe(false);
+    expect(sanitizeSettings({ daltonico: true }).daltonico).toBe(true);
+    expect(sanitizeSettings({ daltonico: "sim" }).daltonico).toBe(false);
+  });
+});
+
 describe("sanitizeSettings", () => {
   it("devolve o padrão para lixo, null e campos faltando", () => {
     expect(sanitizeSettings(null)).toEqual(DEFAULT_SETTINGS);

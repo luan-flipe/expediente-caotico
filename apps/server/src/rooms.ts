@@ -45,6 +45,7 @@ import {
   type ChairDNA,
   type GameMode,
   type GhostLap,
+  pickRival,
   type LobbyState,
   type Match,
   type RaceMatch,
@@ -309,9 +310,20 @@ export class Room {
     return m.sessionLaps[track] ?? null;
   }
 
+  /** Rival do jogador: a volta salva logo à frente da dele. Só existe com ranking (contas) e com volta própria. */
+  private rivalOf(m: Member, track: TrackId, mine: GhostLap | null, record: { ms: number } | null): (GhostLap & { name: string }) | null {
+    if (!this.store || !mine) return null;
+    const laps = Object.entries(this.store.data.laps[track] ?? {}).map(([id, lap]) => ({ id, ms: lap.ms }));
+    const id = pickRival(laps, m.accountId ?? null, mine.ms, record?.ms ?? null);
+    const lap = id ? this.store.data.laps[track]?.[id] : undefined;
+    return id && lap ? { ms: lap.ms, name: this.store.data.accounts[id]?.name ?? "Jogador", samples: lap.ghost } : null;
+  }
+
   sendGhosts(m: Member): void {
     const track = this.trackId();
-    send(m.conn, { t: "ghosts", mine: this.ghostOf(m, track), record: this.trackRecord(track) });
+    const mine = this.ghostOf(m, track);
+    const record = this.trackRecord(track);
+    send(m.conn, { t: "ghosts", mine, record, rival: this.rivalOf(m, track, mine, record) });
   }
 
   /**

@@ -1,6 +1,48 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { branchEdges, gridSlots, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
+import { branchEdges, gridSlots, heightAt, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
+import { applyWaxedFloorSheen } from "./vfxJuice";
+import parqueUrl from "../assets/itens/parque-ipanema-3d.glb?url";
+import rampGlbUrl from "../assets/itens/ramp-jump.glb?url";
+import { createGltfLoader } from "../game/gltfLoader";
+
+let parqueModel: THREE.Group | null = null;
+let parquePromise: Promise<THREE.Group | null> | null = null;
+
+export function preloadParque(): Promise<THREE.Group | null> {
+  if (typeof window === "undefined" || typeof document === "undefined") return Promise.resolve(null);
+  if (parqueModel) return Promise.resolve(parqueModel);
+  parquePromise ??= createGltfLoader()
+    .loadAsync(parqueUrl)
+    .then((gltf) => {
+      parqueModel = gltf.scene;
+      return gltf.scene;
+    })
+    .catch((err) => {
+      console.warn("parque-ipanema-3d.glb não carregou", err);
+      return null;
+    });
+  return parquePromise;
+}
+
+let rampModel: THREE.Group | null = null;
+let rampPromise: Promise<THREE.Group | null> | null = null;
+
+export function preloadRamp(): Promise<THREE.Group | null> {
+  if (typeof window === "undefined" || typeof document === "undefined") return Promise.resolve(null);
+  if (rampModel) return Promise.resolve(rampModel);
+  rampPromise ??= createGltfLoader()
+    .loadAsync(rampGlbUrl)
+    .then((gltf) => {
+      rampModel = gltf.scene;
+      return gltf.scene;
+    })
+    .catch((err) => {
+      console.warn("ramp-jump.glb não carregou", err);
+      return null;
+    });
+  return rampPromise;
+}
 
 /** Piso de cada ambiente (nomes de track.rooms, de todas as pistas). */
 const ROOM_FLOOR: Record<string, string> = {
@@ -19,6 +61,14 @@ const ROOM_FLOOR: Record<string, string> = {
   Mesas: "#c3b79c",
   Geladeira: "#b8c4c8",
   Cafeteira: "#a88b6c",
+  Arquibancadas: "#474b54",
+  "Orla do Lago": "#3c4854",
+  "Reta das Palmeiras": "#3e4d44",
+  "Reta dos Ipês": "#4d424b",
+  "Curva do Mirante": "#3d4a46",
+  Moinho: "#4c463f",
+  Caramanchão: "#463e4c",
+  Bosque: "#3d4b42",
 };
 const ROOM_WALL: Record<string, string> = {
   Recepção: "#fff5ea",
@@ -36,6 +86,14 @@ const ROOM_WALL: Record<string, string> = {
   Mesas: "#e3d8c3",
   Geladeira: "#ece6da",
   Cafeteira: "#8a6a4a",
+  Arquibancadas: "#27ae60",
+  "Orla do Lago": "#27ae60",
+  "Reta das Palmeiras": "#27ae60",
+  "Reta dos Ipês": "#27ae60",
+  "Curva do Mirante": "#27ae60",
+  Moinho: "#27ae60",
+  Caramanchão: "#27ae60",
+  Bosque: "#27ae60",
 };
 
 function roomAt(track: Track, s: number): string {
@@ -57,6 +115,14 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: numb
 
 /** Placa de sinalização: subtítulo pequeno e o nome do ambiente em destaque. */
 function textSprite(text: string, textures: THREE.Texture[], subtitle = "Setor corporativo"): THREE.Sprite {
+  if (typeof document === "undefined") {
+    const data = new Uint8Array([255, 255, 255, 255]);
+    const map = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+    textures.push(map);
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map }));
+    s.scale.set(4.8, 1.5, 1);
+    return s;
+  }
   const c = document.createElement("canvas");
   c.width = 512;
   c.height = 160;
@@ -80,6 +146,12 @@ function textSprite(text: string, textures: THREE.Texture[], subtitle = "Setor c
 }
 
 function checkerTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  if (typeof document === "undefined") {
+    const data = new Uint8Array([255, 255, 255, 255]);
+    const t = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat) as unknown as THREE.CanvasTexture;
+    textures.push(t);
+    return t;
+  }
   const c = document.createElement("canvas");
   c.width = 256;
   c.height = 64;
@@ -98,6 +170,14 @@ function checkerTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
 }
 
 function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, textures: THREE.Texture[]): THREE.CanvasTexture {
+  if (typeof document === "undefined") {
+    const data = new Uint8Array([255, 255, 255, 255]);
+    const t = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat) as unknown as THREE.CanvasTexture;
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+    textures.push(t);
+    return t;
+  }
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
@@ -150,6 +230,38 @@ function trackTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
         g.fillStyle = Math.random() > 0.4 ? `rgba(255,255,255,${a * 1.5})` : `rgba(0,0,0,${a})`;
         g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
       }
+    },
+    textures,
+  );
+}
+
+/** Textura de asfalto outdoor com marcas de pneus e granulação de cascalho para o Parque Ipanema. */
+function parkRoadTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    512,
+    512,
+    (g) => {
+      g.fillStyle = "#353940";
+      g.fillRect(0, 0, 512, 512);
+      for (let i = 0; i < 1800; i++) {
+        const a = Math.random() * 0.08 + 0.02;
+        g.fillStyle = Math.random() > 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a * 1.6})`;
+        g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+      }
+      const rubber = g.createLinearGradient(0, 0, 0, 512);
+      for (const [at, a] of [
+        [0, 0],
+        [0.18, 0.22],
+        [0.35, 0.05],
+        [0.5, 0.12],
+        [0.65, 0.05],
+        [0.82, 0.22],
+        [1, 0],
+      ]) {
+        rubber.addColorStop(at, `rgba(15, 18, 24, ${a})`);
+      }
+      g.fillStyle = rubber;
+      g.fillRect(0, 0, 512, 512);
     },
     textures,
   );
@@ -223,6 +335,435 @@ function skylineTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
   return t;
 }
 
+/** Textura de papelão pardo com fita adesiva e carimbo "ARQUIVO MORTO 2008" */
+function archiveBoxTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    256,
+    256,
+    (g) => {
+      g.fillStyle = "#c29b68";
+      g.fillRect(0, 0, 256, 256);
+      g.fillStyle = "rgba(0, 0, 0, 0.08)";
+      g.fillRect(0, 0, 256, 16);
+      g.fillRect(0, 240, 256, 16);
+      // Fita adesiva larga horizontal parda/brilhante
+      g.fillStyle = "#d8b27c";
+      g.fillRect(0, 80, 256, 42);
+      g.fillStyle = "rgba(255, 255, 255, 0.3)";
+      g.fillRect(0, 82, 256, 4);
+      g.fillStyle = "rgba(0, 0, 0, 0.12)";
+      g.fillRect(0, 118, 256, 4);
+      // Carimbo Stencil vermelho "ARQUIVO MORTO"
+      g.save();
+      g.translate(128, 165);
+      g.rotate(-0.06);
+      g.fillStyle = "#8b1e1e";
+      g.font = "900 22px 'Bricolage Grotesque', sans-serif";
+      g.textAlign = "center";
+      g.fillText("ARQUIVO MORTO", 0, 0);
+      g.font = "800 34px 'Bricolage Grotesque', sans-serif";
+      g.fillText("2008", 0, 32);
+      g.strokeStyle = "#8b1e1e";
+      g.lineWidth = 3;
+      g.strokeRect(-90, -22, 180, 62);
+      g.restore();
+      // Alça recortada oval escura na lateral
+      g.fillStyle = "#3e2723";
+      g.beginPath();
+      g.ellipse(128, 48, 28, 12, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = "#6d4c41";
+      g.beginPath();
+      g.ellipse(128, 51, 26, 9, 0, 0, Math.PI * 2);
+      g.fill();
+    },
+    textures,
+  );
+}
+
+/** Quadro satírico 1: "BATA A META ANTES QUE A META BATA EM VOCÊ!" */
+function posterMetaTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    512,
+    320,
+    (g) => {
+      g.fillStyle = "#c0392b";
+      g.fillRect(0, 0, 512, 320);
+      g.fillStyle = "#e74c3c";
+      for (let i = 0; i < 512; i += 40) {
+        g.beginPath();
+        g.moveTo(256, 160);
+        g.lineTo(i, 0);
+        g.lineTo(i + 20, 0);
+        g.closePath();
+        g.fill();
+      }
+      g.strokeStyle = "#ffd23f";
+      g.lineWidth = 12;
+      g.strokeRect(10, 10, 492, 300);
+
+      g.fillStyle = "#1e2430";
+      g.fillRect(20, 20, 472, 42);
+      g.fillStyle = "#ffd23f";
+      g.font = "800 20px 'Bricolage Grotesque', sans-serif";
+      g.textAlign = "center";
+      g.fillText("MOTIVAÇÃO EXTREMA RH", 256, 48);
+
+      g.fillStyle = "#ffffff";
+      g.font = "900 42px 'Bricolage Grotesque', sans-serif";
+      g.fillText("BATA A META!", 256, 125);
+
+      g.fillStyle = "#ffd23f";
+      g.font = "900 27px 'Bricolage Grotesque', sans-serif";
+      g.fillText("ANTES QUE A META", 256, 185);
+      g.fillText("BATA EM VOCÊ!", 256, 225);
+
+      g.fillStyle = "#1e2430";
+      g.font = "800 16px 'Bricolage Grotesque', sans-serif";
+      g.fillText("★ EXPEDIENTE CAÓTICO - SETOR DE RESULTADOS ★", 256, 280);
+    },
+    textures,
+  );
+}
+
+/** Quadro satírico 2: "DESPESAS COM CAFÉ vs LUCRO" (Gráfico de pizza despencando) */
+function posterCafeTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    512,
+    320,
+    (g) => {
+      g.fillStyle = "#1e293b";
+      g.fillRect(0, 0, 512, 320);
+      g.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      g.lineWidth = 1;
+      for (let x = 0; x < 512; x += 32) {
+        g.beginPath();
+        g.moveTo(x, 0);
+        g.lineTo(x, 320);
+        g.stroke();
+      }
+      for (let y = 0; y < 320; y += 32) {
+        g.beginPath();
+        g.moveTo(0, y);
+        g.lineTo(512, y);
+        g.stroke();
+      }
+      g.strokeStyle = "#00bcd4";
+      g.lineWidth = 8;
+      g.strokeRect(10, 10, 492, 300);
+
+      g.fillStyle = "#ffffff";
+      g.font = "900 26px 'Bricolage Grotesque', sans-serif";
+      g.textAlign = "center";
+      g.fillText("DESPESAS COM CAFÉ vs LUCRO", 256, 50);
+
+      // Gráfico de pizza 3D
+      const cx = 160;
+      const cy = 180;
+      const r = 78;
+      // Fatia de Café (95%)
+      g.fillStyle = "#5d4037";
+      g.beginPath();
+      g.moveTo(cx, cy);
+      g.arc(cx, cy, r, -0.3, Math.PI * 1.85);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = "#3e2723";
+      g.lineWidth = 4;
+      g.stroke();
+
+      // Fatia minúscula de Lucro (5%) despencando
+      g.fillStyle = "#2ecc71";
+      g.beginPath();
+      g.moveTo(cx + 25, cy + 25);
+      g.arc(cx + 25, cy + 25, r * 0.9, Math.PI * 1.85, Math.PI * 2 - 0.3);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = "#27ae60";
+      g.lineWidth = 3;
+      g.stroke();
+
+      // Legendas
+      g.textAlign = "left";
+      g.fillStyle = "#d7ccc8";
+      g.font = "800 24px 'Bricolage Grotesque', sans-serif";
+      g.fillText("■ CAFÉ (95%)", 280, 140);
+      g.fillStyle = "#2ecc71";
+      g.fillText("■ LUCRO (5%...)", 280, 185);
+
+      g.fillStyle = "#e74c3c";
+      g.font = "800 18px 'Bricolage Grotesque', sans-serif";
+      g.fillText("▼ LUCRO DESPENCANDO!", 280, 225);
+
+      g.fillStyle = "#94a3b8";
+      g.font = "600 15px 'Bricolage Grotesque', sans-serif";
+      g.fillText("Fonte: Cafeteira da firma", 280, 260);
+    },
+    textures,
+  );
+}
+
+/** Quadro satírico 3: "CUIDADO: ESTAGIÁRIOS NA PISTA" */
+function posterEstagiariosTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    512,
+    320,
+    (g) => {
+      g.fillStyle = "#f1c40f";
+      g.fillRect(0, 0, 512, 320);
+
+      // Faixas zebradas pretas e amarelas na borda
+      const stripeW = 24;
+      g.fillStyle = "#1e2430";
+      for (let i = -30; i < 540; i += stripeW * 2) {
+        g.beginPath();
+        g.moveTo(i, 0);
+        g.lineTo(i + stripeW, 0);
+        g.lineTo(i + stripeW - 20, 32);
+        g.lineTo(i - 20, 32);
+        g.fill();
+
+        g.beginPath();
+        g.moveTo(i, 288);
+        g.lineTo(i + stripeW, 288);
+        g.lineTo(i + stripeW - 20, 320);
+        g.lineTo(i - 20, 320);
+        g.fill();
+      }
+
+      // Losango de perigo no centro
+      g.fillStyle = "#1e2430";
+      g.beginPath();
+      g.moveTo(110, 160);
+      g.lineTo(170, 95);
+      g.lineTo(230, 160);
+      g.lineTo(170, 225);
+      g.closePath();
+      g.fill();
+
+      // Ponto de exclamação
+      g.fillStyle = "#f1c40f";
+      g.font = "900 68px 'Bricolage Grotesque', sans-serif";
+      g.textAlign = "center";
+      g.fillText("!", 170, 185);
+
+      // Textos
+      g.fillStyle = "#1e2430";
+      g.textAlign = "left";
+      g.font = "900 38px 'Bricolage Grotesque', sans-serif";
+      g.fillText("CUIDADO!", 255, 115);
+
+      g.fillStyle = "#c0392b";
+      g.font = "900 27px 'Bricolage Grotesque', sans-serif";
+      g.fillText("ESTAGIÁRIOS", 255, 158);
+      g.fillText("NA PISTA!", 255, 198);
+
+      g.fillStyle = "#1e2430";
+      g.font = "800 17px 'Bricolage Grotesque', sans-serif";
+      g.fillText("VELOCIDADE: MÁXIMA PERMITIDA", 255, 245);
+    },
+    textures,
+  );
+}
+
+/** Quadro satírico 4: "REUNIÃO QUE PODERIA SER UM E-MAIL" */
+function posterReuniaoTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    512,
+    320,
+    (g) => {
+      g.fillStyle = "#311b92";
+      g.fillRect(0, 0, 512, 320);
+      g.strokeStyle = "#b388ff";
+      g.lineWidth = 10;
+      g.strokeRect(10, 10, 492, 300);
+
+      g.fillStyle = "#ffffff";
+      g.font = "900 28px 'Bricolage Grotesque', sans-serif";
+      g.textAlign = "center";
+      g.fillText("ESTA REUNIÃO PODERIA", 256, 70);
+      g.fillStyle = "#ffd23f";
+      g.fillText("TER SIDO UM E-MAIL!", 256, 115);
+
+      // Gráficos comparativos de barras
+      g.textAlign = "left";
+      g.fillStyle = "#e74c3c";
+      g.fillRect(45, 160, 360, 34);
+      g.fillStyle = "#ffffff";
+      g.font = "800 17px 'Bricolage Grotesque', sans-serif";
+      g.fillText("REUNIÃO DE 3 HORAS: 0% DECISÕES", 55, 184);
+
+      g.fillStyle = "#2ecc71";
+      g.fillRect(45, 215, 180, 34);
+      g.fillStyle = "#ffffff";
+      g.fillText("1 E-MAIL: 100% RESOLVIDO", 55, 239);
+
+      // Carimbo vermelho
+      g.save();
+      g.translate(380, 240);
+      g.rotate(-0.15);
+      g.fillStyle = "#ff5252";
+      g.font = "900 22px 'Bricolage Grotesque', sans-serif";
+      g.fillText("CANCELADA!", -50, 0);
+      g.strokeStyle = "#ff5252";
+      g.lineWidth = 3;
+      g.strokeRect(-65, -24, 140, 32);
+      g.restore();
+    },
+    textures,
+  );
+}
+
+/** Geometria de zebra com perfil chanfrado e rampa suave de entrada */
+function createKerbGeometry(width: number, height: number, length: number): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  const rampW = width * 0.22;
+  const fallW = width * 0.15;
+  shape.moveTo(-width / 2, 0);
+  shape.lineTo(-width / 2 + rampW, height);
+  shape.lineTo(width / 2 - fallW, height);
+  shape.lineTo(width / 2, height * 0.35);
+  shape.lineTo(width / 2, 0);
+  shape.closePath();
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: length,
+    bevelEnabled: true,
+    bevelSegments: 1,
+    bevelSize: 0.006,
+    bevelThickness: 0.006,
+  });
+  geo.center();
+  return geo;
+}
+
+/** Bebedouro completo de galão azul 20L invertido com torneiras e dispenser de copos */
+function buildWaterCooler(
+  whiteMat: THREE.Material,
+  dispenserMat: THREE.Material,
+  darkMat: THREE.Material,
+  blueTapMat: THREE.Material,
+  redTapMat: THREE.Material,
+  steelMat: THREE.Material,
+): THREE.Group {
+  const g = new THREE.Group();
+  // Coluna vertical e base
+  g.add(mesh(new THREE.CylinderGeometry(0.20, 0.21, 0.88, 16), whiteMat, 0, 0.44, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.04, 16), darkMat, 0, 0.02, 0));
+  // Bandeja de gotejamento / nicho para copos
+  g.add(mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.02, 14), steelMat, 0, 0.52, 0.08));
+  // Torneirinhas azul (gelada) e vermelha (quente)
+  g.add(mesh(new THREE.BoxGeometry(0.035, 0.055, 0.06), blueTapMat, -0.045, 0.65, 0.13));
+  g.add(mesh(new THREE.BoxGeometry(0.035, 0.055, 0.06), redTapMat, 0.045, 0.65, 0.13));
+  // Suporte do galão
+  g.add(mesh(new THREE.CylinderGeometry(0.18, 0.20, 0.05, 16), whiteMat, 0, 0.90, 0));
+  // Galão de 20L invertido
+  g.add(mesh(new THREE.CylinderGeometry(0.17, 0.09, 0.08, 16), dispenserMat, 0, 0.96, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.36, 16), dispenserMat, 0, 1.18, 0));
+  g.add(mesh(new THREE.SphereGeometry(0.17, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), dispenserMat, 0, 1.36, 0));
+  // Dispenser com copinhos plásticos brancos empilhados
+  g.add(mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.52, 10), dispenserMat, 0.23, 0.72, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.035, 0.026, 0.46, 10), whiteMat, 0.23, 0.70, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.03, 10), darkMat, 0.23, 0.99, 0));
+  g.add(mesh(new THREE.BoxGeometry(0.06, 0.04, 0.05), steelMat, 0.18, 0.72, 0));
+  return g;
+}
+
+/** Ficus estilizado volumétrico estilo Mario Odyssey */
+function buildFicus(
+  potMat: THREE.Material,
+  soilMat: THREE.Material,
+  trunkMat: THREE.Material,
+  leafMats: THREE.Material[],
+): THREE.Group {
+  const g = new THREE.Group();
+  g.add(mesh(new THREE.CylinderGeometry(0.32, 0.24, 0.55, 16), potMat, 0, 0.275, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.06, 16), potMat, 0, 0.52, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.04, 14), soilMat, 0, 0.51, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.65, 8), trunkMat, 0, 0.80, 0));
+  // Folhagem volumétrica arredondada em camadas
+  g.add(mesh(new THREE.IcosahedronGeometry(0.38, 1), leafMats[0], 0, 1.15, 0));
+  g.add(mesh(new THREE.IcosahedronGeometry(0.28, 1), leafMats[1], 0.18, 1.05, 0.12));
+  g.add(mesh(new THREE.IcosahedronGeometry(0.26, 1), leafMats[1], -0.16, 1.10, -0.14));
+  g.add(mesh(new THREE.IcosahedronGeometry(0.30, 1), leafMats[2], 0, 1.42, 0));
+  return g;
+}
+
+/** Samambaia pendente de escritório com folhas em leque */
+function buildFern(
+  potMat: THREE.Material,
+  soilMat: THREE.Material,
+  leafMat: THREE.Material,
+): THREE.Group {
+  const g = new THREE.Group();
+  g.add(mesh(new THREE.CylinderGeometry(0.34, 0.22, 0.45, 16), potMat, 0, 0.225, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.04, 14), soilMat, 0, 0.42, 0));
+  g.add(mesh(new THREE.SphereGeometry(0.24, 8, 8), leafMat, 0, 0.48, 0));
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2;
+    const cosA = Math.cos(ang);
+    const sinA = Math.sin(ang);
+    const leaf = mesh(new THREE.CylinderGeometry(0.02, 0.08, 0.55, 6), leafMat, cosA * 0.22, 0.44, sinA * 0.22);
+    leaf.rotation.set(sinA * 0.65, ang, -cosA * 0.65);
+    g.add(leaf);
+  }
+  return g;
+}
+
+/** Pilha de caixas de papelão pardo "ARQUIVO MORTO 2008" com desalinho natural */
+function buildArchiveBoxStack(boxMat: THREE.Material, count = 2): THREE.Group {
+  const g = new THREE.Group();
+  const boxW = 0.55;
+  const boxH = 0.36;
+  const boxD = 0.42;
+  const b1 = mesh(new THREE.BoxGeometry(boxW, boxH, boxD), boxMat, 0, boxH / 2, 0);
+  g.add(b1);
+  if (count >= 2) {
+    const b2 = mesh(new THREE.BoxGeometry(boxW, boxH, boxD), boxMat, 0.02, boxH + boxH / 2, -0.02, 0.14);
+    g.add(b2);
+  }
+  if (count >= 3) {
+    const b3 = mesh(new THREE.BoxGeometry(boxW, boxH, boxD), boxMat, -0.03, boxH * 2 + boxH / 2, 0.01, -0.20);
+    g.add(b3);
+  }
+  return g;
+}
+
+/** Quadro emoldurado com suportes para paredes da pista */
+function buildFramedPoster(
+  texture: THREE.CanvasTexture,
+  frameMat: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+  ry: number,
+  w = 2.4,
+  h = 1.5,
+): THREE.Group {
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  g.rotation.y = ry;
+  const frameGeo = new THREE.BoxGeometry(w, h, 0.08);
+  const frameMesh = new THREE.Mesh(frameGeo, frameMat);
+  frameMesh.castShadow = true;
+  g.add(frameMesh);
+  const posterGeo = new THREE.PlaneGeometry(w - 0.12, h - 0.12);
+  const posterMat = new THREE.MeshStandardMaterial({
+    map: texture,
+    roughness: 0.38,
+    metalness: 0.05,
+  });
+  const posterMesh = new THREE.Mesh(posterGeo, posterMat);
+  posterMesh.position.z = 0.045;
+  g.add(posterMesh);
+  const poleMat = new THREE.MeshStandardMaterial({ color: "#2d3748", roughness: 0.5, metalness: 0.5 });
+  for (const px of [-w * 0.35, w * 0.35]) {
+    const pole = mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.6, 8), poleMat, px, -h / 2 - 0.3, 0);
+    g.add(pole);
+  }
+  return g;
+}
+
 /**
  * Junta as malhas estáticas do grupo em uma malha por material (e sombra), em coordenadas de mundo.
  * Centenas de paredes, fitas e móveis viram poucas chamadas de desenho, em qualquer pista.
@@ -263,7 +804,7 @@ function mergeStatic(group: THREE.Group): THREE.Mesh[] {
 }
 
 /** Faixa no chão entre duas listas de pontos (mesmo tamanho). UV: u ao longo do caminho (uScale por metro), v de a para b. */
-function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, closed: boolean, uScale = 0.25): THREE.BufferGeometry {
+function ribbon(a: Vec2[], b: Vec2[], y: number | number[], colors: THREE.Color[] | null, closed: boolean, uScale = 0.25): THREE.BufferGeometry {
   const n = a.length;
   const pos: number[] = [];
   const col: number[] = [];
@@ -271,7 +812,8 @@ function ribbon(a: Vec2[], b: Vec2[], y: number, colors: THREE.Color[] | null, c
   const idx: number[] = [];
   let dist = 0;
   for (let i = 0; i < n; i++) {
-    pos.push(a[i].x, y, a[i].z, b[i].x, y, b[i].z);
+    const yi = Array.isArray(y) ? y[i] : y;
+    pos.push(a[i].x, yi, a[i].z, b[i].x, yi, b[i].z);
     if (colors) col.push(colors[i].r, colors[i].g, colors[i].b, colors[i].r, colors[i].g, colors[i].b);
     if (i > 0) dist += Math.hypot(a[i].x - a[i - 1].x, a[i].z - a[i - 1].z);
     uvs.push(dist * uScale, 0, dist * uScale, 1);
@@ -336,12 +878,16 @@ function rampMesh(track: Track, r: Ramp): THREE.Mesh {
     pos.push(...a, ...b, ...c, ...a, ...c, ...d);
     for (let k = 0; k < 6; k++) col.push(color.r, color.g, color.b);
   };
-  const h = (i: number) => (r.height * i) / (n - 1) + 0.02;
+  const base = (i: number) => {
+    const s = r.sFrom + ((r.sTo - r.sFrom) * i) / (n - 1);
+    return r.path === -1 ? heightAt(track, s) : 0;
+  };
+  const h = (i: number) => base(i) + (r.height * i) / (n - 1) + 0.02;
   for (let i = 0; i + 1 < n; i++) {
     const [p0, p1, m0, m1] = [e.plus[i], e.plus[i + 1], e.minus[i], e.minus[i + 1]];
     quad([p0.x, h(i), p0.z], [p1.x, h(i + 1), p1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], gray);
-    quad([p0.x, 0, p0.z], [p1.x, 0, p1.z], [p1.x, h(i + 1), p1.z], [p0.x, h(i), p0.z], stripe(i));
-    quad([m0.x, 0, m0.z], [m1.x, 0, m1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], stripe(i));
+    quad([p0.x, base(i), p0.z], [p1.x, base(i + 1), p1.z], [p1.x, h(i + 1), p1.z], [p0.x, h(i), p0.z], stripe(i));
+    quad([m0.x, base(i), m0.z], [m1.x, base(i + 1), m1.z], [m1.x, h(i + 1), m1.z], [m0.x, h(i), m0.z], stripe(i));
   }
   // queda do topo: faixas em diagonal
   const top = n - 1;
@@ -349,7 +895,7 @@ function rampMesh(track: Track, r: Ramp): THREE.Mesh {
   for (let k = 0; k < parts; k++) {
     const a = { x: e.plus[top].x + ((e.minus[top].x - e.plus[top].x) * k) / parts, z: e.plus[top].z + ((e.minus[top].z - e.plus[top].z) * k) / parts };
     const b = { x: e.plus[top].x + ((e.minus[top].x - e.plus[top].x) * (k + 1)) / parts, z: e.plus[top].z + ((e.minus[top].z - e.plus[top].z) * (k + 1)) / parts };
-    quad([a.x, 0, a.z], [b.x, 0, b.z], [b.x, h(top), b.z], [a.x, h(top), a.z], stripe(k));
+    quad([a.x, base(top), a.z], [b.x, base(top), b.z], [b.x, h(top), b.z], [a.x, h(top), a.z], stripe(k));
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
@@ -359,6 +905,38 @@ function rampMesh(track: Track, r: Ramp): THREE.Mesh {
   m.castShadow = true;
   m.receiveShadow = true;
   return m;
+}
+
+/** Monta a rampa GLB 3D posicionada e orientada no trecho sFrom -> sTo da pista */
+function buildRampGlb(track: Track, r: Ramp, template: THREE.Group): THREE.Group {
+  const clone = template.clone(true);
+  const start = along(track, r.path, r.sFrom);
+  const end = along(track, r.path, r.sTo);
+  const dx = end.pos.x - start.pos.x;
+  const dz = end.pos.z - start.pos.z;
+  const rampLen = Math.hypot(dx, dz);
+  const heading = Math.atan2(dx, dz);
+
+  const baseY = r.path === -1 ? heightAt(track, r.sFrom) : 0;
+  clone.position.set(start.pos.x, baseY, start.pos.z);
+  clone.rotation.y = heading;
+
+  // Dimensões originais do modelo GLB (ramp-jump.glb): Z: ~5.84 m, Y: ~1.86 m, X: ~7.47 m
+  const scaleZ = rampLen / 5.84;
+  const scaleY = r.height / 1.86;
+  const targetWidth = Math.max(5.0, Math.min(start.halfWidth * 1.85, 10.0));
+  const scaleX = targetWidth / 7.47;
+
+  clone.scale.set(scaleX, scaleY, scaleZ);
+
+  clone.traverse((obj) => {
+    if ((obj as THREE.Mesh).isMesh) {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    }
+  });
+
+  return clone;
 }
 
 /** Vão: buraco no piso com paredes de concreto descendo até o subsolo, 3 m abaixo. */
@@ -414,19 +992,39 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const gw = Math.max(...xs) - Math.min(...xs) + 50;
   const gd = Math.max(...zs) - Math.min(...zs) + 50;
   const parking = track.id === "estacionamento";
+  const isParque = track.id === "parque";
   // vãos das rampas viram buracos no chão (o piso em volta é recortado)
   const pits = track.ramps.filter((r) => r.gap).map((r) => gapPit(track, r));
   const groundShape = new THREE.Shape([new THREE.Vector2(-gw / 2, -gd / 2), new THREE.Vector2(gw / 2, -gd / 2), new THREE.Vector2(gw / 2, gd / 2), new THREE.Vector2(-gw / 2, gd / 2)]);
   // o plano deitado (rotation.x = -90 graus) leva o y local para -z do mundo
   for (const p of pits) groundShape.holes.push(new THREE.Path(p.outline.map((q) => new THREE.Vector2(q.x - cx, -(q.z - cz)))));
-  // escritório: carpete em placas; estacionamento: concreto com a grade de sempre
-  const groundMat = parking ? new THREE.MeshStandardMaterial({ color: "#9a9c9f", roughness: 1 }) : new THREE.MeshStandardMaterial({ map: carpetTexture(textures), roughness: 0.85 });
+  // escritório: carpete em placas; estacionamento: concreto com a grade de sempre; parque: gramado verdejante
+  const groundMat = isParque
+    ? new THREE.MeshStandardMaterial({ color: "#2d7a38", roughness: 0.9 })
+    : parking
+      ? new THREE.MeshStandardMaterial({ color: "#9a9c9f", roughness: 1 })
+      : new THREE.MeshStandardMaterial({ map: carpetTexture(textures), roughness: 0.85 });
   const ground = mesh(new THREE.ShapeGeometry(groundShape), groundMat, cx, -0.02, cz);
   ground.rotation.x = -Math.PI / 2;
   for (const p of pits) scene.add(p.group);
-  for (const r of track.ramps) scene.add(rampMesh(track, r));
+  for (const r of track.ramps) {
+    if (rampModel) {
+      scene.add(buildRampGlb(track, r, rampModel));
+    } else {
+      const fallback = rampMesh(track, r);
+      scene.add(fallback);
+      void preloadRamp().then((model) => {
+        if (model) {
+          scene.remove(fallback);
+          fallback.geometry.dispose();
+          (fallback.material as THREE.Material).dispose();
+          scene.add(buildRampGlb(track, r, model));
+        }
+      });
+    }
+  }
   ground.castShadow = false;
-  scene.add(ground);
+  if (!isParque) scene.add(ground);
   if (parking) {
     const grid = new THREE.GridHelper(Math.max(gw, gd), Math.round(Math.max(gw, gd) / 2), "#000000", "#000000");
     grid.position.set(cx, 0, cz);
@@ -435,11 +1033,33 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     scene.add(grid);
   }
 
+  if (isParque) {
+    const addParqueModel = (model: THREE.Group) => {
+      const clone = model.clone(true);
+      clone.position.set(0, 0, 0);
+      scene.add(clone);
+    };
+    if (parqueModel) {
+      addParqueModel(parqueModel);
+    } else {
+      void preloadParque().then((m) => {
+        if (m) addParqueModel(m);
+      });
+    }
+  }
+
   const edges = trackEdges(track);
   const colors = track.cum.map((s) => new THREE.Color(ROOM_FLOOR[roomAt(track, s)]));
-  // escritório: placas acetinadas tingidas pela cor do ambiente; estacionamento continua liso
-  const tiles = parking ? null : trackTexture(textures);
-  const floorMat = () => (tiles ? new THREE.MeshStandardMaterial({ map: tiles, vertexColors: true, roughness: 0.48, metalness: 0.03 }) : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
+  // escritório: placas acetinadas tingidas pela cor do ambiente; estacionamento continua liso; parque: asfalto esportivo
+  const tiles = isParque ? parkRoadTexture(textures) : parking ? null : trackTexture(textures);
+  const floorMat = () => {
+    if (tiles) {
+      const mat = new THREE.MeshStandardMaterial({ map: tiles, vertexColors: true, roughness: isParque ? 0.65 : 0.28, metalness: 0.05 });
+      if (!isParque) applyWaxedFloorSheen(mat, { sheenIntensity: 0.85, neonColor: "#e0f2fe" });
+      return mat;
+    }
+    return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+  };
   // guia branca de 45 cm nas duas beiradas e sombra de contato no pé das paredes
   const curbW = 0.45;
   const innerPlus: Vec2[] = [];
@@ -457,18 +1077,20 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     aoPlus.push(at(hw - 0.22, 1));
     aoMinus.push(at(hw - 0.22, -1));
   }
-  const floor = new THREE.Mesh(ribbon(innerPlus, innerMinus, 0.01, colors, true), floorMat());
-  floor.receiveShadow = true;
-  scene.add(floor);
-  const curbMat = new THREE.MeshStandardMaterial({ map: curbTexture(textures), roughness: 0.42, metalness: 0.05 });
-  for (const [a, b] of [[edges.plus, innerPlus], [innerMinus, edges.minus]]) {
-    const curb = new THREE.Mesh(ribbon(a, b, 0.016, null, true, 0.5), curbMat);
-    curb.receiveShadow = true;
-    scene.add(curb);
+  if (!isParque) {
+    const floor = new THREE.Mesh(ribbon(innerPlus, innerMinus, 0.01, colors, true), floorMat());
+    floor.receiveShadow = true;
+    scene.add(floor);
+    const curbMat = new THREE.MeshStandardMaterial({ map: curbTexture(textures), roughness: 0.42, metalness: 0.05 });
+    for (const [a, b] of [[edges.plus, innerPlus], [innerMinus, edges.minus]]) {
+      const curb = new THREE.Mesh(ribbon(a, b, 0.016, null, true, 0.5), curbMat);
+      curb.receiveShadow = true;
+      scene.add(curb);
+    }
+    const aoMat = new THREE.MeshBasicMaterial({ color: "#0a0f18", transparent: true, opacity: 0.38, depthWrite: false });
+    scene.add(new THREE.Mesh(ribbon(edges.plus, aoPlus, 0.018, null, true, 0.1), aoMat));
+    scene.add(new THREE.Mesh(ribbon(aoMinus, edges.minus, 0.018, null, true, 0.1), aoMat));
   }
-  const aoMat = new THREE.MeshBasicMaterial({ color: "#0a0f18", transparent: true, opacity: 0.38, depthWrite: false });
-  scene.add(new THREE.Mesh(ribbon(edges.plus, aoPlus, 0.018, null, true, 0.1), aoMat));
-  scene.add(new THREE.Mesh(ribbon(aoMinus, edges.minus, 0.018, null, true, 0.1), aoMat));
   // atalhos: piso um pouco acima da principal para não brigar com ela nas bocas
   track.branches.forEach((br, j) => {
     const e = branchEdges(track, j);
@@ -497,27 +1119,35 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
         minus.push(ed.minus[0]);
         cc.push(cc[cc.length - 1]);
       }
-      const m = new THREE.Mesh(ribbon(plus, minus, 0.012, cc, false), floorMat());
+      const yFrom = heightAt(track, br.sFrom);
+      const yTo = heightAt(track, br.sTo);
+      const hy = isParque
+        ? plus.map((_, idx) => yFrom + (yTo - yFrom) * (idx / Math.max(1, plus.length - 1)) + 0.03)
+        : 0.012;
+      const m = new THREE.Mesh(ribbon(plus, minus, hy, cc, false), floorMat());
       m.receiveShadow = true;
       scene.add(m);
     }
   });
 
-  // fita amarela tracejada no meio
-  const tape = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.45, metalness: 0.05 });
-  const tapeGeo = new THREE.BoxGeometry(0.24, 0.024, 1.9);
-  for (let s = 4; s < track.length - 2; s += 4) {
-    const at = pointAt(track, s);
-    const m = mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading);
-    m.castShadow = false;
-    stat.add(m);
+  if (!isParque) {
+    // fita amarela tracejada no meio
+    const tape = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.45, metalness: 0.05 });
+    const tapeGeo = new THREE.BoxGeometry(0.24, 0.024, 1.9);
+    for (let s = 4; s < track.length - 2; s += 4) {
+      const at = pointAt(track, s);
+      const m = mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading);
+      m.castShadow = false;
+      stat.add(m);
+    }
   }
 
   // marcas brancas do grid de largada (mesmas posições da simulação)
   const gridMat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.4, metalness: 0.1 });
   for (const slot of gridSlots(track, 8)) {
     const g = new THREE.Group();
-    g.position.set(slot.pos.x, 0.022, slot.pos.z);
+    const slotY = heightAt(track, slot.s);
+    g.position.set(slot.pos.x, slotY + 0.022, slot.pos.z);
     g.rotation.y = slot.heading;
     g.add(mesh(new THREE.BoxGeometry(1.5, 0.022, 0.14), gridMat, 0, 0, 0));
     for (const x of [-0.75, 0.75]) g.add(mesh(new THREE.BoxGeometry(0.12, 0.022, 1.4), gridMat, x, 0, 0));
@@ -526,26 +1156,30 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     stat.add(g);
   }
 
-  // curvas fechadas: zebra vermelha e branca na beira e grama sintética atrás (a faixa lenta da simulação)
-  const kerbRed = new THREE.MeshStandardMaterial({ color: "#e74c3c", roughness: 0.5, metalness: 0.05 });
-  const kerbWhite = new THREE.MeshStandardMaterial({ color: "#f8f9fa", roughness: 0.5, metalness: 0.05 });
-  const grass = new THREE.MeshStandardMaterial({ color: "#27ae60", roughness: 0.85 });
-  const kerbW = 0.65;
-  const grassW = RACE.carpetWidth - kerbW;
-  for (const c of track.carpet) {
-    const len = c.to >= c.from ? c.to - c.from : c.to + track.length - c.from;
+  if (!isParque) {
+    // curvas fechadas: zebra vermelha e branca na beira e grama sintética atrás (a faixa lenta da simulação)
+    const kerbRed = new THREE.MeshStandardMaterial({ color: "#e74c3c", roughness: 0.5, metalness: 0.05 });
+    const kerbWhite = new THREE.MeshStandardMaterial({ color: "#f8f9fa", roughness: 0.5, metalness: 0.05 });
+    const grass = new THREE.MeshStandardMaterial({ color: "#27ae60", roughness: 0.85 });
+    const kerbW = 0.65;
+    const grassW = RACE.carpetWidth - kerbW;
     const step = 1.1;
-    let k = 0;
-    for (let d = 0; d < len; d += step) {
-      const at = pointAt(track, c.from + Math.min(len, d + step / 2));
-      const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-      const off = (r: number) => ({ x: at.pos.x + nrm.x * r * c.side, z: at.pos.z + nrm.z * r * c.side });
-      const kp = off(at.halfWidth - kerbW / 2);
-      stat.add(mesh(new THREE.BoxGeometry(kerbW, 0.048, step * 1.04), k++ % 2 === 0 ? kerbRed : kerbWhite, kp.x, 0.038, kp.z, at.heading));
-      const gp = off(at.halfWidth - kerbW - grassW / 2);
-      const gm = mesh(new THREE.BoxGeometry(grassW, 0.032, step * 1.04), grass, gp.x, 0.028, gp.z, at.heading);
-      gm.castShadow = false;
-      stat.add(gm);
+    const kerbGeo = createKerbGeometry(kerbW, 0.048, step * 1.04);
+    for (const c of track.carpet) {
+      const len = c.to >= c.from ? c.to - c.from : c.to + track.length - c.from;
+      let k = 0;
+      for (let d = 0; d < len; d += step) {
+        const at = pointAt(track, c.from + Math.min(len, d + step / 2));
+        const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+        const off = (r: number) => ({ x: at.pos.x + nrm.x * r * c.side, z: at.pos.z + nrm.z * r * c.side });
+        const kp = off(at.halfWidth - kerbW / 2);
+        const kerbHeading = at.heading + (c.side === 1 ? 0 : Math.PI);
+        stat.add(mesh(kerbGeo, k++ % 2 === 0 ? kerbRed : kerbWhite, kp.x, 0.038, kp.z, kerbHeading));
+        const gp = off(at.halfWidth - kerbW - grassW / 2);
+        const gm = mesh(new THREE.BoxGeometry(grassW, 0.032, step * 1.04), grass, gp.x, 0.028, gp.z, at.heading);
+        gm.castShadow = false;
+        stat.add(gm);
+      }
     }
   }
 
@@ -593,7 +1227,9 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
         stat.add(mesh(new THREE.BoxGeometry(0.24, 0.95, l + 0.25), wallMat(room), mx, 0.475, mz, ry));
         if (ROOM_WALL[room] !== "glass") stat.add(mesh(new THREE.BoxGeometry(0.26, 0.22, l + 0.25), stripeMat(room), mx, 0.56, mz, ry));
         stat.add(mesh(new THREE.BoxGeometry(0.28, 0.16, l + 0.25), baseboard, mx, 0.08, mz, ry));
-        stat.add(mesh(new THREE.BoxGeometry(0.3, 0.08, l + 0.25), cap, mx, 0.98, mz, ry));
+        const capGeo = new THREE.CylinderGeometry(0.065, 0.065, l + 0.25, 12);
+        capGeo.rotateX(Math.PI / 2);
+        stat.add(mesh(capGeo, cap, mx, 0.97, mz, ry));
         from = -1;
       }
     }
@@ -603,76 +1239,111 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     return pr.dist < pr.halfWidth - 0.15;
   };
   const inBranch = (p: Vec2) => track.branches.some((_, j) => inPath(j, p));
-  for (const side of [edges.plus, edges.minus]) {
-    for (let i = 0; i < n; i++) {
-      wall(side[i], side[(i + 1) % n], roomAt(track, track.cum[i]), inBranch);
-      // pilar com faixa refletiva a cada 4 pontos do traçado, fora das bocas de atalho
-      if (i % 4 === 0 && !inBranch(side[i])) {
-        stat.add(mesh(new THREE.BoxGeometry(0.34, 1.08, 0.34), column, side[i].x, 0.54, side[i].z));
-        const r = mesh(new THREE.BoxGeometry(0.36, 0.1, 0.36), reflector, side[i].x, 0.78, side[i].z);
-        r.castShadow = false;
-        stat.add(r);
+  if (!isParque) {
+    for (const side of [edges.plus, edges.minus]) {
+      for (let i = 0; i < n; i++) {
+        wall(side[i], side[(i + 1) % n], roomAt(track, track.cum[i]), inBranch);
+        // pilar com faixa refletiva a cada 4 pontos do traçado, fora das bocas de atalho
+        if (i % 4 === 0 && !inBranch(side[i])) {
+          stat.add(mesh(new THREE.CylinderGeometry(0.20, 0.22, 1.08, 14), column, side[i].x, 0.54, side[i].z));
+          const r = mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.12, 14), reflector, side[i].x, 0.78, side[i].z);
+          r.castShadow = false;
+          stat.add(r);
+        }
       }
     }
+    track.branches.forEach((br, j) => {
+      const e = branchEdges(track, j);
+      const room = roomAt(track, br.sFrom + br.sOff[Math.floor(br.points.length / 2)]);
+      const open = (p: Vec2) => inPath(-1, p) || track.branches.some((_, o) => o !== j && inPath(o, p));
+      for (const side of [e.plus, e.minus]) {
+        for (let k = 0; k + 1 < side.length; k++) wall(side[k], side[k + 1], room, open);
+      }
+    });
   }
-  track.branches.forEach((br, j) => {
-    const e = branchEdges(track, j);
-    const room = roomAt(track, br.sFrom + br.sOff[Math.floor(br.points.length / 2)]);
-    const open = (p: Vec2) => inPath(-1, p) || track.branches.some((_, o) => o !== j && inPath(o, p));
-    for (const side of [e.plus, e.minus]) {
-      for (let k = 0; k + 1 < side.length; k++) wall(side[k], side[k + 1], room, open);
-    }
-  });
 
   // largada
   const start = pointAt(track, 0);
-  const line = mesh(new THREE.PlaneGeometry(start.halfWidth * 2, 1.4), new THREE.MeshStandardMaterial({ map: checkerTexture(textures), roughness: 0.5, metalness: 0.05 }), start.pos.x, 0.03, start.pos.z);
+  const startY = heightAt(track, 0);
+  const line = mesh(new THREE.PlaneGeometry(start.halfWidth * 2, 1.4), new THREE.MeshStandardMaterial({ map: checkerTexture(textures), roughness: 0.5, metalness: 0.05 }), start.pos.x, startY + 0.03, start.pos.z);
   line.rotation.set(-Math.PI / 2, 0, 0);
   line.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), start.heading);
   line.castShadow = false;
   scene.add(line);
-  startGantry(scene, stat, start, textures);
+  startGantry(scene, stat, start, textures, isParque, startY);
 
   for (const r of track.rooms.slice(1, -1)) {
-    const at = pointAt(track, track.ctrlS[r.ctrl] + 4);
-    const sign = textSprite(r.name, textures);
-    sign.position.set(at.pos.x, 3.6, at.pos.z);
+    const s = track.ctrlS[r.ctrl] + 4;
+    const at = pointAt(track, s);
+    const signY = heightAt(track, s);
+    const sign = textSprite(r.name, textures, isParque ? "Parque Ipanema" : "Setor corporativo");
+    sign.position.set(at.pos.x, signY + 3.6, at.pos.z);
     scene.add(sign);
   }
 
-  // luminárias suspensas ao longo do traçado
-  const lampBody = new THREE.MeshStandardMaterial({ color: "#2c3e50", roughness: 0.6, metalness: 0.3 });
-  const led = new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: "#eaf4fc", emissiveIntensity: 0.9 });
-  const cable = new THREE.MeshStandardMaterial({ color: "#8b98a5", roughness: 0.6, metalness: 0.4 });
-  for (let s = 2; s < track.length; s += 9) {
-    const at = pointAt(track, s);
-    const g = new THREE.Group();
-    g.position.set(at.pos.x, 3.8, at.pos.z);
-    g.rotation.y = at.heading;
-    g.add(mesh(new THREE.BoxGeometry(0.24, 0.1, 3.4), lampBody, 0, 0, 0));
-    g.add(mesh(new THREE.BoxGeometry(0.14, 0.03, 3.3), led, 0, -0.05, 0));
-    for (const z of [-1.3, 1.3]) g.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.8, 6), cable, 0, 1.4, z));
-    g.traverse((o) => (o.castShadow = false));
-    stat.add(g);
+  // luminárias suspensas ao longo do traçado (apenas em ambientes internos)
+  if (!isParque) {
+    const lampBody = new THREE.MeshStandardMaterial({ color: "#2c3e50", roughness: 0.6, metalness: 0.3 });
+    const led = new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: "#eaf4fc", emissiveIntensity: 0.9 });
+    const cable = new THREE.MeshStandardMaterial({ color: "#8b98a5", roughness: 0.6, metalness: 0.4 });
+    for (let s = 2; s < track.length; s += 9) {
+      const at = pointAt(track, s);
+      const g = new THREE.Group();
+      g.position.set(at.pos.x, 3.8, at.pos.z);
+      g.rotation.y = at.heading;
+      g.add(mesh(new THREE.BoxGeometry(0.24, 0.1, 3.4), lampBody, 0, 0, 0));
+      g.add(mesh(new THREE.BoxGeometry(0.14, 0.03, 3.3), led, 0, -0.05, 0));
+      for (const z of [-1.3, 1.3]) g.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.8, 6), cable, 0, 1.4, z));
+      g.traverse((o) => (o.castShadow = false));
+      stat.add(g);
+    }
   }
 
-  // escritório: fachada de vidro em volta e prédios no horizonte
-  if (!parking) facade(stat, cx, cz, gw / 2 - 1, gd / 2 - 1);
-  skyline(stat, cx, cz, Math.max(gw, gd) / 2 + 12, textures);
+  // Quadros e Banners Satíricos Corporativos nas paredes do circuito (apenas escritório)
+  if (!isParque) {
+    const frameMat = new THREE.MeshStandardMaterial({ color: "#1e2430", roughness: 0.5, metalness: 0.35 });
+    const posterTextures = [
+      posterMetaTexture(textures),
+      posterCafeTexture(textures),
+      posterEstagiariosTexture(textures),
+      posterReuniaoTexture(textures),
+    ];
+    let posterIdx = 0;
+    for (let s = 10; s < track.length - 8; s += 14) {
+      const at = pointAt(track, s);
+      const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+      const side = posterIdx % 2 === 0 ? 1 : -1;
+      const wallDist = at.halfWidth + 0.14;
+      const px = at.pos.x + nrm.x * wallDist * side;
+      const pz = at.pos.z + nrm.z * wallDist * side;
+      const room = roomAt(track, s);
+      if (ROOM_WALL[room] !== "glass" && !inBranch({ x: px, z: pz })) {
+        const posterTex = posterTextures[posterIdx % posterTextures.length];
+        const posterHeading = at.heading + (side === 1 ? -Math.PI / 2 : Math.PI / 2);
+        const poster = buildFramedPoster(posterTex, frameMat, px, 1.34, pz, posterHeading, 2.2, 1.38);
+        scene.add(poster);
+        posterIdx++;
+      }
+    }
+  }
 
-  decorate(stat, track);
+  // escritório: fachada de vidro em volta e prédios no horizonte (parque é céu aberto)
+  if (!parking && !isParque) facade(stat, cx, cz, gw / 2 - 1, gd / 2 - 1);
+  if (!isParque) skyline(stat, cx, cz, Math.max(gw, gd) / 2 + 12, textures);
+
+  decorate(stat, track, textures);
   for (const m of mergeStatic(stat)) scene.add(m);
   return () => textures.forEach((t) => t.dispose());
 }
 
 /** Pórtico de largada: pilares, travessa alta, semáforo de 3 luzes e a faixa do Rally. */
-function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<typeof pointAt>, textures: THREE.Texture[]): void {
+function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<typeof pointAt>, textures: THREE.Texture[], isParque = false, startY = 0): void {
   const truss = new THREE.MeshStandardMaterial({ color: "#1d4ed8", roughness: 0.45, metalness: 0.25 });
   const deco = new THREE.MeshStandardMaterial({ color: "#f59e0b", roughness: 0.5, metalness: 0.1 });
   const housing = new THREE.MeshStandardMaterial({ color: "#181d24", roughness: 0.6, metalness: 0.2 });
   const span = start.halfWidth + 0.6;
   const g = new THREE.Group();
-  g.position.set(start.pos.x, 0, start.pos.z);
+  g.position.set(start.pos.x, startY, start.pos.z);
   g.rotation.y = start.heading;
   for (const s of [-1, 1]) {
     g.add(mesh(new THREE.BoxGeometry(0.42, 5.2, 0.42), truss, span * s, 2.6, 0));
@@ -692,10 +1363,10 @@ function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<ty
     lamps.add(lamp);
   });
   scene.add(lamps);
-  const banner = textSprite("Rally da Firma", textures, "Grande prêmio");
+  const banner = textSprite(isParque ? "Parque Ipanema" : "Rally da Firma", textures, isParque ? "Grande Prêmio da Cidade" : "Grande prêmio");
   // a faixa termina logo abaixo da caixa do semáforo (base em 4.42 m)
   const bannerH = start.halfWidth * 0.48;
-  banner.position.set(start.pos.x, 4.35 - bannerH / 2, start.pos.z);
+  banner.position.set(start.pos.x, startY + 4.35 - bannerH / 2, start.pos.z);
   banner.scale.set(start.halfWidth * 1.9, bannerH, 1);
   scene.add(banner);
 }
@@ -755,16 +1426,25 @@ function skyline(stat: THREE.Group, cx: number, cz: number, r: number, textures:
 }
 
 /** Móveis fora da pista, por ambiente. Só entram onde não encostam em nenhum trecho. */
-function decorate(scene: THREE.Group, track: Track): void {
+function decorate(scene: THREE.Group, track: Track, textures: THREE.Texture[]): void {
+  if (track.id === "parque") return;
   const wood = new THREE.MeshStandardMaterial({ color: "#d97736", roughness: 0.55, metalness: 0.05 });
   const white = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.55, metalness: 0.05 });
   const dark = new THREE.MeshStandardMaterial({ color: "#2d3748", roughness: 0.6, metalness: 0.2 });
   const screen = new THREE.MeshStandardMaterial({ color: "#1a202c", emissive: "#3182ce", emissiveIntensity: 0.7 });
-  const leaf = new THREE.MeshStandardMaterial({ color: "#22c55e", roughness: 0.65, flatShading: true });
-  const pot = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.35 });
+  const potWhite = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.35 });
+  const potTerracotta = new THREE.MeshStandardMaterial({ color: "#c0392b", roughness: 0.65 });
+  const soilMat = new THREE.MeshStandardMaterial({ color: "#2d1810", roughness: 0.95 });
+  const trunkMat = new THREE.MeshStandardMaterial({ color: "#6d4c41", roughness: 0.8 });
+  const leafDark = new THREE.MeshStandardMaterial({ color: "#2e7d32", roughness: 0.6, flatShading: true });
+  const leafMid = new THREE.MeshStandardMaterial({ color: "#43a047", roughness: 0.55, flatShading: true });
+  const leafLight = new THREE.MeshStandardMaterial({ color: "#7cb342", roughness: 0.5, flatShading: true });
+  const blueTap = new THREE.MeshBasicMaterial({ color: "#00b0ff" });
+  const redTap = new THREE.MeshBasicMaterial({ color: "#ff1744" });
+  const waterBlue = new THREE.MeshStandardMaterial({ color: "#00b4d8", transparent: true, opacity: 0.65, roughness: 0.12, metalness: 0.08 });
+  const archiveBoxMat = new THREE.MeshStandardMaterial({ map: archiveBoxTexture(textures), roughness: 0.85 });
   const led = new THREE.MeshBasicMaterial({ color: "#5cff8a" });
   const sofa = new THREE.MeshStandardMaterial({ color: "#0284c7", roughness: 0.7 });
-  const dispenser = new THREE.MeshStandardMaterial({ color: "#38bdf8", transparent: true, opacity: 0.6, roughness: 0.15 });
   const paper = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.85 });
   const concrete = new THREE.MeshStandardMaterial({ color: "#b7b4ad", roughness: 0.95, flatShading: true });
   const yellow = new THREE.MeshStandardMaterial({ color: "#f2c230", roughness: 0.6 });
@@ -774,6 +1454,7 @@ function decorate(scene: THREE.Group, track: Track): void {
   const red = new THREE.MeshBasicMaterial({ color: "#ff5a3d" });
   const cars = ["#c0392b", "#2e6da4", "#e8e4dc", "#2b2f36", "#7f8c8d", "#d4a017"].map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.5, flatShading: true }));
   let carIdx = 0;
+  let plantToggle = 0;
 
   const free = (p: Vec2, r: number) => {
     const pr = progressOf(track, p);
@@ -784,32 +1465,61 @@ function decorate(scene: THREE.Group, track: Track): void {
     g.position.set(p.x, 0, p.z);
     g.rotation.y = ry;
     switch (room) {
-      case "Ilhas de mesas":
+      case "Ilhas de mesas": {
+        g.name = "desk-island";
+        g.userData.isDeskIsland = true;
         g.add(mesh(new THREE.BoxGeometry(2.4, 0.08, 1.2), wood, 0, 0.74, 0));
         for (const x of [-1.1, 1.1]) g.add(mesh(new THREE.BoxGeometry(0.06, 0.74, 1.1), dark, x, 0.37, 0));
         for (const x of [-0.6, 0.6]) g.add(mesh(new THREE.BoxGeometry(0.55, 0.36, 0.04), screen, x, 1.0, -0.3));
         g.add(mesh(new THREE.BoxGeometry(0.3, 0.12, 0.22), paper, 0.7, 0.84, 0.2));
+        const deskBoxStack = buildArchiveBoxStack(archiveBoxMat, 2);
+        deskBoxStack.position.set(-1.3, 0, 0.3);
+        g.add(deskBoxStack);
         break;
-      case "TI":
+      }
+      case "TI": {
         g.add(mesh(new THREE.BoxGeometry(0.9, 2.1, 1.0), dark, 0, 1.05, 0));
         for (let y = 0; y < 6; y++) g.add(mesh(new THREE.BoxGeometry(0.06, 0.04, 0.02), led, 0.3 - (y % 2) * 0.2, 0.4 + y * 0.28, 0.51));
+        const tiBoxStack = buildArchiveBoxStack(archiveBoxMat, 3);
+        tiBoxStack.position.set(0.85, 0, 0.2);
+        g.add(tiBoxStack);
         break;
+      }
       case "Copa":
-      case "Balcão":
+      case "Balcão": {
         g.add(mesh(new THREE.BoxGeometry(2.6, 0.95, 0.8), white, 0, 0.47, 0));
         g.add(mesh(new THREE.BoxGeometry(0.4, 0.5, 0.4), dark, 0.7, 1.2, 0));
-        // bebedouro com galão
-        g.add(mesh(new THREE.BoxGeometry(0.36, 0.9, 0.36), white, -0.7, 0.45, 0.65));
-        g.add(mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.38, 12), dispenser, -0.7, 1.1, 0.65));
+        // bebedouro de coluna com galão azul 20L
+        const cooler = buildWaterCooler(white, waterBlue, dark, blueTap, redTap, steel);
+        cooler.position.set(-0.75, 0, 0.65);
+        g.add(cooler);
+        const copaBoxStack = buildArchiveBoxStack(archiveBoxMat, 2);
+        copaBoxStack.position.set(0.85, 0, 0.65);
+        g.add(copaBoxStack);
         break;
-      case "Sala de reunião":
+      }
+      case "Sala de reunião": {
         g.add(mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.08, 24), wood, 0, 0.74, 0));
         g.add(mesh(new THREE.CylinderGeometry(0.15, 0.3, 0.74, 10), dark, 0, 0.37, 0));
+        const meetFicus = buildFicus(potWhite, soilMat, trunkMat, [leafDark, leafMid, leafLight]);
+        meetFicus.position.set(-1.6, 0, 0);
+        g.add(meetFicus);
+        const meetFern = buildFern(potTerracotta, soilMat, leafDark);
+        meetFern.position.set(1.6, 0, 0);
+        g.add(meetFern);
         break;
-      case "Recepção":
+      }
+      case "Recepção": {
         g.add(mesh(new THREE.BoxGeometry(2.2, 0.7, 0.9), sofa, 0, 0.35, 0));
         g.add(mesh(new THREE.BoxGeometry(2.2, 0.6, 0.25), sofa, 0, 0.8, -0.35));
+        const recepCooler = buildWaterCooler(white, waterBlue, dark, blueTap, redTap, steel);
+        recepCooler.position.set(-1.45, 0, 0.2);
+        g.add(recepCooler);
+        const recepPlant = buildFicus(potWhite, soilMat, trunkMat, [leafDark, leafMid, leafLight]);
+        recepPlant.position.set(1.45, 0, 0.2);
+        g.add(recepPlant);
         break;
+      }
       // estacionamento: carros nas vagas (com a faixa branca), pilares, cones e a guarita da cancela
       case "Vagas":
       case "Vagas do fundo": {
@@ -857,8 +1567,12 @@ function decorate(scene: THREE.Group, track: Track): void {
         g.add(mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.12, 10), white, 0.4, 1.01, 0.1));
         break;
       default:
-        g.add(mesh(new THREE.CylinderGeometry(0.3, 0.24, 0.5, 10), pot, 0, 0.25, 0));
-        g.add(mesh(new THREE.IcosahedronGeometry(0.55, 0), leaf, 0, 0.95, 0));
+        if (plantToggle++ % 2 === 0) {
+          g.add(buildFicus(potWhite, soilMat, trunkMat, [leafDark, leafMid, leafLight]));
+        } else {
+          g.add(buildFern(potTerracotta, soilMat, leafDark));
+        }
+        break;
     }
     scene.add(g);
   };
@@ -898,6 +1612,9 @@ function decorate(scene: THREE.Group, track: Track): void {
         } else {
           g.add(mesh(new THREE.BoxGeometry(1.2, 0.06, 0.8), wood, 0, 0.45, 0));
           for (const x of [-0.5, 0.5]) g.add(mesh(new THREE.BoxGeometry(0.05, 0.45, 0.7), dark, x, 0.22, 0));
+          const branchBoxStack = buildArchiveBoxStack(archiveBoxMat, k % 2 === 0 ? 2 : 3);
+          branchBoxStack.position.set(0.65, 0, 0);
+          g.add(branchBoxStack);
         }
         scene.add(g);
       }

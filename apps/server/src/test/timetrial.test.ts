@@ -112,7 +112,7 @@ describe("contra o relógio no servidor", () => {
     expect(first.me!.sessionBestMs).toBeNull();
     for (const x of [a, b, v]) {
       const g = await x.c.waitFor("ghosts");
-      expect(g).toEqual({ t: "ghosts", mine: null, record: null });
+      expect(g).toEqual({ t: "ghosts", mine: null, record: null, rival: null });
     }
 
     // endTraining de quem não é anfitrião é ignorado
@@ -141,6 +141,8 @@ describe("contra o relógio no servidor", () => {
     expect(gb2.record).toMatchObject({ ms: 60000, name: "Beto" });
     const ga2 = await a.c.waitFor("ghosts", (m) => m.record?.ms === 60000);
     expect(ga2.mine!.ms).toBe(61234);
+    // com só dois tempos salvos, o único à frente da Ana é o recorde, que já tem fantasma: sem rival
+    expect(ga2.rival).toBeNull();
     expect(a.c.of("ghosts").length).toBe(nA + 1);
     expect(store.data.laps[MAIN_TRACK_ID]["g-ana"].ms).toBe(61234);
 
@@ -211,7 +213,7 @@ describe("contra o relógio no servidor", () => {
       b.c.send({ t: "ready", ready: true });
       await a.c.waitFor("lobby", (m) => m.state.mode === "timetrial" && m.state.players.every((p) => p.ready));
       a.c.send({ t: "start" });
-      expect(await a.c.waitFor("ghosts")).toEqual({ t: "ghosts", mine: null, record: null });
+      expect(await a.c.waitFor("ghosts")).toEqual({ t: "ghosts", mine: null, record: null, rival: null });
       const laps = other.manager.rooms.get(a.w.code)!.race!.completedLaps;
       laps.push({ id: a.w.id, ms: 70000, ghost: ghost(70000) });
       await b.c.waitFor("ghosts", (m) => m.record?.name === "Ana");

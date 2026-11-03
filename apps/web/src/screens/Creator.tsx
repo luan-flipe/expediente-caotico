@@ -23,7 +23,7 @@ import {
 } from "@ec/shared";
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail } from "../game/character";
-import { BEARD_LABELS, HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
+import { BEARD_LABELS, GLASSES_LABELS, HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
 import { saveAvatar, saveChair, setState, useStore } from "../store";
 
 type Step = "start" | "body" | "hair" | "clothes";
@@ -97,6 +97,23 @@ export function Creator() {
   const [step, setStep] = useState<Step>("start");
   const [start, setStart] = useState<Start>("custom");
   const [preset, setPreset] = useState(-1);
+  // giro automático da prévia; a escolha fica guardada para a próxima vez
+  const [spin, setSpin] = useState(() => {
+    try {
+      return localStorage.getItem("ec.creatorSpin") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggleSpin = () => {
+    const next = !spin;
+    setSpin(next);
+    try {
+      localStorage.setItem("ec.creatorSpin", next ? "1" : "0");
+    } catch {
+      // sem storage a escolha vale só nesta sessão
+    }
+  };
   const set = (k: keyof AvatarDNA) => (i: number) => setDna((d) => ({ ...d, [k]: i }));
   const ready = useStore((s) => s.modelReady);
   // ready refaz as miniaturas quando o boneco termina de carregar
@@ -162,6 +179,11 @@ export function Creator() {
         <Field label="Cor dos olhos">
           <Swatches colors={EYE_COLORS} value={dna.eyes} onPick={set("eyes")} />
         </Field>
+        {GLASSES_LABELS.length > 1 && (
+          <Field label="Óculos">
+            <Seg items={GLASSES_LABELS} value={dna.glasses} onPick={set("glasses")} />
+          </Field>
+        )}
         <Field label="Rosto">
           <Seg items={FACES} value={dna.face} onPick={set("face")} />
         </Field>
@@ -248,9 +270,17 @@ export function Creator() {
             <div className="badge">
               <div className="badge-top">
                 <span>CRACHÁ</span>
-                <span>ARRASTE PARA GIRAR</span>
+                <button type="button" className="badge-spin" aria-pressed={spin} title="Arraste o boneco para girar à mão" onClick={toggleSpin}>
+                  {spin ? "■ PAUSAR GIRO" : "▶ GIRO AUTOMÁTICO"}
+                </button>
               </div>
-              <AvatarPreview dna={dna} chair={tab === 1 ? chair : undefined} action={tab === 1 ? cheer : undefined} className="badge-preview" />
+              <AvatarPreview
+                dna={dna}
+                chair={tab === 1 ? chair : undefined}
+                action={tab === 1 ? cheer : undefined}
+                spin={spin}
+                className="badge-preview"
+              />
               <div className="badge-name">{dna.name}</div>
             </div>
             <div className="row">
@@ -265,6 +295,7 @@ export function Creator() {
                     ...randomAvatar(Math.random, d.name),
                     hair: pick(HAIR_LABELS.length),
                     beard: Math.random() < 0.3 ? pick(BEARD_LABELS.length) : 0,
+                    glasses: Math.random() < 0.4 ? pick(GLASSES_LABELS.length) : 0,
                     shirt: pick(SHIRT_LABELS.length),
                     pants: pick(PANTS_LABELS.length),
                     shoes: pick(SHOE_LABELS.length),

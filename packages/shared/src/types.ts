@@ -12,7 +12,7 @@ export interface AvatarDNA {
   hair: number;
   hairColor: number;
   eyes: number;
-  /** Índice de FACES (0 = feliz, o rosto do boneco como veio). */
+  /** Índice de FACES (0 = neutro, o rosto da textura do boneco). */
   face: number;
   /** Peça da pasta de barbas (0 = sem barba), como o cabelo. */
   beard: number;

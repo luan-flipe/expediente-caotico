@@ -87,6 +87,7 @@ export interface State {
 export interface Ghosts {
   mine: GhostLap | null;
   record: (GhostLap & { name: string }) | null;
+  rival: (GhostLap & { name: string }) | null;
 }
 
 const AVATAR_KEY = "ec.avatar";
@@ -289,7 +290,7 @@ function onMessage(msg: ServerMsg): void {
       return;
     }
     case "ghosts":
-      setState({ ghosts: { mine: msg.mine, record: msg.record } });
+      setState({ ghosts: { mine: msg.mine, record: msg.record, rival: msg.rival ?? null } });
       return;
     case "snap": {
       const items: Omit<FeedItem, "id" | "at">[] = [];
@@ -316,3 +317,9 @@ function onMessage(msg: ServerMsg): void {
 }
 
 export const net = new Connection(onMessage, (online) => setState({ online }), savedSession, loginSession);
+
+/** Revanche do anfitrião: volta ao lobby e já começa outra partida com as mesmas opções. */
+export function jogarDeNovo(): void {
+  net.send({ t: "lobby" });
+  net.send({ t: "start" });
+}

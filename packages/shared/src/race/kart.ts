@@ -229,7 +229,7 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
         }
       }
     }
-    if (!s.air && !s.fell && s.y === 0) {
+    if (!s.air && !s.fell && s.y === 0 && !track?.heights) {
       // no chão plano o estado fica igual ao de antes das rampas
       delete s.y;
       delete s.vy;

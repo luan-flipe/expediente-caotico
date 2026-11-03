@@ -1,7 +1,7 @@
 import { ABILITIES } from "@ec/shared";
 import { AvatarPreview } from "../game/AvatarPreview";
 import { avatarThumbnail } from "../game/character";
-import { net, useStore } from "../store";
+import { jogarDeNovo, net, useStore } from "../store";
 import { Awards } from "./Awards";
 
 export function Results() {
@@ -101,9 +101,14 @@ export function Results() {
             <Awards />
             <div className="row" style={{ marginTop: 16 }}>
               {isHost ? (
-                <button className="btn primary" onClick={() => net.send({ t: "lobby" })}>
-                  Voltar ao lobby
-                </button>
+                <>
+                  <button className="btn primary" onClick={jogarDeNovo}>
+                    Jogar de novo
+                  </button>
+                  <button className="btn" onClick={() => net.send({ t: "lobby" })}>
+                    Voltar ao lobby
+                  </button>
+                </>
               ) : (
                 <span className="muted">Aguardando o anfitrião voltar ao lobby.</span>
               )}

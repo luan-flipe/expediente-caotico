@@ -103,7 +103,7 @@ describe("pistas no servidor", () => {
     const srv = await startServer(0, { store, auth: { clientId: null, secret: "segredo" } });
     try {
       const v = (await (await fetch(`http://localhost:${srv.port}/api/ranking`)).json()) as RankingView;
-      expect(v.pistas.map((p) => p.name)).toEqual(["Circuito Corporativo", "Estacionamento", "Copa"]);
+      expect(v.pistas.map((p) => p.name)).toEqual(["Circuito Corporativo", "Estacionamento", "Copa", "Parque Ipanema"]);
       const copa = v.pistas.find((p) => p.id === "copa")!;
       expect(copa.voltas.rows).toHaveLength(1);
       expect(copa.voltas.rows[0]).toMatchObject({ name: "Ana", ms: 11000, rank: 1 });

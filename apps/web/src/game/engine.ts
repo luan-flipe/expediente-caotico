@@ -108,7 +108,7 @@ export class Engine {
   private snapAt = 0;
   private me: PrivateState | null = null;
   private avatars = new Map<string, AvatarDNA>();
-  private chat = new ChatBubbles(3.15);
+  private chat = new ChatBubbles(3.45);
 
   private yaw = 0;
   private pitch = -0.08;

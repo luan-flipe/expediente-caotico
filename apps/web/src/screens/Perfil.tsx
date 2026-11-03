@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { MatchSummary, PlayerProfile } from "@ec/shared";
+import { cargoDe, type MatchSummary, type PlayerProfile } from "@ec/shared";
 import { AvatarPreview } from "../game/AvatarPreview";
 import { fetchPerfil } from "../net/session";
 import { perfilUrl } from "../perfil";
@@ -88,6 +88,7 @@ export function Perfil({ id }: { id: string }) {
                 </div>
                 <AvatarPreview dna={p.avatar} chair={p.chair} className="badge-preview" />
                 <div className="badge-name">{p.name}</div>
+                <div className="badge-cargo">{cargoDe(p.stats.shooterWins + p.stats.raceWins)}</div>
                 <div style={{ padding: "0 16px 16px" }}>
                   <button className="btn" onClick={() => void copy()}>
                     {copied ? "Copiado!" : "Copiar link do perfil"}
