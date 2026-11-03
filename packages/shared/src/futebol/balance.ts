@@ -18,12 +18,30 @@ export const FUT = {
   controlRadius: 0.9,
   dribbleTouch: 0.7,
   sprintTouch: 1.6,
-  chargeMaxMs: 1000,
+  /** Tempo (ms) para a carga de chute/passe chegar à força máxima. */
+  chargeMaxMs: 400,
   shotMin: 10,
   shotMax: 28,
   passMin: 6,
   passMax: 18,
   ballRadius: 0.25,
+  /** Chute forte: a partir desta força (0..1) a bola sobe; no máximo, a velocidade vertical é loftMax x a velocidade. */
+  loftFrom: 0.5,
+  loftMax: 0.42,
+  /** Lançamento do goleiro (passe longo): razão vertical/velocidade e distância (m) a partir da qual lança em vez de rolar. */
+  lobRatio: 0.6,
+  lobFrom: 16,
+  /** Chute assistido: alcance (m) até a linha do gol, abertura lateral (em meias-traves) e imprecisão (rad) base, por força e por pressão. */
+  assistRange: 32,
+  assistReach: 2.4,
+  assistErr: 0.012,
+  assistErrPower: 0.03,
+  assistErrPressure: 0.035,
+  /** Chute assistido: o canto fica a esta fração da meia-trave; força a partir da qual vai no ângulo (alto), altura do alvo alto (m) e raio de pressão (m). */
+  assistCorner: 0.78,
+  assistHighFrom: 0.55,
+  assistHighY: 1.6,
+  assistPressureDist: 3,
   goalCelebrateMs: 4000,
   kickoffWaitMs: 2000,
   gravity: 9.8,

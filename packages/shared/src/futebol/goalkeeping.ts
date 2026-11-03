@@ -13,6 +13,9 @@ const HAND = 0.5;
 /** Bola solta que se afasta do último toque do goleiro mais rápido que isso não é retomada (m/s). */
 const AWAY_EPS = 0.5;
 
+/** Passe do goleiro com força a partir daqui (0..1) vira lançamento alto. */
+export const LOB_POWER = 0.3;
+
 /** Acima desta velocidade (m/s) a bola é chute e o goleiro pode não chegar a tempo. */
 const SHOT_SPEED = 12;
 /** Chance base de o goleiro alcançar o chute (por nível) e quanto ela cai por m/s acima de SHOT_SPEED. */
@@ -105,6 +108,7 @@ export function keeperKick(m: FutMatch, k: FutPlayer, input: FutInput, dtMs: num
   k.chargeMs = 0;
   k.chargeKind = null;
   touchBall(m.ball, k);
-  kickBall(m.ball, input.aim, power01, kind);
+  // passe forte do goleiro é lançamento: sobe (a IA só carrega assim para alvos longe)
+  kickBall(m.ball, input.aim, power01, kind, kind === "pass" && power01 >= LOB_POWER ? { lob: FUT.lobRatio } : {});
   return { t: kind, id: k.id, ok: true };
 }

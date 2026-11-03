@@ -1,6 +1,6 @@
 import type { BotLevel } from "../botLevels";
 import { FUT } from "./balance";
-import { aimTo, attackDir, chargeThenRelease, freestMate, passPowerFor } from "./bots";
+import { advancedFreeMate, aimTo, attackDir, chargeThenRelease, FREE_GAP, keeperPassPower } from "./bots";
 import type { Ball, Field, FutInput, FutPlayer } from "./types";
 
 /** Por nível: alcance (m) para pegar a bola e reação (ms). */
@@ -32,7 +32,6 @@ const HOLD_MIN_MS = 2000;
 const HOLD_MAX_MS = 3500;
 /** Folga (m) do goleiro dentro da área e distância mínima (m) do adversário para um companheiro estar livre. */
 const BOX_PAD = 0.8;
-const FREE_GAP = 4;
 /** Balanço do goleiro com a bola: período (ms) e amplitude (m) em z, e recuo (m) da linha do gol em x. */
 const SWAY_MS = 650;
 const SWAY_Z = 1.4;
@@ -53,7 +52,7 @@ function holdingInput(k: FutPlayer, f: Field, players: readonly FutPlayer[]): Fu
   const dir = attackDir(k.side);
   const gx = -dir * f.halfL;
   const held = k.holdMs ?? 0;
-  const mate = freestMate(players, k);
+  const mate = advancedFreeMate(players, k);
   let gap = 0;
   if (mate) {
     gap = Infinity;
@@ -70,12 +69,12 @@ function holdingInput(k: FutPlayer, f: Field, players: readonly FutPlayer[]): Fu
   const pz = Math.max(-zLim, Math.min(zLim, wantZ));
   const base = moveTo(k, px, pz, false, aimTo(k, target));
   const free = mate !== null && gap >= FREE_GAP;
-  // sem ninguém livre, o passe sai longo para o companheiro mais livre (ou o meio do campo), com a força da distância
+  // o alvo é o atacante mais avançado e livre; sem ninguém livre, o mais livre (ou o meio do campo). Longe, o passe é lançamento alto
   const releasing = k.chargeKind !== null || held >= HOLD_MAX_MS || (held >= HOLD_MIN_MS && free);
   if (!releasing) {
     return base;
   }
-  return chargeThenRelease(k, "pass", passPowerFor(Math.hypot(target.x - k.x, target.z - k.z)), base);
+  return chargeThenRelease(k, "pass", keeperPassPower(Math.hypot(target.x - k.x, target.z - k.z)), base);
 }
 
 /** Intenção do goleiro da IA (nunca é humano). `players` só serve para escolher o passe. */

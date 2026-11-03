@@ -65,7 +65,8 @@ describe("partida de futebol", () => {
     expect(getFutScore(m).score).toEqual([1, 0]);
     expect(m.phase).toBe("goal");
     expect(m.events.some((e) => e.type === "goal" && e.side === 0 && e.scorerId === a.id)).toBe(true);
-    run(m, FUT.goalCelebrateMs + 200);
+    // a carga é rápida: o bot cobrador solta a saída em poucos ticks, então olha logo depois do fim da comemoração
+    run(m, FUT.goalCelebrateMs - 300 + 60);
     expect(m.restart?.kind).toBe("saida");
     expect(m.restart?.side).toBe(1);
     expect(m.phase).toBe("restart");

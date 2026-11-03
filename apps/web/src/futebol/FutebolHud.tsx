@@ -218,7 +218,7 @@ export function FutebolHud({ myId, locked, powerRef, fillRef }: { myId: string; 
 
         {!IS_TOUCH && (
           <div className="fut-keys">
-            {keyLabel(keys.frente)} {keyLabel(keys.esquerda)} {keyLabel(keys.tras)} {keyLabel(keys.direita)} andar · {keyLabel(keys.frente)} duas vezes corre · esquerdo chuta (segure para força) · direito passa · sem a bola: carrinho e disputa
+            {keyLabel(keys.frente)} {keyLabel(keys.esquerda)} {keyLabel(keys.tras)} {keyLabel(keys.direita)} andar · {keyLabel(keys.frente)} duas vezes corre · esquerdo chuta (segure para força; perto do gol, a mira escolhe o canto) · direito passa · sem a bola: carrinho e disputa
           </div>
         )}
         {scoreboard && <FutScoreboard myId={myId} />}

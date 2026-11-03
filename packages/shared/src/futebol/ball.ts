@@ -3,9 +3,6 @@ import type { Ball, Field, TeamSide } from "./types";
 
 /** Abaixo disso a quicada vira rolagem (m/s). */
 const MIN_BOUNCE_VY = 0.5;
-/** Ganho de altura do chute forte por m/s de potência acima do limiar. */
-const LOFT = 0.35;
-const LOFT_THRESHOLD = 0.6;
 
 /** Passo da bola: gravidade, quique, atrito no chão e parada. */
 export function stepBall(b: Ball, dtMs: number): void {
@@ -51,13 +48,32 @@ export function ballOut(b: Ball, f: Field): { kind: "lateral" | "fundo" | "gol";
   return null;
 }
 
+/** Opções do toque: vy força a velocidade vertical (m/s); lob dá ao passe a razão vertical/velocidade (lançamento). */
+export interface KickOpts {
+  vy?: number;
+  lob?: number;
+}
+
+/** Velocidade vertical (m/s) de um chute forte: cresce de 0 (em loftFrom) a loftMax x velocidade (força total). */
+export function loftVy(speed: number, p: number): number {
+  if (p <= FUT.loftFrom) {
+    return 0;
+  }
+  return ((p - FUT.loftFrom) / (1 - FUT.loftFrom)) * speed * FUT.loftMax;
+}
+
+/** Velocidade horizontal (m/s) do lançamento que cai a `d` metros (sem arrasto): d = 2 * lob * v^2 / g. */
+export function lobSpeedFor(d: number): number {
+  return Math.sqrt((Math.max(0, d) * FUT.gravity) / (2 * FUT.lobRatio));
+}
+
 /** Chute (kick) ou passe (pass). dirYaw: 0 = +z, vetor (sin, cos). */
-export function kickBall(b: Ball, dirYaw: number, power01: number, kind: "kick" | "pass"): void {
+export function kickBall(b: Ball, dirYaw: number, power01: number, kind: "kick" | "pass", opts: KickOpts = {}): void {
   const p = Math.min(1, Math.max(0, power01));
   const [min, max] = kind === "kick" ? [FUT.shotMin, FUT.shotMax] : [FUT.passMin, FUT.passMax];
   const speed = min + (max - min) * p;
   b.vx = Math.sin(dirYaw) * speed;
   b.vz = Math.cos(dirYaw) * speed;
-  b.vy = kind === "kick" && p > LOFT_THRESHOLD ? (p - LOFT_THRESHOLD) * speed * LOFT * 2.5 : 0;
+  b.vy = opts.vy ?? (opts.lob !== undefined ? speed * opts.lob : kind === "kick" ? loftVy(speed, p) : 0);
   b.ownerId = null;
 }

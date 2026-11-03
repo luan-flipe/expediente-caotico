@@ -1,5 +1,6 @@
 import type { BotLevel } from "../botLevels";
 import { FUT } from "./balance";
+import { lobSpeedFor } from "./ball";
 import { activeOutfield } from "./fouls";
 import type { FutInput, FutMatch, FutPlayer, TeamSide } from "./types";
 
@@ -49,6 +50,39 @@ export const aimTo = (from: { x: number; z: number }, to: { x: number; z: number
 export function passPowerFor(d: number): number {
   const speed = d * 0.5;
   return Math.min(1, Math.max(0, (speed - FUT.passMin) / (FUT.passMax - FUT.passMin)));
+}
+
+/** Força (0..1) do lançamento (passe alto) que cai a `d` metros; abaixo de lobFrom o passe rola. */
+export function lobPowerFor(d: number): number {
+  return Math.min(1, Math.max(0, (lobSpeedFor(d) - FUT.passMin) / (FUT.passMax - FUT.passMin)));
+}
+
+/** Força do passe do goleiro até `d` metros: rola perto, lança (alto) longe. */
+export function keeperPassPower(d: number): number {
+  return d >= FUT.lobFrom ? lobPowerFor(d) : passPowerFor(d);
+}
+
+/** Distância (m) do adversário mais perto de um companheiro para ele contar como livre. */
+export const FREE_GAP = 4;
+
+/** Companheiro de linha ativo mais avançado no ataque entre os livres (adversário a FREE_GAP ou mais);
+ *  sem ninguém livre, o mais livre de todos. */
+export function advancedFreeMate(players: readonly FutPlayer[], taker: FutPlayer): FutPlayer | null {
+  const rivals = players.filter((p) => p.side !== taker.side && !p.sentOff);
+  const dir = attackDir(taker.side);
+  let best: FutPlayer | null = null;
+  let bestX = -Infinity;
+  for (const p of activeOutfield(players as FutPlayer[], taker.side)) {
+    if (p.id === taker.id || p.downMs > 0) {
+      continue;
+    }
+    const gap = rivals.reduce((g, r) => Math.min(g, dist(p, r)), Infinity);
+    if (gap >= FREE_GAP && p.x * dir > bestX) {
+      best = p;
+      bestX = p.x * dir;
+    }
+  }
+  return best ?? freestMate(players, taker);
 }
 
 /** Companheiro de linha ativo cujo adversário mais próximo está mais longe. */

@@ -36,6 +36,7 @@ export * from "./futebol/balance";
 export * from "./futebol/field";
 export * from "./futebol/player";
 export * from "./futebol/ball";
+export * from "./futebol/assist";
 export * from "./futebol/touch";
 export * from "./futebol/fouls";
 export * from "./futebol/restarts";

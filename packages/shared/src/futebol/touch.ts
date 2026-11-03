@@ -1,4 +1,5 @@
 import { FUT } from "./balance";
+import { assistShot } from "./assist";
 import { kickBall } from "./ball";
 import type { Ball, Field, FutInput, FutPlayer } from "./types";
 
@@ -127,6 +128,7 @@ export function resolveTouches(
   inputs: Map<string, FutInput>,
   dtMs: number,
   field?: Field,
+  rng?: () => number,
 ): TouchEvent[] {
   const events: TouchEvent[] = [];
   const ordered = [...players].sort(byId);
@@ -184,7 +186,9 @@ export function resolveTouches(
       !(ball.lastTouch?.id === p.id && ball.vx * ball.vx + ball.vz * ball.vz > 0);
     if (hasBall || looseNear) {
       touch(ball, p);
-      kickBall(ball, input.aim, power01, kind);
+      // chute de humano perto do gol: a sim leva a bola ao canto escolhido (a mira só diz o lado)
+      const help = rng && field && kind === "kick" && !p.isBot ? assistShot(p, input, power01, ball, field, players, rng) : null;
+      kickBall(ball, help?.yaw ?? input.aim, power01, kind, help ? { vy: help.vy } : {});
       kicked.add(p.id);
       events.push({ t: kind, id: p.id, ok: true });
     } else if (charged && kind === "kick") {

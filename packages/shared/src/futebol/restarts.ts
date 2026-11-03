@@ -1,6 +1,8 @@
 import { FUT } from "./balance";
 import { ballOut, kickBall } from "./ball";
+import { advancedFreeMate, keeperPassPower } from "./bots";
 import { activeOutfield } from "./fouls";
+import { LOB_POWER } from "./goalkeeping";
 import type { Ball, Field, FutMatch, FutPlayer, RestartKind, TeamSide } from "./types";
 
 /** Distância mínima (m) dos outros jogadores ao ponto da cobrança. */
@@ -146,14 +148,17 @@ export function stepRestart(m: FutMatch, dtMs: number): void {
   if (!taker) {
     return;
   }
-  const mate = freestMate(m, taker);
+  const keeperTake = taker.role === "goleiro";
+  // o goleiro procura o atacante mais avançado e livre (lançamento se estiver longe); sem ninguém, lança ao meio
+  const mate = keeperTake ? advancedFreeMate(m.players, taker) : freestMate(m, taker);
   // saída sem companheiro: recua para o goleiro em vez de entregar a bola ao adversário
   const gk = !mate && r.kind === "saida" ? m.players.find((p) => p.side === taker.side && p.role === "goleiro") : undefined;
-  const tx = mate ? mate.x : gk ? gk.x : taker.side === 0 ? m.field.halfL : -m.field.halfL;
+  const tx = mate ? mate.x : gk ? gk.x : keeperTake ? 0 : taker.side === 0 ? m.field.halfL : -m.field.halfL;
   const tz = mate ? mate.z : gk ? gk.z : 0;
   const yaw = Math.atan2(tx - m.ball.x, tz - m.ball.z);
   taker.facing = yaw;
-  kickBall(m.ball, yaw, gk ? Math.min(AI_PASS_POWER, 0.5) : AI_PASS_POWER, "pass");
+  const power = keeperTake ? keeperPassPower(Math.hypot(tx - m.ball.x, tz - m.ball.z)) : gk ? Math.min(AI_PASS_POWER, 0.5) : AI_PASS_POWER;
+  kickBall(m.ball, yaw, power, "pass", keeperTake && power >= LOB_POWER ? { lob: FUT.lobRatio } : {});
   m.ball.prevTouch = m.ball.lastTouch;
   m.ball.lastTouch = { id: taker.id, side: taker.side };
 }
