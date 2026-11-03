@@ -4,6 +4,11 @@ import type { Field, FutInput, FutPlayer } from "./types";
 /** Folga além das linhas do campo, em metros. */
 const MARGIN = 2;
 
+/** Marca se o jogador conduz a bola neste tick (a regra do servidor, usada também na predição do cliente). */
+export function markCarry(p: FutPlayer, ballOwnerId: string | null): void {
+  p.carry = ballOwnerId === p.id;
+}
+
 /** Movimento do jogador: inércia. Arranca e frena em tempos finitos, virar custa velocidade
  *  (a parte da velocidade fora da nova direção é freada pela aderência lateral) e conduzir a bola
  *  ou acabar de perdê-la acelera menos. Igual para humanos, bots e goleiros (mais ágil). */

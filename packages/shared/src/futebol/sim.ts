@@ -2,7 +2,7 @@ import { stepBall } from "./ball";
 import { botInput } from "./bots";
 import { holdBall, keeperKick, keeperSave } from "./goalkeeping";
 import { keeperInput } from "./keeper";
-import { stepPlayer } from "./player";
+import { markCarry, stepPlayer } from "./player";
 import { restartBlocks, stepRestart } from "./restarts";
 import { resolveTouches, type TouchEvent } from "./touch";
 import type { FutInput, FutMatch, FutPlayer } from "./types";
@@ -54,7 +54,7 @@ export function stepWorld(m: FutMatch, dtMs: number, o: WorldOpts = {}): WorldSt
     inputs.set(p.id, inputFor(m, p, o));
   }
   for (const p of active) {
-    p.carry = m.ball.ownerId === p.id;
+    markCarry(p, m.ball.ownerId);
     stepPlayer(p, inputs.get(p.id)!, m.field, dtMs);
   }
 

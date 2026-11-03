@@ -5,6 +5,7 @@ import {
   FUT_COLORS,
   PRESETS,
   fieldFor,
+  markCarry,
   stepPlayer,
   type AvatarDNA,
   type Field,
@@ -28,7 +29,7 @@ import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
 import ballUrl from "../assets/futebol/bola.glb?url";
 import goalUrl from "../assets/futebol/gol.glb?url";
 import pitchUrl from "../assets/futebol/ipatingao.glb?url";
-import { reconcileDrawn } from "./reconcile";
+import { predictedPlayer, reconcileDrawn } from "./reconcile";
 import { TOUCH_KICK, TOUCH_PASS, cancelCharges, chargePower, hasBallReach, mouseSide, newCharge, newControlState, newMouse, pressMouse, readFutInput, releaseMouse, stepCharge, syncMouseButtons, type FutKeys } from "./controls";
 import { Arena } from "./arena";
 import { Comemoracoes } from "./comemoracoes";
@@ -597,23 +598,7 @@ export class FutebolEngine {
       return;
     }
     while (this.pending.length && this.pending[0].seq <= me.ackSeq) this.pending.shift();
-    const next: FutPlayer = {
-      id: p.id,
-      side: p.side,
-      role: "linha",
-      x: p.x,
-      z: p.z,
-      vx: p.vx,
-      vz: p.vz,
-      facing: p.facing,
-      chargeMs: 0,
-      chargeKind: null,
-      tackleMs: 0,
-      downMs: 0,
-      yellow: p.yellow,
-      sentOff: false,
-      isBot: false,
-    };
+    const next = predictedPlayer(p, me, this.snap?.ball.ownerId ?? null);
     for (const q of this.pending) stepPlayer(next, q.input, this.field, DT);
     const old = this.pred;
     if (old) {
@@ -786,6 +771,7 @@ export class FutebolEngine {
       if (this.pending.length > 90) this.pending.shift();
       this.prevX = this.pred.x;
       this.prevZ = this.pred.z;
+      markCarry(this.pred, s.ball.ownerId);
       stepPlayer(this.pred, input, this.field, DT);
     }
   }

@@ -193,6 +193,8 @@ export interface FutPrivate {
   chargeMs: number;
   /** Último seq de entrada confirmado. */
   ackSeq: number;
+  /** Recuperação depois de perder a bola (ms): a predição precisa dela para acelerar como o servidor. */
+  slowMs: number;
 }
 
 export interface FutResultRow {

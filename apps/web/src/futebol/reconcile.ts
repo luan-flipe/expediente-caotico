@@ -1,3 +1,29 @@
+import { markCarry, type FutPlayer, type FutPrivate, type FutSnapshot } from "@ec/shared";
+
+/** Jogador local de partida do servidor: o que o snapshot traz, a recuperação (slowMs) do estado privado e quem conduz a bola. */
+export function predictedPlayer(p: FutSnapshot["players"][number], me: FutPrivate, ballOwnerId: string | null): FutPlayer {
+  const next: FutPlayer = {
+    id: p.id,
+    side: p.side,
+    role: "linha",
+    x: p.x,
+    z: p.z,
+    vx: p.vx,
+    vz: p.vz,
+    facing: p.facing,
+    chargeMs: 0,
+    chargeKind: null,
+    tackleMs: 0,
+    downMs: 0,
+    yellow: p.yellow,
+    sentOff: false,
+    isBot: false,
+    slowMs: me.slowMs,
+  };
+  markCarry(next, ballOwnerId);
+  return next;
+}
+
 export interface XZ {
   x: number;
   z: number;

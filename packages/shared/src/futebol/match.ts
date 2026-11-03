@@ -397,7 +397,7 @@ export function buildFutPrivate(m: FutMatch, id: string): FutPrivate | null {
   if (!p || p.role !== "linha") {
     return null;
   }
-  return { chargeMs: Math.round(p.chargeMs), ackSeq: m.ack.get(id) ?? 0 };
+  return { chargeMs: Math.round(p.chargeMs), ackSeq: m.ack.get(id) ?? 0, slowMs: Math.round(p.slowMs ?? 0) };
 }
 
 export function getFutResults(m: FutMatch): FutResultRowFull[] {
