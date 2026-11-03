@@ -16,6 +16,8 @@ function shade(hex: string, k: number): THREE.Color {
 interface Anchors {
   seatTop: number;
   seatZ: number;
+  /** z da beira da frente do assento. */
+  seatFront: number;
   armX: number;
   armY: number;
   /** z do meio do braço da cadeira. */
@@ -223,6 +225,7 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
   const anchors: Anchors = {
     seatTop: seatBox?.max.y ?? 0.5,
     seatZ: seatBox ? (seatBox.min.z + seatBox.max.z) / 2 : 0,
+    seatFront: seatBox?.max.z ?? 0.25,
     armX: armBox ? (armBox.min.x + armBox.max.x) / 2 : 0.47,
     armY: armBox?.max.y ?? 0.7,
     armZ: armBox ? (armBox.min.z + armBox.max.z) / 2 : 0,
@@ -387,6 +390,8 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
 
 // ---------- cadeira procedural (enquanto o GLB carrega ou se ele falhar) ----------
 const SEAT_TOP = 0.6;
+/** Quanto o joelho do boneco sentado fica para dentro da beira do assento. */
+const KNEE_INSET = 0.03;
 
 function proceduralChair(chair: ChairDNA): ChairModel {
   const g = new THREE.Group();
@@ -552,6 +557,8 @@ function proceduralChair(chair: ChairDNA): ChairModel {
   const anchors: Anchors = {
     seatTop: SEAT_TOP,
     seatZ: 0,
+    // almofada de 0,6 de fundo, centrada em z 0,02
+    seatFront: 0.32,
     armX: 0.33,
     armY: SEAT_TOP + 0.2,
     armZ: 0.02,
@@ -786,8 +793,12 @@ function seatChair(chair: ChairDNA, char: Character): Vehicle {
   const thighBottom = char.sit();
   const a = seat.anchors;
   const baseCharY = a.seatTop - thighBottom;
-  const baseCharZ = a.seatZ - 0.06;
-  char.root.position.set(0, baseCharY, baseCharZ);
+  char.root.position.set(0, baseCharY, 0);
+  char.root.updateMatrixWorld(true);
+  // o joelho fica na beira da frente do assento, para a canela descer por fora dele
+  const knee = char.root.getObjectByName("joelho_D")?.getWorldPosition(new THREE.Vector3());
+  const baseCharZ = knee ? a.seatFront - KNEE_INSET - knee.z : a.seatZ - 0.06;
+  char.root.position.z = baseCharZ;
   // pontos no topo de cada braço da cadeira, no espaço do boneco (a esquerda dele fica em +x)
   const arm = (x: number) => new THREE.Vector3(x, a.armY + 0.03, a.armZ).sub(char.root.position);
   char.restHands(arm(Math.abs(a.armX)), arm(-Math.abs(a.armX)));

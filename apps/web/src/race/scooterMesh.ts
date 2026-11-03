@@ -94,7 +94,8 @@ export function mountScooter(chair: ChairDNA, char: Character): Vehicle {
   const shoulder = fit.shoulder.clone().add(char.root.position);
   const arm = v(0.15, -Math.sin(ARM_DROP), Math.cos(ARM_DROP)).normalize();
   const wrist = shoulder.clone().addScaledVector(arm, fit.reach);
-  const palm = wrist.clone().addScaledVector(arm, 0.045);
+  // o guidão passa no meio da mão fechada, medido no boneco (a mão do boneco de braço comprido é maior)
+  const palm = wrist.clone().addScaledVector(arm, fit.grip ?? 0.045);
   const toRider = (x: number) => v(x, wrist.y, wrist.z).sub(char.root.position);
   char.restHands(toRider(wrist.x), toRider(-wrist.x));
 
