@@ -34,6 +34,40 @@ function knobs(r: number, w: number): THREE.BufferGeometry {
 
 /** Quanto o meio da mão fechada fica do pulso até os dedos. */
 const FIST = 0.6;
+/** Para onde os dedos apontam segurando o guidão: para a frente e um pouco para baixo, por cima do punho. */
+const GRIP_DIR = new THREE.Vector3(0, -0.6, 1).normalize();
+
+/** Gira o osso no espaço do mundo (q aplicada por fora) e devolve a rotação para o espaço do pai. */
+function turnInWorld(bone: THREE.Object3D, q: THREE.Quaternion): void {
+  const world = bone.getWorldQuaternion(new THREE.Quaternion()).premultiply(q);
+  const parent = bone.parent ? bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert() : new THREE.Quaternion();
+  bone.quaternion.copy(parent.multiply(world));
+  bone.updateMatrixWorld(true);
+}
+
+/**
+ * Mão fechada no guidão: o pulso gira até os dedos apontarem em GRIP_DIR e, em volta dessa direção, até o
+ * polegar apontar para o meio do guidão (a esquerda do boneco fica em +x). Sem isso a mão pende do pulso.
+ */
+function gripBar(rider: THREE.Object3D): void {
+  rider.updateMatrixWorld(true);
+  for (const side of ["E", "D"]) {
+    const wrist = rider.getObjectByName(`punho_${side}`);
+    const fingers = rider.getObjectByName(`dedos_${side}`);
+    const thumb = rider.getObjectByName(`polegar_${side}`);
+    if (!wrist || !fingers) continue;
+    const at = (o: THREE.Object3D) => o.getWorldPosition(new THREE.Vector3());
+    const hand = at(fingers).sub(at(wrist)).normalize();
+    turnInWorld(wrist, new THREE.Quaternion().setFromUnitVectors(hand, GRIP_DIR));
+    if (!thumb) continue;
+    // só a parte de lado de cada direção, no plano em volta dos dedos
+    const flat = (v: THREE.Vector3) => v.addScaledVector(GRIP_DIR, -v.dot(GRIP_DIR)).normalize();
+    const from = flat(at(thumb).sub(at(wrist)));
+    const to = flat(new THREE.Vector3(side === "E" ? -1 : 1, 0, 0));
+    const angle = Math.atan2(new THREE.Vector3().crossVectors(from, to).dot(GRIP_DIR), from.dot(to));
+    turnInWorld(wrist, new THREE.Quaternion().setFromAxisAngle(GRIP_DIR, angle));
+  }
+}
 
 /**
  * Meio das duas mãos fechadas (entre o pulso e os dedos), com x positivo: a mão esquerda e o espelho da
@@ -116,6 +150,7 @@ export function mountScooter(chair: ChairDNA, char: Character): Vehicle {
   const wrist = shoulder.clone().addScaledVector(arm, fit.reach);
   const toRider = (x: number) => v(x, wrist.y, wrist.z).sub(char.root.position);
   char.restHands(toRider(wrist.x), toRider(-wrist.x));
+  gripBar(char.root);
   // o guidão passa no meio das mãos fechadas, onde elas ficaram depois de os braços irem até ele: a mão do
   // boneco pende do pulso, então a reta do braço não diz onde ela está
   const palm = fistsCenter(char.root) ?? wrist.clone().addScaledVector(arm, fit.grip ?? 0.045);
