@@ -48,7 +48,7 @@ export const ClientMsg = z.discriminatedUnion("t", [
       items: z.boolean().optional(),
       botLevel: z.enum(BOT_LEVELS).optional(),
       track: z.enum(TRACK_IDS).optional(),
-      futFormat: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+      futFormat: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]).optional(),
     })
     .strict(),
   z.object({ t: z.literal("start") }),

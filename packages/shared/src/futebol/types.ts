@@ -1,8 +1,14 @@
 import type { BotLevel } from "../botLevels";
 import type { AvatarDNA } from "../types";
-/** Jogadores de linha por time (sem contar o goleiro). */
-export type FutFormat = 1 | 2 | 3 | 4;
-export const FUT_FORMATS = [1, 2, 3, 4] as const;
+/** Formato da partida. 1 a 4 = esse número de jogadores de linha por time (sem o goleiro), em campo reduzido;
+ *  5 = "5v5 Estádio": 4 de linha + goleiro, no gramado inteiro do estádio. */
+export type FutFormat = 1 | 2 | 3 | 4 | 5;
+export const FUT_FORMATS = [1, 2, 3, 4, 5] as const;
+
+/** Jogadores de linha por time em cada formato. */
+export function linePlayers(format: FutFormat): number {
+  return format === 5 ? 4 : format;
+}
 
 export type TeamSide = 0 | 1;
 

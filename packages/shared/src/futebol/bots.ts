@@ -131,7 +131,19 @@ function nearestToBall(m: FutMatch, side: TeamSide): FutPlayer | null {
   return best;
 }
 
-/** Ponto de formação: jogadores abertos em z, metade mais recuada, acompanhando a bola. */
+/** Quatro de linha (o 5v5 tem mais o goleiro): losango. Fração do meio comprimento a favor do ataque (negativo = recuado) e da meia largura. */
+export const DIAMOND: readonly (readonly [number, number])[] = [
+  [-0.5, 0],
+  [-0.1, -0.55],
+  [-0.1, 0.55],
+  [0.3, 0],
+];
+/** Quanto a formação em losango acompanha a bola em z. */
+const DIAMOND_FOLLOW_Z = 0.25;
+/** Alcance máximo (m) do chute dos bots em campo grande. */
+const SHOOT_MAX = 26;
+
+/** Ponto de formação: jogadores abertos em z, metade mais recuada, acompanhando a bola. Com quatro de linha, losango. */
 function formationSpot(p: FutPlayer, m: FutMatch): { x: number; z: number } {
   const f = m.field;
   const ids = activeOutfield(m.players, p.side)
@@ -139,6 +151,15 @@ function formationSpot(p: FutPlayer, m: FutMatch): { x: number; z: number } {
     .sort();
   const n = ids.length;
   const k = Math.max(0, ids.indexOf(p.id));
+  if (n === DIAMOND.length) {
+    const [fx, fz] = DIAMOND[k];
+    const lim = f.halfL - HOME_MARGIN;
+    const zlim = f.halfW - 1;
+    return {
+      x: Math.max(-lim, Math.min(lim, attackDir(p.side) * f.halfL * fx + m.ball.x * BALL_FOLLOW)),
+      z: Math.max(-zlim, Math.min(zlim, f.halfW * fz + m.ball.z * DIAMOND_FOLLOW_Z)),
+    };
+  }
   const z = n === 1 ? 0 : (((k + 0.5) / n) * 2 - 1) * f.halfW * 0.6;
   const depth = n === 1 ? -0.1 : k % 2 === 0 ? -0.35 : 0.1;
   const x = attackDir(p.side) * f.halfL * depth + m.ball.x * BALL_FOLLOW;
@@ -236,7 +257,7 @@ export function botInput(p: FutPlayer, m: FutMatch, level: BotLevel): FutInput {
   if (b.ownerId === p.id || taker) {
     const faceGoal = aimTo(p, goal);
     const walk = { ...IDLE, mx: Math.sin(faceGoal), mz: Math.cos(faceGoal) };
-    const inBox = Math.abs(p.x - goal.x) <= f.boxL * SHOOT_RANGE && Math.abs(p.z) <= f.boxHalfW;
+    const inBox = Math.abs(p.x - goal.x) <= Math.min(f.boxL * SHOOT_RANGE, SHOOT_MAX) && Math.abs(p.z) <= f.boxHalfW;
     // falta ao alcance do gol e sem ângulo fechado: o bot cobra direto (a assistência cuida de barreira e canto)
     const dx = Math.abs(goal.x - p.x);
     const freeKick = taker && m.restart?.kind === "falta" && dx >= 1 && Math.hypot(dx, p.z) <= FUT.assistRange && Math.abs(p.z) <= dx * 1.5;

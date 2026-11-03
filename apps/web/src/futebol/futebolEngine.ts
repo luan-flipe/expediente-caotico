@@ -148,7 +148,8 @@ function buildLines(f: Field, mat: THREE.Material): THREE.Group {
   g.add(flat(L + T, T, 0, -f.halfW, mat), flat(L + T, T, 0, f.halfW, mat), flat(T, W + T, -f.halfL, 0, mat), flat(T, W + T, f.halfL, 0, mat));
   // meio de campo e círculo central
   g.add(flat(T, W, 0, 0, mat));
-  const r = Math.min(f.halfW * 0.3, 5);
+  // campo do estádio: círculo central de 9,15 m
+  const r = Math.min(f.halfW * 0.3, f.halfW > 25 ? 9.15 : 5);
   const ring = new THREE.Mesh(new THREE.RingGeometry(r - T / 2, r + T / 2, 56), mat);
   ring.rotation.x = -Math.PI / 2;
   ring.position.set(0, 0.05, 0);
@@ -401,6 +402,10 @@ export class FutebolEngine {
     if (!this.field || this.goals.length < 2) return;
     this.goals[0].position.set(-this.field.halfL, 0, 0);
     this.goals[1].position.set(this.field.halfL, 0, 0);
+    // o modelo mede 4 x 2 m (largura x altura): gol maior só estica a boca, a altura e a profundidade da rede
+    const sx = this.field.goalHalfW / 2;
+    const sy = this.field.goalH / 2;
+    for (const g of this.goals) g.scale.set(sx, sy, sx);
   }
 
   private buildField(format: FutSnapshot["format"]): void {

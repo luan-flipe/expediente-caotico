@@ -42,7 +42,7 @@ export function keeperSave(m: FutMatch, k: FutPlayer): void {
   if (b.ownerId !== null) {
     // Atacante conduzindo a bola ao alcance do goleiro: ele sai e toma.
     const owner = m.players.find((p) => p.id === b.ownerId);
-    if (owner && owner.role === "linha" && owner.side !== k.side && Math.hypot(b.x - k.x, b.z - k.z) <= keeperReach(m.botLevel)) {
+    if (owner && owner.role === "linha" && owner.side !== k.side && Math.hypot(b.x - k.x, b.z - k.z) <= keeperReach(m.botLevel, m.field)) {
       touchBall(b, k);
       b.ownerId = k.id;
       b.vx = 0;
@@ -54,7 +54,7 @@ export function keeperSave(m: FutMatch, k: FutPlayer): void {
   if (b.lastTouch?.id === k.id && speed > AWAY_EPS) {
     return;
   }
-  if (Math.hypot(b.x - k.x, b.z - k.z) > keeperReach(m.botLevel)) {
+  if (Math.hypot(b.x - k.x, b.z - k.z) > keeperReach(m.botLevel, m.field)) {
     return;
   }
   if (b.lastTouch !== null && m.beaten === b.lastTouch) {

@@ -327,8 +327,8 @@ export function Lobby() {
                   <span className="muted">Formato:</span>
                   <div className="seg">
                     {FUT_FORMATS.map((n) => (
-                      <button key={n} className={opts.futFormat === n ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", futFormat: n })}>
-                        {n}v{n}
+                      <button key={n} className={opts.futFormat === n ? "on" : ""} title={n === 5 ? "4 de linha + goleiro, no gramado inteiro do estádio" : undefined} disabled={!isHost} onClick={() => net.send({ t: "options", futFormat: n })}>
+                        {n === 5 ? "5v5 Estádio" : `${n}v${n}`}
                       </button>
                     ))}
                   </div>

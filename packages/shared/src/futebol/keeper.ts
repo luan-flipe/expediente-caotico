@@ -11,8 +11,9 @@ const KEEPER: Record<BotLevel, { reach: number; reactMs: number }> = {
 };
 
 /** Alcance (m) do goleiro para pegar ou desviar a bola (o motor da partida usa o mesmo). */
-export function keeperReach(level: BotLevel): number {
-  return KEEPER[level].reach;
+export function keeperReach(level: BotLevel, f?: Field): number {
+  // gol maior (estádio), alcance maior na mesma proporção
+  return KEEPER[level].reach * Math.max(1, (f?.goalHalfW ?? 2) / 2);
 }
 
 /** Profundidade à frente da linha do gol: fração da distância à bola, entre os limites (m). */
@@ -88,7 +89,7 @@ export function keeperInput(
   if (k.downMs > 0) {
     return { ...IDLE, aim: k.facing };
   }
-  const par = KEEPER[level];
+  const par = { ...KEEPER[level], reach: keeperReach(level, f) };
   const dir = attackDir(k.side);
   const gx = -dir * f.halfL;
   const toBall = aimTo(k, ball);

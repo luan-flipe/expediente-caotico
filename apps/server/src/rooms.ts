@@ -20,6 +20,7 @@ import {
   FUT_KITS,
   getFutResults,
   getFutScore,
+  linePlayers,
   setFutInput,
   stepFutebol,
   challengeOfWeek,
@@ -277,7 +278,7 @@ export class Room {
     if (fut) {
       const size = [0, 0];
       for (const h of this.humans()) size[h.side ?? 0]++;
-      if (size[0] > this.options.futFormat || size[1] > this.options.futFormat) return "Time com gente demais para o formato";
+      if (size[0] > linePlayers(this.options.futFormat) || size[1] > linePlayers(this.options.futFormat)) return "Time com gente demais para o formato";
     }
     const seed = randomInt(1, 2 ** 31);
     const players = [...this.members.values()]

@@ -186,6 +186,23 @@ describe("modo futebol no servidor", () => {
     b.close();
   });
 
+  it("5v5 estádio: aceita o formato e começa com 4 de linha + goleiro no gramado inteiro", async () => {
+    const { a, b, wb } = await twoPlayers();
+    a.send({ t: "mode", mode: "futebol" });
+    a.send({ t: "options", futFormat: 5 });
+    b.send({ t: "ready", ready: true });
+    await a.waitFor("lobby", (m) => m.state.options.futFormat === 5 && m.state.players.find((p) => p.id === wb.id)?.ready === true);
+    a.send({ t: "start" });
+    const first = await a.waitFor("fsnap");
+    expect(first.s.format).toBe(5);
+    expect(first.s.players).toHaveLength(10);
+    for (const side of [0, 1]) {
+      expect(first.s.players.filter((p) => p.side === side && p.role === "linha")).toHaveLength(4);
+    }
+    a.close();
+    b.close();
+  });
+
   it("jogador que cai vira bot e a partida segue, e volta ao reconectar", async () => {
     const { a, b, wa, wb, room } = await twoPlayers();
     a.send({ t: "mode", mode: "futebol" });

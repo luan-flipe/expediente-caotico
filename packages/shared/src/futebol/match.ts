@@ -10,6 +10,7 @@ import { activeOutfield, applyCard, isPenaltyFoul, judgeShove, judgeTackle, repe
 import { startShootout, stepShootout } from "./penalties";
 import { restartForOut, startRestart } from "./restarts";
 import { stepWorld, type WorldStep } from "./sim";
+import { linePlayers } from "./types";
 import type {
   FutFormat,
   FutInput,
@@ -65,15 +66,16 @@ export function createFutebol(opts: {
     players.push(p);
     info.set(p.id, { ...i, goals: 0, assists: 0 });
   };
+  const line = linePlayers(opts.format);
   for (const side of [0, 1] as const) {
-    const mine = opts.players.filter((p) => p.side === side).slice(0, opts.format);
+    const mine = opts.players.filter((p) => p.side === side).slice(0, line);
     for (const p of mine) {
       add(newPlayer(p.id, side, "linha", p.isBot), { name: p.name, avatar: p.avatar, accountId: p.accountId, human: !p.isBot });
       if (!p.isBot) {
         connected.add(p.id);
       }
     }
-    for (let i = mine.length; i < opts.format; i++) {
+    for (let i = mine.length; i < line; i++) {
       add(newPlayer(`bot-${side}-${i}`, side, "linha", true), { name: `Bot ${i + 1}`, avatar: DEFAULT_AVATAR, accountId: null, human: false });
     }
     add(newPlayer(`gk-${side}`, side, "goleiro", true), { name: "Goleiro", avatar: DEFAULT_AVATAR, accountId: null, human: false });
