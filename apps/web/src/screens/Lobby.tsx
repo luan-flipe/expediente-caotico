@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, FUT_COLORS, FUT_KITS, LAPS_MAX, LAPS_MIN, pistaDoDia, RACE, TRACK_IDS, TRACKS, type LobbyPlayer, type LobbyState, type TeamSide } from "@ec/shared";
+import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, FUT_COLORS, FUT_FORMATS, FUT_KITS, LAPS_MAX, LAPS_MIN, pistaDoDia, RACE, TRACK_IDS, TRACKS, type LobbyPlayer, type LobbyState, type TeamSide } from "@ec/shared";
 import { uniformDNA } from "../futebol/uniforme";
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail, type CharacterAction } from "../game/character";
@@ -14,7 +14,6 @@ const ACTIONS: [CharacterAction, string][] = [
   ["dash", "Dash"],
   ["tchau", "Tchau"],
 ];
-const FUT_FORMATS = [1, 2, 3, 4] as const;
 const LAP_CHOICES = Array.from({ length: LAPS_MAX - LAPS_MIN + 1 }, (_, i) => LAPS_MIN + i);
 
 /** Nome do time: só envia ao sair do campo ou com Enter, não a cada tecla. */
