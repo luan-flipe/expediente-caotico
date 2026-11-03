@@ -1,0 +1,26 @@
+MAPAS 3D – pacote completo
+==========================
+
+Pastas
+  1-parque-ipanema    Parque Ipanema (pista da lagoa, decorações, arquibancadas)
+  2-ipatingao         Estádio Ipatingão com prédios em volta
+  3-pista-deserto     Pista do Deserto (túnel saca-rolha, salto, redemoinhos, urubus, casinhas, caveiras)
+  4-pista-pantano     Pista do Pântano (quedas, poças de lama, garças)
+  5-pista-urbana      Pista Urbana (tubo neon, ponte levadiça, rampas, canhões de luz)
+  6-pista-escritorio  Pista do Escritório (loop, salto sobre o café, rampas, latas-prédio)
+  modelos-glb         Modelos 3D em .glb: boneco vestido, puff preto, parque e Ipatingão exportados
+
+Como abrir os mapas
+  Cada pasta tem um index.html. Os mapas carregam modelos (.json) da própria pasta,
+  e o navegador bloqueia isso quando o arquivo é aberto direto com duplo clique.
+  Por isso, abra por um servidor local:
+
+  Windows:      dê duplo clique em "abrir-windows.bat"
+  Mac / Linux:  rode "sh abrir-mac-linux.sh" no Terminal, dentro desta pasta
+  (os dois precisam do Python instalado: https://www.python.org)
+
+  Depois acesse no navegador: http://localhost:8000  e escolha a pasta do mapa.
+  É preciso internet, porque o three.js e as fontes vêm de CDN.
+
+Os .glb da pasta modelos-glb abrem em qualquer visualizador 3D (Blender, Windows 3D Viewer,
+https://gltf-viewer.donmccurdy.com etc.).
