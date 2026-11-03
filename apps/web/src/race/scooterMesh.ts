@@ -184,9 +184,11 @@ export function mountScooter(chair: ChairDNA, char: Character): Vehicle {
     case 3: {
       const x = -(palm.x - 0.1);
       const cup = new THREE.MeshStandardMaterial({ color: "#f5f0e1" });
-      add(g, new THREE.CylinderGeometry(0.04, 0.035, 0.09, 14), cup, x, bar.y + 0.06, bar.z);
-      add(g, new THREE.TorusGeometry(0.022, 0.007, 6, 12), cup, x - 0.045, bar.y + 0.06, bar.z, 0, Math.PI / 2);
-      add(g, new THREE.CircleGeometry(0.035, 14), new THREE.MeshStandardMaterial({ color: "#4a2c1a" }), x, bar.y + 0.101, bar.z, -Math.PI / 2);
+      // porta-copo: aro preso no guidão, com a caneca encaixada nele (no guidão fino ela parecia flutuar)
+      add(g, new THREE.TorusGeometry(0.043, 0.008, 6, 16), metal, x, bar.y + 0.012, bar.z, Math.PI / 2);
+      add(g, new THREE.CylinderGeometry(0.04, 0.035, 0.09, 14), cup, x, bar.y + 0.04, bar.z);
+      add(g, new THREE.TorusGeometry(0.022, 0.007, 6, 12), cup, x - 0.045, bar.y + 0.04, bar.z, 0, Math.PI / 2);
+      add(g, new THREE.CircleGeometry(0.035, 14), new THREE.MeshStandardMaterial({ color: "#4a2c1a" }), x, bar.y + 0.081, bar.z, -Math.PI / 2);
       break;
     }
     case 4: {

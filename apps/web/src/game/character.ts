@@ -66,6 +66,12 @@ export interface Character {
   stand?(): StandFit;
   /** Já sentado ou em pé, gira os ombros até os pulsos alcançarem os pontos dados (coordenadas de root). */
   restHands(left: THREE.Vector3, right: THREE.Vector3): void;
+  /**
+   * Já sentado, deita cada antebraço sobre o braço da cadeira: o cotovelo vai para a linha que passa pelo
+   * ponto dado (coordenadas de root, em cima do braço da cadeira, de trás para a frente) e o antebraço segue
+   * por ela para a frente. As mãos fecham.
+   */
+  restForearms?(left: THREE.Vector3, right: THREE.Vector3): void;
   /** Já sentado ou em pé, toca a comemoração e volta à pose. Só o corpo: assento e confete ficam com o veículo. */
   celebrate(): void;
   dispose(): void;
@@ -513,6 +519,23 @@ const HEIGHT_SCALE = [0.9, 1, 1.1];
 const STANCE = 0.14;
 /** Sentado, a canela cai da beira do assento: com a perna comprida, esticada ela passava muito da cadeira. */
 const SEATED_KNEE = Math.PI / 2;
+/** Mão fechada: quanto cada falange dos dedos dobra (rad), e a fração disso no polegar. */
+const FIST_CURL = 1.2;
+const THUMB_SHARE = 0.5;
+/** Antebraço no braço da cadeira: quanto o cotovelo fica para trás do ombro (fração do que sobra do braço). */
+const ELBOW_BACK = 0.6;
+
+/** Gira o osso (no espaço do mundo, devolvido ao do pai) até o filho apontar para o ponto dado, no mundo. */
+function aimBone(bone: THREE.Object3D, child: THREE.Object3D, target: THREE.Vector3): void {
+  if (!bone.parent) return;
+  bone.updateMatrixWorld(true);
+  const from = bone.getWorldPosition(new THREE.Vector3());
+  const now = child.getWorldPosition(new THREE.Vector3()).sub(from).normalize();
+  const want = target.clone().sub(from).normalize();
+  const world = bone.getWorldQuaternion(new THREE.Quaternion()).premultiply(new THREE.Quaternion().setFromUnitVectors(now, want));
+  bone.quaternion.copy(bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(world));
+  bone.updateMatrixWorld(true);
+}
 /** Duração em segundos de cada ação no jogo (os clipes originais são mais longos). */
 const ACTION_SECONDS: Record<CharacterAction, number> = { throw: 0.45, cafe: 0.7, dash: 0.3, tchau: 3.2 };
 const CLIP_OF: Record<CharacterAction, string> = { throw: "jogar_bolinha", cafe: "jogar_cafe", dash: "dash", tchau: "tchau" };
@@ -1047,6 +1070,21 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     mouth_scale: faceParts.mouth ? faceParts.mouth.scale.clone() : new THREE.Vector3(1, 1, 1),
   };
 
+  /** Mão fechada: cada falange dos dedos e o polegar dobram para dentro da palma. */
+  const clench = () => {
+    for (const side of ["D", "E"]) {
+      for (const [name, angle] of [
+        [`dedos_${side}`, FIST_CURL],
+        [`dedos2_${side}`, FIST_CURL],
+        [`polegar_${side}`, FIST_CURL * THUMB_SHARE],
+      ] as const) {
+        const bone = inner.getObjectByName(name);
+        if (bone) bone.rotation.x = angle;
+      }
+    }
+    inner.updateMatrixWorld(true);
+  };
+
   const ombroD = inner.getObjectByName("ombro_D");
   const ombroE = inner.getObjectByName("ombro_E");
   const restQuatD = new THREE.Quaternion();
@@ -1506,6 +1544,33 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (ombroD) restQuatD.copy(ombroD.quaternion);
       if (ombroE) restQuatE.copy(ombroE.quaternion);
       handsRested = true;
+      clench();
+    },
+    restForearms(left, right) {
+      root.updateMatrixWorld(true);
+      for (const [side, top] of [
+        ["E", left],
+        ["D", right],
+      ] as const) {
+        const shoulder = inner.getObjectByName(`ombro_${side}`);
+        const elbow = inner.getObjectByName(`cotovelo_${side}`);
+        const wrist = inner.getObjectByName(`punho_${side}`);
+        if (!shoulder || !elbow || !wrist) continue;
+        const s = shoulder.getWorldPosition(new THREE.Vector3());
+        const upper = s.distanceTo(elbow.getWorldPosition(new THREE.Vector3()));
+        const fore = elbow.getWorldPosition(new THREE.Vector3()).distanceTo(wrist.getWorldPosition(new THREE.Vector3()));
+        const rest = root.localToWorld(top.clone());
+        // cotovelo na linha do braço da cadeira, a um braço do ombro, um pouco atrás dele; se não alcança, o
+        // mais perto que dá, na direção do apoio
+        const h2 = upper * upper - (rest.x - s.x) ** 2 - (rest.y - s.y) ** 2;
+        const elbowAt = h2 > 0 ? new THREE.Vector3(rest.x, rest.y, s.z - Math.sqrt(h2) * ELBOW_BACK) : rest.clone();
+        aimBone(shoulder, elbow, elbowAt);
+        aimBone(elbow, wrist, elbow.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0, fore)));
+      }
+      if (ombroD) restQuatD.copy(ombroD.quaternion);
+      if (ombroE) restQuatE.copy(ombroE.quaternion);
+      handsRested = true;
+      clench();
     },
     celebrate() {
       if (!riding || !cheer || cheer.isRunning()) return;
