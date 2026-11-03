@@ -607,17 +607,22 @@ function glbGamerChair(chair: ChairDNA, model: THREE.Group): ChairModel {
   if (estofadoNode) assentoGiratorio.add(estofadoNode);
   if (neonNode) assentoGiratorio.add(neonNode);
 
-  inner.traverse((o) => {
+  group.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
+    if (mesh.geometry.hasAttribute("color")) {
+      mesh.geometry.deleteAttribute("color");
+    }
     const src = mesh.material as THREE.MeshStandardMaterial;
     let m = mats.get(src);
     if (!m) {
       m = src.clone();
       const matName = src.name;
       if (matName === "estofado") {
+        m.vertexColors = false;
         m.color.set(seatColor);
         m.roughness = 0.6;
+        m.needsUpdate = true;
       } else if (matName === "neon") {
         if (chair.wheels === 1) {
           m.color.set("#00f0ff");
@@ -628,9 +633,9 @@ function glbGamerChair(chair: ChairDNA, model: THREE.Group): ChairModel {
           m.emissive.set("#ff2a85");
           m.emissiveIntensity = 2.0;
         } else {
-          m.color.set("#00d4ff");
-          m.emissive.set("#00d4ff");
-          m.emissiveIntensity = 1.8;
+          m.color.set(seatColor);
+          m.emissive.set(seatColor);
+          m.emissiveIntensity = 2.0;
         }
       } else if (matName === "base") {
         m.color.set(baseColor);
@@ -647,9 +652,9 @@ function glbGamerChair(chair: ChairDNA, model: THREE.Group): ChairModel {
           m.roughness = 0.15;
           m.metalness = 0.05;
         } else {
-          m.color.set("#0284c7");
+          m.color.set("#1e293b");
           m.roughness = 0.3;
-          m.metalness = 0.3;
+          m.metalness = 0.2;
         }
       } else if (matName === "plastico") {
         m.color.set("#0f172a");
@@ -658,7 +663,16 @@ function glbGamerChair(chair: ChairDNA, model: THREE.Group): ChairModel {
       }
       mats.set(src, m);
     }
-    mesh.material = m;
+    if (mesh.name === "estofado_3") {
+      const mPillow = m.clone();
+      mPillow.vertexColors = false;
+      mPillow.color.set(shade(seatColor, -0.15));
+      mPillow.needsUpdate = true;
+      mesh.material = mPillow;
+      mats.set(mPillow, mPillow);
+    } else {
+      mesh.material = m;
+    }
     mesh.castShadow = true;
   });
 
