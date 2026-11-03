@@ -13,7 +13,7 @@ import {
   disposeAvatar,
 } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
-import { dressFace, preloadFaces } from "./rosto";
+import { dressFace } from "./rosto";
 import { BEARDS_3D, GLASSES_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
 export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
@@ -876,8 +876,6 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
     load(PANTS_3D),
     load(SHOES_3D),
     cheer,
-    // as texturas das expressões do rosto
-    preloadFaces(),
   ])
     .then(([gltf, hairs, beards, glasses, shirts, pants, shoes, party]) => {
       const scene = gltf.scene;

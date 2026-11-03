@@ -10,8 +10,8 @@ export const HAIR_COLORS = ["#1b1410", "#3b2416", "#6b4226", "#a8743f", "#d9b26a
 export const SHIRTS = ["#2f6fdf", "#e2483c", "#24a06b", "#f2b632", "#7b4bd6", "#f4f1ea", "#232323", "#ef7aa8", "#3fb8c4", "#8a6a4a"];
 /** O primeiro é o castanho escuro original do boneco do romulo-h. */
 /**
- * Expressões do boneco, uma textura do rosto pintada pelo designer cada (apps/web/src/assets/rostos, na
- * mesma ordem); o 0 é o rosto neutro, o da textura do boneco. Item novo entra no fim.
+ * Expressões do boneco, desenhadas em formas vetoriais no shader do corpo (EXPRESSOES em
+ * apps/web/src/game/rosto/expressoes.ts, na mesma ordem); o 0 é o rosto neutro. Item novo entra no fim.
  */
 export const FACES = ["Neutro", "Feliz", "Triste", "Preocupado", "Desconfiado", "Sonolento"];
 export const EYE_COLORS = ["#3a2430", "#5b3a1e", "#9a6a2a", "#3f7a45", "#3a6fc4", "#7d8b95", "#111111"];
