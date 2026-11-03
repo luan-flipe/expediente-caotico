@@ -36,6 +36,11 @@ describe("5v5 estádio", () => {
     expect(f.halfL).toBeGreaterThan(fieldFor(4).halfL);
   });
 
+  it("o gol da sim é o do mapa (as traves desenhadas ficam onde a sim pensa que estão)", () => {
+    expect(f.goalHalfW).toBe(IPATINGAO.goalHalfW);
+    expect(f.goalH).toBe(IPATINGAO.goalH);
+  });
+
   it("gol, áreas e marca do pênalti são maiores e cabem no campo", () => {
     expect(f.goalHalfW).toBeGreaterThan(fieldFor(4).goalHalfW);
     expect(f.goalH).toBeGreaterThan(fieldFor(4).goalH);

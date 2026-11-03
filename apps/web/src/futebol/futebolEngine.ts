@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {
   FUT,
   FUT_COLORS,
+  IPATINGAO,
   PRESETS,
   fieldFor,
   keepClear,
@@ -405,7 +406,13 @@ export class FutebolEngine {
     // o modelo mede 4 x 2 m (largura x altura): gol maior só estica a boca, a altura e a profundidade da rede
     const sx = this.field.goalHalfW / 2;
     const sy = this.field.goalH / 2;
-    for (const g of this.goals) g.scale.set(sx, sy, sx);
+    // o mapa do estádio já traz os gols (traves, travessão e rede): o modelo avulso ficaria dobrado por cima deles,
+    // com as traves em outro lugar. Nele a sim usa as medidas do gol do mapa (IPATINGAO)
+    const noMapa = Math.abs(this.field.halfL - IPATINGAO.grassHalfL) < 1e-6;
+    for (const g of this.goals) {
+      g.visible = !noMapa;
+      g.scale.set(sx, sy, sx);
+    }
   }
 
   private buildField(format: FutSnapshot["format"]): void {

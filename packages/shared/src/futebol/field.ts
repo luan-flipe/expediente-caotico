@@ -11,8 +11,8 @@ const SIZES: Record<FutFormat, [number, number]> = {
   5: [IPATINGAO.grassHalfL * 2, IPATINGAO.grassHalfW * 2],
 };
 
-/** Meia-boca e altura (m) do gol: o do estádio é maior, na proporção do campo. */
-const GOAL: Record<FutFormat, [number, number]> = { 1: [2, 2], 2: [2, 2], 3: [2, 2], 4: [2, 2], 5: [3, 2.2] };
+/** Meia-boca e altura (m) do gol: o do estádio é o do próprio mapa (a sim bate com as traves desenhadas nele). */
+const GOAL: Record<FutFormat, [number, number]> = { 1: [2, 2], 2: [2, 2], 3: [2, 2], 4: [2, 2], 5: [IPATINGAO.goalHalfW, IPATINGAO.goalH] };
 
 export function fieldFor(format: FutFormat): Field {
   const [L, W] = SIZES[format];
