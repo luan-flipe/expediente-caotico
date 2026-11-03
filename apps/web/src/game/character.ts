@@ -986,11 +986,11 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   };
   tiltFeet();
 
-  // Acessórios procedurais no modelo GLB (gravata, crachá, boné)
+  // Acessórios procedurais no modelo GLB (gravata, boné). O crachá (acessório 4) saiu: as caixas ficavam
+  // dentro do corpo da nova proporção.
   const troncoNode = inner.getObjectByName("tronco");
   const cabecaNode = inner.getObjectByName("cabeca");
   let glbTiePivot: THREE.Group | undefined;
-  let glbBadgePivot: THREE.Group | undefined;
   let glbCapVisor: THREE.Mesh | undefined;
 
   if (troncoNode) {
@@ -1003,18 +1003,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       glbTiePivot.position.set(0, 0.22, 0.18);
       glbTiePivot.add(at(box(0.10, 0.42, 0.03, redMat, 0.02), 0, -0.23, 0));
       troncoNode.add(glbTiePivot);
-    } else if (dna.accessory === 4) {
-      const blueMat = new THREE.MeshStandardMaterial({ color: "#2f6fdf", roughness: 0.85, flatShading: true });
-      const whiteMat = new THREE.MeshStandardMaterial({ color: "#f7f5f0", roughness: 0.85, flatShading: true });
-      mats.push(blueMat, whiteMat);
-      troncoNode.add(at(box(0.02, 0.22, 0.02, blueMat), 0.06, 0.22, 0.175));
-      troncoNode.add(at(box(0.02, 0.22, 0.02, blueMat), 0.18, 0.22, 0.175));
-      glbBadgePivot = new THREE.Group();
-      glbBadgePivot.name = "Glb_Cracha_Pivo";
-      glbBadgePivot.position.set(0.12, 0.11, 0.18);
-      glbBadgePivot.add(at(box(0.16, 0.05, 0.022, blueMat), 0, 0, 0.002));
-      glbBadgePivot.add(at(box(0.16, 0.20, 0.02, whiteMat), 0, -0.07, 0));
-      troncoNode.add(glbBadgePivot);
     }
   }
   if (cabecaNode && dna.accessory === 2) {
@@ -1152,10 +1140,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         glbTiePivot.rotation.x = wind.tieRotX;
         glbTiePivot.rotation.z = wind.tieRotZ;
       }
-      if (glbBadgePivot) {
-        glbBadgePivot.rotation.x = wind.badgeRotX;
-        glbBadgePivot.rotation.z = wind.badgeRotZ;
-      }
       if (glbCapVisor) {
         glbCapVisor.position.y = 0.20 + wind.capLift;
       }
@@ -1197,11 +1181,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (glbTiePivot) {
         glbTiePivot.rotation.x = wind.tieRotX;
         glbTiePivot.rotation.z = wind.tieRotZ;
-      }
-      if (glbBadgePivot) {
-        glbBadgePivot.rotation.x = wind.badgeRotX;
-        glbBadgePivot.rotation.z = wind.badgeRotZ;
-        glbBadgePivot.position.y = 0.11 + wind.badgeBounceY;
       }
       if (glbCapVisor) {
         glbCapVisor.position.y = 0.20 + wind.capLift;
