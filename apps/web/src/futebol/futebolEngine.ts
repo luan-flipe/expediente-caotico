@@ -518,6 +518,8 @@ export class FutebolEngine {
       const v = this.viewFor(p, s.teams);
       v.buf.push({ t: now, x: p.x, y: 0, z: p.z, f: p.facing });
       if (v.buf.length > 20) v.buf.shift();
+      // carrinho da sim (tackleMs > 0): toca o clipe na subida, para local, bots e remotos
+      if (p.sliding && !v.last.sliding) v.char.play("carrinho");
       v.last = p;
     }
     for (const [id, v] of this.views) {
@@ -831,12 +833,12 @@ export class FutebolEngine {
         speed = Math.hypot(p.vx, p.vz);
       }
       const root = v.char.root;
-      const lying = p.down || p.sliding;
+      const lying = p.down;
       root.position.set(x, lying ? 0.18 : 0, z);
       root.rotation.y = f;
       root.rotation.x = lying ? -1.35 : 0;
       root.visible = !p.sentOff;
-      v.char.update(dt, lying ? 0 : Math.min(1, speed / FUT.walkSpeed));
+      v.char.update(dt, lying || p.sliding ? 0 : Math.min(1, speed / FUT.walkSpeed));
       if (id === this.myId) this.myPos.set(x, 0, z);
     }
 

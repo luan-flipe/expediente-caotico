@@ -16,7 +16,7 @@ import { createGltfLoader } from "./gltfLoader";
 import { dressFace, preloadFaces } from "./rosto";
 import { BEARDS_3D, GLASSES_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
-export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
+export type CharacterAction = "throw" | "cafe" | "dash" | "tchau" | "carrinho";
 
 export type CharacterEmotion = "normal" | "adrenaline" | "panic" | "victory" | "yawn";
 
@@ -510,10 +510,10 @@ const HEIGHT_SCALE = [0.9, 1, 1.1];
 /** Pernas em pé no patinete: o pé esquerdo um pouco à frente. */
 const STANCE = 0.14;
 /** Duração em segundos de cada ação no jogo (os clipes originais são mais longos). */
-const ACTION_SECONDS: Record<CharacterAction, number> = { throw: 0.45, cafe: 0.7, dash: 0.3, tchau: 3.2 };
-const CLIP_OF: Record<CharacterAction, string> = { throw: "jogar_bolinha", cafe: "jogar_cafe", dash: "dash", tchau: "tchau" };
+const ACTION_SECONDS: Record<CharacterAction, number> = { throw: 0.45, cafe: 0.7, dash: 0.3, tchau: 3.2, carrinho: 0.8 };
+const CLIP_OF: Record<CharacterAction, string> = { throw: "jogar_bolinha", cafe: "jogar_cafe", dash: "dash", tchau: "tchau", carrinho: "carrinho" };
 /** Trecho útil de cada clipe em segundos: o resto é a volta para a pose parada. */
-const CLIP_RANGE: Record<CharacterAction, [number, number]> = { throw: [0, 0.9], cafe: [0, 1.5], dash: [0, 1.1], tchau: [0, 3.2] };
+const CLIP_RANGE: Record<CharacterAction, [number, number]> = { throw: [0, 0.9], cafe: [0, 1.5], dash: [0, 1.1], tchau: [0, 3.2], carrinho: [0, 0.8] };
 const FPS = 30;
 
 interface Loaded {
