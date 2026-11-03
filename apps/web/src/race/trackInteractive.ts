@@ -66,7 +66,11 @@ export interface KartInteractionOutput {
   bonkImpulse?: { x: number; z: number };
   spin?: boolean;
   spinUntil?: number;
-  soundCue?: "coffee_slingshot" | "roomba_honk" | "door_bonk" | "vent_woosh" | "sand_tornado" | "vulture_startle";
+  slip?: boolean;
+  slipUntil?: number;
+  speedMultiplier?: number;
+  shake?: number;
+  soundCue?: "coffee_slingshot" | "roomba_honk" | "door_bonk" | "vent_woosh" | "sand_tornado" | "vulture_startle" | "cactus_bonk" | "mud_splash";
 }
 
 export interface DeskIsland {
@@ -221,6 +225,32 @@ export interface VultureFlock {
   vultures: VultureObstacle[];
 }
 
+export interface CactusObstacle {
+  id: number;
+  s?: number;
+  pos: { x: number; y: number; z: number };
+  heading: number;
+  group: THREE.Group;
+  trunkMesh: THREE.Mesh;
+  arms: THREE.Mesh[];
+  radius: number;
+  isBroken: boolean;
+  breakTimer: number;
+  wobbleTimer: number;
+  wobbleAngle: number;
+}
+
+export interface MudPitArea {
+  id: number;
+  sFrom: number;
+  sTo: number;
+  minY: number;
+  maxY: number;
+  center: { x: number; y: number; z: number };
+  radius: number;
+  splashCooldown: number;
+}
+
 export interface TrackInteractiveOptions {
   track?: Track;
   deskPositions?: { x: number; z: number; heading?: number }[];
@@ -239,6 +269,9 @@ export interface TrackInteractiveOptions {
   dustDevilPositions?: { s?: number; x?: number; y?: number; z?: number; heading?: number; halfWidth?: number; speed?: number; phase?: number }[];
   enableVultures?: boolean;
   vultureFlocks?: { x?: number; y?: number; z?: number; radius?: number; count?: number; trackS?: number }[];
+  enableCacti?: boolean;
+  cactusPositions?: { s?: number; x?: number; y?: number; z?: number; heading?: number; radius?: number }[];
+  enableMudPit?: boolean;
 }
 
 // ============================================================================
@@ -860,6 +893,8 @@ export class TrackInteractiveManager {
   private _dustDevils: DustDevilObstacle[] = [];
   private _vultureFlocks: VultureFlock[] = [];
   private _vultures: VultureObstacle[] = [];
+  private _cacti: CactusObstacle[] = [];
+  private _mudPits: MudPitArea[] = [];
 
   // Partículas de dispersão de areia dos redemoinhos
   private MAX_DUST_DEVIL_BURSTS = 64;
@@ -889,6 +924,36 @@ export class TrackInteractiveManager {
   private featherAge = new Float32Array(0);
   private featherLife = new Float32Array(0);
   private featherIdx = 0;
+
+  // Partículas de pedaços e espinhos de cacto
+  private MAX_CACTUS_PARTICLES = 64;
+  private cactusParticleMesh: THREE.InstancedMesh | null = null;
+  private cactusPosX = new Float32Array(0);
+  private cactusPosY = new Float32Array(0);
+  private cactusPosZ = new Float32Array(0);
+  private cactusVelX = new Float32Array(0);
+  private cactusVelY = new Float32Array(0);
+  private cactusVelZ = new Float32Array(0);
+  private cactusRotX = new Float32Array(0);
+  private cactusRotY = new Float32Array(0);
+  private cactusRotZ = new Float32Array(0);
+  private cactusAge = new Float32Array(0);
+  private cactusLife = new Float32Array(0);
+  private cactusIdx = 0;
+
+  // Partículas de lama borbulhante e respingos do cânion
+  private MAX_MUD_PARTICLES = 64;
+  private mudSplashMesh: THREE.InstancedMesh | null = null;
+  private mudPosX = new Float32Array(0);
+  private mudPosY = new Float32Array(0);
+  private mudPosZ = new Float32Array(0);
+  private mudVelX = new Float32Array(0);
+  private mudVelY = new Float32Array(0);
+  private mudVelZ = new Float32Array(0);
+  private mudScale = new Float32Array(0);
+  private mudAge = new Float32Array(0);
+  private mudLife = new Float32Array(0);
+  private mudIdx = 0;
 
   // Partículas de gotículas e jato de café (Café coado na calcinha)
   private MAX_SPLASH_DROPS = 32;
@@ -1006,12 +1071,18 @@ export class TrackInteractiveManager {
       this.initAirVentsSystem(options);
     }
 
-    // Obstáculos do Deserto: Redemoinhos de Areia e Urubus Rasantes
+    // Obstáculos do Deserto: Redemoinhos de Areia, Urubus Rasantes, Cactos Quebráveis e Poço de Lama
     if (options?.enableDustDevils ?? isDeserto) {
       this.initDustDevilsSystem(options);
     }
     if (options?.enableVultures ?? isDeserto) {
       this.initVulturesSystem(options);
+    }
+    if (options?.enableCacti ?? isDeserto) {
+      this.initCactiSystem(options);
+    }
+    if (options?.enableMudPit ?? isDeserto) {
+      this.initMudPitSystem(options);
     }
   }
 
@@ -2454,6 +2525,7 @@ export class TrackInteractiveManager {
         boost: false,
         bonk: false,
         spin: false,
+        slip: false,
       });
     }
 
@@ -2467,6 +2539,11 @@ export class TrackInteractiveManager {
       out.bonk = false;
       out.bonkImpulse = undefined;
       out.spin = false;
+      out.spinUntil = undefined;
+      out.slip = false;
+      out.slipUntil = undefined;
+      out.speedMultiplier = undefined;
+      out.shake = undefined;
       out.soundCue = undefined;
     }
 
@@ -2515,6 +2592,12 @@ export class TrackInteractiveManager {
 
     // 9. Urubus do Deserto (Planando e Rasantes)
     this.updateVultures(dt, karts);
+
+    // 10. Cactos Quebráveis na Borda da Pista
+    this.updateCacti(dt, karts);
+
+    // 11. Poço de Lama no Fundo do Cânion
+    this.updateMudPit(dt, karts);
 
     return this.kartOutputs;
   }
@@ -3567,9 +3650,11 @@ export class TrackInteractiveManager {
           out.spin = true;
           out.bonk = true;
           out.spinUntil = 1200;
+          out.speedMultiplier = 0.55;
+          out.shake = 0.6;
           const nx = dist > 0.001 ? dx / dist : 1;
           const nz = dist > 0.001 ? dz / dist : 0;
-          out.bonkImpulse = { x: nx * 14.0, z: nz * 14.0 };
+          out.bonkImpulse = { x: (nx * 0.7 + devil.normal.x * 0.7) * 14.0, z: (nz * 0.7 + devil.normal.z * 0.7) * 14.0 };
           out.soundCue = "sand_tornado";
 
           if (devil.hitCooldown <= 0) {
@@ -3603,11 +3688,12 @@ export class TrackInteractiveManager {
 
     const geo = new THREE.BoxGeometry(0.14, 0.02, 0.26);
     const mat = new THREE.MeshStandardMaterial({
-      color: "#1c1c1c",
+      color: "#ffffff",
       roughness: 0.9,
       metalness: 0.1,
     });
     this.featherMesh = new THREE.InstancedMesh(geo, mat, this.MAX_FEATHER_PARTICLES);
+    this.featherMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.MAX_FEATHER_PARTICLES * 3), 3);
     this.featherMesh.frustumCulled = false;
     this.featherMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
@@ -3625,6 +3711,8 @@ export class TrackInteractiveManager {
   private triggerFeatherBurst(x: number, y: number, z: number): void {
     if (!this.featherMesh) return;
     const count = 12;
+    const darkFeather = new THREE.Color("#1c1c1c");
+    const lightFeather = new THREE.Color("#e5e0d8");
     for (let i = 0; i < count; i++) {
       const idx = (this.featherIdx + i) % this.MAX_FEATHER_PARTICLES;
       this.featherPosX[idx] = x + (Math.random() - 0.5) * 0.4;
@@ -3643,6 +3731,12 @@ export class TrackInteractiveManager {
 
       this.featherAge[idx] = 0;
       this.featherLife[idx] = 0.8 + Math.random() * 0.4;
+
+      const col = (i % 2 === 0) ? darkFeather : lightFeather;
+      this.featherMesh.setColorAt(idx, col);
+    }
+    if (this.featherMesh.instanceColor) {
+      this.featherMesh.instanceColor.needsUpdate = true;
     }
     this.featherIdx = (this.featherIdx + count) % this.MAX_FEATHER_PARTICLES;
   }
@@ -3990,6 +4084,10 @@ export class TrackInteractiveManager {
                 out.bonk = true;
                 out.spin = true;
                 out.spinUntil = 900;
+                out.slip = true;
+                out.slipUntil = 800;
+                out.speedMultiplier = 0.75;
+                out.shake = 0.5;
                 out.bonkImpulse = { x: (Math.random() - 0.5) * 12.0, z: (Math.random() - 0.5) * 12.0 };
                 out.soundCue = "vulture_startle";
 
@@ -4069,6 +4167,527 @@ export class TrackInteractiveManager {
     return this._vultureFlocks;
   }
 
+  // ==========================================================================
+  // CACTOS QUEBRÁVEIS / INTERATIVOS NA BORDA DA PISTA
+  // ==========================================================================
+
+  private initCactusParticles(): void {
+    if (!this.scene) return;
+    this.cactusPosX = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusPosY = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusPosZ = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusVelX = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusVelY = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusVelZ = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusRotX = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusRotY = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusRotZ = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusAge = new Float32Array(this.MAX_CACTUS_PARTICLES);
+    this.cactusLife = new Float32Array(this.MAX_CACTUS_PARTICLES);
+
+    const geo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+    const mat = new THREE.MeshStandardMaterial({
+      color: "#ffffff",
+      roughness: 0.85,
+      metalness: 0.05,
+    });
+    this.cactusParticleMesh = new THREE.InstancedMesh(geo, mat, this.MAX_CACTUS_PARTICLES);
+    this.cactusParticleMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.MAX_CACTUS_PARTICLES * 3), 3);
+    this.cactusParticleMesh.frustumCulled = false;
+    this.cactusParticleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    _mat4A.makeScale(0, 0, 0);
+    for (let i = 0; i < this.MAX_CACTUS_PARTICLES; i++) {
+      this.cactusParticleMesh.setMatrixAt(i, _mat4A);
+      this.cactusAge[i] = 999;
+      this.cactusLife[i] = 1;
+    }
+    this.cactusParticleMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this.cactusParticleMesh);
+    this.disposables.push(geo, mat);
+  }
+
+  public triggerCactusBreakParticles(x: number, y: number, z: number): void {
+    if (!this.cactusParticleMesh) return;
+    const count = 16;
+    const colors = [
+      new THREE.Color("#2d7a3e"),
+      new THREE.Color("#4ade80"),
+      new THREE.Color("#15803d"),
+      new THREE.Color("#fde047"),
+    ];
+
+    for (let i = 0; i < count; i++) {
+      const idx = (this.cactusIdx + i) % this.MAX_CACTUS_PARTICLES;
+      this.cactusPosX[idx] = x + (Math.random() - 0.5) * 0.35;
+      this.cactusPosY[idx] = y + Math.random() * 0.6;
+      this.cactusPosZ[idx] = z + (Math.random() - 0.5) * 0.35;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2.5 + Math.random() * 4.5;
+      this.cactusVelX[idx] = Math.cos(angle) * speed;
+      this.cactusVelY[idx] = 2.4 + Math.random() * 3.6;
+      this.cactusVelZ[idx] = Math.sin(angle) * speed;
+
+      this.cactusRotX[idx] = Math.random() * Math.PI * 2;
+      this.cactusRotY[idx] = Math.random() * Math.PI * 2;
+      this.cactusRotZ[idx] = Math.random() * Math.PI * 2;
+
+      this.cactusAge[idx] = 0;
+      this.cactusLife[idx] = 0.75 + Math.random() * 0.35;
+
+      this.cactusParticleMesh.setColorAt(idx, colors[i % colors.length]);
+    }
+    if (this.cactusParticleMesh.instanceColor) {
+      this.cactusParticleMesh.instanceColor.needsUpdate = true;
+    }
+    this.cactusIdx = (this.cactusIdx + count) % this.MAX_CACTUS_PARTICLES;
+  }
+
+  private updateCactusParticles(dt: number): void {
+    if (!this.cactusParticleMesh) return;
+    let needsUpdate = false;
+    for (let i = 0; i < this.MAX_CACTUS_PARTICLES; i++) {
+      if (this.cactusAge[i] >= this.cactusLife[i]) continue;
+
+      this.cactusAge[i] += dt;
+      if (this.cactusAge[i] >= this.cactusLife[i]) {
+        _mat4A.makeScale(0, 0, 0);
+        this.cactusParticleMesh.setMatrixAt(i, _mat4A);
+        needsUpdate = true;
+        continue;
+      }
+
+      this.cactusVelY[i] -= 16.0 * dt;
+      this.cactusVelX[i] *= 0.95;
+      this.cactusVelZ[i] *= 0.95;
+
+      this.cactusPosX[i] += this.cactusVelX[i] * dt;
+      this.cactusPosY[i] = Math.max(0.04, this.cactusPosY[i] + this.cactusVelY[i] * dt);
+      this.cactusPosZ[i] += this.cactusVelZ[i] * dt;
+
+      this.cactusRotX[i] += dt * 12.0;
+      this.cactusRotY[i] += dt * 9.0;
+      this.cactusRotZ[i] += dt * 8.0;
+
+      const progress = this.cactusAge[i] / this.cactusLife[i];
+      const scale = (1.0 - progress) * 1.0;
+
+      _vecA.set(this.cactusPosX[i], this.cactusPosY[i], this.cactusPosZ[i]);
+      _quatA.setFromEuler(_eulerA.set(this.cactusRotX[i], this.cactusRotY[i], this.cactusRotZ[i]));
+      _scaleVec.set(scale, scale, scale);
+      _mat4A.compose(_vecA, _quatA, _scaleVec);
+      this.cactusParticleMesh.setMatrixAt(i, _mat4A);
+      needsUpdate = true;
+    }
+    if (needsUpdate) {
+      this.cactusParticleMesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  private initCactiSystem(options?: TrackInteractiveOptions): void {
+    if (options?.enableCacti === false) return;
+    this.initCactusParticles();
+
+    if (options?.cactusPositions && options.cactusPositions.length > 0) {
+      for (let i = 0; i < options.cactusPositions.length; i++) {
+        const c = options.cactusPositions[i];
+        this.registerCactus({
+          id: i + 1,
+          s: c.s,
+          pos: { x: c.x ?? 0, y: c.y ?? 0, z: c.z ?? 0 },
+          heading: c.heading ?? 0,
+          radius: c.radius ?? 1.35,
+        });
+      }
+      return;
+    }
+
+    // Padrão: cactos saguaros interativos colocados nas margens da pista do deserto
+    const defaultS = [45, 95, 150, 210, 260, 320, 390, 460, 520, 580, 640];
+    if (this.track) {
+      for (let i = 0; i < defaultS.length; i++) {
+        const s = defaultS[i];
+        const at = pointAt(this.track, s);
+        const y = heightAt(this.track, s);
+        const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+        // Alterna entre margem esquerda e direita
+        const side = (i % 2 === 0) ? -1 : 1;
+        const distOff = at.halfWidth + 1.25;
+
+        this.registerCactus({
+          id: i + 1,
+          s,
+          pos: {
+            x: at.pos.x + nrm.x * distOff * side,
+            y,
+            z: at.pos.z + nrm.z * distOff * side,
+          },
+          heading: at.heading,
+          radius: 1.35,
+        });
+      }
+    } else {
+      const fallbackPositions = [
+        { x: -10, y: 0, z: 20 },
+        { x: 15, y: 0, z: 45 },
+        { x: -25, y: 0, z: 80 },
+        { x: 30, y: 0, z: 110 },
+        { x: -15, y: 0, z: 150 },
+        { x: 40, y: 0, z: 190 },
+      ];
+      for (let i = 0; i < fallbackPositions.length; i++) {
+        const p = fallbackPositions[i];
+        this.registerCactus({
+          id: i + 1,
+          pos: { x: p.x, y: p.y, z: p.z },
+          heading: 0,
+          radius: 1.35,
+        });
+      }
+    }
+  }
+
+  public registerCactus(config: {
+    id: number;
+    s?: number;
+    pos: { x: number; y: number; z: number };
+    heading?: number;
+    radius?: number;
+  }): CactusObstacle {
+    const group = new THREE.Group();
+    group.name = `cactus-${config.id}`;
+    group.position.set(config.pos.x, config.pos.y, config.pos.z);
+    group.rotation.y = config.heading ?? 0;
+
+    const cactusMat = new THREE.MeshStandardMaterial({
+      color: "#2d7a3e",
+      roughness: 0.85,
+      metalness: 0.08,
+    });
+    this.disposables.push(cactusMat);
+
+    // Tronco principal do saguaro com ponta arredondada
+    const trunkH = 2.4;
+    const trunkGeo = new THREE.CylinderGeometry(0.26, 0.3, trunkH, 8);
+    trunkGeo.translate(0, trunkH / 2, 0);
+    const trunkMesh = new THREE.Mesh(trunkGeo, cactusMat);
+    group.add(trunkMesh);
+
+    const capGeo = new THREE.SphereGeometry(0.26, 8, 6);
+    capGeo.translate(0, trunkH, 0);
+    const capMesh = new THREE.Mesh(capGeo, cactusMat);
+    group.add(capMesh);
+
+    const arms: THREE.Mesh[] = [];
+
+    // Braço esquerdo do cacto
+    const armHGeoL = new THREE.CylinderGeometry(0.14, 0.14, 0.6, 7);
+    armHGeoL.rotateZ(Math.PI / 2);
+    armHGeoL.translate(-0.35, trunkH * 0.52, 0);
+    const armHMeshL = new THREE.Mesh(armHGeoL, cactusMat);
+    group.add(armHMeshL);
+    arms.push(armHMeshL);
+
+    const armVGeoL = new THREE.CylinderGeometry(0.14, 0.16, 0.9, 7);
+    armVGeoL.translate(-0.65, trunkH * 0.52 + 0.45, 0);
+    const armVMeshL = new THREE.Mesh(armVGeoL, cactusMat);
+    group.add(armVMeshL);
+    arms.push(armVMeshL);
+
+    // Braço direito em altura diferente (se id ímpar)
+    if (config.id % 2 !== 0) {
+      const armHGeoR = new THREE.CylinderGeometry(0.14, 0.14, 0.55, 7);
+      armHGeoR.rotateZ(Math.PI / 2);
+      armHGeoR.translate(0.32, trunkH * 0.68, 0);
+      const armHMeshR = new THREE.Mesh(armHGeoR, cactusMat);
+      group.add(armHMeshR);
+      arms.push(armHMeshR);
+
+      const armVGeoR = new THREE.CylinderGeometry(0.14, 0.16, 0.8, 7);
+      armVGeoR.translate(0.6, trunkH * 0.68 + 0.4, 0);
+      const armVMeshR = new THREE.Mesh(armVGeoR, cactusMat);
+      group.add(armVMeshR);
+      arms.push(armVMeshR);
+
+      this.disposables.push(armHGeoR, armVGeoR);
+    }
+
+    this.disposables.push(trunkGeo, capGeo, armHGeoL, armVGeoL);
+
+    if (this.scene) {
+      this.scene.add(group);
+    }
+
+    const obstacle: CactusObstacle = {
+      id: config.id,
+      s: config.s,
+      pos: { ...config.pos },
+      heading: config.heading ?? 0,
+      group,
+      trunkMesh,
+      arms,
+      radius: config.radius ?? 1.35,
+      isBroken: false,
+      breakTimer: 0,
+      wobbleTimer: 0,
+      wobbleAngle: 0,
+    };
+
+    this._cacti.push(obstacle);
+    return obstacle;
+  }
+
+  private updateCacti(dt: number, karts: KartInteractiveInfo[]): void {
+    const numCacti = this._cacti.length;
+    const numKarts = karts.length;
+
+    for (let c = 0; c < numCacti; c++) {
+      const cactus = this._cacti[c];
+
+      // Balanço / oscilação suave quando kart passa perto com deslocamento de ar
+      if (cactus.wobbleTimer > 0) {
+        cactus.wobbleTimer -= dt;
+        cactus.group.rotation.z = Math.sin((0.5 - cactus.wobbleTimer) * 24.0) * cactus.wobbleAngle;
+        if (cactus.wobbleTimer <= 0) {
+          cactus.group.rotation.z = 0;
+        }
+      }
+
+      // Respawn do cacto quebrado após alguns segundos
+      if (cactus.isBroken) {
+        cactus.breakTimer -= dt;
+        if (cactus.breakTimer <= 0) {
+          cactus.isBroken = false;
+          cactus.group.scale.set(1, 1, 1);
+        }
+        continue;
+      }
+
+      // Colisão do kart com o cacto
+      for (let k = 0; k < numKarts; k++) {
+        const kart = karts[k];
+        const dx = kart.pos.x - cactus.pos.x;
+        const dz = kart.pos.z - cactus.pos.z;
+        const dist = Math.hypot(dx, dz);
+        const dy = Math.abs((kart.y ?? 0) - cactus.pos.y);
+
+        if (dist < cactus.radius && dy < 2.2) {
+          // Kart bateu no cacto! O cacto quebra espalhando pedaços verdes e espinhos
+          cactus.isBroken = true;
+          cactus.breakTimer = 4.0;
+          cactus.group.scale.set(0.01, 0.01, 0.01);
+
+          this.triggerCactusBreakParticles(cactus.pos.x, cactus.pos.y + 0.8, cactus.pos.z);
+
+          const out = this.kartOutputs[k];
+          out.bonk = true;
+          out.speedMultiplier = 0.65;
+          const h = kart.heading ?? 0;
+          out.bonkImpulse = { x: -Math.sin(h) * 8.0, z: -Math.cos(h) * 8.0 };
+          out.shake = 0.45;
+          out.soundCue = "cactus_bonk";
+          break;
+        } else if (dist < cactus.radius + 1.2 && kart.speed > 8.0 && cactus.wobbleTimer <= 0) {
+          // Kart raspou / passou perto em alta velocidade: cacto balança no vácuo
+          cactus.wobbleTimer = 0.45;
+          cactus.wobbleAngle = 0.16;
+        }
+      }
+    }
+
+    this.updateCactusParticles(dt);
+  }
+
+  // ==========================================================================
+  // POÇO DE LAMA NO FUNDO DO CÂNION
+  // ==========================================================================
+
+  private initMudParticles(): void {
+    if (!this.scene) return;
+    this.mudPosX = new Float32Array(this.MAX_MUD_PARTICLES);
+    this.mudPosY = new Float32Array(this.MAX_MUD_PARTICLES);
+    this.mudPosZ = new Float32Array(this.MAX_MUD_PARTICLES);
+    this.mudVelX = new Float32Array(this.MAX_MUD_PARTICLES);
+    this.mudVelY = new Float32Array(this.MAX_MUD_PARTICLES);
+    this.mudVelZ = new Float32Array(this.MAX_MUD_PARTICLES);
+    this.mudScale = new Float32Array(this.MAX_MUD_PARTICLES);
+    this.mudAge = new Float32Array(this.MAX_MUD_PARTICLES);
+    this.mudLife = new Float32Array(this.MAX_MUD_PARTICLES);
+
+    const geo = new THREE.SphereGeometry(0.22, 7, 5);
+    const mat = new THREE.MeshStandardMaterial({
+      color: "#ffffff",
+      roughness: 0.25,
+      metalness: 0.15,
+    });
+    this.mudSplashMesh = new THREE.InstancedMesh(geo, mat, this.MAX_MUD_PARTICLES);
+    this.mudSplashMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.MAX_MUD_PARTICLES * 3), 3);
+    this.mudSplashMesh.frustumCulled = false;
+    this.mudSplashMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    _mat4A.makeScale(0, 0, 0);
+    for (let i = 0; i < this.MAX_MUD_PARTICLES; i++) {
+      this.mudSplashMesh.setMatrixAt(i, _mat4A);
+      this.mudAge[i] = 999;
+      this.mudLife[i] = 1;
+    }
+    this.mudSplashMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this.mudSplashMesh);
+    this.disposables.push(geo, mat);
+  }
+
+  public triggerMudSplash(x: number, y: number, z: number): void {
+    if (!this.mudSplashMesh) return;
+    const count = 16;
+    const mudColors = [
+      new THREE.Color("#3d2817"),
+      new THREE.Color("#5a3820"),
+      new THREE.Color("#2a1b10"),
+      new THREE.Color("#4a2c18"),
+    ];
+
+    for (let i = 0; i < count; i++) {
+      const idx = (this.mudIdx + i) % this.MAX_MUD_PARTICLES;
+      this.mudPosX[idx] = x + (Math.random() - 0.5) * 0.7;
+      this.mudPosY[idx] = y + 0.1 + Math.random() * 0.25;
+      this.mudPosZ[idx] = z + (Math.random() - 0.5) * 0.7;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1.8 + Math.random() * 3.4;
+      this.mudVelX[idx] = Math.cos(angle) * speed;
+      this.mudVelY[idx] = 2.8 + Math.random() * 3.8;
+      this.mudVelZ[idx] = Math.sin(angle) * speed;
+
+      this.mudScale[idx] = 0.8 + Math.random() * 0.6;
+      this.mudAge[idx] = 0;
+      this.mudLife[idx] = 0.6 + Math.random() * 0.4;
+
+      this.mudSplashMesh.setColorAt(idx, mudColors[i % mudColors.length]);
+    }
+    if (this.mudSplashMesh.instanceColor) {
+      this.mudSplashMesh.instanceColor.needsUpdate = true;
+    }
+    this.mudIdx = (this.mudIdx + count) % this.MAX_MUD_PARTICLES;
+  }
+
+  private updateMudParticles(dt: number): void {
+    if (!this.mudSplashMesh) return;
+    let needsUpdate = false;
+    for (let i = 0; i < this.MAX_MUD_PARTICLES; i++) {
+      if (this.mudAge[i] >= this.mudLife[i]) continue;
+
+      this.mudAge[i] += dt;
+      if (this.mudAge[i] >= this.mudLife[i]) {
+        _mat4A.makeScale(0, 0, 0);
+        this.mudSplashMesh.setMatrixAt(i, _mat4A);
+        needsUpdate = true;
+        continue;
+      }
+
+      this.mudVelY[i] -= 12.0 * dt;
+      this.mudVelX[i] *= 0.92;
+      this.mudVelZ[i] *= 0.92;
+
+      this.mudPosX[i] += this.mudVelX[i] * dt;
+      this.mudPosY[i] = this.mudPosY[i] + this.mudVelY[i] * dt;
+      this.mudPosZ[i] += this.mudVelZ[i] * dt;
+
+      const progress = this.mudAge[i] / this.mudLife[i];
+      const scale = this.mudScale[i] * (progress < 0.3 ? (0.6 + progress * 1.5) : (1.05 - (progress - 0.3) * 0.9));
+
+      _vecA.set(this.mudPosX[i], this.mudPosY[i], this.mudPosZ[i]);
+      _quatA.identity();
+      _scaleVec.set(scale * 1.2, scale * 0.7, scale * 1.2);
+      _mat4A.compose(_vecA, _quatA, _scaleVec);
+      this.mudSplashMesh.setMatrixAt(i, _mat4A);
+      needsUpdate = true;
+    }
+    if (needsUpdate) {
+      this.mudSplashMesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  private initMudPitSystem(options?: TrackInteractiveOptions): void {
+    if (options?.enableMudPit === false) return;
+    this.initMudParticles();
+
+    // Identifica vão do cânion nas rampas da pista
+    const gapRamp = this.track?.ramps?.find((r) => r.gap);
+    if (gapRamp && gapRamp.gap) {
+      const sMid = (gapRamp.gap.sFrom + gapRamp.gap.sTo) / 2;
+      const at = pointAt(this.track!, sMid);
+      this._mudPits.push({
+        id: 1,
+        sFrom: gapRamp.gap.sFrom,
+        sTo: gapRamp.gap.sTo,
+        minY: -10.0,
+        maxY: -2.0,
+        center: { x: at.pos.x, y: -6.5, z: at.pos.z },
+        radius: 28.0,
+        splashCooldown: 0,
+      });
+    } else {
+      // Fallback
+      this._mudPits.push({
+        id: 1,
+        sFrom: 600,
+        sTo: 660,
+        minY: -10.0,
+        maxY: -2.0,
+        center: { x: 80, y: -6.5, z: 60 },
+        radius: 35.0,
+        splashCooldown: 0,
+      });
+    }
+  }
+
+  private updateMudPit(dt: number, karts: KartInteractiveInfo[]): void {
+    const numPits = this._mudPits.length;
+    const numKarts = karts.length;
+
+    for (let p = 0; p < numPits; p++) {
+      const pit = this._mudPits[p];
+      if (pit.splashCooldown > 0) pit.splashCooldown -= dt;
+
+      for (let k = 0; k < numKarts; k++) {
+        const kart = karts[k];
+        const ky = kart.y ?? 0;
+
+        // Se o kart cair no vão do cânion (altitude negativa profunda no poço)
+        if (ky < pit.maxY) {
+          const dx = kart.pos.x - pit.center.x;
+          const dz = kart.pos.z - pit.center.z;
+          const dist = Math.hypot(dx, dz);
+
+          if (dist < pit.radius) {
+            const out = this.kartOutputs[k];
+            out.bonk = true;
+            // Desaceleração profunda na lama viscosa até o resgate pelo drone
+            out.speedMultiplier = 0.2;
+            out.shake = 0.35;
+            out.soundCue = "mud_splash";
+
+            if (pit.splashCooldown <= 0) {
+              pit.splashCooldown = 0.55;
+              this.triggerMudSplash(kart.pos.x, ky, kart.pos.z);
+            }
+          }
+        }
+      }
+    }
+
+    this.updateMudParticles(dt);
+  }
+
+  public get cacti(): readonly CactusObstacle[] {
+    return this._cacti;
+  }
+
+  public get mudPits(): readonly MudPitArea[] {
+    return this._mudPits;
+  }
+
   /**
    * Libera todos os recursos WebGL, geometrias e texturas criadas pelo gerenciador.
    */
@@ -4086,8 +4705,11 @@ export class TrackInteractiveManager {
       for (const v of this._airVents) this.scene.remove(v.group);
       for (const dd of this._dustDevils) this.scene.remove(dd.group);
       for (const vu of this._vultures) this.scene.remove(vu.group);
+      for (const ca of this._cacti) this.scene.remove(ca.group);
       if (this.dustBurstMesh) this.scene.remove(this.dustBurstMesh);
       if (this.featherMesh) this.scene.remove(this.featherMesh);
+      if (this.cactusParticleMesh) this.scene.remove(this.cactusParticleMesh);
+      if (this.mudSplashMesh) this.scene.remove(this.mudSplashMesh);
     }
 
     if (this.roombaFaces) {
@@ -4119,6 +4741,8 @@ export class TrackInteractiveManager {
     this._dustDevils = [];
     this._vultureFlocks = [];
     this._vultures = [];
+    this._cacti = [];
+    this._mudPits = [];
     this.desks = [];
     this.kartOutputs = [];
     this.scene = null;

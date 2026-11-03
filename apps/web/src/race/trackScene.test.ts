@@ -134,6 +134,103 @@ describe("buildTrack - Cenário e Elementos Estilizados Nintendo Odyssey", () =>
     });
     expect(oasisWaterFound).toBe(true);
 
+    // Tubo cilíndrico do túnel do maciço rochoso (#8a847c)
+    let tunnelTubeFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        if (obj.material.color.getHexString() === "8a847c" && obj.material.side === THREE.DoubleSide) {
+          tunnelTubeFound = true;
+        }
+      }
+    });
+    expect(tunnelTubeFound).toBe(true);
+
+    // Anéis de néon dourado (#ffcf6e / emissive #ffaa33) ao redor do tubo
+    let neonRingsCount = 0;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.geometry instanceof THREE.TorusGeometry) {
+        if (obj.material instanceof THREE.MeshStandardMaterial && obj.material.emissive.getHexString() === "ffaa33") {
+          neonRingsCount++;
+        }
+      }
+    });
+    expect(neonRingsCount).toBeGreaterThanOrEqual(10);
+
+    // Luzes pontuais internas âmbar (#ffd9a0)
+    let amberLightsCount = 0;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.PointLight && obj.color.getHexString() === "ffd9a0") {
+        amberLightsCount++;
+      }
+    });
+    expect(amberLightsCount).toBeGreaterThanOrEqual(3);
+
+    // Flores coloridas nos cactos-bola (magenta #f06aa0, dourado #f7c23a, laranja #f0884a)
+    let magentaFlowerFound = false;
+    let goldFlowerFound = false;
+    let orangeFlowerFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        const hex = obj.material.color.getHexString();
+        if (hex === "f06aa0") magentaFlowerFound = true;
+        if (hex === "f7c23a") goldFlowerFound = true;
+        if (hex === "f0884a") orangeFlowerFound = true;
+      }
+    });
+    expect(magentaFlowerFound).toBe(true);
+    expect(goldFlowerFound).toBe(true);
+    expect(orangeFlowerFound).toBe(true);
+
+    // Cactos sem flatShading (acabar com cactos quadrados)
+    let smoothSaguaroFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        if (obj.material.color.getHexString() === "2f6b36" && obj.material.flatShading === false) {
+          smoothSaguaroFound = true;
+        }
+      }
+    });
+    expect(smoothSaguaroFound).toBe(true);
+
+    // Palmas / Cacto Orelha-de-padre (#346e38)
+    let pricklyPearFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        if (obj.material.color.getHexString() === "346e38" && obj.material.flatShading === false) {
+          pricklyPearFound = true;
+        }
+      }
+    });
+    expect(pricklyPearFound).toBe(true);
+
+    // Tufos de capim dourado do sertão (#c9a866)
+    let goldenGrassFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        if (obj.material.color.getHexString() === "c9a866") {
+          goldenGrassFound = true;
+        }
+      }
+    });
+    expect(goldenGrassFound).toBe(true);
+
+    // Malha do asfalto do deserto no saca-rolhas dá a volta completa (corkscrew loop > 18m de altura)
+    let corkscrewLoopFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.geometry instanceof THREE.BufferGeometry) {
+        const pos = obj.geometry.getAttribute("position");
+        if (pos) {
+          for (let i = 0; i < pos.count; i++) {
+            if (pos.getY(i) > 18.0) {
+              corkscrewLoopFound = true;
+              break;
+            }
+          }
+        }
+      }
+    });
+    expect(corkscrewLoopFound).toBe(true);
+
     // Libera texturas da cena sem falhas
     expect(() => dispose()).not.toThrow();
   });

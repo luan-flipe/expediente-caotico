@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { branchEdges, gridSlots, heightAt, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
+import { branchEdges, corkscrewRoll, gridSlots, heightAt, pathProgress, pointAt, progressOf, sideNormal, trackEdges, RACE, type Ramp, type Track, type Vec2 } from "@ec/shared";
 import { applyWaxedFloorSheen } from "./vfxJuice";
 import parqueUrl from "../assets/itens/parque-ipanema-3d.glb?url";
 import rampGlbUrl from "../assets/itens/ramp-jump.glb?url";
@@ -967,8 +967,38 @@ function mergeStatic(group: THREE.Group): THREE.Mesh[] {
   return out;
 }
 
+/** Posição 3D de um ponto da seção transversal da pista (deslocamento lateral e altura relativa ao piso). */
+function trackPoint3D(track: Track, s: number, off: number, yRel = 0): THREE.Vector3 {
+  const at = pointAt(track, s);
+  const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+  const baseY = heightAt(track, s);
+  const phi = corkscrewRoll(track, s);
+  let finalOff = off;
+  let finalY = yRel;
+  if (phi !== 0) {
+    const TAX = track.corkscrew?.axisY ?? 9.4;
+    const v = yRel - TAX;
+    const c = Math.cos(phi);
+    const sn = Math.sin(phi);
+    finalOff = off * c - v * sn;
+    finalY = off * sn + v * c + TAX;
+  }
+  return new THREE.Vector3(
+    at.pos.x + nrm.x * finalOff,
+    baseY + finalY,
+    at.pos.z + nrm.z * finalOff,
+  );
+}
+
 /** Faixa no chão entre duas listas de pontos (mesmo tamanho). UV: u ao longo do caminho (uScale por metro), v de a para b. */
-function ribbon(a: Vec2[], b: Vec2[], y: number | number[], colors: THREE.Color[] | null, closed: boolean, uScale = 0.25): THREE.BufferGeometry {
+function ribbon(
+  a: (Vec2 | THREE.Vector3)[],
+  b: (Vec2 | THREE.Vector3)[],
+  y: number | number[],
+  colors: THREE.Color[] | null,
+  closed: boolean,
+  uScale = 0.25,
+): THREE.BufferGeometry {
   const n = a.length;
   const pos: number[] = [];
   const col: number[] = [];
@@ -977,9 +1007,24 @@ function ribbon(a: Vec2[], b: Vec2[], y: number | number[], colors: THREE.Color[
   let dist = 0;
   for (let i = 0; i < n; i++) {
     const yi = Array.isArray(y) ? y[i] : y;
-    pos.push(a[i].x, yi, a[i].z, b[i].x, yi, b[i].z);
+    const ai = a[i];
+    const ax = ai.x;
+    const ay = ai instanceof THREE.Vector3 ? ai.y : yi;
+    const az = ai.z;
+
+    const bi = b[i];
+    const bx = bi.x;
+    const by = bi instanceof THREE.Vector3 ? bi.y : yi;
+    const bz = bi.z;
+
+    pos.push(ax, ay, az, bx, by, bz);
     if (colors) col.push(colors[i].r, colors[i].g, colors[i].b, colors[i].r, colors[i].g, colors[i].b);
-    if (i > 0) dist += Math.hypot(a[i].x - a[i - 1].x, a[i].z - a[i - 1].z);
+    if (i > 0) {
+      const prevA = a[i - 1];
+      const prevAy = prevA instanceof THREE.Vector3 ? prevA.y : (Array.isArray(y) ? y[i - 1] : y);
+      const prevAz = prevA.z;
+      dist += Math.hypot(ax - prevA.x, ay - prevAy, az - prevAz);
+    }
     uvs.push(dist * uScale, 0, dist * uScale, 1);
   }
   const segs = closed ? n : n - 1;
@@ -1216,14 +1261,17 @@ function gapPit(track: Track, r: Ramp): { group: THREE.Group; outline: Vec2[] } 
 }
 
 /** Placa de Dash (Boost Pad) de aço com moldura listrada de perigo e chevrons fluorescentes. */
-function buildBoostPad(track: Track, s: number, textures: THREE.Texture[]): THREE.Group {
+function buildBoostPad(track: Track, s: number, textures: THREE.Texture[], laneOffset?: number, width?: number): THREE.Group {
   const at = pointAt(track, s);
   const y = heightAt(track, s);
   const heading = at.heading;
-  const padW = Math.max(5.5, Math.min(8.0, at.halfWidth * 1.1));
+  const padW = width ?? (laneOffset !== undefined ? 2.8 : Math.max(5.5, Math.min(8.0, at.halfWidth * 1.1)));
   const padLen = 4.2;
   const group = new THREE.Group();
-  group.position.set(at.pos.x, y + 0.025, at.pos.z);
+  const nrm = sideNormal(Math.sin(heading), Math.cos(heading));
+  const posX = laneOffset !== undefined ? at.pos.x + nrm.x * laneOffset : at.pos.x;
+  const posZ = laneOffset !== undefined ? at.pos.z + nrm.z * laneOffset : at.pos.z;
+  group.position.set(posX, y + 0.025, posZ);
   group.rotation.y = heading;
 
   // 1. Chapa de base de aço/ferrugem
@@ -1409,6 +1457,194 @@ function buildCaveTunnel(track: Track): THREE.Group {
   return group;
 }
 
+/** Túnel monumental com tubo cilíndrico envolvente (TR = 14, TAX = 9.4), anéis de néon, luzes âmbar, portais de perigo e morro externo. */
+function buildDesertTunnel(track: Track, textures: THREE.Texture[]): THREE.Group {
+  const group = new THREE.Group();
+  const sStart = track.ctrlS[14] ?? 0;
+  const sEnd = track.ctrlS[20] ?? sStart + 110;
+  const TR = 14;
+  const TAX = 9.4;
+  const Wo = 36;
+  const step = 1.5;
+  const numSteps = Math.max(8, Math.ceil((sEnd - sStart) / step));
+  const numRadial = 32;
+
+  // 1. Tubo interno cilíndrico de concreto
+  const tubePositions: number[] = [];
+  const tubeColors: number[] = [];
+  const tubeIndices: number[] = [];
+
+  // 2. Maciço rochoso externo cobrindo o túnel por cima
+  const hillPositions: number[] = [];
+  const hillIndices: number[] = [];
+  const numHillX = 24;
+
+  for (let i = 0; i <= numSteps; i++) {
+    const s = sStart + ((sEnd - sStart) * i) / numSteps;
+    const at = pointAt(track, s);
+    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    const baseY = heightAt(track, s);
+    const band = Math.floor(i / 4) % 2 === 0 ? 0.82 : 1.0;
+
+    // Vértices do tubo interno (raio TR em torno de TAX)
+    for (let j = 0; j <= numRadial; j++) {
+      const theta = (j / numRadial) * Math.PI * 2;
+      const lat = Math.cos(theta) * TR;
+      const h = TAX + Math.sin(theta) * TR;
+      tubePositions.push(at.pos.x + nrm.x * lat, baseY + h, at.pos.z + nrm.z * lat);
+      tubeColors.push(band, band, band);
+    }
+
+    // Vértices do maciço rochoso externo
+    const R2 = TR + 2.8;
+    const ax = baseY + TAX;
+    for (let j = 0; j <= numHillX; j++) {
+      const u = j / numHillX;
+      const lat = -Wo + 2 * Wo * u;
+      const absLat = Math.abs(lat);
+      const roof = absLat <= R2 ? ax + Math.sqrt(Math.max(0, R2 * R2 - absLat * absLat)) : ax - (absLat - R2) * 1.15;
+      const noise = Math.sin(s * 0.12 + lat * 0.15) * 1.8 + Math.cos(s * 0.28 + lat * 0.08) * 1.2;
+      const py = Math.max(baseY - 1.5, roof + noise);
+      hillPositions.push(at.pos.x + nrm.x * lat, py, at.pos.z + nrm.z * lat);
+    }
+  }
+
+  // Índices para o tubo interno (normais para dentro)
+  for (let i = 0; i < numSteps; i++) {
+    for (let j = 0; j < numRadial; j++) {
+      const a = i * (numRadial + 1) + j;
+      const b = (i + 1) * (numRadial + 1) + j;
+      tubeIndices.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+
+  // Índices para o morro externo (normais para fora)
+  for (let i = 0; i < numSteps; i++) {
+    for (let j = 0; j < numHillX; j++) {
+      const a = i * (numHillX + 1) + j;
+      const b = (i + 1) * (numHillX + 1) + j;
+      hillIndices.push(a, a + 1, b, b, a + 1, b + 1);
+    }
+  }
+
+  const tubeGeo = new THREE.BufferGeometry();
+  tubeGeo.setAttribute("position", new THREE.Float32BufferAttribute(tubePositions, 3));
+  tubeGeo.setAttribute("color", new THREE.Float32BufferAttribute(tubeColors, 3));
+  tubeGeo.setIndex(tubeIndices);
+  tubeGeo.computeVertexNormals();
+
+  const tubeMat = new THREE.MeshStandardMaterial({
+    color: "#8a847c",
+    vertexColors: true,
+    roughness: 0.9,
+    side: THREE.DoubleSide,
+    emissive: "#1a1612",
+  });
+  const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
+  tubeMesh.receiveShadow = true;
+  group.add(tubeMesh);
+
+  const hillGeo = new THREE.BufferGeometry();
+  hillGeo.setAttribute("position", new THREE.Float32BufferAttribute(hillPositions, 3));
+  hillGeo.setIndex(hillIndices);
+  hillGeo.computeVertexNormals();
+
+  const hillMat = new THREE.MeshStandardMaterial({
+    color: "#8b5840",
+    roughness: 0.95,
+    side: THREE.DoubleSide,
+  });
+  const hillMesh = new THREE.Mesh(hillGeo, hillMat);
+  hillMesh.castShadow = true;
+  hillMesh.receiveShadow = true;
+  group.add(hillMesh);
+
+  // 3. Anéis de néon circundando o tubo a cada poucos metros
+  const ringGeo = new THREE.TorusGeometry(TR - 0.05, 0.1, 8, 48);
+  const ringMat = new THREE.MeshStandardMaterial({
+    color: "#ffcf6e",
+    emissive: "#ffaa33",
+    emissiveIntensity: 2.2,
+    roughness: 0.25,
+  });
+  for (let s = sStart + 5; s < sEnd - 4; s += 6.5) {
+    const at = pointAt(track, s);
+    const by = heightAt(track, s);
+    const ring = mesh(ringGeo, ringMat, at.pos.x, by + TAX, at.pos.z, at.heading);
+    group.add(ring);
+  }
+
+  // 4. Luzes pontuais internas âmbar
+  for (const frac of [0.15, 0.35, 0.55, 0.75, 0.9]) {
+    const s = sStart + (sEnd - sStart) * frac;
+    const at = pointAt(track, s);
+    const by = heightAt(track, s);
+    const pl = new THREE.PointLight("#ffd9a0", 1.8, 80);
+    pl.position.set(at.pos.x, by + TAX, at.pos.z);
+    group.add(pl);
+  }
+
+  // 5. Portais de concreto monumentais nas duas entradas do túnel (pontos 14 e 20) com listras de perigo
+  const stripeTex = hazardStripeTexture(textures);
+  const hazardMat = new THREE.MeshStandardMaterial({
+    map: stripeTex,
+    color: "#f2c21b",
+    roughness: 0.5,
+    metalness: 0.2,
+  });
+  const portalMat = new THREE.MeshStandardMaterial({
+    color: "#9c8466",
+    roughness: 0.88,
+  });
+  const portalW = 34;
+  const portalH = TAX + TR + 3.2;
+
+  const shape = new THREE.Shape();
+  shape.moveTo(-portalW / 2, -1);
+  shape.lineTo(portalW / 2, -1);
+  shape.lineTo(portalW / 2, portalH);
+  shape.lineTo(-portalW / 2, portalH);
+  shape.closePath();
+
+  const hole = new THREE.Path();
+  hole.moveTo(TR, TAX);
+  for (let a = 1; a < 32; a++) {
+    const th = (2 * Math.PI * a) / 32;
+    hole.lineTo(Math.cos(th) * TR, TAX + Math.sin(th) * TR);
+  }
+  hole.closePath();
+  shape.holes.push(hole);
+
+  const portalGeo = new THREE.ExtrudeGeometry(shape, { depth: 1.8, bevelEnabled: false });
+  portalGeo.translate(0, 0, -0.9);
+
+  const archRingGeo = new THREE.TorusGeometry(TR + 0.35, 0.45, 8, 48);
+
+  for (const [sPortal, dirSign] of [[sStart, -1], [sEnd, 1]]) {
+    const at = pointAt(track, sPortal);
+    const by = heightAt(track, sPortal);
+
+    const portal = mesh(portalGeo, portalMat, at.pos.x, by, at.pos.z, at.heading);
+    portal.castShadow = true;
+    portal.receiveShadow = true;
+    group.add(portal);
+
+    const archRing = mesh(archRingGeo, hazardMat, at.pos.x, by + TAX, at.pos.z, at.heading);
+    archRing.translateZ(dirSign * 0.95);
+    group.add(archRing);
+  }
+
+  // 6. Placas de boost no túnel em todas as faixas para os karts entrarem velozes no saca-rolhas
+  for (const sPad of [sStart + 5.0, sStart + 10.5]) {
+    const at = pointAt(track, sPad);
+    for (const f of [-0.6, -0.2, 0.2, 0.6]) {
+      group.add(buildBoostPad(track, sPad, textures, f * at.halfWidth, 2.6));
+    }
+  }
+
+  return group;
+}
+
 function safeMerge(geos: THREE.BufferGeometry[]): THREE.BufferGeometry | null {
   if (geos.length === 0) return null;
   const prepared = geos.map((g) => {
@@ -1425,11 +1661,15 @@ function safeMerge(geos: THREE.BufferGeometry[]): THREE.BufferGeometry | null {
   return res;
 }
 
-/** Cactos Saguaro, cactos bola espinhosos e tufos de capim seco (BufferGeometry combinada). */
+/** Cactos Saguaro arredondados, cactos bola com flores desabrochadas, palmas (orelha-de-padre) e tufos de capim dourado. */
 function buildDesertVegetation(track: Track): THREE.Group {
   const group = new THREE.Group();
   const saguaroGeos: THREE.BufferGeometry[] = [];
   const barrelGeos: THREE.BufferGeometry[] = [];
+  const pearGeos: THREE.BufferGeometry[] = [];
+  const flowerMagentaGeos: THREE.BufferGeometry[] = [];
+  const flowerGoldGeos: THREE.BufferGeometry[] = [];
+  const flowerOrangeGeos: THREE.BufferGeometry[] = [];
   const grassGeos: THREE.BufferGeometry[] = [];
 
   const free = (p: Vec2, r: number) => {
@@ -1437,91 +1677,218 @@ function buildDesertVegetation(track: Track): THREE.Group {
     return pr.dist > pr.halfWidth + r + 0.6;
   };
 
+  const sTunnelStart = track.ctrlS[14] ?? -1;
+  const sTunnelEnd = track.ctrlS[20] ?? -1;
   const sCaveStart = track.ctrlS[22] ?? -1;
   const sCaveEnd = track.ctrlS[26] ?? -1;
   const mainGap = track.ramps.find((r) => r.path === -1 && r.gap)?.gap;
 
-  const inCaveOrGap = (s: number) => {
-    if (s >= sCaveStart && s <= sCaveEnd) return true;
-    if (mainGap && s >= mainGap.sFrom - 4 && s <= mainGap.sTo + 4) return true;
+  const inTunnelOrGap = (s: number) => {
+    if (sTunnelStart >= 0 && sTunnelEnd >= 0 && s >= sTunnelStart - 3 && s <= sTunnelEnd + 3) return true;
+    if (sCaveStart >= 0 && sCaveEnd >= 0 && s >= sCaveStart - 2 && s <= sCaveEnd + 2) return true;
+    if (mainGap && s >= mainGap.sFrom - 5 && s <= mainGap.sTo + 5) return true;
     return false;
   };
 
-  for (let s = 8; s < track.length - 8; s += 7.5) {
-    if (inCaveOrGap(s)) continue;
+  // Helper para adicionar cacto saguaro cilíndrico suave com domo semiesférico e braços orgânicos
+  const addSaguaro = (px: number, pz: number, baseY: number, heading: number, s: number, side: number) => {
+    const trunkH = 3.6 + ((s * 3.7) % 4) * 0.45;
+    const trunkGeo = new THREE.CylinderGeometry(0.38, 0.42, trunkH, 14);
+    trunkGeo.translate(px, baseY + trunkH / 2, pz);
+    saguaroGeos.push(trunkGeo);
+
+    // Topo arredondado com domo semiesférico
+    const capGeo = new THREE.SphereGeometry(0.38, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    capGeo.translate(px, baseY + trunkH, pz);
+    saguaroGeos.push(capGeo);
+
+    const nrm = sideNormal(Math.sin(heading), Math.cos(heading));
+
+    // Braço primário curvo orgânico: cotovelo horizontal cilíndrico + segmento vertical + cúpula semiesférica no topo
+    const armH1 = trunkH * 0.52;
+    const elbowR1 = 0.22;
+    const elbowLen1 = 0.85;
+    const armHBar1 = new THREE.CylinderGeometry(elbowR1, elbowR1, elbowLen1, 14);
+    armHBar1.rotateZ(Math.PI / 2);
+    armHBar1.rotateY(heading);
+    armHBar1.translate(px + nrm.x * (elbowLen1 / 2 + 0.18) * side, baseY + armH1, pz + nrm.z * (elbowLen1 / 2 + 0.18) * side);
+    saguaroGeos.push(armHBar1);
+
+    const vertLen1 = 1.6 + ((s * 2) % 3) * 0.3;
+    const armX1 = px + nrm.x * (elbowLen1 + 0.18) * side;
+    const armZ1 = pz + nrm.z * (elbowLen1 + 0.18) * side;
+    const armVBar1 = new THREE.CylinderGeometry(elbowR1, elbowR1 * 1.05, vertLen1, 14);
+    armVBar1.translate(armX1, baseY + armH1 + vertLen1 / 2, armZ1);
+    saguaroGeos.push(armVBar1);
+
+    const armCap1 = new THREE.SphereGeometry(elbowR1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    armCap1.translate(armX1, baseY + armH1 + vertLen1, armZ1);
+    saguaroGeos.push(armCap1);
+
+    // Segundo braço do lado oposto para cactos mais altos
+    if (trunkH > 4.0) {
+      const armH2 = trunkH * 0.38;
+      const elbowR2 = 0.20;
+      const elbowLen2 = 0.75;
+      const armHBar2 = new THREE.CylinderGeometry(elbowR2, elbowR2, elbowLen2, 14);
+      armHBar2.rotateZ(-Math.PI / 2);
+      armHBar2.rotateY(heading);
+      armHBar2.translate(px - nrm.x * (elbowLen2 / 2 + 0.18) * side, baseY + armH2, pz - nrm.z * (elbowLen2 / 2 + 0.18) * side);
+      saguaroGeos.push(armHBar2);
+
+      const vertLen2 = 1.3 + ((s * 5) % 2) * 0.3;
+      const armX2 = px - nrm.x * (elbowLen2 + 0.18) * side;
+      const armZ2 = pz - nrm.z * (elbowLen2 + 0.18) * side;
+      const armVBar2 = new THREE.CylinderGeometry(elbowR2, elbowR2 * 1.05, vertLen2, 14);
+      armVBar2.translate(armX2, baseY + armH2 + vertLen2 / 2, armZ2);
+      saguaroGeos.push(armVBar2);
+
+      const armCap2 = new THREE.SphereGeometry(elbowR2, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+      armCap2.translate(armX2, baseY + armH2 + vertLen2, armZ2);
+      saguaroGeos.push(armCap2);
+    }
+  };
+
+  // Helper para adicionar cacto-bola suave com flores desabrochadas coloridas no topo
+  const addBarrel = (px: number, pz: number, baseY: number, s: number) => {
+    const bRad = 0.65 + ((s * 2.3) % 4) * 0.12;
+    const barrelGeo = new THREE.SphereGeometry(bRad, 14, 12);
+    barrelGeo.scale(1, 1.15, 1);
+    barrelGeo.translate(px, baseY + bRad * 1.0, pz);
+    barrelGeos.push(barrelGeo);
+
+    // Flores desabrochadas coloridas no topo dos cactos-bola (5 pequenas pétalas semiesféricas)
+    const flowerColorChoice = Math.floor(s * 1.9) % 3;
+    const targetFlowerList = flowerColorChoice === 0 ? flowerMagentaGeos : flowerColorChoice === 1 ? flowerGoldGeos : flowerOrangeGeos;
+    const petalRad = 0.12;
+    const crownRad = bRad * 0.32;
+    const topY = baseY + bRad * 2.12;
+    for (let k = 0; k < 5; k++) {
+      const angle = (k * 2 * Math.PI) / 5;
+      const petalGeo = new THREE.SphereGeometry(petalRad, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+      petalGeo.translate(px + Math.cos(angle) * crownRad, topY, pz + Math.sin(angle) * crownRad);
+      targetFlowerList.push(petalGeo);
+    }
+  };
+
+  // Helper para adicionar Palmas / Cacto Orelha-de-padre (Prickly Pear) em leques angulados
+  const addPricklyPear = (px: number, pz: number, baseY: number, s: number) => {
+    const rot = (s * 3.1) % (Math.PI * 2);
+    const c = Math.cos(rot);
+    const sn = Math.sin(rot);
+    const trans = (geo: THREE.BufferGeometry, lx: number, ly: number, lz: number) => {
+      const rx = lx * c - lz * sn;
+      const rz = lx * sn + lz * c;
+      geo.translate(px + rx, baseY + ly, pz + rz);
+      pearGeos.push(geo);
+    };
+
+    // Palma base
+    const p1 = new THREE.SphereGeometry(0.5, 12, 10);
+    p1.scale(1, 1.2, 0.22);
+    trans(p1, 0, 0.55, 0);
+
+    // Palmas em leque angulado
+    const p2 = new THREE.SphereGeometry(0.42, 12, 10);
+    p2.scale(1, 1.15, 0.2);
+    p2.rotateZ(-0.45);
+    trans(p2, 0.38, 1.15, 0.05);
+
+    const p3 = new THREE.SphereGeometry(0.4, 12, 10);
+    p3.scale(1, 1.15, 0.2);
+    p3.rotateZ(0.4);
+    trans(p3, -0.35, 1.1, -0.05);
+
+    if ((s * 7) % 3 > 1) {
+      const p4 = new THREE.SphereGeometry(0.34, 12, 10);
+      p4.scale(1, 1.15, 0.2);
+      p4.rotateZ(-0.15);
+      trans(p4, 0.12, 1.65, 0.02);
+    }
+  };
+
+  // Helper para adicionar tufos de capim dourado do sertão
+  const addGoldenGrass = (px: number, pz: number, baseY: number, s: number) => {
+    const numStems = 7;
+    for (let g = 0; g < numStems; g++) {
+      const stemAngle = (g * 2 * Math.PI) / numStems + ((s * 2.7) % 1);
+      const stemH = 0.85 + ((g * 13) % 4) * 0.15;
+      const grassCone = new THREE.ConeGeometry(0.06, stemH, 6);
+      grassCone.translate(0, stemH / 2, 0);
+      grassCone.rotateZ(0.32 + ((g * 11) % 3) * 0.08);
+      grassCone.rotateY(stemAngle);
+      grassCone.translate(px, baseY, pz);
+      grassGeos.push(grassCone);
+    }
+  };
+
+  // 1. Distribuição regular e abundante ao longo das laterais da pista
+  for (let s = 6; s < track.length - 6; s += 4.5) {
+    if (inTunnelOrGap(s)) continue;
     const at = pointAt(track, s);
     const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
     const baseY = heightAt(track, s);
 
     for (const side of [-1, 1]) {
-      const distOff = at.halfWidth + 2.2 + ((s * 7) % 5);
+      const distOff = at.halfWidth + 2.4 + ((s * 5.3 + (side > 0 ? 3 : 0)) % 6) * 1.1;
       const px = at.pos.x + nrm.x * distOff * side;
       const pz = at.pos.z + nrm.z * distOff * side;
       if (!free({ x: px, z: pz }, 1.2)) continue;
 
-      const type = (Math.floor(s * 1.3) + (side > 0 ? 1 : 0)) % 4;
-
-      if (type === 0 || type === 2) {
-        // Cacto Saguaro com braços verticais
-        const trunkH = 3.6 + ((s * 3) % 4) * 0.4;
-        const trunkGeo = new THREE.CylinderGeometry(0.28, 0.32, trunkH, 8);
-        trunkGeo.translate(px, baseY + trunkH / 2, pz);
-        saguaroGeos.push(trunkGeo);
-
-        const armH1 = trunkH * 0.55;
-        const armHBar1 = new THREE.CylinderGeometry(0.18, 0.18, 0.9, 8);
-        armHBar1.rotateZ(Math.PI / 2);
-        armHBar1.rotateY(at.heading);
-        armHBar1.translate(px + nrm.x * 0.55 * side, baseY + armH1, pz + nrm.z * 0.55 * side);
-        saguaroGeos.push(armHBar1);
-
-        const armVBar1 = new THREE.CylinderGeometry(0.18, 0.2, 1.8, 8);
-        armVBar1.translate(px + nrm.x * 0.95 * side, baseY + armH1 + 0.85, pz + nrm.z * 0.95 * side);
-        saguaroGeos.push(armVBar1);
-
-        if (trunkH > 4.2) {
-          const armH2 = trunkH * 0.4;
-          const armHBar2 = new THREE.CylinderGeometry(0.16, 0.16, 0.8, 8);
-          armHBar2.rotateZ(-Math.PI / 2);
-          armHBar2.rotateY(at.heading);
-          armHBar2.translate(px - nrm.x * 0.5 * side, baseY + armH2, pz - nrm.z * 0.5 * side);
-          saguaroGeos.push(armHBar2);
-
-          const armVBar2 = new THREE.CylinderGeometry(0.16, 0.18, 1.4, 8);
-          armVBar2.translate(px - nrm.x * 0.85 * side, baseY + armH2 + 0.65, pz - nrm.z * 0.85 * side);
-          saguaroGeos.push(armVBar2);
-        }
+      const type = (Math.floor(s * 1.5) + (side > 0 ? 2 : 0)) % 5;
+      if (type === 0 || type === 3) {
+        addSaguaro(px, pz, baseY, at.heading, s, side);
       } else if (type === 1) {
-        // Cacto bola espinhoso
-        const bRad = 0.55 + ((s * 2) % 3) * 0.12;
-        const barrelGeo = new THREE.SphereGeometry(bRad, 8, 6);
-        barrelGeo.scale(1, 0.8, 1);
-        barrelGeo.translate(px, baseY + bRad * 0.8, pz);
-        barrelGeos.push(barrelGeo);
-
-        const rockGeo = new THREE.DodecahedronGeometry(0.45, 0);
-        rockGeo.translate(px + 0.6 * side, baseY + 0.35, pz + 0.3);
-        barrelGeos.push(rockGeo);
+        addBarrel(px, pz, baseY, s);
+      } else if (type === 2) {
+        addPricklyPear(px, pz, baseY, s);
       } else {
-        // Tufos de capim seco
-        for (let g = 0; g < 3; g++) {
-          const gx = px + (g - 1) * 0.45;
-          const gz = pz + ((g % 2) - 0.5) * 0.4;
-          const grassGeo = new THREE.ConeGeometry(0.35, 0.7, 5);
-          grassGeo.translate(gx, baseY + 0.35, gz);
-          grassGeos.push(grassGeo);
-        }
+        addGoldenGrass(px, pz, baseY, s);
       }
     }
   }
 
+  // 2. Distribuição orgânica adicional nas dunas e colinas ao redor
+  let seed = 42;
+  const pseudoRand = () => {
+    seed = (seed * 16807) % 2147483647;
+    return seed / 2147483647;
+  };
+  const xs = track.points.map((p) => p.x);
+  const zs = track.points.map((p) => p.z);
+  const minX = Math.min(...xs) - 30;
+  const maxX = Math.max(...xs) + 30;
+  const minZ = Math.min(...zs) - 30;
+  const maxZ = Math.max(...zs) + 30;
+
+  for (let i = 0; i < 90; i++) {
+    const rx = minX + pseudoRand() * (maxX - minX);
+    const rz = minZ + pseudoRand() * (maxZ - minZ);
+    const pr = progressOf(track, { x: rx, z: rz });
+    if (pr.dist < pr.halfWidth + 8) continue;
+    if (inTunnelOrGap(pr.s)) continue;
+
+    const baseY = heightAt(track, pr.s);
+    const t = Math.floor(pseudoRand() * 5);
+    if (t === 0 || t === 1) {
+      addSaguaro(rx, rz, baseY, 0, i * 7, 1);
+    } else if (t === 2) {
+      addBarrel(rx, rz, baseY, i * 7);
+    } else if (t === 3) {
+      addPricklyPear(rx, rz, baseY, i * 7);
+    } else {
+      addGoldenGrass(rx, rz, baseY, i * 7);
+    }
+  }
+
+  // Meshes combinados com materiais orgânicos (flatShading: false, alta suavidade)
   if (saguaroGeos.length > 0) {
     const mergedSaguaro = safeMerge(saguaroGeos);
     if (mergedSaguaro) {
       const saguaroMat = new THREE.MeshStandardMaterial({
         color: "#2f6b36",
         roughness: 0.85,
-        flatShading: true,
+        flatShading: false,
       });
       const saguaroMesh = new THREE.Mesh(mergedSaguaro, saguaroMat);
       saguaroMesh.castShadow = true;
@@ -1534,9 +1901,9 @@ function buildDesertVegetation(track: Track): THREE.Group {
     const mergedBarrel = safeMerge(barrelGeos);
     if (mergedBarrel) {
       const barrelMat = new THREE.MeshStandardMaterial({
-        color: "#467d3b",
+        color: "#3d7a42",
         roughness: 0.85,
-        flatShading: true,
+        flatShading: false,
       });
       const barrelMesh = new THREE.Mesh(mergedBarrel, barrelMat);
       barrelMesh.castShadow = true;
@@ -1545,13 +1912,48 @@ function buildDesertVegetation(track: Track): THREE.Group {
     }
   }
 
+  if (pearGeos.length > 0) {
+    const mergedPear = safeMerge(pearGeos);
+    if (mergedPear) {
+      const pearMat = new THREE.MeshStandardMaterial({
+        color: "#346e38",
+        roughness: 0.85,
+        flatShading: false,
+      });
+      const pearMesh = new THREE.Mesh(mergedPear, pearMat);
+      pearMesh.castShadow = true;
+      pearMesh.receiveShadow = true;
+      group.add(pearMesh);
+    }
+  }
+
+  // Flores coloridas nos cactos-bola
+  const addFlowerMesh = (geos: THREE.BufferGeometry[], hex: string) => {
+    if (geos.length === 0) return;
+    const merged = safeMerge(geos);
+    if (merged) {
+      const mat = new THREE.MeshStandardMaterial({
+        color: hex,
+        roughness: 0.6,
+        flatShading: false,
+      });
+      const m = new THREE.Mesh(merged, mat);
+      m.castShadow = false;
+      m.receiveShadow = true;
+      group.add(m);
+    }
+  };
+  addFlowerMesh(flowerMagentaGeos, "#f06aa0");
+  addFlowerMesh(flowerGoldGeos, "#f7c23a");
+  addFlowerMesh(flowerOrangeGeos, "#f0884a");
+
   if (grassGeos.length > 0) {
     const mergedGrass = safeMerge(grassGeos);
     if (mergedGrass) {
       const grassMat = new THREE.MeshStandardMaterial({
-        color: "#c2a366",
+        color: "#c9a866",
         roughness: 0.95,
-        flatShading: true,
+        flatShading: false,
       });
       const grassMesh = new THREE.Mesh(mergedGrass, grassMat);
       grassMesh.castShadow = false;
@@ -1724,6 +2126,11 @@ function buildDesertCliffsAndMesas(stat: THREE.Group, track: Track, _textures: T
     const isCanyonOrMacico = room === "Largada do Cânion" || room === "Maciço Rochoso" || room === "Salto do Abismo";
     if (!isCanyonOrMacico) continue;
 
+    // Não colocar rochas soltas dentro do túnel cilíndrico do maciço rochoso
+    const sTunStart = track.ctrlS[14] ?? -1;
+    const sTunEnd = track.ctrlS[20] ?? -1;
+    if (sTunStart >= 0 && sTunEnd >= 0 && s >= sTunStart - 2 && s <= sTunEnd + 2) continue;
+
     const at = pointAt(track, s);
     const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
     const by = heightAt(track, s);
@@ -1782,6 +2189,7 @@ function decorateDeserto(scene: THREE.Scene, stat: THREE.Group, track: Track, te
   scene.add(buildDesertVegetation(track));
   scene.add(buildOasis(track));
   scene.add(buildAdobeVillage(track));
+  scene.add(buildDesertTunnel(track, textures));
   scene.add(buildCaveTunnel(track));
   buildDesertCliffsAndMesas(stat, track, textures);
 }
@@ -1906,6 +2314,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
         vertexColors: true,
         roughness: isDeserto ? 0.92 : isParque ? 0.65 : 0.28,
         metalness: 0.05,
+        side: isDeserto ? THREE.DoubleSide : THREE.FrontSide,
       });
       if (!isParque && !isDeserto) applyWaxedFloorSheen(mat, { sheenIntensity: 0.85, neonColor: "#e0f2fe" });
       return mat;
@@ -1935,6 +2344,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
       map: isDeserto ? desertCurbTexture(textures) : curbTexture(textures),
       roughness: isDeserto ? 0.85 : 0.42,
       metalness: 0.05,
+      side: isDeserto ? THREE.DoubleSide : THREE.FrontSide,
     });
 
     if (mainGap) {
@@ -1948,45 +2358,96 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
       }
       const order = [...afterGap, ...beforeGap];
 
-      const atTo = pointAt(track, mainGap.sTo);
-      const nrmTo = sideNormal(Math.sin(atTo.heading), Math.cos(atTo.heading));
-      const atFrom = pointAt(track, mainGap.sFrom);
-      const nrmFrom = sideNormal(Math.sin(atFrom.heading), Math.cos(atFrom.heading));
+      if (isDeserto && track.corkscrew) {
+        // No deserto com saca-rolhas (corkscrew loop), geramos os pontos 3D da malha com rotação e amostragem fina
+        const sDense: number[] = [mainGap.sTo];
+        for (let idx = 0; idx < order.length; idx++) {
+          const s = track.cum[order[idx]];
+          const prev = sDense[sDense.length - 1];
+          const inCorkZone = s >= track.corkscrew.sStart - 6 && s <= track.corkscrew.sEnd + 6;
+          const maxStep = inCorkZone ? 1.25 : 5.5;
+          if (s > prev + maxStep && s - prev < 25) {
+            const count = Math.ceil((s - prev) / maxStep);
+            for (let k = 1; k < count; k++) {
+              sDense.push(prev + ((s - prev) * k) / count);
+            }
+          }
+          sDense.push(s);
+        }
+        sDense.push(mainGap.sFrom);
 
-      const inP = [
-        { x: atTo.pos.x + nrmTo.x * (atTo.halfWidth - curbW), z: atTo.pos.z + nrmTo.z * (atTo.halfWidth - curbW) },
-        ...order.map((i) => innerPlus[i]),
-        { x: atFrom.pos.x + nrmFrom.x * (atFrom.halfWidth - curbW), z: atFrom.pos.z + nrmFrom.z * (atFrom.halfWidth - curbW) },
-      ];
-      const inM = [
-        { x: atTo.pos.x - nrmTo.x * (atTo.halfWidth - curbW), z: atTo.pos.z - nrmTo.z * (atTo.halfWidth - curbW) },
-        ...order.map((i) => innerMinus[i]),
-        { x: atFrom.pos.x - nrmFrom.x * (atFrom.halfWidth - curbW), z: atFrom.pos.z - nrmFrom.z * (atFrom.halfWidth - curbW) },
-      ];
-      const sList = [mainGap.sTo, ...order.map((i) => track.cum[i]), mainGap.sFrom];
-      const cList = sList.map((s) => new THREE.Color(ROOM_FLOOR[roomAt(track, s)]));
-      const yFloor = sList.map((s) => heightAt(track, s) + 0.01);
-      const yCurb = sList.map((s) => heightAt(track, s) + 0.016);
+        const inP: THREE.Vector3[] = [];
+        const inM: THREE.Vector3[] = [];
+        const edgeP: THREE.Vector3[] = [];
+        const edgeM: THREE.Vector3[] = [];
+        const inCurbP: THREE.Vector3[] = [];
+        const inCurbM: THREE.Vector3[] = [];
+        const cList: THREE.Color[] = [];
 
-      const floor = new THREE.Mesh(ribbon(inP, inM, yFloor, cList, false), floorMat());
-      floor.receiveShadow = true;
-      scene.add(floor);
+        for (const s of sDense) {
+          const at = pointAt(track, s);
+          const hw = at.halfWidth;
+          inP.push(trackPoint3D(track, s, hw - curbW, 0.01));
+          inM.push(trackPoint3D(track, s, -(hw - curbW), 0.01));
+          edgeP.push(trackPoint3D(track, s, hw, 0.016));
+          edgeM.push(trackPoint3D(track, s, -hw, 0.016));
+          inCurbP.push(trackPoint3D(track, s, hw - curbW, 0.016));
+          inCurbM.push(trackPoint3D(track, s, -(hw - curbW), 0.016));
+          cList.push(new THREE.Color(ROOM_FLOOR[roomAt(track, s)]));
+        }
 
-      const edgeP = [
-        { x: atTo.pos.x + nrmTo.x * atTo.halfWidth, z: atTo.pos.z + nrmTo.z * atTo.halfWidth },
-        ...order.map((i) => edges.plus[i]),
-        { x: atFrom.pos.x + nrmFrom.x * atFrom.halfWidth, z: atFrom.pos.z + nrmFrom.z * atFrom.halfWidth },
-      ];
-      const edgeM = [
-        { x: atTo.pos.x - nrmTo.x * atTo.halfWidth, z: atTo.pos.z - nrmTo.z * atTo.halfWidth },
-        ...order.map((i) => edges.minus[i]),
-        { x: atFrom.pos.x - nrmFrom.x * atFrom.halfWidth, z: atFrom.pos.z - nrmFrom.z * atFrom.halfWidth },
-      ];
+        const floor = new THREE.Mesh(ribbon(inP, inM, 0, cList, false), floorMat());
+        floor.receiveShadow = true;
+        scene.add(floor);
 
-      for (const [a, b] of [[edgeP, inP], [inM, edgeM]]) {
-        const curb = new THREE.Mesh(ribbon(a, b, yCurb, null, false, 0.5), curbMat);
-        curb.receiveShadow = true;
-        scene.add(curb);
+        const leftCurb = new THREE.Mesh(ribbon(edgeP, inCurbP, 0, null, false, 0.5), curbMat);
+        leftCurb.receiveShadow = true;
+        scene.add(leftCurb);
+
+        const rightCurb = new THREE.Mesh(ribbon(inCurbM, edgeM, 0, null, false, 0.5), curbMat);
+        rightCurb.receiveShadow = true;
+        scene.add(rightCurb);
+      } else {
+        const atTo = pointAt(track, mainGap.sTo);
+        const nrmTo = sideNormal(Math.sin(atTo.heading), Math.cos(atTo.heading));
+        const atFrom = pointAt(track, mainGap.sFrom);
+        const nrmFrom = sideNormal(Math.sin(atFrom.heading), Math.cos(atFrom.heading));
+
+        const inP = [
+          { x: atTo.pos.x + nrmTo.x * (atTo.halfWidth - curbW), z: atTo.pos.z + nrmTo.z * (atTo.halfWidth - curbW) },
+          ...order.map((i) => innerPlus[i]),
+          { x: atFrom.pos.x + nrmFrom.x * (atFrom.halfWidth - curbW), z: atFrom.pos.z + nrmFrom.z * (atFrom.halfWidth - curbW) },
+        ];
+        const inM = [
+          { x: atTo.pos.x - nrmTo.x * (atTo.halfWidth - curbW), z: atTo.pos.z - nrmTo.z * (atTo.halfWidth - curbW) },
+          ...order.map((i) => innerMinus[i]),
+          { x: atFrom.pos.x - nrmFrom.x * (atFrom.halfWidth - curbW), z: atFrom.pos.z - nrmFrom.z * (atFrom.halfWidth - curbW) },
+        ];
+        const sList = [mainGap.sTo, ...order.map((i) => track.cum[i]), mainGap.sFrom];
+        const cList = sList.map((s) => new THREE.Color(ROOM_FLOOR[roomAt(track, s)]));
+        const yFloor = sList.map((s) => heightAt(track, s) + 0.01);
+        const yCurb = sList.map((s) => heightAt(track, s) + 0.016);
+
+        const floor = new THREE.Mesh(ribbon(inP, inM, yFloor, cList, false), floorMat());
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        const edgeP = [
+          { x: atTo.pos.x + nrmTo.x * atTo.halfWidth, z: atTo.pos.z + nrmTo.z * atTo.halfWidth },
+          ...order.map((i) => edges.plus[i]),
+          { x: atFrom.pos.x + nrmFrom.x * atFrom.halfWidth, z: atFrom.pos.z + nrmFrom.z * atFrom.halfWidth },
+        ];
+        const edgeM = [
+          { x: atTo.pos.x - nrmTo.x * atTo.halfWidth, z: atTo.pos.z - nrmTo.z * atTo.halfWidth },
+          ...order.map((i) => edges.minus[i]),
+          { x: atFrom.pos.x - nrmFrom.x * atFrom.halfWidth, z: atFrom.pos.z - nrmFrom.z * atFrom.halfWidth },
+        ];
+
+        for (const [a, b] of [[edgeP, inP], [inM, edgeM]]) {
+          const curb = new THREE.Mesh(ribbon(a, b, yCurb, null, false, 0.5), curbMat);
+          curb.receiveShadow = true;
+          scene.add(curb);
+        }
       }
     } else {
       const yFloor = track.heights ? track.cum.map((s) => heightAt(track, s) + 0.01) : 0.01;
@@ -2059,6 +2520,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     for (let s = 4; s < track.length - 2; s += 4) {
       const inGap = mainGap && s >= mainGap.sFrom && s <= mainGap.sTo;
       if (inGap) continue;
+      if (track.corkscrew && s >= track.corkscrew.sStart - 2 && s <= track.corkscrew.sEnd + 2) continue;
       const at = pointAt(track, s);
       const tapeY = heightAt(track, s) + 0.02;
       const m = mesh(tapeGeo, tape, at.pos.x, tapeY, at.pos.z, at.heading);

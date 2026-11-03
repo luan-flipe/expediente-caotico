@@ -564,6 +564,8 @@ describe("TrackInteractiveManager", () => {
       expect(out.spin).toBe(true);
       expect(out.bonk).toBe(true);
       expect(out.spinUntil).toBe(1200);
+      expect(out.speedMultiplier).toBe(0.55);
+      expect(out.shake).toBe(0.6);
       expect(out.bonkImpulse).toBeDefined();
       expect(out.soundCue).toBe("sand_tornado");
     });
@@ -650,6 +652,8 @@ describe("TrackInteractiveManager", () => {
       const out = outputs[0];
       expect(out.bonk).toBe(true);
       expect(out.spin).toBe(true);
+      expect(out.slip).toBe(true);
+      expect(out.slipUntil).toBe(800);
       expect(out.soundCue).toBe("vulture_startle");
 
       // Ave entra em estado de susto 'startle' batendo asas e subindo rápido
@@ -661,7 +665,97 @@ describe("TrackInteractiveManager", () => {
       expect(vulture.pos.y).toBeGreaterThan(prevY);
     });
 
-    it("libera os redemoinhos e urubus da cena no dispose()", () => {
+    it("inicializa cactos interativos nas margens e poço de lama no fundo do cânion quando track.id === 'deserto'", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      expect(manager.cacti.length).toBeGreaterThan(0);
+      expect(manager.mudPits.length).toBeGreaterThan(0);
+      expect(manager.cacti[0].group).toBeDefined();
+      expect(manager.cacti[0].radius).toBeGreaterThan(0);
+    });
+
+    it("cacto balança quando kart raspa veloz e quebra ao sofrer colisão direta com bonk, som e partículas", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      const cactus = manager.cacti[0];
+      expect(cactus.isBroken).toBe(false);
+
+      // 1. Kart passa perto (> 8 m/s e < radius + 1.2m) sem colidir direto: aciona balanço (wobble)
+      manager.update(0.016, [
+        {
+          pos: { x: cactus.pos.x + cactus.radius + 0.5, z: cactus.pos.z },
+          speed: 15.0,
+        },
+      ]);
+      expect(cactus.wobbleTimer).toBeGreaterThan(0);
+      expect(cactus.isBroken).toBe(false);
+
+      // 2. Kart colide de frente contra o cacto (< radius): cacto quebra!
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: cactus.pos.x + 0.2, z: cactus.pos.z },
+          y: cactus.pos.y,
+          speed: 14.0,
+          heading: 0,
+        },
+      ]);
+
+      const out = outputs[0];
+      expect(out.bonk).toBe(true);
+      expect(out.speedMultiplier).toBe(0.65);
+      expect(out.soundCue).toBe("cactus_bonk");
+      expect(out.bonkImpulse).toBeDefined();
+      expect(cactus.isBroken).toBe(true);
+      expect(cactus.breakTimer).toBe(4.0);
+    });
+
+    it("cacto quebrado regenera após o tempo de breakTimer", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      const cactus = manager.cacti[0];
+      cactus.isBroken = true;
+      cactus.breakTimer = 0.1;
+
+      manager.update(0.2, []);
+      expect(cactus.isBroken).toBe(false);
+      expect(cactus.group.scale.x).toBe(1);
+    });
+
+    it("kart que cai no vão do cânion atinge o poço de lama, gerando respingos, som gosmento e forte desaceleração", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      const mudPit = manager.mudPits[0];
+      expect(mudPit).toBeDefined();
+
+      // Kart cai em altitude negativa profunda no vão do cânion
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: mudPit.center.x, z: mudPit.center.z },
+          y: -5.5,
+          speed: 12.0,
+        },
+      ]);
+
+      const out = outputs[0];
+      expect(out.bonk).toBe(true);
+      expect(out.speedMultiplier).toBe(0.2);
+      expect(out.soundCue).toBe("mud_splash");
+      expect(out.shake).toBe(0.35);
+    });
+
+    it("libera os redemoinhos, urubus, cactos e poço de lama da cena no dispose()", () => {
       const scene = new THREE.Scene();
       const track = getTrack("deserto");
       const manager = new TrackInteractiveManager({ track });
@@ -669,12 +763,16 @@ describe("TrackInteractiveManager", () => {
 
       expect(manager.dustDevils.length).toBe(4);
       expect(manager.vultures.length).toBe(9);
+      expect(manager.cacti.length).toBeGreaterThan(0);
+      expect(manager.mudPits.length).toBe(1);
 
       manager.dispose();
 
       expect(manager.dustDevils.length).toBe(0);
       expect(manager.vultures.length).toBe(0);
       expect(manager.vultureFlocks.length).toBe(0);
+      expect(manager.cacti.length).toBe(0);
+      expect(manager.mudPits.length).toBe(0);
     });
   });
 

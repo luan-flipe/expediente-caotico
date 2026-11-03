@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 import { RACE } from "./balance";
-import { branchPointAt, clampToTrack, deltaS, groundAt, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
+import { branchPointAt, clampToTrack, corkscrewRoll, deltaS, groundAt, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
 
 export interface KartState {
   pos: Vec2;
@@ -31,6 +31,8 @@ export interface KartState {
   trick?: boolean;
   /** Caindo no vão: some ao chegar em fallDepth. */
   fell?: boolean;
+  /** Ângulo de giro 3D (saca-rolhas). */
+  roll?: number;
 }
 
 /** steer +1 vira para a direita da câmera; throttle -1 freia e dá ré. */
@@ -52,6 +54,8 @@ export interface KartStep {
   /** Terminou de cair no vão neste passo: a partida repõe a cadeira. */
   fell?: boolean;
   padBoost?: boolean;
+  /** Passando pelo saca-rolhas (anti-gravidade ativa). */
+  corkscrew?: boolean;
 }
 
 export const NO_INPUT: KartInput = { steer: 0, throttle: 0, drift: false };
@@ -112,6 +116,10 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   }
 
   const pr0 = track ? progressOf(track, s.pos, s.path) : null;
+  const inCorkscrew0 = track && pr0 ? corkscrewRoll(track, pr0.s) > 0 : false;
+  if (inCorkscrew0) {
+    s.speed = Math.max(s.speed, 18);
+  }
   if (track?.boostPads && (s.path ?? -1) === -1 && !s.fell && pr0) {
     for (const padS of track.boostPads) {
       if (Math.abs(deltaS(track, padS, pr0.s)) < 3.0) {
@@ -149,6 +157,9 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   if (!airborne && s.speed > cap) s.speed = Math.max(cap, s.speed - RACE.overSpeedDecel * dt * (boosting ? 1 : 2));
   if (s.speed < -RACE.reverseMax) s.speed = -RACE.reverseMax;
   if (slipping) s.speed *= 1 - 1.2 * dt;
+  if (inCorkscrew0) {
+    s.speed = Math.max(s.speed, 18);
+  }
 
   if (spinning) {
     s.heading += 12 * dt;
@@ -195,10 +206,25 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
     s.pos = next;
   }
   let stunt = false;
+  let inCorkscrew = false;
   if (track && progress) {
+    const roll = corkscrewRoll(track, progress.s);
+    if (roll > 0) {
+      inCorkscrew = true;
+      s.air = false;
+      s.fell = false;
+      s.vy = 0;
+      s.speed = Math.max(s.speed, 18);
+      s.roll = roll;
+    } else if (s.roll !== undefined) {
+      delete s.roll;
+    }
     const g = groundAt(track, progress);
     const y0 = s.y ?? 0;
-    if (!s.air) {
+    if (roll > 0) {
+      // No saca-rolhas a pista se mantém colada ao solo com anti-gravidade
+      s.y = g.y;
+    } else if (!s.air) {
       if (y0 > g.y + 0.05 && s.speed >= RACE.minLaunchSpeed) {
         // saiu do topo da rampa: decola com a inclinação dela
         const ramp = track.ramps.find((r) => r.path === progress!.path);
@@ -262,7 +288,7 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
       }
     }
   }
-  return { state: s, wall, boost, progress, ...(stunt ? { stunt } : {}), ...(padBoost ? { padBoost } : {}) };
+  return { state: s, wall, boost, progress, ...(stunt ? { stunt } : {}), ...(padBoost ? { padBoost } : {}), ...(inCorkscrew ? { corkscrew: true } : {}) };
 }
 
 /** Empurra duas cadeiras sobrepostas para fora uma da outra. */

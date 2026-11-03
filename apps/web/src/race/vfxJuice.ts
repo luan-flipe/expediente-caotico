@@ -1634,6 +1634,155 @@ export class RaceVfxManager {
     }
   }
 
+  /**
+   * Spawns bubbling viscous mud splash particles and shockwave for canyon mud pit fall.
+   */
+  public spawnMudSplash(x: number, y: number, z: number): void {
+    // 1. Mud shockwave ring expanding outward
+    this.spawnImpactShockwave(x, z, y + 0.05, "generic", 4.5);
+
+    // 2. Mud blobs / bubbles
+    const mudColors = ["#3d2817", "#5a3820", "#26160c", "#4a2c18"];
+    const count = 16;
+    for (let i = 0; i < count; i++) {
+      const p = this.smokePool[this.smokeIdx];
+      this.smokeIdx = (this.smokeIdx + 1) % this.maxSmoke;
+
+      p.active = true;
+      p.age = 0;
+      p.life = 0.5 + Math.random() * 0.35;
+      p.baseScale = 0.9 + Math.random() * 0.6;
+      p.stretch = 1.1;
+
+      p.x = x + (Math.random() - 0.5) * 0.8;
+      p.y = y + 0.1 + Math.random() * 0.2;
+      p.z = z + (Math.random() - 0.5) * 0.8;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1.8 + Math.random() * 3.2;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = 2.5 + Math.random() * 3.5;
+      p.vz = Math.sin(angle) * speed;
+
+      p.rotX = Math.random() * Math.PI * 2;
+      p.rotY = Math.random() * Math.PI * 2;
+      p.rotZ = Math.random() * Math.PI * 2;
+      p.rotSpeedX = (Math.random() - 0.5) * 4;
+      p.rotSpeedY = (Math.random() - 0.5) * 4;
+      p.rotSpeedZ = (Math.random() - 0.5) * 4;
+
+      _col0.set(mudColors[i % mudColors.length]);
+      p.r = _col0.r;
+      p.g = _col0.g;
+      p.b = _col0.b;
+    }
+
+    // 3. Mud droplets and flecks
+    for (let i = 0; i < 12; i++) {
+      const spark = this.sparkPool[this.sparkIdx];
+      this.sparkIdx = (this.sparkIdx + 1) % this.maxSparks;
+
+      spark.active = true;
+      spark.age = 0;
+      spark.life = 0.4 + Math.random() * 0.3;
+      spark.scale = 1.2 + Math.random() * 0.5;
+
+      spark.x = x + (Math.random() - 0.5) * 0.5;
+      spark.y = y + 0.15;
+      spark.z = z + (Math.random() - 0.5) * 0.5;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2.2 + Math.random() * 3.5;
+      spark.vx = Math.cos(angle) * speed;
+      spark.vy = 3.0 + Math.random() * 4.0;
+      spark.vz = Math.sin(angle) * speed;
+
+      _col0.set(mudColors[i % mudColors.length]);
+      spark.r = _col0.r;
+      spark.g = _col0.g;
+      spark.b = _col0.b;
+    }
+
+    this.spawnOnomatopoeia(x, y + 1.2, z, "GLUB!", 1.4);
+  }
+
+  /**
+   * Spawns flying succulent cactus chunks, green debris, and golden thorns when kart collides with border cactus.
+   */
+  public spawnCactusBreakDebris(x: number, y: number, z: number): void {
+    const chunkColors = ["#2d7a3e", "#4ade80", "#15803d", "#38a169"];
+    const thornColors = ["#fde047", "#fef08a", "#eab308"];
+
+    // 1. Green pulp chunks
+    for (let i = 0; i < 14; i++) {
+      const p = this.smokePool[this.smokeIdx];
+      this.smokeIdx = (this.smokeIdx + 1) % this.maxSmoke;
+
+      p.active = true;
+      p.age = 0;
+      p.life = 0.45 + Math.random() * 0.3;
+      p.baseScale = 0.75 + Math.random() * 0.45;
+      p.stretch = 1.0;
+
+      p.x = x + (Math.random() - 0.5) * 0.4;
+      p.y = y + 0.3 + Math.random() * 0.6;
+      p.z = z + (Math.random() - 0.5) * 0.4;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2.5 + Math.random() * 4.5;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = 2.2 + Math.random() * 3.8;
+      p.vz = Math.sin(angle) * speed;
+
+      p.rotX = Math.random() * Math.PI * 2;
+      p.rotY = Math.random() * Math.PI * 2;
+      p.rotZ = Math.random() * Math.PI * 2;
+      p.rotSpeedX = (Math.random() - 0.5) * 16;
+      p.rotSpeedY = (Math.random() - 0.5) * 16;
+      p.rotSpeedZ = (Math.random() - 0.5) * 16;
+
+      _col0.set(chunkColors[i % chunkColors.length]);
+      p.r = _col0.r;
+      p.g = _col0.g;
+      p.b = _col0.b;
+    }
+
+    // 2. Flying thorns and sharp needles
+    for (let i = 0; i < 16; i++) {
+      const spark = this.sparkPool[this.sparkIdx];
+      this.sparkIdx = (this.sparkIdx + 1) % this.maxSparks;
+
+      spark.active = true;
+      spark.age = 0;
+      spark.life = 0.35 + Math.random() * 0.25;
+      spark.scale = 1.1 + Math.random() * 0.4;
+
+      spark.x = x + (Math.random() - 0.5) * 0.3;
+      spark.y = y + 0.4 + Math.random() * 0.5;
+      spark.z = z + (Math.random() - 0.5) * 0.3;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 3.5 + Math.random() * 5.0;
+      spark.vx = Math.cos(angle) * speed;
+      spark.vy = 2.8 + Math.random() * 4.2;
+      spark.vz = Math.sin(angle) * speed;
+
+      spark.rotX = Math.random() * Math.PI * 2;
+      spark.rotY = Math.random() * Math.PI * 2;
+      spark.rotZ = Math.random() * Math.PI * 2;
+      spark.rotSpeedX = (Math.random() - 0.5) * 24;
+      spark.rotSpeedY = (Math.random() - 0.5) * 24;
+      spark.rotSpeedZ = (Math.random() - 0.5) * 24;
+
+      _col0.set(thornColors[i % thornColors.length]);
+      spark.r = _col0.r;
+      spark.g = _col0.g;
+      spark.b = _col0.b;
+    }
+
+    this.spawnOnomatopoeia(x, y + 1.1, z, "TCHAC!", 1.3);
+  }
+
   public spawnDriftSparks(
     x: number,
     y: number,

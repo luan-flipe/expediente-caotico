@@ -23,7 +23,7 @@ import {
   type Track,
 } from "@ec/shared";
 import { loadMusic } from "../assets";
-import { nextRaceTrack, playCoffeeGulpSound, playFinalLapChime, playLandingBoostSound, playStaplerClickSound, playTauntSound, playTrickChime, RaceMusic } from "../sound";
+import { nextRaceTrack, playCoffeeGulpSound, playFinalLapChime, playLandingBoostSound, playStaplerClickSound, playTauntSound, playTrickChime, playTrackInteractionSound, RaceMusic } from "../sound";
 import { modelReady } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
@@ -830,6 +830,18 @@ export class RaceEngine {
           }
         }
       }
+      if (e.type === "fall" && e.id === this.myId) {
+        this.shake = Math.min(1, this.shake + 0.5);
+        const v = this.views.get(this.myId);
+        v?.r3d.char.setEmotion?.("panic", 1.2);
+        if (this.track?.id === "deserto") {
+          playTrackInteractionSound("mud_splash");
+          if (this.pred) {
+            this.vfx?.spawnMudSplash(this.pred.pos.x, -5.5, this.pred.pos.z);
+            this.interactive?.triggerMudSplash(this.pred.pos.x, -5.5, this.pred.pos.z);
+          }
+        }
+      }
     }
 
     if (me) this.reconcile(me);
@@ -845,15 +857,17 @@ export class RaceEngine {
     while (this.pending.length && this.pending[0].seq < me.ackSeq) this.pending.shift();
     const acked = this.pending[0]?.seq === me.ackSeq ? this.pending.shift()! : null;
     const base = acked ? acked.t : this.clock - this.pending.length * DT;
+    const isSpinning = this.pred ? this.clock < this.pred.spinUntil : false;
+    const isSlipping = this.pred ? this.clock < this.pred.slipUntil : false;
     const server: KartState = {
       ...newKart({ x: k.x, z: k.z }, k.heading),
-      speed: k.speed,
+      speed: (isSpinning || isSlipping) ? Math.min(k.speed, this.pred!.speed) : k.speed,
       drifting: k.drifting,
       driftDir: k.driftDir,
       driftMs: k.driftMs,
       boostUntil: base + k.boostMs,
-      spinUntil: base + k.spinMs,
-      slipUntil: base + k.slipMs,
+      spinUntil: this.pred ? Math.max(this.pred.spinUntil, base + k.spinMs) : base + k.spinMs,
+      slipUntil: this.pred ? Math.max(this.pred.slipUntil, base + k.slipMs) : base + k.slipMs,
       frozenUntil: base + k.frozenMs,
       // mesmo teto de turbo e mesmas xícaras do servidor, senão a previsão diverge e a cadeira dá tranco
       boostSpeed: k.boostMs > 0 ? k.boostSpeed : undefined,
@@ -1191,13 +1205,15 @@ export class RaceEngine {
     }
 
     this.kartsForInteractive.length = 0;
-    for (const vk of this.views.values()) {
+    for (const [id, vk] of this.views) {
+      const isMine = id === this.myId;
       this.kartsForInteractive.push({
-        pos: { x: vk.r3d.root.position.x, z: vk.r3d.root.position.z },
-        speed: vk.last.speed,
-        id: vk.key,
-        isLocalPlayer: vk.key === this.myId,
-        heading: vk.last.heading,
+        pos: isMine && this.pred ? { x: this.pred.pos.x, z: this.pred.pos.z } : { x: vk.r3d.root.position.x, z: vk.r3d.root.position.z },
+        speed: isMine && this.pred ? this.pred.speed : vk.last.speed,
+        id,
+        isLocalPlayer: isMine,
+        heading: isMine && this.pred ? this.pred.heading : vk.last.heading,
+        y: isMine && this.pred ? (this.pred.y ?? 0) : vk.r3d.root.position.y,
       });
     }
     const interactionOutputs = this.interactive?.update(dt, this.kartsForInteractive);
@@ -1219,14 +1235,28 @@ export class RaceEngine {
                 this.pred.pos.x += out.bonkImpulse.x * dt;
                 this.pred.pos.z += out.bonkImpulse.z * dt;
               }
-              this.pred.speed *= 0.5;
-              this.shake = Math.min(0.5, this.shake + 0.25);
+              this.pred.speed *= (out.speedMultiplier ?? 0.5);
+              this.shake = Math.min(0.6, this.shake + (out.shake ?? 0.25));
             }
             if (out.spin) {
-              this.pred.spinUntil = Math.max(this.pred.spinUntil, now + (out.spinUntil ?? 800));
+              this.pred.spinUntil = Math.max(this.pred.spinUntil, now + (out.spinUntil ?? 900));
+              if (out.speedMultiplier !== undefined) {
+                this.pred.speed *= out.speedMultiplier;
+              }
+              this.shake = Math.min(0.8, this.shake + (out.shake ?? 0.35));
+            }
+            if (out.slip) {
+              this.pred.slipUntil = Math.max(this.pred.slipUntil, now + (out.slipUntil ?? 700));
+              this.pred.drifting = false;
+            }
+            if (out.shake && !out.bonk && !out.spin) {
+              this.shake = Math.min(0.8, this.shake + out.shake);
             }
             if (out.airCushionLift !== undefined && out.airCushionLift > 0) {
               this.pred.y = Math.max(this.pred.y ?? 0, out.airCushionLift);
+            }
+            if (out.soundCue) {
+              playTrackInteractionSound(out.soundCue);
             }
           }
           break;

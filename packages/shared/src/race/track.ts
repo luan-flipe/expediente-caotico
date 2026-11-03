@@ -341,6 +341,8 @@ export interface Track {
   heights?: number[];
   /** Placas de impulso na pista (metros ao longo da linha central). */
   boostPads?: number[];
+  /** Saca-rolhas 360° (corkscrew loop) no túnel. */
+  corkscrew?: { sStart: number; sEnd: number; axisY: number };
 }
 
 /** Corredor do atalho: linha aberta de sFrom a sTo (s da pista principal), com bs próprio em cum. */
@@ -393,6 +395,7 @@ interface TrackDef {
   branch?: BranchDef;
   ramp?: RampDef;
   boostPads?: number[];
+  corkscrew?: { ctrlFrom: number; ctrlTo: number; axisY: number };
 }
 
 /** Curva aberta do atalho, reamostrada a cada STEP, com tangentes iguais às da principal nas pontas. */
@@ -534,6 +537,19 @@ function buildTrack(def: TrackDef): Track {
     heights: hasY ? heights : undefined,
     boostPads: def.boostPads?.map(sAtCtrl),
   };
+  if (def.corkscrew) {
+    track.corkscrew = {
+      sStart: ctrlS[def.corkscrew.ctrlFrom],
+      sEnd: ctrlS[def.corkscrew.ctrlTo],
+      axisY: def.corkscrew.axisY,
+    };
+  } else if (def.id === "deserto") {
+    track.corkscrew = {
+      sStart: ctrlS[14],
+      sEnd: ctrlS[20],
+      axisY: 9.4,
+    };
+  }
   if (def.branch) track.branches.push(buildBranch(track, def.branch, sAtCtrl));
   if (def.ramp) {
     const r = def.ramp;
@@ -779,6 +795,39 @@ export function groundAt(track: Track, pr: TrackProgress): { y: number; gap: boo
   return { y: baseY, gap: false };
 }
 
+/**
+ * Ângulo de rotação da pista no saca-rolhas (em radianos, de 0 a 2*Math.PI).
+ * Varia suavemente de 0 a 2*PI entre sStart e sEnd, e 0 fora desse trecho.
+ * Fórmula: phi = 2*PI * (u - 0.75 * sin(2*PI*u) / (2*PI)) onde u = (s - sStart) / (sEnd - sStart).
+ */
+export function corkscrewRoll(track: Track, s: number): number {
+  if (!track.corkscrew) return 0;
+  const { sStart, sEnd } = track.corkscrew;
+  const L = track.length;
+  const ss = ((s % L) + L) % L;
+  if (ss < sStart || ss > sEnd) return 0;
+  const u = (ss - sStart) / (sEnd - sStart);
+  return 2 * Math.PI * (u - (0.75 * Math.sin(2 * Math.PI * u)) / (2 * Math.PI));
+}
+
+/**
+ * Transforma deslocamento lateral e altura no saca-rolhas aplicando o giro phi.
+ * O giro é feito em torno do eixo a axisY sobre a linha central da pista.
+ */
+export function corkscrewTransform(track: Track, s: number, lateral: number, y: number): { lateral: number; y: number; roll: number } {
+  const roll = corkscrewRoll(track, s);
+  if (!roll || !track.corkscrew) return { lateral, y, roll: 0 };
+  const axisY = track.corkscrew.axisY;
+  const c = Math.cos(roll);
+  const sin = Math.sin(roll);
+  const v = y - axisY;
+  return {
+    lateral: lateral * c - v * sin,
+    y: lateral * sin + v * c + axisY,
+    roll,
+  };
+}
+
 export function inCarpet(track: Track, pr: TrackProgress): boolean {
   if (pr.path >= 0) return false;
   for (const c of track.carpet) {
@@ -896,7 +945,7 @@ export const TRACKS: Record<TrackId, Track> = {
   estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS, branch: ESTACIONAMENTO_BRANCH, ramp: ESTACIONAMENTO_RAMP }),
   copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS, branch: COPA_BRANCH }),
   parque: buildTrack({ id: "parque", name: "Parque Ipanema", ctrl: PARQUE, rooms: PARQUE_ROOMS, carpet: PARQUE_CARPET, boxes: PARQUE_BOXES, cups: PARQUE_CUPS, ramp: PARQUE_RAMP }),
-  deserto: buildTrack({ id: "deserto", name: "Pista do Deserto", ctrl: DESERTO, rooms: DESERTO_ROOMS, carpet: DESERTO_CARPET, boxes: DESERTO_BOXES, cups: DESERTO_CUPS, ramp: DESERTO_RAMP, boostPads: DESERTO_BOOSTS }),
+  deserto: buildTrack({ id: "deserto", name: "Pista do Deserto", ctrl: DESERTO, rooms: DESERTO_ROOMS, carpet: DESERTO_CARPET, boxes: DESERTO_BOXES, cups: DESERTO_CUPS, ramp: DESERTO_RAMP, boostPads: DESERTO_BOOSTS, corkscrew: { ctrlFrom: 14, ctrlTo: 20, axisY: 9.4 } }),
 };
 
 export const isTrackId = (v: unknown): v is TrackId => typeof v === "string" && (TRACK_IDS as readonly string[]).includes(v);

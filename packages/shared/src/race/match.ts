@@ -379,6 +379,7 @@ function flagsOf(r: Racer, now: number): string[] {
   // paraquedas aberto depois do pico do salto
   if (r.kart.air && (r.kart.vy ?? 0) < 0) f.push("chute");
   if (r.kart.trick) f.push("trick");
+  if (r.kart.roll && r.kart.roll > 0) f.push("corkscrew");
   return f;
 }
 
@@ -435,6 +436,7 @@ export function buildRaceSnapshot(race: RaceMatch): RaceSnapshot {
         cups: k.cups ?? 0,
         holdingItem: !!r.holdingItem,
         ...(k.y ? { y: r2(k.y) } : {}),
+        ...(k.roll ? { roll: r2(k.roll) } : {}),
       };
     }),
     boxes: race.boxes.map((b) => ({ id: b.id, x: r2(b.pos.x), z: r2(b.pos.z), ready: b.readyAt <= now })),
@@ -486,6 +488,7 @@ export function buildRacePrivate(race: RaceMatch, id: string): RacePrivate | nul
       cups: k.cups ?? 0,
       path: k.path ?? -1,
       y: k.y,
+      roll: k.roll,
       vy: k.vy,
       air: k.air,
       trick: k.trick,

@@ -5,7 +5,7 @@ import { RACE } from "../race/balance";
 import { DEFAULT_CHAIR } from "../race/chair";
 import { newKart, stepKart } from "../race/kart";
 import { createRace, getRaceResults, stepRace } from "../race/match";
-import { boxSpots, checkpoints, getTrack, gridSlots, inCarpet, pointAt, progressOf, routeAhead, TRACK, TRACK_IDS, TRACKS } from "../race/track";
+import { boxSpots, checkpoints, corkscrewRoll, corkscrewTransform, getTrack, gridSlots, groundAt, inCarpet, pointAt, progressOf, routeAhead, TRACK, TRACK_IDS, TRACKS } from "../race/track";
 
 const DT = 1000 / 30;
 
@@ -233,5 +233,114 @@ describe("Pista do Deserto: mecânicas específicas (salto do cânion e boost pa
     expect(tookAir).toBe(true);
     expect(fell).toBe(false);
     expect(reachedOtherSide).toBe(true);
+  });
+
+  describe("Saca-rolhas 360° (Corkscrew Loop) no Túnel do Deserto", () => {
+    it("tem saca-rolhas configurado nos pontos de controle 14 a 20 com axisY = 9.4", () => {
+      expect(t.corkscrew).toBeDefined();
+      expect(t.corkscrew!.sStart).toBe(t.ctrlS[14]);
+      expect(t.corkscrew!.sEnd).toBe(t.ctrlS[20]);
+      expect(t.corkscrew!.sEnd).toBeGreaterThan(t.corkscrew!.sStart);
+      expect(t.corkscrew!.axisY).toBe(9.4);
+      expect(TRACKS.corporativo.corkscrew).toBeUndefined();
+    });
+
+    it("corkscrewRoll varia suavemente de 0 a 2*PI no trecho do saca-rolhas e 0 fora dele", () => {
+      const { sStart, sEnd } = t.corkscrew!;
+      // Fora do saca-rolhas
+      expect(corkscrewRoll(t, sStart - 10)).toBe(0);
+      expect(corkscrewRoll(t, sEnd + 10)).toBe(0);
+      expect(corkscrewRoll(TRACKS.corporativo, 50)).toBe(0);
+
+      // Início do saca-rolhas
+      expect(corkscrewRoll(t, sStart)).toBeCloseTo(0, 5);
+
+      // Meio do saca-rolhas (180° - kart de cabeça para baixo)
+      const sMid = (sStart + sEnd) / 2;
+      expect(corkscrewRoll(t, sMid)).toBeCloseTo(Math.PI, 4);
+
+      // Fim do saca-rolhas (360° completo = 2*PI)
+      expect(corkscrewRoll(t, sEnd)).toBeCloseTo(2 * Math.PI, 4);
+
+      // Monotonicamente crescente
+      let prevRoll = -0.001;
+      for (let i = 0; i <= 20; i++) {
+        const s = sStart + ((sEnd - sStart) * i) / 20;
+        const roll = corkscrewRoll(t, s);
+        expect(roll).toBeGreaterThanOrEqual(prevRoll);
+        prevRoll = roll;
+      }
+    });
+
+    it("corkscrewTransform projeta deslocamento lateral e altura em 3D", () => {
+      const { sStart, sEnd, axisY } = t.corkscrew!;
+      // No início (roll = 0): sem rotação
+      const startTr = corkscrewTransform(t, sStart, 2, 0);
+      expect(startTr.lateral).toBeCloseTo(2, 4);
+      expect(startTr.y).toBeCloseTo(0, 4);
+      expect(startTr.roll).toBeCloseTo(0, 4);
+
+      // No meio (roll = PI): lateral invertido, y no topo do tubo (2 * axisY)
+      const sMid = (sStart + sEnd) / 2;
+      const midTr = corkscrewTransform(t, sMid, 3, 0);
+      expect(midTr.lateral).toBeCloseTo(-3, 4);
+      expect(midTr.y).toBeCloseTo(2 * axisY, 4);
+      expect(midTr.roll).toBeCloseTo(Math.PI, 4);
+    });
+
+    it("kart no saca-rolhas mantém velocidade mínima de 18 m/s e aderência sem cair ou voar", () => {
+      const { sStart } = t.corkscrew!;
+      const at = pointAt(t, sStart + 5);
+      const kart = newKart(at.pos, at.heading);
+      kart.speed = 4; // velocidade muito baixa tentando desacelerar
+
+      // Passo da física no saca-rolhas com freio (throttle = -1)
+      const res = stepKart(kart, { throttle: -1, steer: 0, drift: false }, DT, DT, t);
+      expect(res.corkscrew).toBe(true);
+      expect(res.state.speed).toBeGreaterThanOrEqual(18);
+      expect(res.state.air).toBeFalsy();
+      expect(res.state.fell).toBeFalsy();
+      expect(res.state.roll).toBeGreaterThan(0);
+      expect(res.state.y).toBe(groundAt(t, res.progress!).y);
+    });
+
+    it("kart atravessa o saca-rolhas 360° inteiro sem cair nem decolar", () => {
+      const { sStart, sEnd } = t.corkscrew!;
+      const at = pointAt(t, sStart - 5);
+      let kart = newKart(at.pos, at.heading);
+      kart.speed = 20;
+
+      let maxRoll = 0;
+      let reachedEnd = false;
+
+      for (let step = 0; step < 220; step++) {
+        const pr = progressOf(t, kart.pos, kart.path);
+        const ahead = routeAhead(t, pr, -1, 10);
+        const want = Math.atan2(ahead.pos.x - kart.pos.x, ahead.pos.z - kart.pos.z);
+        const diff = Math.atan2(Math.sin(want - kart.heading), Math.cos(want - kart.heading));
+        const steer = Math.max(-1, Math.min(1, -diff * 3.5));
+
+        const res = stepKart(kart, { throttle: 1, steer, drift: false }, DT, step * DT, t);
+        kart = res.state;
+
+        if (res.corkscrew) {
+          expect(kart.speed).toBeGreaterThanOrEqual(18);
+          expect(kart.air).toBeFalsy();
+          expect(kart.fell).toBeFalsy();
+          if (kart.roll) maxRoll = Math.max(maxRoll, kart.roll);
+        }
+
+        if (pr.s > sEnd + 5) {
+          reachedEnd = true;
+          break;
+        }
+      }
+
+      expect(reachedEnd).toBe(true);
+      // Passou pelo meio invertido (roll >= Math.PI)
+      expect(maxRoll).toBeGreaterThanOrEqual(Math.PI);
+      // Ao sair do saca-rolhas, roll é removido
+      expect(kart.roll).toBeUndefined();
+    });
   });
 });

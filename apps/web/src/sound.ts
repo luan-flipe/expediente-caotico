@@ -659,3 +659,194 @@ export function playCountdownBeep(kind: "tick" | "go"): void {
   osc.start(t);
   osc.stop(t + dur + 0.02);
 }
+
+
+/**
+ * Toca o som de redemoinho de areia (vento rodopiante e sibilante).
+ */
+export function playSandTornadoSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+  if (ctx.state === "suspended") void ctx.resume();
+
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const osc2 = ctx.createOscillator();
+  const filter = ctx.createBiquadFilter();
+  const gain = ctx.createGain();
+
+  osc.type = "sawtooth";
+  osc2.type = "sine";
+
+  osc.frequency.setValueAtTime(140, t);
+  osc.frequency.linearRampToValueAtTime(320, t + 0.25);
+  osc.frequency.exponentialRampToValueAtTime(110, t + 0.55);
+
+  osc2.frequency.setValueAtTime(280, t);
+  osc2.frequency.linearRampToValueAtTime(540, t + 0.2);
+  osc2.frequency.exponentialRampToValueAtTime(160, t + 0.55);
+
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(450, t);
+  filter.frequency.linearRampToValueAtTime(1200, t + 0.25);
+  filter.frequency.exponentialRampToValueAtTime(300, t + 0.55);
+  filter.Q.value = 3.5;
+
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.28, t + 0.04);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.58);
+
+  osc.connect(filter);
+  osc2.connect(filter);
+  filter.connect(gain);
+  gain.connect(effectsGain);
+
+  osc.start(t);
+  osc2.start(t);
+  osc.stop(t + 0.6);
+  osc2.stop(t + 0.6);
+}
+
+/**
+ * Toca o crocitar estridente e assustado do urubu ao debandar ("screee-caw!").
+ */
+export function playVultureStartleSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+  if (ctx.state === "suspended") void ctx.resume();
+
+  const t = ctx.currentTime;
+  const osc1 = ctx.createOscillator();
+  const osc2 = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc1.type = "sawtooth";
+  osc2.type = "triangle";
+
+  osc1.frequency.setValueAtTime(880, t);
+  osc1.frequency.exponentialRampToValueAtTime(1120, t + 0.07);
+  osc1.frequency.exponentialRampToValueAtTime(420, t + 0.28);
+
+  osc2.frequency.setValueAtTime(920, t);
+  osc2.frequency.exponentialRampToValueAtTime(1180, t + 0.07);
+  osc2.frequency.exponentialRampToValueAtTime(460, t + 0.28);
+
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.24, t + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.18, t + 0.08);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+
+  osc1.connect(gain);
+  osc2.connect(gain);
+  gain.connect(effectsGain);
+
+  osc1.start(t);
+  osc2.start(t);
+  osc1.stop(t + 0.32);
+  osc2.stop(t + 0.32);
+}
+
+/**
+ * Toca o impacto crocante e espinhoso de atropelar um cacto na margem da pista.
+ */
+export function playCactusImpactSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+  if (ctx.state === "suspended") void ctx.resume();
+
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const snap = ctx.createOscillator();
+  const gain = ctx.createGain();
+
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(160, t);
+  osc.frequency.exponentialRampToValueAtTime(50, t + 0.16);
+
+  snap.type = "square";
+  snap.frequency.setValueAtTime(950, t);
+  snap.frequency.exponentialRampToValueAtTime(210, t + 0.08);
+
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.26, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+
+  osc.connect(gain);
+  snap.connect(gain);
+  gain.connect(effectsGain);
+
+  osc.start(t);
+  snap.start(t);
+  osc.stop(t + 0.2);
+  snap.stop(t + 0.2);
+}
+
+/**
+ * Toca o som gosmento, borbulhante e viscoso de queda no poço de lama do cânion ("glup-splat").
+ */
+export function playMudSplashSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+  if (ctx.state === "suspended") void ctx.resume();
+
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const bubble = ctx.createOscillator();
+  const filter = ctx.createBiquadFilter();
+  const gain = ctx.createGain();
+
+  osc.type = "sawtooth";
+  osc.frequency.setValueAtTime(190, t);
+  osc.frequency.exponentialRampToValueAtTime(55, t + 0.35);
+
+  bubble.type = "sine";
+  bubble.frequency.setValueAtTime(120, t);
+  bubble.frequency.linearRampToValueAtTime(240, t + 0.12);
+  bubble.frequency.exponentialRampToValueAtTime(70, t + 0.38);
+
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(420, t);
+  filter.frequency.exponentialRampToValueAtTime(150, t + 0.38);
+
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.3, t + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+
+  osc.connect(filter);
+  bubble.connect(filter);
+  filter.connect(gain);
+  gain.connect(effectsGain);
+
+  osc.start(t);
+  bubble.start(t);
+  osc.stop(t + 0.45);
+  bubble.stop(t + 0.45);
+}
+
+/**
+ * Toca o som correspondente à deixa interativa da pista.
+ */
+export function playTrackInteractionSound(cue: string): void {
+  switch (cue) {
+    case "sand_tornado":
+      playSandTornadoSound();
+      break;
+    case "vulture_startle":
+      playVultureStartleSound();
+      break;
+    case "cactus_bonk":
+      playCactusImpactSound();
+      break;
+    case "mud_splash":
+      playMudSplashSound();
+      break;
+  }
+}

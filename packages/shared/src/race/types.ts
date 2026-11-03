@@ -159,6 +159,7 @@ export interface RaceKartPublic {
   holdingItem?: boolean;
   /** Altura (só no ar ou caindo no vão). */
   y?: number;
+  roll?: number;
 }
 
 export interface RaceSnapshot {
@@ -217,6 +218,7 @@ export interface RacePrivate {
     path?: number;
     /** Altura e voo, para a previsão local pousar no mesmo tick que o servidor. */
     y?: number;
+    roll?: number;
     vy?: number;
     air?: boolean;
     trick?: boolean;

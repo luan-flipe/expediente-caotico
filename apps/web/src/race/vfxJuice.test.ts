@@ -429,4 +429,40 @@ describe("vfxJuice - Desert Track VFX & Dash Boost Sparks", () => {
 
     vfx.dispose();
   });
+
+  it("spawns mud splash particles, shockwave, and GLUB! on canyon mud pit fall", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const vfx = new RaceVfxManager(scene, camera, { trackId: "deserto", maxSmoke: 32, maxSparks: 32 });
+
+    vfx.spawnMudSplash(80, -6.5, 60);
+
+    const smokePool = (vfx as unknown as { smokePool: { r: number; g: number; b: number; active: boolean }[] }).smokePool;
+    const activeSmoke = smokePool.filter((s) => s.active);
+    expect(activeSmoke.length).toBeGreaterThanOrEqual(16);
+
+    // GLUB! onomatopoeia was spawned
+    expect(vfx.getOnomatopoeiaManager().getActiveCount()).toBe(1);
+
+    vfx.update(0.016, 16);
+    vfx.dispose();
+  });
+
+  it("spawns succulent green pulp debris, thorns, and TCHAC! on cactus collision", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const vfx = new RaceVfxManager(scene, camera, { trackId: "deserto", maxSmoke: 32, maxSparks: 32 });
+
+    vfx.spawnCactusBreakDebris(15, 0.5, 45);
+
+    const sparkPool = (vfx as unknown as { sparkPool: { r: number; g: number; b: number; active: boolean }[] }).sparkPool;
+    const activeSparks = sparkPool.filter((s) => s.active);
+    expect(activeSparks.length).toBeGreaterThanOrEqual(16);
+
+    // TCHAC! onomatopoeia was spawned
+    expect(vfx.getOnomatopoeiaManager().getActiveCount()).toBe(1);
+
+    vfx.update(0.016, 16);
+    vfx.dispose();
+  });
 });
