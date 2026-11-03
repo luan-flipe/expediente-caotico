@@ -81,6 +81,16 @@ export function lobSpeedFor(d: number): number {
   return Math.sqrt((Math.max(0, d) * FUT.gravity) / (2 * FUT.lobRatio));
 }
 
+/** Velocidade (m/s) do lançamento do goleiro para a força 0..1: vai de passMin a lobMax. */
+export function keeperLobSpeed(power01: number): number {
+  return FUT.passMin + (FUT.lobMax - FUT.passMin) * Math.min(1, Math.max(0, power01));
+}
+
+/** Força (0..1) do lançamento do goleiro que cai a `d` metros (inverso de keeperLobSpeed). */
+export function keeperLobPowerFor(d: number): number {
+  return Math.min(1, Math.max(0, (lobSpeedFor(d) - FUT.passMin) / (FUT.lobMax - FUT.passMin)));
+}
+
 /** Chute (kick) ou passe (pass). dirYaw: 0 = +z, vetor (sin, cos). */
 export function kickBall(b: Ball, dirYaw: number, power01: number, kind: "kick" | "pass", opts: KickOpts = {}): void {
   const p = Math.min(1, Math.max(0, power01));

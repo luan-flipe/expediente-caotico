@@ -1,6 +1,6 @@
 import { FUT } from "./balance";
-import { ballOut, kickBall } from "./ball";
-import { advancedFreeMate, attackDir, keeperPassPower } from "./bots";
+import { ballOut, keeperLobSpeed, kickBall } from "./ball";
+import { attackDir, keeperLaunch } from "./bots";
 import { wallDistance } from "./assist";
 import { activeOutfield } from "./fouls";
 import { LOB_POWER } from "./goalkeeping";
@@ -203,16 +203,17 @@ export function stepRestart(m: FutMatch, dtMs: number): void {
     return;
   }
   const keeperTake = taker.role === "goleiro";
-  // o goleiro procura o atacante mais avançado e livre (lançamento se estiver longe); sem ninguém, lança ao meio
-  const mate = keeperTake ? advancedFreeMate(m.players, taker) : freestMate(m, taker);
+  // o goleiro lança longe: no atacante mais avançado e livre além do meio-campo, ou em um chutão logo depois dele
+  const launch = keeperTake ? keeperLaunch(m.players, taker, m.field) : null;
+  const mate = launch ? null : freestMate(m, taker);
   // saída sem companheiro: recua para o goleiro em vez de entregar a bola ao adversário
-  const gk = !mate && r.kind === "saida" ? m.players.find((p) => p.side === taker.side && p.role === "goleiro") : undefined;
-  const tx = mate ? mate.x : gk ? gk.x : keeperTake ? 0 : taker.side === 0 ? m.field.halfL : -m.field.halfL;
-  const tz = mate ? mate.z : gk ? gk.z : 0;
+  const gk = !launch && !mate && r.kind === "saida" ? m.players.find((p) => p.side === taker.side && p.role === "goleiro") : undefined;
+  const tx = launch ? launch.x : mate ? mate.x : gk ? gk.x : taker.side === 0 ? m.field.halfL : -m.field.halfL;
+  const tz = launch ? launch.z : mate ? mate.z : gk ? gk.z : 0;
   const yaw = Math.atan2(tx - m.ball.x, tz - m.ball.z);
   taker.facing = yaw;
-  const power = keeperTake ? keeperPassPower(Math.hypot(tx - m.ball.x, tz - m.ball.z)) : gk ? Math.min(AI_PASS_POWER, 0.5) : AI_PASS_POWER;
-  kickBall(m.ball, yaw, power, "pass", keeperTake && power >= LOB_POWER ? { lob: FUT.lobRatio } : {});
+  const power = launch ? launch.power : gk ? Math.min(AI_PASS_POWER, 0.5) : AI_PASS_POWER;
+  kickBall(m.ball, yaw, power, "pass", launch && power >= LOB_POWER ? { lob: FUT.lobRatio, speed: keeperLobSpeed(power) } : {});
   m.ball.prevTouch = m.ball.lastTouch;
   m.ball.lastTouch = { id: taker.id, side: taker.side };
 }

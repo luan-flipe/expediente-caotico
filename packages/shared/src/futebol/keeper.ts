@@ -1,6 +1,6 @@
 import type { BotLevel } from "../botLevels";
 import { FUT } from "./balance";
-import { advancedFreeMate, aimTo, attackDir, chargeThenRelease, FREE_GAP, keeperPassPower } from "./bots";
+import { aimTo, attackDir, chargeThenRelease, keeperLaunch } from "./bots";
 import type { Ball, Field, FutInput, FutPlayer } from "./types";
 
 /** Por nível: alcance (m) para pegar a bola e reação (ms). */
@@ -31,6 +31,8 @@ const RUN_SPEED = 6.5;
 /** Com a bola nas mãos: tempo mínimo (ms) antes de soltar, e limite para soltar de qualquer jeito. */
 const HOLD_MIN_MS = 2000;
 const HOLD_MAX_MS = 3500;
+/** Folga (ms) na carga do lançamento para a bola sair até HOLD_MAX_MS. */
+const CHARGE_SLACK_MS = 150;
 /** Folga (m) do goleiro dentro da área e distância mínima (m) do adversário para um companheiro estar livre. */
 const BOX_PAD = 0.8;
 /** Balanço do goleiro com a bola: período (ms) e amplitude (m) em z, e recuo (m) da linha do gol em x. */
@@ -48,34 +50,24 @@ function moveTo(k: FutPlayer, x: number, z: number, sprint: boolean, aim: number
   return { ...IDLE, mx: (x - k.x) / d, mz: (z - k.z) / d, aim, sprint };
 }
 
-/** Com a bola nas mãos: anda dentro da área procurando ângulo e solta o passe (longo se ninguém está livre) em 2 a 3,5 s. */
+/** Com a bola nas mãos: anda dentro da área procurando ângulo e lança a bola longe em 2 a 3,5 s. */
 function holdingInput(k: FutPlayer, f: Field, players: readonly FutPlayer[]): FutInput {
   const dir = attackDir(k.side);
   const gx = -dir * f.halfL;
   const held = k.holdMs ?? 0;
-  const mate = advancedFreeMate(players, k);
-  let gap = 0;
-  if (mate) {
-    gap = Infinity;
-    for (const r of players) {
-      if (r.side !== k.side && !r.sentOff) {
-        gap = Math.min(gap, Math.hypot(r.x - mate.x, r.z - mate.z));
-      }
-    }
-  }
-  const target = mate ?? { x: 0, z: 0 };
+  const launch = keeperLaunch(players, k, f);
+  const mate = launch.free ? launch : null;
   const zLim = f.boxHalfW - BOX_PAD;
   const wantZ = (mate ? mate.z * 0.4 : 0) + Math.sin(held / SWAY_MS) * SWAY_Z;
   const px = gx + dir * (Math.min(f.boxL - BOX_PAD, 1.6) + Math.cos(held / SWAY_MS) * SWAY_X);
   const pz = Math.max(-zLim, Math.min(zLim, wantZ));
-  const base = moveTo(k, px, pz, false, aimTo(k, target));
-  const free = mate !== null && gap >= FREE_GAP;
-  // o alvo é o atacante mais avançado e livre; sem ninguém livre, o mais livre (ou o meio do campo). Longe, o passe é lançamento alto
-  const releasing = k.chargeKind !== null || held >= HOLD_MAX_MS || (held >= HOLD_MIN_MS && free);
+  const base = moveTo(k, px, pz, false, aimTo(k, launch));
+  // sempre lançamento alto: no atacante mais avançado e livre além do meio-campo, ou em um chutão logo depois dele
+  const releasing = k.chargeKind !== null || held >= HOLD_MAX_MS - launch.power * FUT.chargeMaxMs - CHARGE_SLACK_MS || (held >= HOLD_MIN_MS && launch.free);
   if (!releasing) {
     return base;
   }
-  return chargeThenRelease(k, "pass", keeperPassPower(Math.hypot(target.x - k.x, target.z - k.z)), base);
+  return chargeThenRelease(k, "pass", launch.power, base);
 }
 
 /** Intenção do goleiro da IA (nunca é humano). `players` só serve para escolher o passe. */

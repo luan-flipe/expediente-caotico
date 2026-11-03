@@ -31,6 +31,8 @@ export const FUT = {
   /** Lançamento do goleiro (passe longo): razão vertical/velocidade e distância (m) a partir da qual lança em vez de rolar. */
   lobRatio: 0.6,
   lobFrom: 16,
+  /** Velocidade horizontal máxima (m/s) do lançamento do goleiro (o passe comum para em passMax): alcança o outro lado do gramado inteiro. */
+  lobMax: 21,
   /** Chute assistido: alcance (m) até a linha do gol, abertura lateral (em meias-traves) e imprecisão (rad) base, por força e por pressão. */
   assistRange: 32,
   assistReach: 2.4,

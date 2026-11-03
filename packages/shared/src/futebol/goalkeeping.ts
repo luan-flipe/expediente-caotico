@@ -1,6 +1,6 @@
 import type { BotLevel } from "../botLevels";
 import { FUT } from "./balance";
-import { kickBall } from "./ball";
+import { keeperLobSpeed, kickBall } from "./ball";
 import { attackDir } from "./bots";
 import { keeperReach } from "./keeper";
 import type { TouchEvent } from "./touch";
@@ -110,6 +110,6 @@ export function keeperKick(m: FutMatch, k: FutPlayer, input: FutInput, dtMs: num
   k.chargeKind = null;
   touchBall(m.ball, k);
   // passe forte do goleiro é lançamento: sobe (a IA só carrega assim para alvos longe)
-  kickBall(m.ball, input.aim, power01, kind, kind === "pass" && power01 >= LOB_POWER ? { lob: FUT.lobRatio } : {});
+  kickBall(m.ball, input.aim, power01, kind, kind === "pass" && power01 >= LOB_POWER ? { lob: FUT.lobRatio, speed: keeperLobSpeed(power01) } : {});
   return { t: kind, id: k.id, ok: true };
 }

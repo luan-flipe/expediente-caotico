@@ -1,8 +1,8 @@
 import type { BotLevel } from "../botLevels";
 import { FUT } from "./balance";
-import { lobSpeedFor } from "./ball";
+import { keeperLobPowerFor, lobSpeedFor } from "./ball";
 import { activeOutfield } from "./fouls";
-import type { FutInput, FutMatch, FutPlayer, TeamSide } from "./types";
+import type { Field, FutInput, FutMatch, FutPlayer, TeamSide } from "./types";
 
 /** Parâmetros por nível: erro de mira (rad), chance por tick de tentar a disputa e
  *  distância (m) em que um adversário passa a "marcar" quem tem a bola. */
@@ -59,13 +59,33 @@ export function lobPowerFor(d: number): number {
   return Math.min(1, Math.max(0, (lobSpeedFor(d) - FUT.passMin) / (FUT.passMax - FUT.passMin)));
 }
 
-/** Força do passe do goleiro até `d` metros: rola perto, lança (alto) longe. */
-export function keeperPassPower(d: number): number {
-  return d >= FUT.lobFrom ? lobPowerFor(d) : passPowerFor(d);
-}
+
+/** Sem alvo livre além do meio-campo, o goleiro lança até esta fração do meio comprimento a favor do ataque. */
+const LAUNCH_FRAC = 0.1;
+/** Campos com meio comprimento a partir daqui (4v4 e 5v5 Estádio) usam o lançamento longo por padrão. */
+const LONG_FIELD_HALF_L = 30;
 
 /** Distância (m) do adversário mais perto de um companheiro para ele contar como livre. */
 export const FREE_GAP = 4;
+
+/** Onde o goleiro lança a bola: no atacante mais avançado e livre se ele já está além do meio-campo; senão, em um ponto
+ *  logo depois do meio-campo (chutão). Sempre lançamento alto, com a força que faz a bola cair ali. */
+export function keeperLaunch(players: readonly FutPlayer[], k: FutPlayer, f: Field): { x: number; z: number; power: number; free: boolean } {
+  const dir = attackDir(k.side);
+  const mate = advancedFreeMate(players, k);
+  const clear = mate !== null && players.every((r) => r.side === k.side || r.sentOff || dist(r, mate) >= FREE_GAP);
+  if (f.halfL < LONG_FIELD_HALF_L) {
+    // campo pequeno: o passe para o companheiro mais avançado e livre rola perto e só vira lançamento a partir de lobFrom
+    const x = mate ? mate.x : 0;
+    const z = mate ? mate.z : 0;
+    const d = dist(k, { x, z });
+    return { x, z, power: d >= FUT.lobFrom ? keeperLobPowerFor(d) : passPowerFor(d), free: clear };
+  }
+  const free = clear && mate.x * dir > 0;
+  const x = free ? mate.x : dir * f.halfL * LAUNCH_FRAC;
+  const z = free ? mate.z : mate ? Math.max(-f.halfW, Math.min(f.halfW, mate.z * 0.5)) : 0;
+  return { x, z, power: keeperLobPowerFor(dist(k, { x, z })), free };
+}
 
 /** Companheiro de linha ativo mais avançado no ataque entre os livres (adversário a FREE_GAP ou mais);
  *  sem ninguém livre, o mais livre de todos. */
