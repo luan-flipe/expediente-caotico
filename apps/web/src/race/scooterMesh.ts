@@ -32,6 +32,26 @@ function knobs(r: number, w: number): THREE.BufferGeometry {
   return merged;
 }
 
+/** Quanto o meio da mão fechada fica do pulso até os dedos. */
+const FIST = 0.6;
+
+/**
+ * Meio das duas mãos fechadas (entre o pulso e os dedos), com x positivo: a mão esquerda e o espelho da
+ * direita. null no boneco sem esses ossos.
+ */
+function fistsCenter(rider: THREE.Object3D): THREE.Vector3 | null {
+  rider.updateMatrixWorld(true);
+  const fist = (side: string) => {
+    const wrist = rider.getObjectByName(`punho_${side}`);
+    const fingers = rider.getObjectByName(`dedos_${side}`);
+    return wrist && fingers ? wrist.getWorldPosition(new THREE.Vector3()).lerp(fingers.getWorldPosition(new THREE.Vector3()), FIST) : null;
+  };
+  const left = fist("E");
+  const right = fist("D");
+  if (!left || !right) return null;
+  return new THREE.Vector3((Math.abs(left.x) + Math.abs(right.x)) / 2, (left.y + right.y) / 2, (left.z + right.z) / 2);
+}
+
 /** Patinete elétrico com o boneco em pé: o guidão vai para onde as mãos dele alcançam. */
 export function mountScooter(chair: ChairDNA, char: Character): Vehicle {
   const g = new THREE.Group();
@@ -94,10 +114,11 @@ export function mountScooter(chair: ChairDNA, char: Character): Vehicle {
   const shoulder = fit.shoulder.clone().add(char.root.position);
   const arm = v(0.15, -Math.sin(ARM_DROP), Math.cos(ARM_DROP)).normalize();
   const wrist = shoulder.clone().addScaledVector(arm, fit.reach);
-  // o guidão passa no meio da mão fechada, medido no boneco (a mão do boneco de braço comprido é maior)
-  const palm = wrist.clone().addScaledVector(arm, fit.grip ?? 0.045);
   const toRider = (x: number) => v(x, wrist.y, wrist.z).sub(char.root.position);
   char.restHands(toRider(wrist.x), toRider(-wrist.x));
+  // o guidão passa no meio das mãos fechadas, onde elas ficaram depois de os braços irem até ele: a mão do
+  // boneco pende do pulso, então a reta do braço não diz onde ela está
+  const palm = fistsCenter(char.root) ?? wrist.clone().addScaledVector(arm, fit.grip ?? 0.045);
 
   const bar = v(0, palm.y, palm.z);
   const head = v(0, headY, FRONT_Z);
