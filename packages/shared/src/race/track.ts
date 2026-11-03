@@ -798,7 +798,7 @@ export function groundAt(track: Track, pr: TrackProgress): { y: number; gap: boo
 /**
  * Ângulo de rotação da pista no saca-rolhas (em radianos, de 0 a 2*Math.PI).
  * Varia suavemente de 0 a 2*PI entre sStart e sEnd, e 0 fora desse trecho.
- * Fórmula: phi = 2*PI * (u - 0.75 * sin(2*PI*u) / (2*PI)) onde u = (s - sStart) / (sEnd - sStart).
+ * Transição C1 suave (derivada zero em u=0 e u=1): phi = 2*PI * (u - sin(2*PI*u) / (2*PI)).
  */
 export function corkscrewRoll(track: Track, s: number): number {
   if (!track.corkscrew) return 0;
@@ -807,7 +807,7 @@ export function corkscrewRoll(track: Track, s: number): number {
   const ss = ((s % L) + L) % L;
   if (ss < sStart || ss > sEnd) return 0;
   const u = (ss - sStart) / (sEnd - sStart);
-  return 2 * Math.PI * (u - (0.75 * Math.sin(2 * Math.PI * u)) / (2 * Math.PI));
+  return 2 * Math.PI * (u - Math.sin(2 * Math.PI * u) / (2 * Math.PI));
 }
 
 /**

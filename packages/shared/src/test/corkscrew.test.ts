@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { stepKart, type KartState } from "../race/kart";
-import { corkscrewRoll, corkscrewTransform, pointAt, sideNormal, TRACKS, trackPoint3D } from "../race/track";
+import { newKart, stepKart, type KartState } from "../race/kart";
+import { corkscrewRoll, corkscrewTransform, pointAt, progressOf, TRACKS, trackPoint3D } from "../race/track";
 
 describe("Pista do Deserto - Saca-rolhas 360° (Corkscrew Loop)", () => {
   const track = TRACKS.deserto;
@@ -11,6 +11,19 @@ describe("Pista do Deserto - Saca-rolhas 360° (Corkscrew Loop)", () => {
     expect(cork.sStart).toBeGreaterThan(200);
     expect(cork.sEnd).toBeGreaterThan(cork.sStart);
     expect(cork.axisY).toBeCloseTo(9.4, 1);
+  });
+
+  it("garante transição C1 suave (sem tranco ao entrar no loop)", () => {
+    // Na entrada exata sStart, roll deve ser 0
+    expect(corkscrewRoll(track, cork.sStart)).toBe(0);
+
+    // A 1 metro da entrada, a inclinação deve ser imperceptível (< 0.05 graus)
+    const roll1m = corkscrewRoll(track, cork.sStart + 1.0);
+    expect(roll1m * 180 / Math.PI).toBeLessThan(0.05);
+
+    // Na saída exata sEnd, roll deve ser 2*PI (ou equivalente a 0 para fechamento cíclico)
+    const rollEnd = corkscrewRoll(track, cork.sEnd);
+    expect(rollEnd).toBeCloseTo(Math.PI * 2, 5);
   });
 
   it("calcula roll e transformação 3D de cabeça para baixo no ápice", () => {
@@ -50,8 +63,7 @@ describe("Pista do Deserto - Saca-rolhas 360° (Corkscrew Loop)", () => {
     const startS = cork.sStart - 5;
     const pt0 = pointAt(track, startS);
     let k: KartState = {
-      pos: { x: pt0.pos.x, z: pt0.pos.z },
-      heading: pt0.heading,
+      ...newKart({ x: pt0.pos.x, z: pt0.pos.z }, pt0.heading),
       speed: 25,
       path: 0,
     };
@@ -59,6 +71,8 @@ describe("Pista do Deserto - Saca-rolhas 360° (Corkscrew Loop)", () => {
     let reachedApex = false;
     let maxRoll = 0;
     let hitWall = false;
+
+    let speedInCork = 0;
 
     const dtMs = 16;
     for (let i = 0; i < 300; i++) {
@@ -68,7 +82,10 @@ describe("Pista do Deserto - Saca-rolhas 360° (Corkscrew Loop)", () => {
 
       const roll = res.state.roll ?? 0;
       if (roll > maxRoll) maxRoll = roll;
-      if (roll > Math.PI * 0.8) reachedApex = true;
+      if (roll > Math.PI * 0.8) {
+        reachedApex = true;
+        speedInCork = k.speed;
+      }
 
       // Se passou do sEnd, completou o loop!
       if (res.progress && res.progress.s > cork.sEnd + 5) {
@@ -81,30 +98,30 @@ describe("Pista do Deserto - Saca-rolhas 360° (Corkscrew Loop)", () => {
     // Deve atingir o ápice do loop invertido
     expect(reachedApex).toBe(true);
     expect(maxRoll).toBeGreaterThan(Math.PI * 0.95);
-    // Velocidade deve se manter alta pelo impulso magnético anti-gravidade
-    expect(k.speed).toBeGreaterThanOrEqual(20);
+    // Velocidade deve se manter alta no saca-rolhas pelo impulso magnético anti-gravidade
+    expect(speedInCork).toBeGreaterThanOrEqual(20);
   });
 
-  it("permite esterçamento suave (steer) entre faixas sem sair da pista no saca-rolhas", () => {
+  it("permite esterçamento suave (steer) entre faixas na direção correta (+steer = direita)", () => {
     const sMid = (cork.sStart + cork.sEnd) / 2;
     const ptMid = pointAt(track, sMid);
-    const nrm = sideNormal(Math.sin(ptMid.heading), Math.cos(ptMid.heading));
 
     // Kart no centro da pista no meio do saca-rolhas
     let k: KartState = {
-      pos: { x: ptMid.pos.x, z: ptMid.pos.z },
-      heading: ptMid.heading,
+      ...newKart({ x: ptMid.pos.x, z: ptMid.pos.z }, ptMid.heading),
       speed: 22,
       path: 0,
     };
 
-    // Vira para a direita durante 0.5s
+    // Vira para a direita (+steer = 1) durante 0.5s
     for (let i = 0; i < 30; i++) {
       const res = stepKart(k, { steer: 1, throttle: 1, drift: false }, 16, i * 16, track);
       k = res.state;
     }
 
-    // Kart deve ter se movido lateralmente sem bugar
+    // Kart deve ter se movido lateralmente para a direita (+lateral)
+    const pr = progressOf(track, k.pos, 0);
+    expect(pr.lateral).toBeGreaterThan(0.5);
     expect(k.speed).toBeGreaterThanOrEqual(20);
   });
 });

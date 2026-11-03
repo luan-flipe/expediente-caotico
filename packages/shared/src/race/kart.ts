@@ -138,6 +138,7 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   const baseCap = boosting ? (s.boostSpeed ?? RACE.boostSpeed) : RACE.maxSpeed;
   let cap = baseCap * cupBonus;
   if (track && pr0 && !boosting && inCarpet(track, pr0)) cap = RACE.maxSpeed * RACE.carpetMax;
+  if (inCorkscrew0) cap = Math.max(cap, 22);
 
   if (airborne) {
     // no ar a velocidade não muda (nem acelerador, nem freio, nem carpete)
@@ -158,16 +159,19 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   if (s.speed < -RACE.reverseMax) s.speed = -RACE.reverseMax;
   if (slipping) s.speed *= 1 - 1.2 * dt;
   if (inCorkscrew0 && track && pr0) {
-    s.speed = Math.max(s.speed, 20);
+    // Aceleração anti-gravitacional progressiva até a velocidade ideal (sem tranco súbito)
+    if (s.speed < 20) {
+      s.speed += (22 - s.speed) * Math.min(1, dt * 5);
+    }
     const at0 = pointAt(track, pr0.s);
-    // Guia magnético anti-gravitacional: alinha o heading com a tangente da pista no loop 3D
+    // Guia magnético anti-gravitacional: alinha o heading suavemente com a tangente da pista no loop 3D
     const dH = Math.atan2(Math.sin(at0.heading - s.heading), Math.cos(at0.heading - s.heading));
-    s.heading += dH * Math.min(1, dt * 12);
+    s.heading += dH * Math.min(1, dt * 8);
 
-    // O volante do piloto desloca o kart suavemente entre as faixas da pista
+    // O volante do piloto desloca o kart suavemente entre as faixas da pista (+steer vai para a direita)
     let newLat = pr0.lateral;
     if (Math.abs(steer) > 0.01) {
-      newLat = Math.max(-5.5, Math.min(5.5, pr0.lateral - steer * 7.5 * dt));
+      newLat = Math.max(-5.5, Math.min(5.5, pr0.lateral + steer * 7.5 * dt));
     }
     const nextS = (pr0.s + s.speed * dt) % track.length;
     const nextAt = pointAt(track, nextS);

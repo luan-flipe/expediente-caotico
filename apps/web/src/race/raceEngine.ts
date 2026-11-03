@@ -1673,7 +1673,7 @@ export class RaceEngine {
     const roll = this.track.corkscrew ? corkscrewRoll(this.track, pr.s) : 0;
     if (roll > 0) {
       const p3 = trackPoint3D(this.track, pr.s, pr.lateral, 0.02);
-      const aheadS = (pr.s + 2.0) % this.track.length;
+      const aheadS = (pr.s + 0.8) % this.track.length;
       const q3 = trackPoint3D(this.track, aheadS, pr.lateral, 0.02);
       const up3 = trackPoint3D(this.track, pr.s, pr.lateral, 1.02);
 
@@ -1683,8 +1683,10 @@ export class RaceEngine {
 
       _corkFwd.subVectors(_corkQ, _corkP).normalize();
       const rawNorm = _corkU.sub(_corkP).normalize();
-      _corkRight.crossVectors(_corkFwd, rawNorm).normalize();
-      _corkNorm.crossVectors(_corkRight, _corkFwd).normalize();
+      // Sistema de coordenadas destro (Y up, Z fwd): rawNorm x fwd = +Right
+      _corkRight.crossVectors(rawNorm, _corkFwd).normalize();
+      // fwd x right = +Norm (up)
+      _corkNorm.crossVectors(_corkFwd, _corkRight).normalize();
 
       _corkMat.makeBasis(_corkRight, _corkNorm, _corkFwd);
 
