@@ -85,7 +85,7 @@ describe("pista", () => {
 
 describe("atalhos", () => {
   const T = TRACKS.corporativo;
-  const BRANCH_TRACKS = TRACK_IDS.filter((id) => id !== "parque");
+  const BRANCH_TRACKS = TRACK_IDS.filter((id) => id !== "parque" && id !== "deserto");
 
   function insideAny(p: { x: number; z: number }, r = 0): boolean {
     return [-1, 0].some((path) => {
@@ -94,9 +94,10 @@ describe("atalhos", () => {
     });
   }
 
-  it("atalho existe nas pistas corporativo, estacionamento e copa; parque não tem atalho", () => {
+  it("atalho existe nas pistas corporativo, estacionamento e copa; parque e deserto não têm atalho", () => {
     for (const id of BRANCH_TRACKS) expect(TRACKS[id].branches.length, id).toBe(1);
     expect(TRACKS.parque.branches.length).toBe(0);
+    expect(TRACKS.deserto.branches.length).toBe(0);
   });
 
   it("progresso no atalho vira s da principal", () => {

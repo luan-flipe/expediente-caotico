@@ -56,4 +56,85 @@ describe("buildTrack - Cenário e Elementos Estilizados Nintendo Odyssey", () =>
     expect(scene.children.length).toBeGreaterThan(0);
     expect(() => dispose()).not.toThrow();
   });
+
+  it("monta a pista do Deserto com cânion, túnel, boost pads e vegetação sem erros", () => {
+    const scene = new THREE.Scene();
+    const track = getTrack("deserto");
+
+    const dispose = buildTrack(scene, track);
+    expect(scene.children.length).toBeGreaterThan(0);
+
+    // Névoa desértica em tom de areia quente (#e7cfa8)
+    expect(scene.fog).toBeInstanceOf(THREE.Fog);
+    expect((scene.fog as THREE.Fog).color.getHexString()).toBe("e7cfa8");
+
+    // Luz solar dourada (#ffe2b8)
+    let goldenSunFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.DirectionalLight && obj.color.getHexString() === "ffe2b8") {
+        goldenSunFound = true;
+      }
+    });
+    expect(goldenSunFound).toBe(true);
+
+    // Placas de impulso (Boost pads) com chevrons fluorescentes
+    let boostChevrons = 0;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        const mat = obj.material;
+        if (mat.emissive.getHexString() === "39ff4a" || mat.emissive.getHexString() === "ff4a1f") {
+          boostChevrons++;
+        }
+      }
+    });
+    expect(boostChevrons).toBeGreaterThanOrEqual(track.boostPads?.length ? track.boostPads.length * 3 * 2 : 1);
+
+    // Poço de lama viscosa no fundo do cânion (#3d2817 com roughness 0.2)
+    let mudPitFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        const mat = obj.material;
+        if (mat.color.getHexString() === "3d2817" && Math.abs(mat.roughness - 0.2) < 0.05) {
+          mudPitFound = true;
+        }
+      }
+    });
+    expect(mudPitFound).toBe(true);
+
+    // Cactos saguaro e vegetação do deserto combinada
+    let saguaroFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        if (obj.material.color.getHexString() === "2f6b36") {
+          saguaroFound = true;
+        }
+      }
+    });
+    expect(saguaroFound).toBe(true);
+
+    // Casinhas rústicas de adobe com vigas de madeira
+    let adobeHouseFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        if (obj.material.color.getHexString() === "ba7850") {
+          adobeHouseFound = true;
+        }
+      }
+    });
+    expect(adobeHouseFound).toBe(true);
+
+    // Oásis do sertão com água límpida
+    let oasisWaterFound = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        if (obj.material.color.getHexString() === "26a69a") {
+          oasisWaterFound = true;
+        }
+      }
+    });
+    expect(oasisWaterFound).toBe(true);
+
+    // Libera texturas da cena sem falhas
+    expect(() => dispose()).not.toThrow();
+  });
 });

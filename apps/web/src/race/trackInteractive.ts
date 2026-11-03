@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { pointAt, progressOf, sideNormal, type Track, type Vec2 } from "@ec/shared";
+import { heightAt, pointAt, progressOf, sideNormal, type Track, type Vec2 } from "@ec/shared";
 
 /**
  * Módulo de Cenário Interativo e Obstáculos de Pista no estilo Nintendo (Super Mario Odyssey / Galaxy / Mario Kart 8).
@@ -65,7 +65,8 @@ export interface KartInteractionOutput {
   bonk: boolean;
   bonkImpulse?: { x: number; z: number };
   spin?: boolean;
-  soundCue?: "coffee_slingshot" | "roomba_honk" | "door_bonk" | "vent_woosh";
+  spinUntil?: number;
+  soundCue?: "coffee_slingshot" | "roomba_honk" | "door_bonk" | "vent_woosh" | "sand_tornado" | "vulture_startle";
 }
 
 export interface DeskIsland {
@@ -176,6 +177,50 @@ export interface AirVentObstacle {
   particleCount: number;
 }
 
+export interface DustDevilObstacle {
+  id: number;
+  s: number;
+  basePos: { x: number; y: number; z: number };
+  currentPos: { x: number; y: number; z: number };
+  normal: { x: number; z: number };
+  halfWidth: number;
+  patrolSpeed: number;
+  patrolPhase: number;
+  group: THREE.Group;
+  layers: THREE.Mesh[];
+  radius: number;
+  hitCooldown: number;
+}
+
+export interface VultureObstacle {
+  id: number;
+  flockId: number;
+  group: THREE.Group;
+  leftWing: THREE.Group;
+  rightWing: THREE.Group;
+  pos: { x: number; y: number; z: number };
+  heading: number;
+  orbitRadius: number;
+  orbitPhase: number;
+  state: "thermal" | "cross" | "startle";
+  stateTimer: number;
+  diveDuration: number;
+  diveStartPos: THREE.Vector3;
+  diveCrossPos: THREE.Vector3;
+  diveEndPos: THREE.Vector3;
+}
+
+export interface VultureFlock {
+  id: number;
+  center: { x: number; y: number; z: number };
+  trackS: number;
+  crossingPoint: { x: number; y: number; z: number };
+  orbitSpeed: number;
+  diveCooldown: number;
+  leadIdx: number;
+  vultures: VultureObstacle[];
+}
+
 export interface TrackInteractiveOptions {
   track?: Track;
   deskPositions?: { x: number; z: number; heading?: number }[];
@@ -190,6 +235,10 @@ export interface TrackInteractiveOptions {
   doorPositions?: { x: number; z: number; heading: number; width?: number }[];
   enableAirVents?: boolean;
   airVentPositions?: { x: number; z: number; heading: number; width?: number; length?: number }[];
+  enableDustDevils?: boolean;
+  dustDevilPositions?: { s?: number; x?: number; y?: number; z?: number; heading?: number; halfWidth?: number; speed?: number; phase?: number }[];
+  enableVultures?: boolean;
+  vultureFlocks?: { x?: number; y?: number; z?: number; radius?: number; count?: number; trackS?: number }[];
 }
 
 // ============================================================================
@@ -808,6 +857,38 @@ export class TrackInteractiveManager {
   private _roombas: RoombaObstacle[] = [];
   private _automaticDoors: AutomaticDoorObstacle[] = [];
   private _airVents: AirVentObstacle[] = [];
+  private _dustDevils: DustDevilObstacle[] = [];
+  private _vultureFlocks: VultureFlock[] = [];
+  private _vultures: VultureObstacle[] = [];
+
+  // Partículas de dispersão de areia dos redemoinhos
+  private MAX_DUST_DEVIL_BURSTS = 64;
+  private dustBurstMesh: THREE.InstancedMesh | null = null;
+  private dustBurstPosX = new Float32Array(0);
+  private dustBurstPosY = new Float32Array(0);
+  private dustBurstPosZ = new Float32Array(0);
+  private dustBurstVelX = new Float32Array(0);
+  private dustBurstVelY = new Float32Array(0);
+  private dustBurstVelZ = new Float32Array(0);
+  private dustBurstAge = new Float32Array(0);
+  private dustBurstLife = new Float32Array(0);
+  private dustBurstIdx = 0;
+
+  // Partículas de penas e poeira do urubu
+  private MAX_FEATHER_PARTICLES = 32;
+  private featherMesh: THREE.InstancedMesh | null = null;
+  private featherPosX = new Float32Array(0);
+  private featherPosY = new Float32Array(0);
+  private featherPosZ = new Float32Array(0);
+  private featherVelX = new Float32Array(0);
+  private featherVelY = new Float32Array(0);
+  private featherVelZ = new Float32Array(0);
+  private featherRotX = new Float32Array(0);
+  private featherRotY = new Float32Array(0);
+  private featherRotZ = new Float32Array(0);
+  private featherAge = new Float32Array(0);
+  private featherLife = new Float32Array(0);
+  private featherIdx = 0;
 
   // Partículas de gotículas e jato de café (Café coado na calcinha)
   private MAX_SPLASH_DROPS = 32;
@@ -904,18 +985,34 @@ export class TrackInteractiveManager {
     this.initSteamSystem();
     this.initCoffeeSplashes();
     this.initVentParticles();
+    this.initDustBurstParticles();
+    this.initFeatherParticles();
 
-    // 1. Inicializa o Café Coado na Calcinha (Logo no início da corrida)
-    this.initCoffeeCalcinhaSystem(options);
+    const isDeserto = this.track?.id === "deserto";
+    const isParque = this.track?.id === "parque";
+    const isCorporate = !isDeserto && !isParque;
 
-    // 2. Inicializa os Roombas da Firma (Corredores largos com LED Matrix)
-    this.initRoombasSystem(options);
+    // Obstáculos corporativos (apenas se habilitados ou em pistas corporativas)
+    if (options?.enableCoffeeCalcinha ?? isCorporate) {
+      this.initCoffeeCalcinhaSystem(options);
+    }
+    if (options?.enableRoombas ?? isCorporate) {
+      this.initRoombasSystem(options);
+    }
+    if (options?.enableAutomaticDoors ?? isCorporate) {
+      this.initAutomaticDoorsSystem(options);
+    }
+    if (options?.enableAirVents ?? isCorporate) {
+      this.initAirVentsSystem(options);
+    }
 
-    // 3. Inicializa as Portas Automáticas de Vidro
-    this.initAutomaticDoorsSystem(options);
-
-    // 4. Inicializa as Grelhas de Ventilação no Chão (Air Cushion Boost)
-    this.initAirVentsSystem(options);
+    // Obstáculos do Deserto: Redemoinhos de Areia e Urubus Rasantes
+    if (options?.enableDustDevils ?? isDeserto) {
+      this.initDustDevilsSystem(options);
+    }
+    if (options?.enableVultures ?? isDeserto) {
+      this.initVulturesSystem(options);
+    }
   }
 
   /** Varre a cena procurando nós de ilhas de mesas marcados */
@@ -2413,6 +2510,12 @@ export class TrackInteractiveManager {
     // 7. Grelhas de Ventilação no Chão (Almofada de ar e partículas)
     this.updateAirVents(dt, karts);
 
+    // 8. Redemoinhos de Areia do Deserto
+    this.updateDustDevils(dt, karts);
+
+    // 9. Urubus do Deserto (Planando e Rasantes)
+    this.updateVultures(dt, karts);
+
     return this.kartOutputs;
   }
 
@@ -3147,6 +3250,785 @@ export class TrackInteractiveManager {
   // ==========================================================================
   // GETTERS PÚBLICOS DOS OBSTÁCULOS E ELEMENTOS
   // ==========================================================================
+
+  // ==========================================================================
+  // FASE 3: REDEMOINHOS DE AREIA (DUST DEVILS) & URUBUS RASANTES DO DESERTO
+  // ==========================================================================
+
+  private initDustBurstParticles(): void {
+    if (!this.scene) return;
+    this.dustBurstPosX = new Float32Array(this.MAX_DUST_DEVIL_BURSTS);
+    this.dustBurstPosY = new Float32Array(this.MAX_DUST_DEVIL_BURSTS);
+    this.dustBurstPosZ = new Float32Array(this.MAX_DUST_DEVIL_BURSTS);
+    this.dustBurstVelX = new Float32Array(this.MAX_DUST_DEVIL_BURSTS);
+    this.dustBurstVelY = new Float32Array(this.MAX_DUST_DEVIL_BURSTS);
+    this.dustBurstVelZ = new Float32Array(this.MAX_DUST_DEVIL_BURSTS);
+    this.dustBurstAge = new Float32Array(this.MAX_DUST_DEVIL_BURSTS);
+    this.dustBurstLife = new Float32Array(this.MAX_DUST_DEVIL_BURSTS);
+
+    const geo = new THREE.SphereGeometry(0.25, 7, 6);
+    const mat = new THREE.MeshStandardMaterial({
+      color: "#d9a566",
+      transparent: true,
+      opacity: 0.75,
+      roughness: 0.9,
+      depthWrite: false,
+    });
+    this.dustBurstMesh = new THREE.InstancedMesh(geo, mat, this.MAX_DUST_DEVIL_BURSTS);
+    this.dustBurstMesh.frustumCulled = false;
+    this.dustBurstMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    _mat4A.makeScale(0, 0, 0);
+    for (let i = 0; i < this.MAX_DUST_DEVIL_BURSTS; i++) {
+      this.dustBurstMesh.setMatrixAt(i, _mat4A);
+      this.dustBurstAge[i] = 999;
+      this.dustBurstLife[i] = 1;
+    }
+    this.dustBurstMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this.dustBurstMesh);
+    this.disposables.push(geo, mat);
+  }
+
+  private triggerDustDevilBurst(x: number, y: number, z: number): void {
+    if (!this.dustBurstMesh) return;
+    const count = 16;
+    for (let i = 0; i < count; i++) {
+      const idx = (this.dustBurstIdx + i) % this.MAX_DUST_DEVIL_BURSTS;
+      this.dustBurstPosX[idx] = x + (Math.random() - 0.5) * 0.6;
+      this.dustBurstPosY[idx] = y + Math.random() * 0.8;
+      this.dustBurstPosZ[idx] = z + (Math.random() - 0.5) * 0.6;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 3.5 + Math.random() * 4.5;
+      this.dustBurstVelX[idx] = Math.cos(angle) * speed;
+      this.dustBurstVelY[idx] = 2.5 + Math.random() * 3.5;
+      this.dustBurstVelZ[idx] = Math.sin(angle) * speed;
+
+      this.dustBurstAge[idx] = 0;
+      this.dustBurstLife[idx] = 0.5 + Math.random() * 0.35;
+    }
+    this.dustBurstIdx = (this.dustBurstIdx + count) % this.MAX_DUST_DEVIL_BURSTS;
+  }
+
+  private updateDustBurstParticles(dt: number): void {
+    if (!this.dustBurstMesh) return;
+    let needsUpdate = false;
+    for (let i = 0; i < this.MAX_DUST_DEVIL_BURSTS; i++) {
+      if (this.dustBurstAge[i] >= this.dustBurstLife[i]) {
+        continue;
+      }
+      this.dustBurstAge[i] += dt;
+      if (this.dustBurstAge[i] >= this.dustBurstLife[i]) {
+        _mat4A.makeScale(0, 0, 0);
+        this.dustBurstMesh.setMatrixAt(i, _mat4A);
+        needsUpdate = true;
+        continue;
+      }
+
+      this.dustBurstVelY[i] -= 9.8 * dt;
+      this.dustBurstVelX[i] *= 0.95;
+      this.dustBurstVelZ[i] *= 0.95;
+
+      this.dustBurstPosX[i] += this.dustBurstVelX[i] * dt;
+      this.dustBurstPosY[i] = Math.max(0.05, this.dustBurstPosY[i] + this.dustBurstVelY[i] * dt);
+      this.dustBurstPosZ[i] += this.dustBurstVelZ[i] * dt;
+
+      const progress = this.dustBurstAge[i] / this.dustBurstLife[i];
+      const scale = (1.0 - progress) * (0.8 + Math.sin(progress * Math.PI) * 0.4);
+
+      _vecA.set(this.dustBurstPosX[i], this.dustBurstPosY[i], this.dustBurstPosZ[i]);
+      _scaleVec.set(scale, scale, scale);
+      _mat4A.compose(_vecA, _quatA.identity(), _scaleVec);
+      this.dustBurstMesh.setMatrixAt(i, _mat4A);
+      needsUpdate = true;
+    }
+    if (needsUpdate) {
+      this.dustBurstMesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  private initDustDevilsSystem(options?: TrackInteractiveOptions): void {
+    if (options?.enableDustDevils === false) return;
+
+    if (options?.dustDevilPositions && options.dustDevilPositions.length > 0) {
+      for (let i = 0; i < options.dustDevilPositions.length; i++) {
+        const d = options.dustDevilPositions[i];
+        if (d.s !== undefined && this.track) {
+          const at = pointAt(this.track, d.s);
+          const y = heightAt(this.track, d.s);
+          const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+          this.registerDustDevil({
+            s: d.s,
+            basePos: { x: at.pos.x, y, z: at.pos.z },
+            normal: { x: nrm.x, z: nrm.z },
+            halfWidth: d.halfWidth ?? at.halfWidth,
+            speed: d.speed ?? (1.3 + (i % 3) * 0.25),
+            phase: d.phase ?? (i * 1.57),
+          });
+        } else {
+          this.registerDustDevil({
+            s: d.s ?? 0,
+            basePos: { x: d.x ?? 0, y: d.y ?? 0, z: d.z ?? 0 },
+            normal: { x: 1, z: 0 },
+            halfWidth: d.halfWidth ?? 6.5,
+            speed: d.speed ?? (1.3 + (i % 3) * 0.25),
+            phase: d.phase ?? (i * 1.57),
+          });
+        }
+      }
+      return;
+    }
+
+    // Padrão: 4 redemoinhos de areia posicionados ao longo dos setores abertos e dunas da pista (s ~180, ~280, ~440, ~610)
+    const defaultS = [180, 280, 440, 610];
+    if (this.track) {
+      for (let i = 0; i < defaultS.length; i++) {
+        const s = defaultS[i];
+        const at = pointAt(this.track, s);
+        const y = heightAt(this.track, s);
+        const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+        this.registerDustDevil({
+          s,
+          basePos: { x: at.pos.x, y, z: at.pos.z },
+          normal: { x: nrm.x, z: nrm.z },
+          halfWidth: at.halfWidth,
+          speed: 1.3 + (i % 3) * 0.25,
+          phase: i * 1.57,
+        });
+      }
+    } else {
+      const fallbackPositions = [
+        { x: 20, y: 0, z: 30, s: 180 },
+        { x: 50, y: 0, z: 70, s: 280 },
+        { x: 90, y: 0, z: 120, s: 440 },
+        { x: 140, y: 0, z: 180, s: 610 },
+      ];
+      for (let i = 0; i < fallbackPositions.length; i++) {
+        const p = fallbackPositions[i];
+        this.registerDustDevil({
+          s: p.s,
+          basePos: { x: p.x, y: p.y, z: p.z },
+          normal: { x: 1, z: 0 },
+          halfWidth: 6.5,
+          speed: 1.3 + (i % 3) * 0.25,
+          phase: i * 1.57,
+        });
+      }
+    }
+  }
+
+  public registerDustDevil(config: {
+    s: number;
+    basePos: { x: number; y: number; z: number };
+    normal?: { x: number; z: number };
+    halfWidth?: number;
+    speed?: number;
+    phase?: number;
+  }): DustDevilObstacle {
+    const group = new THREE.Group();
+    group.name = `dust-devil-${config.s}`;
+    group.position.set(config.basePos.x, config.basePos.y, config.basePos.z);
+
+    // Visual: Geometrias cônicas/cilíndricas de areia translúcida em camadas (#d9a566, #e8c49a)
+    const layers: THREE.Mesh[] = [];
+
+    // Camada 1: Vórtice inferior estreito
+    const geo0 = new THREE.CylinderGeometry(0.85, 0.35, 1.4, 16, 1, true);
+    geo0.translate(0, 0.7, 0);
+    const mat0 = new THREE.MeshStandardMaterial({
+      color: "#d9a566",
+      transparent: true,
+      opacity: 0.65,
+      roughness: 0.85,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const layer0 = new THREE.Mesh(geo0, mat0);
+    group.add(layer0);
+    layers.push(layer0);
+
+    // Camada 2: Funil intermediário em expansão
+    const geo1 = new THREE.CylinderGeometry(1.65, 0.8, 1.8, 16, 1, true);
+    geo1.translate(0, 2.0, 0);
+    const mat1 = new THREE.MeshStandardMaterial({
+      color: "#e8c49a",
+      transparent: true,
+      opacity: 0.55,
+      roughness: 0.8,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const layer1 = new THREE.Mesh(geo1, mat1);
+    group.add(layer1);
+    layers.push(layer1);
+
+    // Camada 3: Flare superior amplo
+    const geo2 = new THREE.CylinderGeometry(2.4, 1.5, 1.6, 16, 1, true);
+    geo2.translate(0, 3.4, 0);
+    const mat2 = new THREE.MeshStandardMaterial({
+      color: "#d9a566",
+      transparent: true,
+      opacity: 0.45,
+      roughness: 0.75,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const layer2 = new THREE.Mesh(geo2, mat2);
+    group.add(layer2);
+    layers.push(layer2);
+
+    // Camada 4: Véu espiral externo
+    const geo3 = new THREE.CylinderGeometry(2.65, 0.5, 4.4, 14, 1, true);
+    geo3.translate(0, 2.2, 0);
+    const mat3 = new THREE.MeshStandardMaterial({
+      color: "#e8c49a",
+      transparent: true,
+      opacity: 0.35,
+      roughness: 0.9,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const layer3 = new THREE.Mesh(geo3, mat3);
+    group.add(layer3);
+    layers.push(layer3);
+
+    // Poeira em espiral
+    const satGeo = new THREE.SphereGeometry(0.18, 6, 5);
+    const satMat = new THREE.MeshStandardMaterial({ color: "#d9a566", roughness: 0.9 });
+    for (let i = 0; i < 6; i++) {
+      const satMesh = new THREE.Mesh(satGeo, satMat);
+      const theta = (i / 6) * Math.PI * 2;
+      const h = 0.6 + i * 0.55;
+      const r = 0.5 + (h / 4.4) * 1.8;
+      satMesh.position.set(Math.cos(theta) * r, h, Math.sin(theta) * r);
+      layer0.add(satMesh);
+    }
+
+    if (this.scene) {
+      this.scene.add(group);
+    }
+    this.disposables.push(geo0, mat0, geo1, mat1, geo2, mat2, geo3, mat3, satGeo, satMat);
+
+    const normal = config.normal ?? { x: 1, z: 0 };
+    const obstacle: DustDevilObstacle = {
+      id: this._dustDevils.length + 1,
+      s: config.s,
+      basePos: { ...config.basePos },
+      currentPos: { ...config.basePos },
+      normal: { x: normal.x, z: normal.z },
+      halfWidth: config.halfWidth ?? 6.5,
+      patrolSpeed: config.speed ?? 1.4,
+      patrolPhase: config.phase ?? 0,
+      group,
+      layers,
+      radius: 2.6,
+      hitCooldown: 0,
+    };
+
+    this._dustDevils.push(obstacle);
+    return obstacle;
+  }
+
+  private updateDustDevils(dt: number, karts: KartInteractiveInfo[]): void {
+    const numDevils = this._dustDevils.length;
+    const numKarts = karts.length;
+
+    for (let i = 0; i < numDevils; i++) {
+      const devil = this._dustDevils[i];
+      if (devil.hitCooldown > 0) devil.hitCooldown -= dt;
+
+      // 1. Rotação rápida contínua das camadas de areia e espiral
+      devil.layers[0].rotation.y += dt * 10.0;
+      devil.layers[1].rotation.y -= dt * 8.5;
+      devil.layers[2].rotation.y += dt * 12.0;
+      devil.layers[3].rotation.y -= dt * 6.5;
+
+      // 2. Movimento: Patrulham a largura da pista oscilando lateralmente em onda senoidal suave:
+      // lateral = Math.sin(time * speed + phase) * (halfWidth * 0.65)
+      const lateral = Math.sin(this.clock * devil.patrolSpeed + devil.patrolPhase) * (devil.halfWidth * 0.65);
+      devil.currentPos.x = devil.basePos.x + devil.normal.x * lateral;
+      devil.currentPos.z = devil.basePos.z + devil.normal.z * lateral;
+      devil.currentPos.y = devil.basePos.y;
+      devil.group.position.set(devil.currentPos.x, devil.currentPos.y, devil.currentPos.z);
+
+      // Leve inclinação cartoon com base na velocidade lateral
+      const latVel = Math.cos(this.clock * devil.patrolSpeed + devil.patrolPhase) * devil.patrolSpeed;
+      devil.group.rotation.z = -latVel * 0.05;
+
+      // 3. Reatividade e Colisão: kart a menos de 2.6 metros do redemoinho
+      for (let k = 0; k < numKarts; k++) {
+        const kart = karts[k];
+        const dx = kart.pos.x - devil.currentPos.x;
+        const dz = kart.pos.z - devil.currentPos.z;
+        const dist = Math.hypot(dx, dz);
+
+        if (dist < devil.radius) {
+          const out = this.kartOutputs[k];
+          out.spin = true;
+          out.bonk = true;
+          out.spinUntil = 1200;
+          const nx = dist > 0.001 ? dx / dist : 1;
+          const nz = dist > 0.001 ? dz / dist : 0;
+          out.bonkImpulse = { x: nx * 14.0, z: nz * 14.0 };
+          out.soundCue = "sand_tornado";
+
+          if (devil.hitCooldown <= 0) {
+            devil.hitCooldown = 0.5;
+            this.triggerDustDevilBurst(devil.currentPos.x, devil.currentPos.y + 0.8, devil.currentPos.z);
+          }
+        }
+      }
+    }
+
+    this.updateDustBurstParticles(dt);
+  }
+
+  // ==========================================================================
+  // URUBUS DO DESERTO (VULTURES)
+  // ==========================================================================
+
+  private initFeatherParticles(): void {
+    if (!this.scene) return;
+    this.featherPosX = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherPosY = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherPosZ = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherVelX = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherVelY = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherVelZ = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherRotX = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherRotY = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherRotZ = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherAge = new Float32Array(this.MAX_FEATHER_PARTICLES);
+    this.featherLife = new Float32Array(this.MAX_FEATHER_PARTICLES);
+
+    const geo = new THREE.BoxGeometry(0.14, 0.02, 0.26);
+    const mat = new THREE.MeshStandardMaterial({
+      color: "#1c1c1c",
+      roughness: 0.9,
+      metalness: 0.1,
+    });
+    this.featherMesh = new THREE.InstancedMesh(geo, mat, this.MAX_FEATHER_PARTICLES);
+    this.featherMesh.frustumCulled = false;
+    this.featherMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    _mat4A.makeScale(0, 0, 0);
+    for (let i = 0; i < this.MAX_FEATHER_PARTICLES; i++) {
+      this.featherMesh.setMatrixAt(i, _mat4A);
+      this.featherAge[i] = 999;
+      this.featherLife[i] = 1;
+    }
+    this.featherMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this.featherMesh);
+    this.disposables.push(geo, mat);
+  }
+
+  private triggerFeatherBurst(x: number, y: number, z: number): void {
+    if (!this.featherMesh) return;
+    const count = 12;
+    for (let i = 0; i < count; i++) {
+      const idx = (this.featherIdx + i) % this.MAX_FEATHER_PARTICLES;
+      this.featherPosX[idx] = x + (Math.random() - 0.5) * 0.4;
+      this.featherPosY[idx] = y + Math.random() * 0.5;
+      this.featherPosZ[idx] = z + (Math.random() - 0.5) * 0.4;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2.0 + Math.random() * 3.0;
+      this.featherVelX[idx] = Math.cos(angle) * speed;
+      this.featherVelY[idx] = 1.8 + Math.random() * 2.5;
+      this.featherVelZ[idx] = Math.sin(angle) * speed;
+
+      this.featherRotX[idx] = Math.random() * Math.PI * 2;
+      this.featherRotY[idx] = Math.random() * Math.PI * 2;
+      this.featherRotZ[idx] = Math.random() * Math.PI * 2;
+
+      this.featherAge[idx] = 0;
+      this.featherLife[idx] = 0.8 + Math.random() * 0.4;
+    }
+    this.featherIdx = (this.featherIdx + count) % this.MAX_FEATHER_PARTICLES;
+  }
+
+  private updateFeatherParticles(dt: number): void {
+    if (!this.featherMesh) return;
+    let needsUpdate = false;
+    for (let i = 0; i < this.MAX_FEATHER_PARTICLES; i++) {
+      if (this.featherAge[i] >= this.featherLife[i]) continue;
+
+      this.featherAge[i] += dt;
+      if (this.featherAge[i] >= this.featherLife[i]) {
+        _mat4A.makeScale(0, 0, 0);
+        this.featherMesh.setMatrixAt(i, _mat4A);
+        needsUpdate = true;
+        continue;
+      }
+
+      this.featherVelY[i] -= 3.5 * dt;
+      this.featherVelX[i] *= 0.94;
+      this.featherVelZ[i] *= 0.94;
+
+      this.featherPosX[i] += this.featherVelX[i] * dt + Math.sin(this.clock * 6.0 + i) * 0.02;
+      this.featherPosY[i] = Math.max(0.04, this.featherPosY[i] + this.featherVelY[i] * dt);
+      this.featherPosZ[i] += this.featherVelZ[i] * dt + Math.cos(this.clock * 6.0 + i) * 0.02;
+
+      this.featherRotX[i] += dt * 4.0;
+      this.featherRotY[i] += dt * 3.0;
+
+      const progress = this.featherAge[i] / this.featherLife[i];
+      const scale = (1.0 - progress * 0.5) * 1.0;
+
+      _vecA.set(this.featherPosX[i], this.featherPosY[i], this.featherPosZ[i]);
+      _quatA.setFromEuler(_eulerA.set(this.featherRotX[i], this.featherRotY[i], this.featherRotZ[i]));
+      _scaleVec.set(scale, scale, scale);
+      _mat4A.compose(_vecA, _quatA, _scaleVec);
+      this.featherMesh.setMatrixAt(i, _mat4A);
+      needsUpdate = true;
+    }
+    if (needsUpdate) {
+      this.featherMesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  private initVulturesSystem(options?: TrackInteractiveOptions): void {
+    if (options?.enableVultures === false) return;
+
+    if (options?.vultureFlocks && options.vultureFlocks.length > 0) {
+      for (let i = 0; i < options.vultureFlocks.length; i++) {
+        const f = options.vultureFlocks[i];
+        const trackS = f.trackS ?? (i === 0 ? 75 : i === 1 ? 380 : 620);
+        let crossX = f.x ?? 0;
+        let crossY = 0;
+        let crossZ = f.z ?? 0;
+        if (this.track) {
+          const at = pointAt(this.track, trackS);
+          crossX = at.pos.x;
+          crossY = heightAt(this.track, trackS);
+          crossZ = at.pos.z;
+        }
+        this.registerVultureFlock({
+          id: i + 1,
+          center: { x: f.x ?? crossX, y: f.y ?? 24, z: f.z ?? crossZ },
+          trackS,
+          crossingPoint: { x: crossX, y: crossY, z: crossZ },
+          count: f.count ?? 3,
+        });
+      }
+      return;
+    }
+
+    // Padrão: 3 bandos de urubus pretos planando em círculos térmicos no céu
+    // sobre o maciço rochoso e o cânion
+    const flockConfigs = [
+      { trackS: 75, skyY: 22 },  // Cânion inicial
+      { trackS: 380, skyY: 25 }, // Maciço rochoso
+      { trackS: 620, skyY: 23 }, // Cânion da rampa / salto do abismo
+    ];
+
+    for (let i = 0; i < flockConfigs.length; i++) {
+      const cfg = flockConfigs[i];
+      let cx: number;
+      let cy: number;
+      let cz: number;
+      if (this.track) {
+        const at = pointAt(this.track, cfg.trackS);
+        cx = at.pos.x;
+        cy = heightAt(this.track, cfg.trackS);
+        cz = at.pos.z;
+      } else {
+        const fallbacks = [
+          { x: -45, y: 0, z: 40 },
+          { x: -15, y: 0, z: 160 },
+          { x: 80, y: 0, z: 60 },
+        ];
+        cx = fallbacks[i].x;
+        cy = fallbacks[i].y;
+        cz = fallbacks[i].z;
+      }
+
+      this.registerVultureFlock({
+        id: i + 1,
+        center: { x: cx, y: cfg.skyY, z: cz },
+        trackS: cfg.trackS,
+        crossingPoint: { x: cx, y: cy, z: cz },
+        count: 3,
+      });
+    }
+  }
+
+  public registerVultureFlock(config: {
+    id: number;
+    center: { x: number; y: number; z: number };
+    trackS: number;
+    crossingPoint: { x: number; y: number; z: number };
+    orbitSpeed?: number;
+    count?: number;
+  }): VultureFlock {
+    const flock: VultureFlock = {
+      id: config.id,
+      center: { ...config.center },
+      trackS: config.trackS,
+      crossingPoint: { ...config.crossingPoint },
+      orbitSpeed: config.orbitSpeed ?? 0.42,
+      diveCooldown: 2.0,
+      leadIdx: 0,
+      vultures: [],
+    };
+
+    const count = config.count ?? 3;
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: "#181818",
+      roughness: 0.85,
+      metalness: 0.1,
+    });
+    const headMat = new THREE.MeshStandardMaterial({
+      color: "#8a2424",
+      roughness: 0.7,
+    });
+    const beakMat = new THREE.MeshStandardMaterial({
+      color: "#eab308",
+      roughness: 0.35,
+    });
+    this.disposables.push(bodyMat, headMat, beakMat);
+
+    for (let v = 0; v < count; v++) {
+      const vGroup = new THREE.Group();
+      vGroup.name = `vulture-${config.id}-${v}`;
+
+      // Geometria estilizada: corpo preto fosco, bico curvado e asas abertas em V que planam suavemente
+      const bodyGeo = new THREE.ConeGeometry(0.28, 1.1, 7);
+      bodyGeo.rotateX(Math.PI / 2);
+      const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+      vGroup.add(bodyMesh);
+
+      // Cabeça estilizada avermelhada
+      const headGeo = new THREE.SphereGeometry(0.17, 7, 6);
+      const headMesh = new THREE.Mesh(headGeo, headMat);
+      headMesh.position.set(0, 0.1, 0.55);
+      vGroup.add(headMesh);
+
+      // Bico curvado amarelo/âmbar
+      const beakGeo = new THREE.ConeGeometry(0.09, 0.32, 5);
+      beakGeo.rotateX(Math.PI * 0.7);
+      const beakMesh = new THREE.Mesh(beakGeo, beakMat);
+      beakMesh.position.set(0, 0.04, 0.76);
+      vGroup.add(beakMesh);
+
+      // Cauda preta fosca
+      const tailGeo = new THREE.BoxGeometry(0.32, 0.03, 0.38);
+      tailGeo.translate(0, 0.04, -0.58);
+      const tailMesh = new THREE.Mesh(tailGeo, bodyMat);
+      vGroup.add(tailMesh);
+
+      // Asas abertas em V conectadas a pivôs laterais
+      const leftWing = new THREE.Group();
+      leftWing.position.set(-0.2, 0.06, 0.05);
+      const wingGeoL = new THREE.BoxGeometry(0.9, 0.03, 0.35);
+      wingGeoL.translate(-0.45, 0, 0);
+      const leftWingMesh = new THREE.Mesh(wingGeoL, bodyMat);
+      leftWing.add(leftWingMesh);
+      leftWing.rotation.z = -0.18; // Postura em V
+      vGroup.add(leftWing);
+
+      const rightWing = new THREE.Group();
+      rightWing.position.set(0.2, 0.06, 0.05);
+      const wingGeoR = new THREE.BoxGeometry(0.9, 0.03, 0.35);
+      wingGeoR.translate(0.45, 0, 0);
+      const rightWingMesh = new THREE.Mesh(wingGeoR, bodyMat);
+      rightWing.add(rightWingMesh);
+      rightWing.rotation.z = 0.18; // Postura em V
+      vGroup.add(rightWing);
+
+      this.disposables.push(bodyGeo, headGeo, beakGeo, tailGeo, wingGeoL, wingGeoR);
+
+      if (this.scene) {
+        this.scene.add(vGroup);
+      }
+
+      const orbitRadius = 11 + v * 3.5;
+      const orbitPhase = (v * Math.PI * 2) / count;
+      const initX = config.center.x + Math.cos(orbitPhase) * orbitRadius;
+      const initZ = config.center.z + Math.sin(orbitPhase) * orbitRadius;
+      const initY = config.center.y;
+      vGroup.position.set(initX, initY, initZ);
+
+      const vulture: VultureObstacle = {
+        id: this._vultures.length + 1,
+        flockId: config.id,
+        group: vGroup,
+        leftWing,
+        rightWing,
+        pos: { x: initX, y: initY, z: initZ },
+        heading: orbitPhase + Math.PI / 2,
+        orbitRadius,
+        orbitPhase,
+        state: "thermal",
+        stateTimer: 0,
+        diveDuration: 2.4,
+        diveStartPos: new THREE.Vector3(initX, initY, initZ),
+        diveCrossPos: new THREE.Vector3(config.crossingPoint.x, config.crossingPoint.y + 0.65, config.crossingPoint.z),
+        diveEndPos: new THREE.Vector3(initX, initY, initZ),
+      };
+
+      flock.vultures.push(vulture);
+      this._vultures.push(vulture);
+    }
+
+    this._vultureFlocks.push(flock);
+    return flock;
+  }
+
+  private updateVultures(dt: number, karts: KartInteractiveInfo[]): void {
+    const numFlocks = this._vultureFlocks.length;
+    const numKarts = karts.length;
+
+    for (let f = 0; f < numFlocks; f++) {
+      const flock = this._vultureFlocks[f];
+      if (flock.diveCooldown > 0) flock.diveCooldown -= dt;
+
+      // Checa se algum kart se aproxima a menos de 55 metros do ponto de cruzamento da pista
+      let kartNear = false;
+      for (let k = 0; k < numKarts; k++) {
+        const kart = karts[k];
+        const dx = kart.pos.x - flock.crossingPoint.x;
+        const dz = kart.pos.z - flock.crossingPoint.z;
+        if (dx * dx + dz * dz < 55 * 55) {
+          kartNear = true;
+          break;
+        }
+      }
+
+      // Se um kart se aproximar a menos de 55m, um dos urubus entra em estado de rasante (cross)
+      if (kartNear && flock.diveCooldown <= 0) {
+        const candidate = flock.vultures.find((v) => v.state === "thermal");
+        if (candidate) {
+          candidate.state = "cross";
+          candidate.stateTimer = 0;
+          candidate.diveDuration = 2.4;
+          flock.diveCooldown = 5.5;
+
+          candidate.diveStartPos.set(candidate.pos.x, candidate.pos.y, candidate.pos.z);
+          candidate.diveCrossPos.set(flock.crossingPoint.x, flock.crossingPoint.y + 0.65, flock.crossingPoint.z);
+
+          // Ponto de saída do mergulho: sobe de volta para o céu no lado oposto
+          const fwdX = flock.crossingPoint.x - candidate.pos.x;
+          const fwdZ = flock.crossingPoint.z - candidate.pos.z;
+          const fwdLen = Math.hypot(fwdX, fwdZ) || 1;
+          const exitX = flock.crossingPoint.x + (fwdX / fwdLen) * 28;
+          const exitZ = flock.crossingPoint.z + (fwdZ / fwdLen) * 28;
+          candidate.diveEndPos.set(exitX, flock.center.y, exitZ);
+        }
+      }
+
+      // Atualiza cada urubu do bando
+      for (let v = 0; v < flock.vultures.length; v++) {
+        const vulture = flock.vultures[v];
+
+        if (vulture.state === "thermal") {
+          // Planando em círculos térmicos suaves no céu
+          const angle = this.clock * flock.orbitSpeed + vulture.orbitPhase;
+          vulture.pos.x = flock.center.x + Math.cos(angle) * vulture.orbitRadius;
+          vulture.pos.z = flock.center.z + Math.sin(angle) * vulture.orbitRadius;
+          vulture.pos.y = flock.center.y + Math.sin(this.clock * 0.9 + vulture.id) * 1.4;
+          vulture.heading = angle + Math.PI / 2;
+
+          vulture.group.position.set(vulture.pos.x, vulture.pos.y, vulture.pos.z);
+          vulture.group.rotation.y = vulture.heading;
+          vulture.group.rotation.x = 0;
+          vulture.group.rotation.z = Math.sin(angle) * 0.16; // banking suave na térmica
+
+          // Asas abertas em V com leve ondulação aerodinâmica
+          const soarFlap = Math.sin(this.clock * 1.5 + vulture.id) * 0.05;
+          vulture.leftWing.rotation.z = -0.18 + soarFlap;
+          vulture.rightWing.rotation.z = 0.18 - soarFlap;
+        } else if (vulture.state === "cross") {
+          // Estado de rasante: mergulho rápido rente ao asfalto cortando a pista na frente dos pilotos!
+          vulture.stateTimer += dt;
+          const u = Math.min(1.0, vulture.stateTimer / vulture.diveDuration);
+
+          // Posição horizontal interpolada (cortando a pista)
+          const curX = vulture.diveStartPos.x + (vulture.diveEndPos.x - vulture.diveStartPos.x) * u;
+          const curZ = vulture.diveStartPos.z + (vulture.diveEndPos.z - vulture.diveStartPos.z) * u;
+
+          // Parábola vertical: mergulho rente ao asfalto em u = 0.5 (Y ~ 0.65m), subindo para a saída
+          const baseLerpY = vulture.diveStartPos.y + (vulture.diveEndPos.y - vulture.diveStartPos.y) * u;
+          const dipDepth = (flock.center.y - vulture.diveCrossPos.y);
+          const curY = baseLerpY - 4 * u * (1 - u) * dipDepth;
+
+          const dx = vulture.diveEndPos.x - vulture.diveStartPos.x;
+          const dz = vulture.diveEndPos.z - vulture.diveStartPos.z;
+          vulture.heading = Math.atan2(dx, dz);
+
+          vulture.pos.x = curX;
+          vulture.pos.y = curY;
+          vulture.pos.z = curZ;
+          vulture.group.position.set(curX, curY, curZ);
+          vulture.group.rotation.y = vulture.heading;
+
+          // Mergulho e subida (pitch)
+          const pitch = (0.5 - u) * 0.7;
+          vulture.group.rotation.x = pitch;
+          vulture.group.rotation.z = 0;
+
+          // Asas ligeiramente recolhidas no mergulho veloz
+          vulture.leftWing.rotation.z = -0.32;
+          vulture.rightWing.rotation.z = 0.32;
+
+          // Colisão com a ave rasante: se kart colidir rente ao chão (< 2.5m)
+          if (curY < 2.5) {
+            for (let k = 0; k < numKarts; k++) {
+              const kart = karts[k];
+              const kx = kart.pos.x - curX;
+              const kz = kart.pos.z - curZ;
+              const ky = (kart.y ?? 0) - curY;
+              const distSq = kx * kx + kz * kz;
+
+              if (distSq < 2.5 * 2.5 && Math.abs(ky) < 2.2) {
+                // A ave bate as asas assustada fugindo para o céu (startle)
+                // e causa um solavanco/skid no kart com faíscas e penas/poeira
+                vulture.state = "startle";
+                vulture.stateTimer = 0;
+
+                const out = this.kartOutputs[k];
+                out.bonk = true;
+                out.spin = true;
+                out.spinUntil = 900;
+                out.bonkImpulse = { x: (Math.random() - 0.5) * 12.0, z: (Math.random() - 0.5) * 12.0 };
+                out.soundCue = "vulture_startle";
+
+                this.triggerFeatherBurst(curX, curY, curZ);
+                this.triggerDustDevilBurst(curX, curY, curZ);
+                break;
+              }
+            }
+          }
+
+          if (u >= 1.0) {
+            vulture.state = "thermal";
+            vulture.group.rotation.x = 0;
+          }
+        } else if (vulture.state === "startle") {
+          // Bate as asas assustada fugindo para o céu
+          vulture.stateTimer += dt;
+          const flap = Math.sin(vulture.stateTimer * 26.0) * 0.85;
+          vulture.leftWing.rotation.z = flap;
+          vulture.rightWing.rotation.z = -flap;
+
+          vulture.pos.y += 18.0 * dt;
+          vulture.pos.x += Math.sin(vulture.heading) * 6.0 * dt;
+          vulture.pos.z += Math.cos(vulture.heading) * 6.0 * dt;
+
+          vulture.group.position.set(vulture.pos.x, vulture.pos.y, vulture.pos.z);
+          vulture.group.rotation.x = -0.55; // empinando o nariz para o céu
+
+          if (vulture.pos.y >= flock.center.y) {
+            vulture.state = "thermal";
+            vulture.group.rotation.x = 0;
+          }
+        }
+      }
+    }
+
+    this.updateFeatherParticles(dt);
+  }
+
   public get monitoredDesks(): readonly DeskIsland[] {
     return this.desks;
   }
@@ -3175,6 +4057,18 @@ export class TrackInteractiveManager {
     return this._airVents;
   }
 
+  public get dustDevils(): readonly DustDevilObstacle[] {
+    return this._dustDevils;
+  }
+
+  public get vultures(): readonly VultureObstacle[] {
+    return this._vultures;
+  }
+
+  public get vultureFlocks(): readonly VultureFlock[] {
+    return this._vultureFlocks;
+  }
+
   /**
    * Libera todos os recursos WebGL, geometrias e texturas criadas pelo gerenciador.
    */
@@ -3190,6 +4084,10 @@ export class TrackInteractiveManager {
       for (const r of this._roombas) this.scene.remove(r.group);
       for (const d of this._automaticDoors) this.scene.remove(d.group);
       for (const v of this._airVents) this.scene.remove(v.group);
+      for (const dd of this._dustDevils) this.scene.remove(dd.group);
+      for (const vu of this._vultures) this.scene.remove(vu.group);
+      if (this.dustBurstMesh) this.scene.remove(this.dustBurstMesh);
+      if (this.featherMesh) this.scene.remove(this.featherMesh);
     }
 
     if (this.roombaFaces) {
@@ -3218,6 +4116,9 @@ export class TrackInteractiveManager {
     this._roombas = [];
     this._automaticDoors = [];
     this._airVents = [];
+    this._dustDevils = [];
+    this._vultureFlocks = [];
+    this._vultures = [];
     this.desks = [];
     this.kartOutputs = [];
     this.scene = null;

@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 import { RACE } from "./balance";
-import { branchPointAt, clampToTrack, groundAt, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
+import { branchPointAt, clampToTrack, deltaS, groundAt, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
 
 export interface KartState {
   pos: Vec2;
@@ -51,6 +51,7 @@ export interface KartStep {
   stunt?: boolean;
   /** Terminou de cair no vão neste passo: a partida repõe a cadeira. */
   fell?: boolean;
+  padBoost?: boolean;
 }
 
 export const NO_INPUT: KartInput = { steer: 0, throttle: 0, drift: false };
@@ -110,11 +111,21 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
     s.driftMs = 0;
   }
 
+  const pr0 = track ? progressOf(track, s.pos, s.path) : null;
+  if (track?.boostPads && (s.path ?? -1) === -1 && !s.fell && pr0) {
+    for (const padS of track.boostPads) {
+      if (Math.abs(deltaS(track, padS, pr0.s)) < 3.0) {
+        s.boostUntil = Math.max(s.boostUntil, now + 1200);
+        s.boostSpeed = Math.max(s.boostSpeed ?? 0, 24);
+        break;
+      }
+    }
+  }
+
   const boosting = now < s.boostUntil;
   if (!boosting) {
     s.boostSpeed = undefined;
   }
-  const pr0 = track ? progressOf(track, s.pos, s.path) : null;
   const cupBonus = 1 + (s.cups ?? 0) * RACE.cupSpeedPerUnit;
   const baseCap = boosting ? (s.boostSpeed ?? RACE.boostSpeed) : RACE.maxSpeed;
   let cap = baseCap * cupBonus;
@@ -237,7 +248,21 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
       delete s.trick;
     }
   }
-  return { state: s, wall, boost, progress, ...(stunt ? { stunt } : {}) };
+  let padBoost = false;
+  if (track?.boostPads && (s.path ?? -1) === -1 && !s.fell && progress) {
+    for (const padS of track.boostPads) {
+      const d = Math.abs(deltaS(track, padS, progress.s));
+      const d0 = pr0 ? deltaS(track, padS, pr0.s) : d;
+      const d1 = deltaS(track, padS, progress.s);
+      if (d < 3.0 || (d0 <= 0.5 && d1 >= -0.5 && Math.abs(d1 - d0) < 12)) {
+        if (now >= s.boostUntil) padBoost = true;
+        s.boostUntil = Math.max(s.boostUntil, now + 1200);
+        s.boostSpeed = Math.max(s.boostSpeed ?? 0, 24);
+        break;
+      }
+    }
+  }
+  return { state: s, wall, boost, progress, ...(stunt ? { stunt } : {}), ...(padBoost ? { padBoost } : {}) };
 }
 
 /** Empurra duas cadeiras sobrepostas para fora uma da outra. */

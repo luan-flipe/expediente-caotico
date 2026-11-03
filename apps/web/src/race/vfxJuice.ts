@@ -1141,6 +1141,8 @@ interface ShockwaveRing {
 }
 
 export interface RaceVfxOptions {
+  isDeserto?: boolean;
+  trackId?: string;
   maxSmoke?: number;
   maxSparks?: number;
   maxStreaks?: number;
@@ -1156,6 +1158,7 @@ export interface RaceVfxOptions {
 export class RaceVfxManager {
   private scene: THREE.Scene;
   private camera: THREE.Camera;
+  public isDeserto = false;
 
   // Capacities
   private maxSmoke: number;
@@ -1204,6 +1207,7 @@ export class RaceVfxManager {
   constructor(scene: THREE.Scene, camera: THREE.Camera, options: RaceVfxOptions = {}) {
     this.scene = scene;
     this.camera = camera;
+    this.isDeserto = Boolean(options.isDeserto ?? (options.trackId === "deserto"));
 
     this.maxSmoke = options.maxSmoke ?? 128;
     this.maxSparks = options.maxSparks ?? 160;
@@ -1449,6 +1453,13 @@ export class RaceVfxManager {
       puff.r = _col0.r;
       puff.g = _col0.g;
       puff.b = _col0.b;
+    } else if (this.isDeserto) {
+      // Tons de areia avermelhada/dourada (#d29b68 / #b8774e) para pistas de deserto
+      const desertCol = Math.random() > 0.5 ? "#d29b68" : "#b8774e";
+      _col0.set(desertCol);
+      puff.r = _col0.r;
+      puff.g = _col0.g;
+      puff.b = _col0.b;
     } else if (isBoosting) {
       puff.r = 0.98;
       puff.g = 0.92;
@@ -1458,6 +1469,71 @@ export class RaceVfxManager {
       puff.g = 0.97;
       puff.b = 0.94;
     }
+  }
+
+  /**
+   * Spawns ground wheel dust. On desert tracks, defaults to reddish/golden sand tones (#d29b68 / #b8774e).
+   */
+  public spawnWheelDust(
+    x: number,
+    y: number,
+    z: number,
+    fwdX: number,
+    fwdZ: number,
+    speed: number,
+    customColor?: string | THREE.ColorRepresentation
+  ): void {
+    const col = customColor ?? (this.isDeserto ? (Math.random() > 0.5 ? "#d29b68" : "#b8774e") : "#faf6ed");
+    this.spawnDriftSmoke(x, y, z, fwdX, fwdZ, speed, false, col);
+  }
+
+  /**
+   * Spawns bright colored spark feedback (green #39ff4a and orange #ff4a1f) when kart activates dash plate boost.
+   */
+  public spawnDashBoostSparks(x: number, y: number, z: number, heading = 0): void {
+    const count = 18;
+    const colors = ["#39ff4a", "#ff4a1f"];
+    const fwdX = -Math.sin(heading);
+    const fwdZ = -Math.cos(heading);
+    const rightX = Math.cos(heading);
+    const rightZ = -Math.sin(heading);
+
+    for (let i = 0; i < count; i++) {
+      const spark = this.sparkPool[this.sparkIdx];
+      this.sparkIdx = (this.sparkIdx + 1) % this.maxSparks;
+
+      spark.active = true;
+      spark.age = 0;
+      spark.life = 0.32 + Math.random() * 0.18;
+      spark.scale = 1.35 + Math.random() * 0.45;
+
+      spark.x = x + (Math.random() - 0.5) * 0.4;
+      spark.y = y + 0.08 + Math.random() * 0.22;
+      spark.z = z + (Math.random() - 0.5) * 0.4;
+
+      const spread = (Math.random() - 0.5) * 3.8;
+      const backSpeed = -4.5 - Math.random() * 4.0;
+      spark.vx = fwdX * backSpeed + rightX * spread;
+      spark.vy = 2.2 + Math.random() * 3.2;
+      spark.vz = fwdZ * backSpeed + rightZ * spread;
+
+      spark.rotX = Math.random() * Math.PI * 2;
+      spark.rotY = Math.random() * Math.PI * 2;
+      spark.rotZ = Math.random() * Math.PI * 2;
+      spark.rotSpeedX = (Math.random() - 0.5) * 28;
+      spark.rotSpeedY = (Math.random() - 0.5) * 28;
+      spark.rotSpeedZ = (Math.random() - 0.5) * 28;
+
+      const colHex = colors[i % colors.length];
+      _col0.set(colHex);
+      spark.r = _col0.r;
+      spark.g = _col0.g;
+      spark.b = _col0.b;
+    }
+  }
+
+  public spawnDashPlateSparks(x: number, y: number, z: number, heading = 0): void {
+    this.spawnDashBoostSparks(x, y, z, heading);
   }
 
   /**

@@ -279,14 +279,18 @@ export class RaceEngine {
     Object.assign(this.sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 2, far: 120 });
     this.scene.add(this.sun.target);
     this.disposeTrack = buildTrack(this.scene, track);
-    this.vfx = new RaceVfxManager(this.scene, this.camera);
     const isParque = track.id === "parque";
+    const isDeserto = track.id === "deserto";
+    const isCorporate = !isParque && !isDeserto;
+    this.vfx = new RaceVfxManager(this.scene, this.camera, { isDeserto, trackId: track.id });
     this.interactive = new TrackInteractiveManager({
       track,
-      enableCoffeeCalcinha: !isParque,
-      enableRoombas: !isParque,
-      enableAutomaticDoors: !isParque,
-      enableAirVents: !isParque,
+      enableCoffeeCalcinha: isCorporate,
+      enableRoombas: isCorporate,
+      enableAutomaticDoors: isCorporate,
+      enableAirVents: isCorporate,
+      enableDustDevils: isDeserto,
+      enableVultures: isDeserto,
     });
     this.interactive.init(this.scene);
 
@@ -1124,7 +1128,11 @@ export class RaceEngine {
         this.pending.push({ seq, input, t: this.clock });
         if (this.pending.length > 90) this.pending.shift();
         this.prevPred = this.pred;
-        this.pred = stepKart(this.pred, input, DT, this.clock, this.track).state;
+        const stepRes = stepKart(this.pred, input, DT, this.clock, this.track);
+        this.pred = stepRes.state;
+        if (stepRes.padBoost) {
+          this.vfx?.spawnDashBoostSparks(this.pred.pos.x, (this.pred.y ?? 0) + 0.15, this.pred.pos.z, this.pred.heading);
+        }
       }
     } else {
       this.acc = 0;
@@ -1215,7 +1223,7 @@ export class RaceEngine {
               this.shake = Math.min(0.5, this.shake + 0.25);
             }
             if (out.spin) {
-              this.pred.spinUntil = Math.max(this.pred.spinUntil, now + 800);
+              this.pred.spinUntil = Math.max(this.pred.spinUntil, now + (out.spinUntil ?? 800));
             }
             if (out.airCushionLift !== undefined && out.airCushionLift > 0) {
               this.pred.y = Math.max(this.pred.y ?? 0, out.airCushionLift);

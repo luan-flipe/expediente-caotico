@@ -189,6 +189,80 @@ const PARQUE_CARPET: [number, number][] = [
 const PARQUE_BOXES = [1.0, 7.0, 13.0, 19.5, 25.5, 33.0];
 const PARQUE_CUPS = [4.0, 10.0, 16.5, 22.5, 28.5, 34.5];
 
+/** Pista do Deserto: cânions, oásis, dunas, maciço rochoso, túnel e salto do abismo. */
+const DESERTO: Ctrl[] = [
+  { x: -6.7, z: 18.9, w: 14, y: 1.20 }, // 0 Largada do Cânion, linha de chegada
+  { x: -26.0, z: 19.2, w: 14, y: 1.30 }, // 1 Reta do cânion
+  { x: -43.3, z: 29.9, w: 14, y: 1.10 }, // 2 Curva do cânion
+  { x: -49.4, z: 49.3, w: 14, y: 0.90 }, // 3 Aproximação do oásis
+  { x: -54.3, z: 66.9, w: 14, y: 1.00 }, // 4 Oásis do Sertão
+  { x: -67.9, z: 78.6, w: 14, y: 1.40 }, // 5 Saída do oásis
+  { x: -85.8, z: 80.4, w: 14, y: 1.80 }, // 6 Entrada das dunas
+  { x: -103.0, z: 75.3, w: 14, y: 2.40 }, // 7 Subida das dunas
+  { x: -111.2, z: 62.1, w: 14, y: 2.90 }, // 8 Crista das dunas
+  { x: -105.4, z: 44.7, w: 14, y: 2.60 }, // 9 Descida das dunas
+  { x: -95.8, z: 24.9, w: 14, y: 2.20 }, // 10 Dunas Escaldantes
+  { x: -103.3, z: 10.3, w: 14, y: 2.50 }, // 11 Chicane de areia
+  { x: -123.0, z: 12.9, w: 14, y: 3.10 }, // 12 Transição rochosa
+  { x: -141.6, z: 20.5, w: 14, y: 3.80 }, // 13 Reta do maciço
+  { x: -159.3, z: 22.1, w: 14, y: 4.40 }, // 14 Subida da serra
+  { x: -172.9, z: 12.7, w: 14, y: 4.90 }, // 15 Curva do mirante rochoso
+  { x: -175.3, z: -3.9, w: 14, y: 5.30 }, // 16 Encosta do maciço
+  { x: -166.5, z: -21.1, w: 14, y: 5.50 }, // 17 Maciço Rochoso
+  { x: -150.3, z: -33.8, w: 14, y: 5.20 }, // 18 Planalto rochoso
+  { x: -132.7, z: -37.7, w: 14, y: 4.60 }, // 19 Descida para o túnel
+  { x: -114.8, z: -32.2, w: 14, y: 3.90 }, // 20 Aproximação da caverna
+  { x: -96.0, z: -20.5, w: 14, y: 3.40 }, // 21 Chicane da entrada
+  { x: -75.6, z: -16.6, w: 14, y: 2.90 }, // 22 Portal da caverna
+  { x: -64.5, z: -30.6, w: 14, y: 2.50 }, // 23 Túnel da Caverna
+  { x: -71.8, z: -50.5, w: 14, y: 2.20 }, // 24 Meio do túnel
+  { x: -76.5, z: -68.0, w: 14, y: 1.90 }, // 25 Saída da caverna
+  { x: -67.8, z: -83.9, w: 14, y: 1.80 }, // 26 Curva de adobe
+  { x: -51.6, z: -92.4, w: 14, y: 1.80 }, // 27 Reta de embalo do salto
+  { x: -35.6, z: -90.4, w: 14, y: 1.90 }, // 28 Rampa do cânion
+  { x: -23.4, z: -77.6, w: 14, y: 1.90 }, // 29 Salto do Abismo
+  { x: -21.2, z: -60.0, w: 14, y: 1.80 }, // 30 Aterrissagem do cânion
+  { x: -22.0, z: -40.7, w: 14, y: 1.70 }, // 31 Desaceleração do salto
+  { x: -9.7, z: -28.5, w: 14, y: 1.60 }, // 32 Entrada do vilarejo
+  { x: 9.2, z: -26.8, w: 14, y: 1.70 }, // 33 Reta do vilarejo
+  { x: 25.5, z: -19.2, w: 14, y: 1.80 }, // 34 Vilarejo de Adobe
+  { x: 33.7, z: -3.6, w: 14, y: 1.90 }, // 35 Curva das casas de adobe
+  { x: 28.1, z: 10.8, w: 14, y: 1.60 }, // 36 Saída do vilarejo
+  { x: 11.7, z: 17.5, w: 14, y: 1.40 }, // 37 Reta principal de volta à largada
+];
+
+const DESERTO_ROOMS: TrackRoom[] = [
+  { name: "Largada do Cânion", ctrl: 0 },
+  { name: "Oásis do Sertão", ctrl: 4 },
+  { name: "Dunas Escaldantes", ctrl: 10 },
+  { name: "Maciço Rochoso", ctrl: 17 },
+  { name: "Túnel da Caverna", ctrl: 23 },
+  { name: "Salto do Abismo", ctrl: 29 },
+  { name: "Vilarejo de Adobe", ctrl: 34 },
+];
+
+const DESERTO_CARPET: [number, number][] = [
+  [6.5, 8.5],
+  [10.2, 12.0],
+  [21.5, 23.5],
+  [34.5, 36.5],
+];
+
+const DESERTO_BOXES = [2.0, 9.2, 13.5, 19.5, 25.5, 31.5, 37.2];
+const DESERTO_CUPS = [4.5, 12.5, 16.5, 20.5, 26.5, 33.5];
+
+/** Placas de impulso estratégicas: entrada do túnel, antes da rampa do cânion e nas retas abertas. */
+const DESERTO_BOOSTS = [1.5, 9.5, 14.0, 22.2, 27.2, 33.0];
+
+/** Rampa com elevação e vão livre sobre o Cânion: exige velocidade e derruba quem for devagar. */
+const DESERTO_RAMP: RampDef = {
+  path: -1,
+  at: 28.0,
+  len: 8,
+  height: 2.8,
+  gap: [28.45, 29.45],
+};
+
 /**
  * Atalho: segundo corredor que sai da pista principal no índice de controle from e volta nela em to
  * (podem ser fracionários), passando pelos pontos de ctrl. Mais curto e mais estreito, sem caixas.
@@ -265,6 +339,8 @@ export interface Track {
   ramps: Ramp[];
   /** Alturas ao longo da linha central (opcional, para pistas com relevo 3D). */
   heights?: number[];
+  /** Placas de impulso na pista (metros ao longo da linha central). */
+  boostPads?: number[];
 }
 
 /** Corredor do atalho: linha aberta de sFrom a sTo (s da pista principal), com bs próprio em cum. */
@@ -316,6 +392,7 @@ interface TrackDef {
   cups: number[];
   branch?: BranchDef;
   ramp?: RampDef;
+  boostPads?: number[];
 }
 
 /** Curva aberta do atalho, reamostrada a cada STEP, com tangentes iguais às da principal nas pontas. */
@@ -439,14 +516,37 @@ function buildTrack(def: TrackDef): Track {
     if (b < a) b += length;
     return (a + (b - a) * f) % length;
   };
-  const track: Track = { id: def.id, name: def.name, rooms: def.rooms, points, widths, cum, spacing, length, ctrlS, carpet: [], boxRows: def.boxes.map(sAtCtrl), cupRows: def.cups.map(sAtCtrl), branches: [], ramps: [], heights: hasY ? heights : undefined };
+  const track: Track = {
+    id: def.id,
+    name: def.name,
+    rooms: def.rooms,
+    points,
+    widths,
+    cum,
+    spacing,
+    length,
+    ctrlS,
+    carpet: [],
+    boxRows: def.boxes.map(sAtCtrl),
+    cupRows: def.cups.map(sAtCtrl),
+    branches: [],
+    ramps: [],
+    heights: hasY ? heights : undefined,
+    boostPads: def.boostPads?.map(sAtCtrl),
+  };
   if (def.branch) track.branches.push(buildBranch(track, def.branch, sAtCtrl));
   if (def.ramp) {
     const r = def.ramp;
     const blen = track.branches[r.path]?.length;
     const sFrom = blen ? r.at * blen : sAtCtrl(r.at);
     const ramp: Ramp = { path: r.path, sFrom, sTo: sFrom + r.len, height: r.height };
-    if (r.gap && blen) ramp.gap = { sFrom: r.gap[0] * blen, sTo: r.gap[1] * blen };
+    if (r.gap) {
+      if (blen) {
+        ramp.gap = { sFrom: r.gap[0] * blen, sTo: r.gap[1] * blen };
+      } else {
+        ramp.gap = { sFrom: sAtCtrl(r.gap[0]), sTo: sAtCtrl(r.gap[1]) };
+      }
+    }
     track.ramps.push(ramp);
   }
   track.carpet = def.carpet.map(([from, to]) => {
@@ -787,7 +887,7 @@ export function turnAhead(track: Track, s: number, ahead: number): number {
 }
 
 /** Ids das pistas, na ordem do seletor. O id vai para o arquivo de dados (laps[id]): nunca renomear. */
-export const TRACK_IDS = ["corporativo", "estacionamento", "copa", "parque"] as const;
+export const TRACK_IDS = ["corporativo", "estacionamento", "copa", "parque", "deserto"] as const;
 export type TrackId = (typeof TRACK_IDS)[number];
 export const DEFAULT_TRACK_ID: TrackId = "corporativo";
 
@@ -796,6 +896,7 @@ export const TRACKS: Record<TrackId, Track> = {
   estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS, branch: ESTACIONAMENTO_BRANCH, ramp: ESTACIONAMENTO_RAMP }),
   copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS, branch: COPA_BRANCH }),
   parque: buildTrack({ id: "parque", name: "Parque Ipanema", ctrl: PARQUE, rooms: PARQUE_ROOMS, carpet: PARQUE_CARPET, boxes: PARQUE_BOXES, cups: PARQUE_CUPS, ramp: PARQUE_RAMP }),
+  deserto: buildTrack({ id: "deserto", name: "Pista do Deserto", ctrl: DESERTO, rooms: DESERTO_ROOMS, carpet: DESERTO_CARPET, boxes: DESERTO_BOXES, cups: DESERTO_CUPS, ramp: DESERTO_RAMP, boostPads: DESERTO_BOOSTS }),
 };
 
 export const isTrackId = (v: unknown): v is TrackId => typeof v === "string" && (TRACK_IDS as readonly string[]).includes(v);

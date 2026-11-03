@@ -480,4 +480,202 @@ describe("TrackInteractiveManager", () => {
     expect(manager.activeBoxes.some((b) => b.id === 42)).toBe(false);
     expect(manager.activeCups.some((c) => c.id === mCup.id)).toBe(false);
   });
+
+  describe("Pista do Deserto: Obstáculos Interativos (Fase 3)", () => {
+    it("inicializa 4 redemoinhos de areia e 3 bandos de urubus quando track.id === 'deserto'", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      // 4 Redemoinhos de Areia posicionados ao longo dos setores abertos e dunas
+      const devils = manager.dustDevils;
+      expect(devils.length).toBe(4);
+      expect(devils[0].s).toBe(180);
+      expect(devils[1].s).toBe(280);
+      expect(devils[2].s).toBe(440);
+      expect(devils[3].s).toBe(610);
+
+      // Cada redemoinho tem grupo na cena e camadas cônicas de areia (#d9a566, #e8c49a)
+      for (const d of devils) {
+        expect(d.group.parent).toBe(scene);
+        expect(d.layers.length).toBeGreaterThanOrEqual(4);
+        expect(d.radius).toBe(2.6);
+      }
+
+      // 3 Bandos de Urubus planando em círculos térmicos
+      const flocks = manager.vultureFlocks;
+      expect(flocks.length).toBe(3);
+
+      const vultures = manager.vultures;
+      expect(vultures.length).toBe(9); // 3 por bando
+
+      for (const v of vultures) {
+        expect(v.group.parent).toBe(scene);
+        expect(v.leftWing).toBeDefined();
+        expect(v.rightWing).toBeDefined();
+        expect(v.state).toBe("thermal");
+      }
+    });
+
+    it("redemoinho de areia patrulha a largura da pista com oscilação lateral senoidal suave e rotação contínua", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      const devil = manager.dustDevils[0];
+      const initialPos = { ...devil.currentPos };
+      const initialRotY = devil.layers[0].rotation.y;
+
+      // Avança a simulação
+      manager.update(0.5, []);
+
+      // A rotação contínua das camadas de areia ocorreu
+      expect(devil.layers[0].rotation.y).not.toBe(initialRotY);
+
+      // O movimento senoidal lateral alterou a posição do redemoinho
+      const moved = Math.hypot(devil.currentPos.x - initialPos.x, devil.currentPos.z - initialPos.z);
+      expect(moved).toBeGreaterThan(0.01);
+
+      // Permanece contido dentro do limite da pista (halfWidth * 0.65)
+      const offsetFromBase = Math.hypot(devil.currentPos.x - devil.basePos.x, devil.currentPos.z - devil.basePos.z);
+      expect(offsetFromBase).toBeLessThanOrEqual(devil.halfWidth * 0.65 + 0.01);
+    });
+
+    it("kart colidindo a menos de 2.6m do redemoinho de areia sofre spin e bonk com impulso e som de rajada", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      const devil = manager.dustDevils[0];
+
+      // Kart passando a 1.2m do centro do redemoinho
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: devil.currentPos.x + 1.2, z: devil.currentPos.z },
+          speed: 15.0,
+        },
+      ]);
+
+      expect(outputs.length).toBe(1);
+      const out = outputs[0];
+      expect(out.spin).toBe(true);
+      expect(out.bonk).toBe(true);
+      expect(out.spinUntil).toBe(1200);
+      expect(out.bonkImpulse).toBeDefined();
+      expect(out.soundCue).toBe("sand_tornado");
+    });
+
+    it("kart a mais de 2.6m do redemoinho de areia não sofre colisão", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      const devil = manager.dustDevils[0];
+
+      // Kart a 4.0m de distância
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: devil.currentPos.x + 4.0, z: devil.currentPos.z },
+          speed: 18.0,
+        },
+      ]);
+
+      const out = outputs[0];
+      expect(out.spin).toBe(false);
+      expect(out.bonk).toBe(false);
+    });
+
+    it("urubu entra em rasante (cross) ao aproximar kart a < 55m e executa mergulho rente ao asfalto", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      const flock = manager.vultureFlocks[0];
+      flock.diveCooldown = 0; // pronto para rasante
+
+      // Kart aproxima a 25m do ponto de travessia do bando na pista
+      manager.update(0.016, [
+        {
+          pos: { x: flock.crossingPoint.x + 20, z: flock.crossingPoint.z + 10 },
+          speed: 20.0,
+        },
+      ]);
+
+      // Pelo menos um urubu entrou no estado de rasante 'cross'
+      const divingVulture = flock.vultures.find((v) => v.state === "cross");
+      expect(divingVulture).toBeDefined();
+
+      const startY = divingVulture!.diveStartPos.y;
+      expect(startY).toBeGreaterThan(15); // altitude de voo alto
+
+      // Simula metade do mergulho (u ≈ 0.5): urubu desce rasante rente ao asfalto
+      for (let i = 0; i < 40; i++) {
+        manager.update(0.03, []);
+      }
+
+      // No ápice do mergulho, a altitude Y fica baixa rente ao chão
+      expect(divingVulture!.pos.y).toBeLessThan(startY * 0.4);
+    });
+
+    it("colisão com a ave rasante faz o urubu fugir assustado (startle) e causa solavanco/skid no kart", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      const flock = manager.vultureFlocks[0];
+      const vulture = flock.vultures[0];
+
+      // Coloca o urubu diretamente em estado de rasante rente ao chão
+      vulture.state = "cross";
+      vulture.stateTimer = vulture.diveDuration * 0.5; // meio do mergulho
+      vulture.diveStartPos.set(0, 22, 0);
+      vulture.diveCrossPos.set(10, 0.7, 10);
+      vulture.diveEndPos.set(20, 22, 20);
+
+      // Kart colide com a ave rasante a 1.0m
+      const outputs = manager.update(0.016, [
+        {
+          pos: { x: 10.5, z: 10.5 },
+          y: 0.2,
+          speed: 18.0,
+        },
+      ]);
+
+      const out = outputs[0];
+      expect(out.bonk).toBe(true);
+      expect(out.spin).toBe(true);
+      expect(out.soundCue).toBe("vulture_startle");
+
+      // Ave entra em estado de susto 'startle' batendo asas e subindo rápido
+      expect(vulture.state).toBe("startle");
+      const prevY = vulture.pos.y;
+
+      // Avança um instante: a ave deve ascender verticalmente em direção ao céu
+      manager.update(0.1, []);
+      expect(vulture.pos.y).toBeGreaterThan(prevY);
+    });
+
+    it("libera os redemoinhos e urubus da cena no dispose()", () => {
+      const scene = new THREE.Scene();
+      const track = getTrack("deserto");
+      const manager = new TrackInteractiveManager({ track });
+      manager.init(scene);
+
+      expect(manager.dustDevils.length).toBe(4);
+      expect(manager.vultures.length).toBe(9);
+
+      manager.dispose();
+
+      expect(manager.dustDevils.length).toBe(0);
+      expect(manager.vultures.length).toBe(0);
+      expect(manager.vultureFlocks.length).toBe(0);
+    });
+  });
+
 });

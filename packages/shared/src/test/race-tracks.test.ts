@@ -3,8 +3,9 @@ import { BOT_LEVELS } from "../botLevels";
 import { DEFAULT_AVATAR } from "../data/avatar";
 import { RACE } from "../race/balance";
 import { DEFAULT_CHAIR } from "../race/chair";
+import { newKart, stepKart } from "../race/kart";
 import { createRace, getRaceResults, stepRace } from "../race/match";
-import { boxSpots, checkpoints, getTrack, gridSlots, inCarpet, pointAt, progressOf, TRACK, TRACK_IDS, TRACKS } from "../race/track";
+import { boxSpots, checkpoints, getTrack, gridSlots, inCarpet, pointAt, progressOf, routeAhead, TRACK, TRACK_IDS, TRACKS } from "../race/track";
 
 const DT = 1000 / 30;
 
@@ -14,20 +15,23 @@ const LIMITS: Record<string, { min: number; max: number; raceMs: number }> = {
   estacionamento: { min: 300, max: 450, raceMs: 150000 },
   copa: { min: 150, max: 250, raceMs: 110000 },
   parque: { min: 500, max: 650, raceMs: 180000 },
+  deserto: { min: 650, max: 780, raceMs: 220000 },
 };
 
 describe("registro de pistas", () => {
-  it("quatro pistas com nome, e o Circuito Corporativo continua sendo o padrão", () => {
-    expect(TRACK_IDS).toEqual(["corporativo", "estacionamento", "copa", "parque"]);
+  it("cinco pistas com nome, e o Circuito Corporativo continua sendo o padrão", () => {
+    expect(TRACK_IDS).toEqual(["corporativo", "estacionamento", "copa", "parque", "deserto"]);
     expect(TRACKS.corporativo).toBe(TRACK);
     expect(TRACKS.estacionamento.name).toBe("Estacionamento");
     expect(TRACKS.copa.name).toBe("Copa");
     expect(TRACKS.parque.name).toBe("Parque Ipanema");
+    expect(TRACKS.deserto.name).toBe("Pista do Deserto");
     for (const id of TRACK_IDS) expect(TRACKS[id].id).toBe(id);
     expect(getTrack(undefined)).toBe(TRACK);
     expect(getTrack("nao-existe")).toBe(TRACK);
     expect(getTrack("copa")).toBe(TRACKS.copa);
     expect(getTrack("parque")).toBe(TRACKS.parque);
+    expect(getTrack("deserto")).toBe(TRACKS.deserto);
   });
 
   it("corrida sem pista usa o Circuito Corporativo", () => {
@@ -138,3 +142,96 @@ for (const id of TRACK_IDS) {
     }
   });
 }
+
+describe("Pista do Deserto: mecânicas específicas (salto do cânion e boost pads)", () => {
+  const t = TRACKS.deserto;
+  const ramp = t.ramps.find((r) => r.gap)!;
+
+  it("tem rampa de salto com vão livre (gap) configurado", () => {
+    expect(ramp).toBeDefined();
+    expect(ramp.gap).toBeDefined();
+    expect(ramp.height).toBeGreaterThan(2);
+    expect(ramp.gap!.sTo).toBeGreaterThan(ramp.gap!.sFrom);
+  });
+
+  it("tem placas de boost distribuídas estrategicamente", () => {
+    expect(t.boostPads).toBeDefined();
+    expect(t.boostPads!.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("kart passando por placa de dash ganha impulso de turbo (boostUntil e boostSpeed = 24)", () => {
+    const padS = t.boostPads![0];
+    const beforePad = pointAt(t, padS - 5);
+    let kart = newKart(beforePad.pos, beforePad.heading);
+    kart.speed = 14;
+
+    let boosted = false;
+    for (let step = 0; step < 20; step++) {
+      const res = stepKart(kart, { throttle: 1, steer: 0, drift: false }, DT, (step + 1) * DT, t);
+      kart = res.state;
+      if (kart.boostUntil > (step + 1) * DT && kart.boostSpeed === 24) {
+        boosted = true;
+        break;
+      }
+    }
+    expect(boosted).toBe(true);
+  });
+
+  it("kart sem velocidade suficiente cai no vão do cânion", () => {
+    const at = pointAt(t, ramp.sTo - 1);
+    let kart = newKart(at.pos, at.heading);
+    kart.speed = 8;
+
+    let fell = false;
+    for (let step = 0; step < 100; step++) {
+      const pr = progressOf(t, kart.pos, kart.path);
+      const ahead = routeAhead(t, pr, -1, 10);
+      const want = Math.atan2(ahead.pos.x - kart.pos.x, ahead.pos.z - kart.pos.z);
+      const diff = Math.atan2(Math.sin(want - kart.heading), Math.cos(want - kart.heading));
+      const steer = Math.max(-1, Math.min(1, -diff * 3.5));
+
+      const res = stepKart(kart, { throttle: 0, steer, drift: false }, DT, step * DT, t);
+      kart = res.state;
+      if (res.fell) {
+        fell = true;
+        break;
+      }
+    }
+    expect(fell).toBe(true);
+  });
+
+  it("kart com impulso de velocidade cruza o salto do cânion normalmente sem cair", () => {
+    const at = pointAt(t, ramp.sFrom - 10);
+    let kart = newKart(at.pos, at.heading);
+    kart.speed = 24;
+    kart.boostUntil = 5000;
+    kart.boostSpeed = 24;
+
+    let fell = false;
+    let tookAir = false;
+    let reachedOtherSide = false;
+
+    for (let step = 0; step < 120; step++) {
+      const pr = progressOf(t, kart.pos, kart.path);
+      const ahead = routeAhead(t, pr, -1, 10);
+      const want = Math.atan2(ahead.pos.x - kart.pos.x, ahead.pos.z - kart.pos.z);
+      const diff = Math.atan2(Math.sin(want - kart.heading), Math.cos(want - kart.heading));
+      const steer = Math.max(-1, Math.min(1, -diff * 3.5));
+
+      const res = stepKart(kart, { throttle: 1, steer, drift: false }, DT, step * DT, t);
+      kart = res.state;
+      if (kart.air) tookAir = true;
+      if (res.fell) {
+        fell = true;
+        break;
+      }
+      if (pr.s > ramp.gap!.sTo + 8) {
+        reachedOtherSide = true;
+        break;
+      }
+    }
+    expect(tookAir).toBe(true);
+    expect(fell).toBe(false);
+    expect(reachedOtherSide).toBe(true);
+  });
+});

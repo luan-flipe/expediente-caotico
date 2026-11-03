@@ -276,6 +276,7 @@ export function stepRace(race: RaceMatch, dtMs: number): void {
         race.events.push({ type: "stunt", id: r.id });
         race.events.push({ type: "boost", id: r.id, level: "stunt" });
       }
+      if (res.padBoost) race.events.push({ type: "boost", id: r.id, level: 1 });
       if (res.boost) race.events.push({ type: "boost", id: r.id, level: res.boost });
       if (res.wall && Math.abs(r.kart.speed) > 4) {
         race.events.push({ type: "wall", id: r.id });

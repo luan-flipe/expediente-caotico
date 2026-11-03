@@ -69,6 +69,13 @@ const ROOM_FLOOR: Record<string, string> = {
   Moinho: "#4c463f",
   Caramanchão: "#463e4c",
   Bosque: "#3d4b42",
+  "Largada do Cânion": "#d29b68",
+  "Oásis do Sertão": "#387d70",
+  "Dunas Escaldantes": "#dfaa6b",
+  "Maciço Rochoso": "#8b6852",
+  "Túnel da Caverna": "#4a382c",
+  "Salto do Abismo": "#a65d38",
+  "Vilarejo de Adobe": "#b8774e",
 };
 const ROOM_WALL: Record<string, string> = {
   Recepção: "#fff5ea",
@@ -94,6 +101,13 @@ const ROOM_WALL: Record<string, string> = {
   Moinho: "#27ae60",
   Caramanchão: "#27ae60",
   Bosque: "#27ae60",
+  "Largada do Cânion": "#f0dfcc",
+  "Oásis do Sertão": "#d8ece6",
+  "Dunas Escaldantes": "#f7ebd8",
+  "Maciço Rochoso": "#d9c8bd",
+  "Túnel da Caverna": "#826c5f",
+  "Salto do Abismo": "#edd4c7",
+  "Vilarejo de Adobe": "#f3dfd1",
 };
 
 function roomAt(track: Track, s: number): string {
@@ -114,7 +128,7 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: numb
 }
 
 /** Placa de sinalização: subtítulo pequeno e o nome do ambiente em destaque. */
-function textSprite(text: string, textures: THREE.Texture[], subtitle = "Setor corporativo"): THREE.Sprite {
+function textSprite(text: string, textures: THREE.Texture[], subtitle = "Setor corporativo", isDeserto = false): THREE.Sprite {
   if (typeof document === "undefined") {
     const data = new Uint8Array([255, 255, 255, 255]);
     const map = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
@@ -127,11 +141,11 @@ function textSprite(text: string, textures: THREE.Texture[], subtitle = "Setor c
   c.width = 512;
   c.height = 160;
   const g = c.getContext("2d")!;
-  g.fillStyle = "#1e2430";
+  g.fillStyle = isDeserto ? "#3e2718" : "#1e2430";
   g.fillRect(0, 0, 512, 160);
-  g.fillStyle = "#ffd23f";
+  g.fillStyle = isDeserto ? "#d9a566" : "#ffd23f";
   g.fillRect(8, 8, 496, 144);
-  g.fillStyle = "#1e2430";
+  g.fillStyle = isDeserto ? "#3e2718" : "#1e2430";
   g.textAlign = "center";
   g.font = "800 24px 'Bricolage Grotesque', sans-serif";
   g.fillText(subtitle.toUpperCase(), 256, 42);
@@ -287,6 +301,156 @@ function curbTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
     textures,
   );
   t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/** Asfalto rústico avermelhado/arenoso com marcas de desgaste e poeira do deserto. */
+function desertRoadTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    512,
+    512,
+    (g) => {
+      g.fillStyle = "#4a3a32";
+      g.fillRect(0, 0, 512, 512);
+
+      // Granulação de cascalho e areia
+      for (let i = 0; i < 2000; i++) {
+        const a = Math.random() * 0.12 + 0.03;
+        const roll = Math.random();
+        if (roll < 0.4) {
+          g.fillStyle = `rgba(217, 165, 102, ${a * 1.5})`;
+        } else if (roll < 0.7) {
+          g.fillStyle = `rgba(139, 87, 56, ${a * 1.8})`;
+        } else {
+          g.fillStyle = `rgba(20, 15, 12, ${a * 2})`;
+        }
+        g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+      }
+
+      // Faixas de borracha queimada no traçado
+      const rubber = g.createLinearGradient(0, 0, 0, 512);
+      for (const [at, a] of [
+        [0, 0],
+        [0.18, 0.22],
+        [0.35, 0.06],
+        [0.5, 0.14],
+        [0.65, 0.06],
+        [0.82, 0.22],
+        [1, 0],
+      ]) {
+        rubber.addColorStop(at, `rgba(25, 18, 14, ${a})`);
+      }
+      g.fillStyle = rubber;
+      g.fillRect(0, 0, 512, 512);
+
+      // Névoa e rastros suaves de areia varrida pelo vento
+      for (let y = 30; y < 512; y += 70) {
+        g.fillStyle = "rgba(226, 180, 122, 0.07)";
+        g.fillRect(0, y, 512, 14);
+      }
+    },
+    textures,
+  );
+}
+
+/** Zebras de concreto desgastado pelo sol e areia do deserto. */
+function desertCurbTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  const t = canvasTexture(
+    256,
+    64,
+    (g) => {
+      // Concreto envelhecido
+      g.fillStyle = "#dfd5c4";
+      g.fillRect(0, 0, 256, 64);
+      // Blocos desgastados avermelhados pelo sol
+      g.fillStyle = "#a64938";
+      g.fillRect(0, 0, 128, 64);
+
+      // Poeira e desgaste
+      for (const x of [0, 128]) {
+        g.fillStyle = "rgba(45, 30, 20, 0.35)";
+        g.fillRect(x, 0, 4, 64);
+        g.fillStyle = "rgba(255, 240, 220, 0.4)";
+        g.fillRect(x + 4, 0, 3, 64);
+      }
+      // Marcas de poeira e borracha na borda
+      g.fillStyle = "#634735";
+      g.fillRect(0, 56, 256, 8);
+
+      // Granulado de erosão
+      for (let i = 0; i < 400; i++) {
+        const a = Math.random() * 0.15 + 0.03;
+        g.fillStyle = `rgba(70, 45, 25, ${a})`;
+        g.fillRect(Math.random() * 256, Math.random() * 64, 2, 2);
+      }
+    },
+    textures,
+  );
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/** Terreno arenoso em tons quentes de dunas (#d9a566 / #e2b47a com acabamento áspero). */
+function desertSandTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  const t = canvasTexture(
+    512,
+    512,
+    (g) => {
+      g.fillStyle = "#d9a566";
+      g.fillRect(0, 0, 512, 512);
+
+      // Ondulações de dunas de areia
+      for (let y = 0; y < 512; y += 32) {
+        g.fillStyle = y % 64 === 0 ? "#e2b47a" : "#ce9a5b";
+        g.beginPath();
+        g.moveTo(0, y);
+        for (let x = 0; x <= 512; x += 32) {
+          const cy = y + Math.sin((x / 512) * Math.PI * 4) * 8;
+          g.lineTo(x, cy);
+        }
+        g.lineTo(512, y + 20);
+        g.lineTo(0, y + 20);
+        g.closePath();
+        g.fill();
+      }
+
+      // Granulado de areia áspera
+      for (let i = 0; i < 2500; i++) {
+        const a = Math.random() * 0.09 + 0.02;
+        g.fillStyle = Math.random() > 0.5 ? `rgba(255, 235, 200, ${a})` : `rgba(138, 92, 50, ${a * 1.5})`;
+        g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+      }
+    },
+    textures,
+  );
+  t.repeat.set(0.15, 0.15);
+  return t;
+}
+
+/** Moldura listrada de perigo (amarelo e preto). */
+function hazardStripeTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  const t = canvasTexture(
+    128,
+    128,
+    (g) => {
+      g.fillStyle = "#ffd23f";
+      g.fillRect(0, 0, 128, 128);
+      g.fillStyle = "#181818";
+      const w = 24;
+      for (let i = -128; i < 256; i += w * 2) {
+        g.beginPath();
+        g.moveTo(i, 0);
+        g.lineTo(i + w, 0);
+        g.lineTo(i + w + 128, 128);
+        g.lineTo(i + 128, 128);
+        g.closePath();
+        g.fill();
+      }
+    },
+    textures,
+  );
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
   return t;
 }
 
@@ -939,13 +1103,89 @@ function buildRampGlb(track: Track, r: Ramp, template: THREE.Group): THREE.Group
   return clone;
 }
 
-/** Vão: buraco no piso com paredes de concreto descendo até o subsolo, 3 m abaixo. */
+/** Vão: buraco no piso com paredes descendo até o subsolo (estacionamento) ou cânion escarpado com lama (deserto). */
 function gapPit(track: Track, r: Ramp): { group: THREE.Group; outline: Vec2[] } {
   const gap = r.gap!;
   const e = edgesBetween(track, r.path, gap.sFrom, gap.sTo, 0.5);
   const outline = [...e.plus, ...[...e.minus].reverse()];
   const group = new THREE.Group();
-  const depth = 3;
+  const isDeserto = track.id === "deserto";
+  const depth = isDeserto ? 6.5 : 3;
+
+  if (isDeserto) {
+    // Paredes de penhasco rochoso escarpado descendo até o fundo do cânion
+    const cliffMat = new THREE.MeshStandardMaterial({
+      color: "#6b4530",
+      roughness: 0.95,
+      flatShading: true,
+      side: THREE.DoubleSide,
+    });
+    const cliffPos: number[] = [];
+    const count = outline.length;
+    const bottomY = -depth;
+
+    for (let i = 0; i < count; i++) {
+      const a = outline[i];
+      const b = outline[(i + 1) % count];
+      const prA = progressOf(track, a);
+      const prB = progressOf(track, b);
+      const topYA = heightAt(track, prA.s);
+      const topYB = heightAt(track, prB.s);
+
+      cliffPos.push(
+        a.x, topYA, a.z,
+        b.x, topYB, b.z,
+        b.x, bottomY, b.z,
+
+        a.x, topYA, a.z,
+        b.x, bottomY, b.z,
+        a.x, bottomY, a.z,
+      );
+    }
+    const cliffGeo = new THREE.BufferGeometry();
+    cliffGeo.setAttribute("position", new THREE.Float32BufferAttribute(cliffPos, 3));
+    cliffGeo.computeVertexNormals();
+    group.add(new THREE.Mesh(cliffGeo, cliffMat));
+
+    // Poço de lama viscosa escura no fundo (#3d2817, roughness 0.2, levemente reflexivo)
+    const mudMat = new THREE.MeshStandardMaterial({
+      color: "#3d2817",
+      roughness: 0.2,
+      metalness: 0.15,
+    });
+    const mudFloor = new THREE.Mesh(ribbon(e.plus, e.minus, bottomY, null, false), mudMat);
+    group.add(mudFloor);
+
+    // Bolhas e ondulações viscosas
+    const bubbleMat = new THREE.MeshStandardMaterial({
+      color: "#2a1b10",
+      roughness: 0.15,
+      metalness: 0.2,
+    });
+    for (let k = 1; k < e.at.length - 1; k += 2) {
+      const at = e.at[k];
+      const bubble = mesh(new THREE.SphereGeometry(0.65 + (k % 3) * 0.2, 8, 6), bubbleMat, at.pos.x + ((k % 2) - 0.5) * 2, bottomY + 0.12, at.pos.z);
+      bubble.scale.set(1.4, 0.25, 1.4);
+      group.add(bubble);
+    }
+
+    // Estacas e avisos de madeira rústica na beira do abismo
+    const woodPostMat = new THREE.MeshStandardMaterial({ color: "#422818", roughness: 0.9 });
+    const warnMat = new THREE.MeshStandardMaterial({ color: "#d97724", roughness: 0.7 });
+    for (const side of [e.plus, e.minus]) {
+      for (let i = 0; i < side.length; i += 3) {
+        const p = side[i];
+        const pr = progressOf(track, p);
+        const py = heightAt(track, pr.s);
+        const post = mesh(new THREE.CylinderGeometry(0.12, 0.14, 1.2, 8), woodPostMat, p.x, py + 0.6, p.z);
+        group.add(post);
+        const sign = mesh(new THREE.BoxGeometry(0.8, 0.25, 0.06), warnMat, p.x, py + 0.9, p.z, Math.atan2(p.x, p.z));
+        group.add(sign);
+      }
+    }
+    return { group, outline };
+  }
+
   const wallMat = new THREE.MeshStandardMaterial({ color: "#4a4b4f", roughness: 1, side: THREE.DoubleSide });
   const pos: number[] = [];
   for (let i = 0; i < outline.length; i++) {
@@ -975,6 +1215,577 @@ function gapPit(track: Track, r: Ramp): { group: THREE.Group; outline: Vec2[] } 
   return { group, outline };
 }
 
+/** Placa de Dash (Boost Pad) de aço com moldura listrada de perigo e chevrons fluorescentes. */
+function buildBoostPad(track: Track, s: number, textures: THREE.Texture[]): THREE.Group {
+  const at = pointAt(track, s);
+  const y = heightAt(track, s);
+  const heading = at.heading;
+  const padW = Math.max(5.5, Math.min(8.0, at.halfWidth * 1.1));
+  const padLen = 4.2;
+  const group = new THREE.Group();
+  group.position.set(at.pos.x, y + 0.025, at.pos.z);
+  group.rotation.y = heading;
+
+  // 1. Chapa de base de aço/ferrugem
+  const baseMat = new THREE.MeshStandardMaterial({
+    color: "#524339",
+    roughness: 0.65,
+    metalness: 0.55,
+  });
+  const baseMesh = mesh(new THREE.BoxGeometry(padW, 0.03, padLen), baseMat, 0, 0.015, 0);
+  baseMesh.receiveShadow = true;
+  group.add(baseMesh);
+
+  // 2. Moldura listrada de perigo (amarelo/preto)
+  const stripeTex = hazardStripeTexture(textures);
+  const frameMat = new THREE.MeshStandardMaterial({
+    map: stripeTex,
+    roughness: 0.5,
+    metalness: 0.2,
+  });
+  const borderThick = 0.28;
+  const h = 0.04;
+  const sideGeo = new THREE.BoxGeometry(borderThick, h, padLen);
+  group.add(mesh(sideGeo, frameMat, -padW / 2 + borderThick / 2, h / 2, 0));
+  group.add(mesh(sideGeo, frameMat, padW / 2 - borderThick / 2, h / 2, 0));
+  const endGeo = new THREE.BoxGeometry(padW, h, borderThick);
+  group.add(mesh(endGeo, frameMat, 0, h / 2, -padLen / 2 + borderThick / 2));
+  group.add(mesh(endGeo, frameMat, 0, h / 2, padLen / 2 - borderThick / 2));
+
+  // 3. Chevrons / setas fluorescentes em relevo que brilham com emissive verde/laranja
+  const chevronGreenMat = new THREE.MeshStandardMaterial({
+    color: "#39ff4a",
+    emissive: "#39ff4a",
+    emissiveIntensity: 1.6,
+    roughness: 0.25,
+    metalness: 0.1,
+  });
+  const chevronOrangeMat = new THREE.MeshStandardMaterial({
+    color: "#ff4a1f",
+    emissive: "#ff4a1f",
+    emissiveIntensity: 1.6,
+    roughness: 0.25,
+    metalness: 0.1,
+  });
+
+  const numChevrons = 3;
+  const zStep = (padLen * 0.6) / numChevrons;
+  const arrowW = (padW - borderThick * 2) * 0.72;
+  const armLen = arrowW * 0.58;
+  const armThickness = 0.32;
+  const armH = 0.055;
+  const chevronArmGeo = new THREE.BoxGeometry(armThickness, armH, armLen);
+
+  for (let c = 0; c < numChevrons; c++) {
+    const cz = -padLen * 0.3 + c * zStep;
+    const isOrange = c === 1;
+    const mat = isOrange ? chevronOrangeMat : chevronGreenMat;
+    const angle = 0.6;
+    const halfSpan = (armLen * Math.sin(angle)) / 2;
+
+    const leftArm = mesh(chevronArmGeo, mat, -halfSpan, 0.03 + armH / 2, cz, angle);
+    const rightArm = mesh(chevronArmGeo, mat, halfSpan, 0.03 + armH / 2, cz, -angle);
+    group.add(leftArm);
+    group.add(rightArm);
+  }
+
+  return group;
+}
+
+/** Arco/abóbada de rochas escuras cobrindo a pista como uma caverna natural escavada no maciço rochoso. */
+function buildCaveTunnel(track: Track): THREE.Group {
+  const group = new THREE.Group();
+  const sStart = track.ctrlS[22] ?? 0;
+  const sEnd = track.ctrlS[26] ?? sStart + 40;
+  const step = 1.4;
+  const numSteps = Math.max(2, Math.ceil((sEnd - sStart) / step));
+
+  const rockMat = new THREE.MeshStandardMaterial({
+    color: "#3a2b22",
+    roughness: 0.95,
+    flatShading: true,
+    side: THREE.DoubleSide,
+  });
+
+  const numRadial = 10;
+  const positions: number[] = [];
+  const rings: THREE.Vector3[][] = [];
+
+  for (let i = 0; i <= numSteps; i++) {
+    const s = sStart + ((sEnd - sStart) * i) / numSteps;
+    const at = pointAt(track, s);
+    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    const baseY = heightAt(track, s);
+    const hw = at.halfWidth + 0.8;
+    const ring: THREE.Vector3[] = [];
+
+    for (let j = 0; j <= numRadial; j++) {
+      const theta = (j / numRadial) * Math.PI;
+      const u = Math.cos(theta);
+      const v = Math.sin(theta);
+      const noise = Math.sin(s * 1.3 + j * 2.1) * 0.35 + Math.cos(s * 0.8 + j * 1.7) * 0.25;
+      const rx = hw + 0.4 + noise;
+      const ry = 6.2 + noise * 1.2;
+
+      const px = at.pos.x - nrm.x * u * rx;
+      const pz = at.pos.z - nrm.z * u * rx;
+      const py = baseY + Math.max(-0.2, v * ry);
+
+      ring.push(new THREE.Vector3(px, py, pz));
+    }
+    rings.push(ring);
+  }
+
+  for (let i = 0; i < numSteps; i++) {
+    const r0 = rings[i];
+    const r1 = rings[i + 1];
+    for (let j = 0; j < numRadial; j++) {
+      const p00 = r0[j];
+      const p01 = r0[j + 1];
+      const p10 = r1[j];
+      const p11 = r1[j + 1];
+
+      positions.push(
+        p00.x, p00.y, p00.z,
+        p10.x, p10.y, p10.z,
+        p11.x, p11.y, p11.z,
+
+        p00.x, p00.y, p00.z,
+        p11.x, p11.y, p11.z,
+        p01.x, p01.y, p01.z,
+      );
+    }
+  }
+
+  const caveGeo = new THREE.BufferGeometry();
+  caveGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  caveGeo.computeVertexNormals();
+  group.add(new THREE.Mesh(caveGeo, rockMat));
+
+  // Pilares rochosos nos portais da caverna
+  const boulderMat = new THREE.MeshStandardMaterial({ color: "#48362c", roughness: 0.95, flatShading: true });
+  for (const s of [sStart, sEnd]) {
+    const at = pointAt(track, s);
+    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    const by = heightAt(track, s);
+    for (const side of [-1, 1]) {
+      const bx = at.pos.x + nrm.x * (at.halfWidth + 2.2) * side;
+      const bz = at.pos.z + nrm.z * (at.halfWidth + 2.2) * side;
+      const pillar = mesh(new THREE.DodecahedronGeometry(2.4, 1), boulderMat, bx, by + 2.2, bz);
+      pillar.scale.set(1.1, 2.0, 1.2);
+      group.add(pillar);
+    }
+    const topPillar = mesh(new THREE.DodecahedronGeometry(2.2, 1), boulderMat, at.pos.x, by + 6.8, at.pos.z);
+    topPillar.scale.set(at.halfWidth * 0.9, 0.8, 1.4);
+    group.add(topPillar);
+  }
+
+  // Estalactites e lanternas nas paredes
+  const stalactiteGeo = new THREE.ConeGeometry(0.4, 2.2, 6);
+  const lanternMat = new THREE.MeshStandardMaterial({
+    color: "#ffaa33",
+    emissive: "#ff8800",
+    emissiveIntensity: 1.8,
+  });
+  for (let s = sStart + 3; s < sEnd - 2; s += 6) {
+    const at = pointAt(track, s);
+    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    const by = heightAt(track, s);
+
+    const stX = at.pos.x + ((s % 3) - 1) * 1.8;
+    const stZ = at.pos.z + ((s % 2) - 0.5) * 1.2;
+    const st = mesh(stalactiteGeo, rockMat, stX, by + 5.6, stZ);
+    st.rotation.x = Math.PI;
+    group.add(st);
+
+    for (const side of [-1, 1]) {
+      const lx = at.pos.x + nrm.x * (at.halfWidth + 0.4) * side;
+      const lz = at.pos.z + nrm.z * (at.halfWidth + 0.4) * side;
+      const torch = mesh(new THREE.CylinderGeometry(0.1, 0.08, 0.35, 6), lanternMat, lx, by + 2.2, lz);
+      group.add(torch);
+    }
+  }
+
+  return group;
+}
+
+function safeMerge(geos: THREE.BufferGeometry[]): THREE.BufferGeometry | null {
+  if (geos.length === 0) return null;
+  const prepared = geos.map((g) => {
+    const nonIdx = g.index ? g.toNonIndexed() : g.clone();
+    if (!nonIdx.getAttribute("normal")) nonIdx.computeVertexNormals();
+    if (!nonIdx.getAttribute("uv")) {
+      const posCount = nonIdx.getAttribute("position").count;
+      nonIdx.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(posCount * 2), 2));
+    }
+    return nonIdx;
+  });
+  const res = mergeGeometries(prepared, false);
+  prepared.forEach((g) => g.dispose());
+  return res;
+}
+
+/** Cactos Saguaro, cactos bola espinhosos e tufos de capim seco (BufferGeometry combinada). */
+function buildDesertVegetation(track: Track): THREE.Group {
+  const group = new THREE.Group();
+  const saguaroGeos: THREE.BufferGeometry[] = [];
+  const barrelGeos: THREE.BufferGeometry[] = [];
+  const grassGeos: THREE.BufferGeometry[] = [];
+
+  const free = (p: Vec2, r: number) => {
+    const pr = progressOf(track, p);
+    return pr.dist > pr.halfWidth + r + 0.6;
+  };
+
+  const sCaveStart = track.ctrlS[22] ?? -1;
+  const sCaveEnd = track.ctrlS[26] ?? -1;
+  const mainGap = track.ramps.find((r) => r.path === -1 && r.gap)?.gap;
+
+  const inCaveOrGap = (s: number) => {
+    if (s >= sCaveStart && s <= sCaveEnd) return true;
+    if (mainGap && s >= mainGap.sFrom - 4 && s <= mainGap.sTo + 4) return true;
+    return false;
+  };
+
+  for (let s = 8; s < track.length - 8; s += 7.5) {
+    if (inCaveOrGap(s)) continue;
+    const at = pointAt(track, s);
+    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    const baseY = heightAt(track, s);
+
+    for (const side of [-1, 1]) {
+      const distOff = at.halfWidth + 2.2 + ((s * 7) % 5);
+      const px = at.pos.x + nrm.x * distOff * side;
+      const pz = at.pos.z + nrm.z * distOff * side;
+      if (!free({ x: px, z: pz }, 1.2)) continue;
+
+      const type = (Math.floor(s * 1.3) + (side > 0 ? 1 : 0)) % 4;
+
+      if (type === 0 || type === 2) {
+        // Cacto Saguaro com braços verticais
+        const trunkH = 3.6 + ((s * 3) % 4) * 0.4;
+        const trunkGeo = new THREE.CylinderGeometry(0.28, 0.32, trunkH, 8);
+        trunkGeo.translate(px, baseY + trunkH / 2, pz);
+        saguaroGeos.push(trunkGeo);
+
+        const armH1 = trunkH * 0.55;
+        const armHBar1 = new THREE.CylinderGeometry(0.18, 0.18, 0.9, 8);
+        armHBar1.rotateZ(Math.PI / 2);
+        armHBar1.rotateY(at.heading);
+        armHBar1.translate(px + nrm.x * 0.55 * side, baseY + armH1, pz + nrm.z * 0.55 * side);
+        saguaroGeos.push(armHBar1);
+
+        const armVBar1 = new THREE.CylinderGeometry(0.18, 0.2, 1.8, 8);
+        armVBar1.translate(px + nrm.x * 0.95 * side, baseY + armH1 + 0.85, pz + nrm.z * 0.95 * side);
+        saguaroGeos.push(armVBar1);
+
+        if (trunkH > 4.2) {
+          const armH2 = trunkH * 0.4;
+          const armHBar2 = new THREE.CylinderGeometry(0.16, 0.16, 0.8, 8);
+          armHBar2.rotateZ(-Math.PI / 2);
+          armHBar2.rotateY(at.heading);
+          armHBar2.translate(px - nrm.x * 0.5 * side, baseY + armH2, pz - nrm.z * 0.5 * side);
+          saguaroGeos.push(armHBar2);
+
+          const armVBar2 = new THREE.CylinderGeometry(0.16, 0.18, 1.4, 8);
+          armVBar2.translate(px - nrm.x * 0.85 * side, baseY + armH2 + 0.65, pz - nrm.z * 0.85 * side);
+          saguaroGeos.push(armVBar2);
+        }
+      } else if (type === 1) {
+        // Cacto bola espinhoso
+        const bRad = 0.55 + ((s * 2) % 3) * 0.12;
+        const barrelGeo = new THREE.SphereGeometry(bRad, 8, 6);
+        barrelGeo.scale(1, 0.8, 1);
+        barrelGeo.translate(px, baseY + bRad * 0.8, pz);
+        barrelGeos.push(barrelGeo);
+
+        const rockGeo = new THREE.DodecahedronGeometry(0.45, 0);
+        rockGeo.translate(px + 0.6 * side, baseY + 0.35, pz + 0.3);
+        barrelGeos.push(rockGeo);
+      } else {
+        // Tufos de capim seco
+        for (let g = 0; g < 3; g++) {
+          const gx = px + (g - 1) * 0.45;
+          const gz = pz + ((g % 2) - 0.5) * 0.4;
+          const grassGeo = new THREE.ConeGeometry(0.35, 0.7, 5);
+          grassGeo.translate(gx, baseY + 0.35, gz);
+          grassGeos.push(grassGeo);
+        }
+      }
+    }
+  }
+
+  if (saguaroGeos.length > 0) {
+    const mergedSaguaro = safeMerge(saguaroGeos);
+    if (mergedSaguaro) {
+      const saguaroMat = new THREE.MeshStandardMaterial({
+        color: "#2f6b36",
+        roughness: 0.85,
+        flatShading: true,
+      });
+      const saguaroMesh = new THREE.Mesh(mergedSaguaro, saguaroMat);
+      saguaroMesh.castShadow = true;
+      saguaroMesh.receiveShadow = true;
+      group.add(saguaroMesh);
+    }
+  }
+
+  if (barrelGeos.length > 0) {
+    const mergedBarrel = safeMerge(barrelGeos);
+    if (mergedBarrel) {
+      const barrelMat = new THREE.MeshStandardMaterial({
+        color: "#467d3b",
+        roughness: 0.85,
+        flatShading: true,
+      });
+      const barrelMesh = new THREE.Mesh(mergedBarrel, barrelMat);
+      barrelMesh.castShadow = true;
+      barrelMesh.receiveShadow = true;
+      group.add(barrelMesh);
+    }
+  }
+
+  if (grassGeos.length > 0) {
+    const mergedGrass = safeMerge(grassGeos);
+    if (mergedGrass) {
+      const grassMat = new THREE.MeshStandardMaterial({
+        color: "#c2a366",
+        roughness: 0.95,
+        flatShading: true,
+      });
+      const grassMesh = new THREE.Mesh(mergedGrass, grassMat);
+      grassMesh.castShadow = false;
+      grassMesh.receiveShadow = true;
+      group.add(grassMesh);
+    }
+  }
+
+  return group;
+}
+
+/** Palmeiras e espelho d'água perto do Oásis do Sertão. */
+function buildOasis(track: Track): THREE.Group {
+  const group = new THREE.Group();
+  const sOasis = track.ctrlS[4] ?? 40;
+  const at = pointAt(track, sOasis);
+  const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+  const baseY = heightAt(track, sOasis);
+
+  const poolCenter = {
+    x: at.pos.x + nrm.x * 20,
+    z: at.pos.z + nrm.z * 20,
+  };
+
+  const poolMat = new THREE.MeshStandardMaterial({
+    color: "#26a69a",
+    roughness: 0.1,
+    metalness: 0.35,
+    transparent: true,
+    opacity: 0.85,
+  });
+  const waterMesh = mesh(new THREE.CircleGeometry(11, 24), poolMat, poolCenter.x, baseY + 0.08, poolCenter.z);
+  waterMesh.rotation.x = -Math.PI / 2;
+  waterMesh.receiveShadow = true;
+  group.add(waterMesh);
+
+  const oasisGrassMat = new THREE.MeshStandardMaterial({ color: "#3d9154", roughness: 0.85 });
+  const oasisRing = mesh(new THREE.RingGeometry(10.5, 13.5, 24), oasisGrassMat, poolCenter.x, baseY + 0.06, poolCenter.z);
+  oasisRing.rotation.x = -Math.PI / 2;
+  oasisRing.receiveShadow = true;
+  group.add(oasisRing);
+
+  const trunkMat = new THREE.MeshStandardMaterial({ color: "#6d472c", roughness: 0.85 });
+  const leafMat = new THREE.MeshStandardMaterial({ color: "#2d7d32", roughness: 0.6, flatShading: true });
+
+  const numPalms = 8;
+  for (let p = 0; p < numPalms; p++) {
+    const angle = (p / numPalms) * Math.PI * 2;
+    const r = 12 + (p % 3) * 1.5;
+    const px = poolCenter.x + Math.cos(angle) * r;
+    const pz = poolCenter.z + Math.sin(angle) * r;
+    const palmH = 6.5 + (p % 3) * 1.2;
+
+    const palm = new THREE.Group();
+    palm.position.set(px, baseY, pz);
+    const trunkSegs = 4;
+    for (let s = 0; s < trunkSegs; s++) {
+      const segH = palmH / trunkSegs;
+      const seg = mesh(new THREE.CylinderGeometry(0.24 - s * 0.03, 0.28 - s * 0.03, segH, 8), trunkMat, Math.sin(s * 0.3) * 0.3, s * segH + segH / 2, Math.cos(s * 0.3) * 0.3);
+      palm.add(seg);
+    }
+
+    const crownY = palmH;
+    const numLeaves = 7;
+    for (let l = 0; l < numLeaves; l++) {
+      const la = (l / numLeaves) * Math.PI * 2;
+      const leafGeo = new THREE.BoxGeometry(0.35, 0.08, 3.2);
+      const leaf = mesh(leafGeo, leafMat, Math.cos(la) * 1.2, crownY - 0.4, Math.sin(la) * 1.2, -la);
+      leaf.rotation.x = 0.45;
+      palm.add(leaf);
+    }
+    group.add(palm);
+  }
+
+  return group;
+}
+
+/** Casinhas rústicas de adobe com vigas de madeira no setor "Vilarejo de Adobe". */
+function buildAdobeVillage(track: Track): THREE.Group {
+  const group = new THREE.Group();
+  const adobeMat = new THREE.MeshStandardMaterial({
+    color: "#ba7850",
+    roughness: 0.92,
+  });
+  const beamMat = new THREE.MeshStandardMaterial({
+    color: "#3e2716",
+    roughness: 0.85,
+  });
+  const darkDoorMat = new THREE.MeshStandardMaterial({
+    color: "#22140c",
+    roughness: 0.9,
+  });
+  const potMat = new THREE.MeshStandardMaterial({
+    color: "#9c4a2a",
+    roughness: 0.8,
+  });
+
+  const villageCtrls = [33, 34, 35, 36];
+  for (const ctrlIdx of villageCtrls) {
+    const s = track.ctrlS[ctrlIdx];
+    if (s === undefined) continue;
+    const at = pointAt(track, s);
+    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    const baseY = heightAt(track, s);
+
+    for (const side of [-1, 1]) {
+      const dist = at.halfWidth + 4.5 + ((ctrlIdx * 5) % 3);
+      const hx = at.pos.x + nrm.x * dist * side;
+      const hz = at.pos.z + nrm.z * dist * side;
+
+      const house = new THREE.Group();
+      house.position.set(hx, baseY, hz);
+      house.rotation.y = at.heading + (side > 0 ? -Math.PI / 2 : Math.PI / 2);
+
+      const w = 4.4 + (ctrlIdx % 2) * 1.0;
+      const h = 3.2 + (ctrlIdx % 3) * 0.4;
+      const d = 4.2;
+
+      const body = mesh(new THREE.BoxGeometry(w, h, d), adobeMat, 0, h / 2, 0);
+      house.add(body);
+
+      // Vigas de madeira salientes no topo da parede
+      const numBeams = 5;
+      for (let b = 0; b < numBeams; b++) {
+        const bx = -w / 2 + 0.6 + (b * (w - 1.2)) / (numBeams - 1);
+        const beam = mesh(new THREE.CylinderGeometry(0.12, 0.12, d + 0.9, 8), beamMat, bx, h - 0.25, 0);
+        beam.rotation.x = Math.PI / 2;
+        house.add(beam);
+      }
+
+      // Porta rústica e janelas
+      const doorH = 2.0;
+      const doorW = 0.95;
+      const door = mesh(new THREE.BoxGeometry(doorW, doorH, 0.1), darkDoorMat, 0.4, doorH / 2, d / 2 + 0.02);
+      house.add(door);
+
+      for (const jx of [-1.2, 1.2]) {
+        const win = mesh(new THREE.BoxGeometry(0.65, 0.65, 0.1), darkDoorMat, jx, 1.9, d / 2 + 0.02);
+        house.add(win);
+      }
+
+      // Vasos de barro na frente
+      const pot1 = mesh(new THREE.CylinderGeometry(0.3, 0.18, 0.65, 8), potMat, -w / 2 - 0.4, 0.32, d / 2 + 0.3);
+      const pot2 = mesh(new THREE.CylinderGeometry(0.25, 0.15, 0.5, 8), potMat, -w / 2 - 0.9, 0.25, d / 2 + 0.2);
+      house.add(pot1);
+      house.add(pot2);
+
+      group.add(house);
+    }
+  }
+
+  return group;
+}
+
+/** Paredões rochosos do cânion e chapadas/dunas distantes no horizonte. */
+function buildDesertCliffsAndMesas(stat: THREE.Group, track: Track, _textures: THREE.Texture[]): void {
+  const rockMat = new THREE.MeshStandardMaterial({
+    color: "#8b5840",
+    roughness: 0.95,
+    flatShading: true,
+  });
+  const darkRockMat = new THREE.MeshStandardMaterial({
+    color: "#6b422e",
+    roughness: 0.95,
+    flatShading: true,
+  });
+
+  for (let s = 2; s < track.length; s += 8) {
+    const room = roomAt(track, s);
+    const isCanyonOrMacico = room === "Largada do Cânion" || room === "Maciço Rochoso" || room === "Salto do Abismo";
+    if (!isCanyonOrMacico) continue;
+
+    const at = pointAt(track, s);
+    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
+    const by = heightAt(track, s);
+
+    for (const side of [-1, 1]) {
+      const dist = at.halfWidth + 3.2 + ((s * 3) % 4);
+      const cx = at.pos.x + nrm.x * dist * side;
+      const cz = at.pos.z + nrm.z * dist * side;
+      const cliffH = 4.5 + ((s * 7) % 5) * 1.2;
+
+      const rock = mesh(new THREE.DodecahedronGeometry(2.6, 1), (s % 2 === 0 ? rockMat : darkRockMat), cx, by + cliffH / 2, cz);
+      rock.scale.set(1.4, cliffH / 2.6, 1.6);
+      stat.add(rock);
+    }
+  }
+
+  const xs = track.points.map((p) => p.x);
+  const zs = track.points.map((p) => p.z);
+  const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const midZ = (Math.min(...zs) + Math.max(...zs)) / 2;
+  const horizonR = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) / 2 + 55;
+
+  const mesaMat = new THREE.MeshStandardMaterial({
+    color: "#b07252",
+    roughness: 0.95,
+    flatShading: true,
+  });
+  const duneHorizonMat = new THREE.MeshStandardMaterial({
+    color: "#d9a566",
+    roughness: 0.95,
+  });
+
+  const count = 28;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const dist = horizonR + ((i % 5) * 12);
+    const mx = midX + Math.cos(angle) * dist;
+    const mz = midZ + Math.sin(angle) * dist;
+    const isMesa = i % 2 === 0;
+
+    if (isMesa) {
+      const mw = 28 + (i % 3) * 10;
+      const mh = 18 + (i % 4) * 8;
+      const mesa = mesh(new THREE.CylinderGeometry(mw * 0.75, mw, mh, 7), mesaMat, mx, mh / 2 - 2, mz, angle);
+      stat.add(mesa);
+    } else {
+      const dw = 35 + (i % 3) * 12;
+      const dh = 14 + (i % 4) * 6;
+      const dune = mesh(new THREE.ConeGeometry(dw, dh, 6), duneHorizonMat, mx, dh / 2 - 2, mz, angle);
+      stat.add(dune);
+    }
+  }
+}
+
+function decorateDeserto(scene: THREE.Scene, stat: THREE.Group, track: Track, textures: THREE.Texture[]): void {
+  scene.add(buildDesertVegetation(track));
+  scene.add(buildOasis(track));
+  scene.add(buildAdobeVillage(track));
+  scene.add(buildCaveTunnel(track));
+  buildDesertCliffsAndMesas(stat, track, textures);
+}
+
 /**
  * Monta a pista a partir do traçado (o mesmo da simulação do servidor).
  * Devolve a função que libera as texturas de canvas (placas e faixa de largada); geometrias e materiais saem com a cena.
@@ -984,26 +1795,56 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const n = track.points.length;
   // tudo que não se mexe e não tem textura própria entra aqui e é unido no fim
   const stat = new THREE.Group();
+  const parking = track.id === "estacionamento";
+  const isParque = track.id === "parque";
+  const isDeserto = track.id === "deserto";
+
+  // Iluminação e Névoa para o Deserto
+  if (isDeserto) {
+    scene.fog = new THREE.Fog("#e7cfa8", 50, 220);
+    if (scene.background instanceof THREE.Color) {
+      scene.background.set("#e7cfa8");
+    }
+    let hasDir = false;
+    scene.traverse((obj) => {
+      if (obj instanceof THREE.DirectionalLight) {
+        hasDir = true;
+        obj.color.set("#ffe2b8");
+      } else if (obj instanceof THREE.HemisphereLight) {
+        obj.color.set("#ffe2b8");
+        obj.groundColor.set("#d29b68");
+      }
+    });
+    if (!hasDir) {
+      const sun = new THREE.DirectionalLight("#ffe2b8", 1.8);
+      sun.position.set(45, 65, 30);
+      sun.castShadow = true;
+      scene.add(sun);
+      const hemi = new THREE.HemisphereLight("#ffe2b8", "#d29b68", 1.2);
+      scene.add(hemi);
+    }
+  }
+
   // chão em volta do traçado, com folga para a decoração
   const xs = track.points.map((p) => p.x);
   const zs = track.points.map((p) => p.z);
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
   const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
-  const gw = Math.max(...xs) - Math.min(...xs) + 50;
-  const gd = Math.max(...zs) - Math.min(...zs) + 50;
-  const parking = track.id === "estacionamento";
-  const isParque = track.id === "parque";
+  const gw = Math.max(...xs) - Math.min(...xs) + (isDeserto ? 80 : 50);
+  const gd = Math.max(...zs) - Math.min(...zs) + (isDeserto ? 80 : 50);
   // vãos das rampas viram buracos no chão (o piso em volta é recortado)
   const pits = track.ramps.filter((r) => r.gap).map((r) => gapPit(track, r));
   const groundShape = new THREE.Shape([new THREE.Vector2(-gw / 2, -gd / 2), new THREE.Vector2(gw / 2, -gd / 2), new THREE.Vector2(gw / 2, gd / 2), new THREE.Vector2(-gw / 2, gd / 2)]);
   // o plano deitado (rotation.x = -90 graus) leva o y local para -z do mundo
   for (const p of pits) groundShape.holes.push(new THREE.Path(p.outline.map((q) => new THREE.Vector2(q.x - cx, -(q.z - cz)))));
-  // escritório: carpete em placas; estacionamento: concreto com a grade de sempre; parque: gramado verdejante
-  const groundMat = isParque
-    ? new THREE.MeshStandardMaterial({ color: "#2d7a38", roughness: 0.9 })
-    : parking
-      ? new THREE.MeshStandardMaterial({ color: "#9a9c9f", roughness: 1 })
-      : new THREE.MeshStandardMaterial({ map: carpetTexture(textures), roughness: 0.85 });
+  // escritório: carpete em placas; estacionamento: concreto com a grade de sempre; parque: gramado verdejante; deserto: terreno arenoso
+  const groundMat = isDeserto
+    ? new THREE.MeshStandardMaterial({ color: "#d9a566", map: desertSandTexture(textures), roughness: 0.95 })
+    : isParque
+      ? new THREE.MeshStandardMaterial({ color: "#2d7a38", roughness: 0.9 })
+      : parking
+        ? new THREE.MeshStandardMaterial({ color: "#9a9c9f", roughness: 1 })
+        : new THREE.MeshStandardMaterial({ map: carpetTexture(textures), roughness: 0.85 });
   const ground = mesh(new THREE.ShapeGeometry(groundShape), groundMat, cx, -0.02, cz);
   ground.rotation.x = -Math.PI / 2;
   for (const p of pits) scene.add(p.group);
@@ -1050,17 +1891,28 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
 
   const edges = trackEdges(track);
   const colors = track.cum.map((s) => new THREE.Color(ROOM_FLOOR[roomAt(track, s)]));
-  // escritório: placas acetinadas tingidas pela cor do ambiente; estacionamento continua liso; parque: asfalto esportivo
-  const tiles = isParque ? parkRoadTexture(textures) : parking ? null : trackTexture(textures);
+  // escritório: placas acetinadas tingidas pela cor do ambiente; estacionamento continua liso; parque: asfalto esportivo; deserto: asfalto rústico
+  const tiles = isDeserto
+    ? desertRoadTexture(textures)
+    : isParque
+      ? parkRoadTexture(textures)
+      : parking
+        ? null
+        : trackTexture(textures);
   const floorMat = () => {
     if (tiles) {
-      const mat = new THREE.MeshStandardMaterial({ map: tiles, vertexColors: true, roughness: isParque ? 0.65 : 0.28, metalness: 0.05 });
-      if (!isParque) applyWaxedFloorSheen(mat, { sheenIntensity: 0.85, neonColor: "#e0f2fe" });
+      const mat = new THREE.MeshStandardMaterial({
+        map: tiles,
+        vertexColors: true,
+        roughness: isDeserto ? 0.92 : isParque ? 0.65 : 0.28,
+        metalness: 0.05,
+      });
+      if (!isParque && !isDeserto) applyWaxedFloorSheen(mat, { sheenIntensity: 0.85, neonColor: "#e0f2fe" });
       return mat;
     }
     return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
   };
-  // guia branca de 45 cm nas duas beiradas e sombra de contato no pé das paredes
+  // guia de 45 cm nas duas beiradas e sombra de contato no pé das paredes
   const curbW = 0.45;
   const innerPlus: Vec2[] = [];
   const innerMinus: Vec2[] = [];
@@ -1078,18 +1930,80 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     aoMinus.push(at(hw - 0.22, -1));
   }
   if (!isParque) {
-    const floor = new THREE.Mesh(ribbon(innerPlus, innerMinus, 0.01, colors, true), floorMat());
-    floor.receiveShadow = true;
-    scene.add(floor);
-    const curbMat = new THREE.MeshStandardMaterial({ map: curbTexture(textures), roughness: 0.42, metalness: 0.05 });
-    for (const [a, b] of [[edges.plus, innerPlus], [innerMinus, edges.minus]]) {
-      const curb = new THREE.Mesh(ribbon(a, b, 0.016, null, true, 0.5), curbMat);
-      curb.receiveShadow = true;
-      scene.add(curb);
+    const mainGap = track.ramps.find((r) => r.path === -1 && r.gap)?.gap;
+    const curbMat = new THREE.MeshStandardMaterial({
+      map: isDeserto ? desertCurbTexture(textures) : curbTexture(textures),
+      roughness: isDeserto ? 0.85 : 0.42,
+      metalness: 0.05,
+    });
+
+    if (mainGap) {
+      // Quando há vão na pista principal, o asfalto não cruza o abismo
+      const afterGap: number[] = [];
+      const beforeGap: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const s = track.cum[i];
+        if (s > mainGap.sTo) afterGap.push(i);
+        else if (s < mainGap.sFrom) beforeGap.push(i);
+      }
+      const order = [...afterGap, ...beforeGap];
+
+      const atTo = pointAt(track, mainGap.sTo);
+      const nrmTo = sideNormal(Math.sin(atTo.heading), Math.cos(atTo.heading));
+      const atFrom = pointAt(track, mainGap.sFrom);
+      const nrmFrom = sideNormal(Math.sin(atFrom.heading), Math.cos(atFrom.heading));
+
+      const inP = [
+        { x: atTo.pos.x + nrmTo.x * (atTo.halfWidth - curbW), z: atTo.pos.z + nrmTo.z * (atTo.halfWidth - curbW) },
+        ...order.map((i) => innerPlus[i]),
+        { x: atFrom.pos.x + nrmFrom.x * (atFrom.halfWidth - curbW), z: atFrom.pos.z + nrmFrom.z * (atFrom.halfWidth - curbW) },
+      ];
+      const inM = [
+        { x: atTo.pos.x - nrmTo.x * (atTo.halfWidth - curbW), z: atTo.pos.z - nrmTo.z * (atTo.halfWidth - curbW) },
+        ...order.map((i) => innerMinus[i]),
+        { x: atFrom.pos.x - nrmFrom.x * (atFrom.halfWidth - curbW), z: atFrom.pos.z - nrmFrom.z * (atFrom.halfWidth - curbW) },
+      ];
+      const sList = [mainGap.sTo, ...order.map((i) => track.cum[i]), mainGap.sFrom];
+      const cList = sList.map((s) => new THREE.Color(ROOM_FLOOR[roomAt(track, s)]));
+      const yFloor = sList.map((s) => heightAt(track, s) + 0.01);
+      const yCurb = sList.map((s) => heightAt(track, s) + 0.016);
+
+      const floor = new THREE.Mesh(ribbon(inP, inM, yFloor, cList, false), floorMat());
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      const edgeP = [
+        { x: atTo.pos.x + nrmTo.x * atTo.halfWidth, z: atTo.pos.z + nrmTo.z * atTo.halfWidth },
+        ...order.map((i) => edges.plus[i]),
+        { x: atFrom.pos.x + nrmFrom.x * atFrom.halfWidth, z: atFrom.pos.z + nrmFrom.z * atFrom.halfWidth },
+      ];
+      const edgeM = [
+        { x: atTo.pos.x - nrmTo.x * atTo.halfWidth, z: atTo.pos.z - nrmTo.z * atTo.halfWidth },
+        ...order.map((i) => edges.minus[i]),
+        { x: atFrom.pos.x - nrmFrom.x * atFrom.halfWidth, z: atFrom.pos.z - nrmFrom.z * atFrom.halfWidth },
+      ];
+
+      for (const [a, b] of [[edgeP, inP], [inM, edgeM]]) {
+        const curb = new THREE.Mesh(ribbon(a, b, yCurb, null, false, 0.5), curbMat);
+        curb.receiveShadow = true;
+        scene.add(curb);
+      }
+    } else {
+      const yFloor = track.heights ? track.cum.map((s) => heightAt(track, s) + 0.01) : 0.01;
+      const floor = new THREE.Mesh(ribbon(innerPlus, innerMinus, yFloor, colors, true), floorMat());
+      floor.receiveShadow = true;
+      scene.add(floor);
+      const yCurb = track.heights ? track.cum.map((s) => heightAt(track, s) + 0.016) : 0.016;
+      for (const [a, b] of [[edges.plus, innerPlus], [innerMinus, edges.minus]]) {
+        const curb = new THREE.Mesh(ribbon(a, b, yCurb, null, true, 0.5), curbMat);
+        curb.receiveShadow = true;
+        scene.add(curb);
+      }
+      const yAo = track.heights ? track.cum.map((s) => heightAt(track, s) + 0.018) : 0.018;
+      const aoMat = new THREE.MeshBasicMaterial({ color: "#0a0f18", transparent: true, opacity: 0.38, depthWrite: false });
+      scene.add(new THREE.Mesh(ribbon(edges.plus, aoPlus, yAo, null, true, 0.1), aoMat));
+      scene.add(new THREE.Mesh(ribbon(aoMinus, edges.minus, yAo, null, true, 0.1), aoMat));
     }
-    const aoMat = new THREE.MeshBasicMaterial({ color: "#0a0f18", transparent: true, opacity: 0.38, depthWrite: false });
-    scene.add(new THREE.Mesh(ribbon(edges.plus, aoPlus, 0.018, null, true, 0.1), aoMat));
-    scene.add(new THREE.Mesh(ribbon(aoMinus, edges.minus, 0.018, null, true, 0.1), aoMat));
   }
   // atalhos: piso um pouco acima da principal para não brigar com ela nas bocas
   track.branches.forEach((br, j) => {
@@ -1130,13 +2044,24 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     }
   });
 
+  // Placas de Dash (Boost Pads)
+  if (track.boostPads) {
+    for (const s of track.boostPads) {
+      scene.add(buildBoostPad(track, s, textures));
+    }
+  }
+
   if (!isParque) {
     // fita amarela tracejada no meio
-    const tape = new THREE.MeshStandardMaterial({ color: "#ffd23f", roughness: 0.45, metalness: 0.05 });
+    const mainGap = track.ramps.find((r) => r.path === -1 && r.gap)?.gap;
+    const tape = new THREE.MeshStandardMaterial({ color: isDeserto ? "#e6be44" : "#ffd23f", roughness: isDeserto ? 0.85 : 0.45, metalness: 0.05 });
     const tapeGeo = new THREE.BoxGeometry(0.24, 0.024, 1.9);
     for (let s = 4; s < track.length - 2; s += 4) {
+      const inGap = mainGap && s >= mainGap.sFrom && s <= mainGap.sTo;
+      if (inGap) continue;
       const at = pointAt(track, s);
-      const m = mesh(tapeGeo, tape, at.pos.x, 0.02, at.pos.z, at.heading);
+      const tapeY = heightAt(track, s) + 0.02;
+      const m = mesh(tapeGeo, tape, at.pos.x, tapeY, at.pos.z, at.heading);
       m.castShadow = false;
       stat.add(m);
     }
@@ -1157,10 +2082,10 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   }
 
   if (!isParque) {
-    // curvas fechadas: zebra vermelha e branca na beira e grama sintética atrás (a faixa lenta da simulação)
-    const kerbRed = new THREE.MeshStandardMaterial({ color: "#e74c3c", roughness: 0.5, metalness: 0.05 });
-    const kerbWhite = new THREE.MeshStandardMaterial({ color: "#f8f9fa", roughness: 0.5, metalness: 0.05 });
-    const grass = new THREE.MeshStandardMaterial({ color: "#27ae60", roughness: 0.85 });
+    // curvas fechadas: zebra e área de escape (grama sintética no escritório/parque, terra/areia no deserto)
+    const kerbRed = new THREE.MeshStandardMaterial({ color: isDeserto ? "#a64938" : "#e74c3c", roughness: isDeserto ? 0.85 : 0.5, metalness: 0.05 });
+    const kerbWhite = new THREE.MeshStandardMaterial({ color: isDeserto ? "#dfd5c4" : "#f8f9fa", roughness: isDeserto ? 0.85 : 0.5, metalness: 0.05 });
+    const grass = new THREE.MeshStandardMaterial({ color: isDeserto ? "#c29b68" : "#27ae60", roughness: isDeserto ? 0.95 : 0.85 });
     const kerbW = 0.65;
     const grassW = RACE.carpetWidth - kerbW;
     const step = 1.1;
@@ -1170,20 +2095,21 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
       let k = 0;
       for (let d = 0; d < len; d += step) {
         const at = pointAt(track, c.from + Math.min(len, d + step / 2));
+        const kpY = heightAt(track, c.from + Math.min(len, d + step / 2));
         const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
         const off = (r: number) => ({ x: at.pos.x + nrm.x * r * c.side, z: at.pos.z + nrm.z * r * c.side });
         const kp = off(at.halfWidth - kerbW / 2);
         const kerbHeading = at.heading + (c.side === 1 ? 0 : Math.PI);
-        stat.add(mesh(kerbGeo, k++ % 2 === 0 ? kerbRed : kerbWhite, kp.x, 0.038, kp.z, kerbHeading));
+        stat.add(mesh(kerbGeo, k++ % 2 === 0 ? kerbRed : kerbWhite, kp.x, kpY + 0.038, kp.z, kerbHeading));
         const gp = off(at.halfWidth - kerbW - grassW / 2);
-        const gm = mesh(new THREE.BoxGeometry(grassW, 0.032, step * 1.04), grass, gp.x, 0.028, gp.z, at.heading);
+        const gm = mesh(new THREE.BoxGeometry(grassW, 0.032, step * 1.04), grass, gp.x, kpY + 0.028, gp.z, at.heading);
         gm.castShadow = false;
         stat.add(gm);
       }
     }
   }
 
-  // paredes nas bordas: divisórias, vidro na sala de reunião, racks na TI
+  // paredes nas bordas: divisórias, vidro na sala de reunião, racks na TI (apenas indoor)
   const wallMats = new Map<string, THREE.Material>();
   const wallMat = (room: string) => {
     let m = wallMats.get(room);
@@ -1239,7 +2165,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     return pr.dist < pr.halfWidth - 0.15;
   };
   const inBranch = (p: Vec2) => track.branches.some((_, j) => inPath(j, p));
-  if (!isParque) {
+  if (!isParque && !isDeserto) {
     for (const side of [edges.plus, edges.minus]) {
       for (let i = 0; i < n; i++) {
         wall(side[i], side[(i + 1) % n], roomAt(track, track.cum[i]), inBranch);
@@ -1270,19 +2196,19 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   line.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), start.heading);
   line.castShadow = false;
   scene.add(line);
-  startGantry(scene, stat, start, textures, isParque, startY);
+  startGantry(scene, stat, start, textures, isParque, startY, isDeserto);
 
   for (const r of track.rooms.slice(1, -1)) {
     const s = track.ctrlS[r.ctrl] + 4;
     const at = pointAt(track, s);
     const signY = heightAt(track, s);
-    const sign = textSprite(r.name, textures, isParque ? "Parque Ipanema" : "Setor corporativo");
+    const sign = textSprite(r.name, textures, isParque ? "Parque Ipanema" : isDeserto ? "Rally do Sertão" : "Setor corporativo", isDeserto);
     sign.position.set(at.pos.x, signY + 3.6, at.pos.z);
     scene.add(sign);
   }
 
   // luminárias suspensas ao longo do traçado (apenas em ambientes internos)
-  if (!isParque) {
+  if (!isParque && !isDeserto) {
     const lampBody = new THREE.MeshStandardMaterial({ color: "#2c3e50", roughness: 0.6, metalness: 0.3 });
     const led = new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: "#eaf4fc", emissiveIntensity: 0.9 });
     const cable = new THREE.MeshStandardMaterial({ color: "#8b98a5", roughness: 0.6, metalness: 0.4 });
@@ -1300,7 +2226,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   }
 
   // Quadros e Banners Satíricos Corporativos nas paredes do circuito (apenas escritório)
-  if (!isParque) {
+  if (!isParque && !isDeserto) {
     const frameMat = new THREE.MeshStandardMaterial({ color: "#1e2430", roughness: 0.5, metalness: 0.35 });
     const posterTextures = [
       posterMetaTexture(textures),
@@ -1327,9 +2253,14 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     }
   }
 
-  // escritório: fachada de vidro em volta e prédios no horizonte (parque é céu aberto)
-  if (!parking && !isParque) facade(stat, cx, cz, gw / 2 - 1, gd / 2 - 1);
-  if (!isParque) skyline(stat, cx, cz, Math.max(gw, gd) / 2 + 12, textures);
+  // escritório: fachada de vidro em volta e prédios no horizonte (parque e deserto são céu aberto)
+  if (!parking && !isParque && !isDeserto) facade(stat, cx, cz, gw / 2 - 1, gd / 2 - 1);
+  if (!isParque && !isDeserto) skyline(stat, cx, cz, Math.max(gw, gd) / 2 + 12, textures);
+
+  // Cenário específico do deserto
+  if (isDeserto) {
+    decorateDeserto(scene, stat, track, textures);
+  }
 
   decorate(stat, track, textures);
   for (const m of mergeStatic(stat)) scene.add(m);
@@ -1337,10 +2268,16 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
 }
 
 /** Pórtico de largada: pilares, travessa alta, semáforo de 3 luzes e a faixa do Rally. */
-function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<typeof pointAt>, textures: THREE.Texture[], isParque = false, startY = 0): void {
-  const truss = new THREE.MeshStandardMaterial({ color: "#1d4ed8", roughness: 0.45, metalness: 0.25 });
-  const deco = new THREE.MeshStandardMaterial({ color: "#f59e0b", roughness: 0.5, metalness: 0.1 });
-  const housing = new THREE.MeshStandardMaterial({ color: "#181d24", roughness: 0.6, metalness: 0.2 });
+function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<typeof pointAt>, textures: THREE.Texture[], isParque = false, startY = 0, isDeserto = false): void {
+  const truss = isDeserto
+    ? new THREE.MeshStandardMaterial({ color: "#422818", roughness: 0.85 })
+    : new THREE.MeshStandardMaterial({ color: "#1d4ed8", roughness: 0.45, metalness: 0.25 });
+  const deco = isDeserto
+    ? new THREE.MeshStandardMaterial({ color: "#222222", roughness: 0.5, metalness: 0.7 })
+    : new THREE.MeshStandardMaterial({ color: "#f59e0b", roughness: 0.5, metalness: 0.1 });
+  const housing = isDeserto
+    ? new THREE.MeshStandardMaterial({ color: "#261e18", roughness: 0.7, metalness: 0.4 })
+    : new THREE.MeshStandardMaterial({ color: "#181d24", roughness: 0.6, metalness: 0.2 });
   const span = start.halfWidth + 0.6;
   const g = new THREE.Group();
   g.position.set(start.pos.x, startY, start.pos.z);
@@ -1363,7 +2300,7 @@ function startGantry(scene: THREE.Scene, stat: THREE.Group, start: ReturnType<ty
     lamps.add(lamp);
   });
   scene.add(lamps);
-  const banner = textSprite(isParque ? "Parque Ipanema" : "Rally da Firma", textures, isParque ? "Grande Prêmio da Cidade" : "Grande prêmio");
+  const banner = textSprite(isDeserto ? "GP do Deserto" : isParque ? "Parque Ipanema" : "Rally da Firma", textures, isDeserto ? "Rally do Sertão" : isParque ? "Grande Prêmio da Cidade" : "Grande prêmio", isDeserto);
   // a faixa termina logo abaixo da caixa do semáforo (base em 4.42 m)
   const bannerH = start.halfWidth * 0.48;
   banner.position.set(start.pos.x, startY + 4.35 - bannerH / 2, start.pos.z);
@@ -1427,7 +2364,7 @@ function skyline(stat: THREE.Group, cx: number, cz: number, r: number, textures:
 
 /** Móveis fora da pista, por ambiente. Só entram onde não encostam em nenhum trecho. */
 function decorate(scene: THREE.Group, track: Track, textures: THREE.Texture[]): void {
-  if (track.id === "parque") return;
+  if (track.id === "parque" || track.id === "deserto") return;
   const wood = new THREE.MeshStandardMaterial({ color: "#d97736", roughness: 0.55, metalness: 0.05 });
   const white = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.55, metalness: 0.05 });
   const dark = new THREE.MeshStandardMaterial({ color: "#2d3748", roughness: 0.6, metalness: 0.2 });

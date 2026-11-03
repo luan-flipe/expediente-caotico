@@ -365,3 +365,68 @@ describe("vfxJuice - 3D Comic Onomatopoeias (HQ Speech Bubbles)", () => {
     vfx.dispose();
   });
 });
+
+describe("vfxJuice - Desert Track VFX & Dash Boost Sparks", () => {
+  it("adjusts drift smoke and wheel dust to reddish/golden sand tones (#d29b68 / #b8774e) for desert track", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const vfx = new RaceVfxManager(scene, camera, { trackId: "deserto", maxSmoke: 16 });
+
+    expect(vfx.isDeserto).toBe(true);
+
+    // Spawn drift smoke on desert
+    vfx.spawnDriftSmoke(0, 0, 0, 0, 1, 12, false);
+    vfx.spawnWheelDust(2, 0, 3, 0, 1, 15);
+
+    // Inspect the internal smoke instances
+    const pool = (vfx as unknown as { smokePool: { r: number; g: number; b: number; active: boolean }[] }).smokePool;
+    const activePuffs = pool.filter((p) => p.active);
+    expect(activePuffs.length).toBe(2);
+
+    const desert1 = new THREE.Color("#d29b68");
+    const desert2 = new THREE.Color("#b8774e");
+
+    for (const p of activePuffs) {
+      const match1 = Math.abs(p.r - desert1.r) < 0.05 && Math.abs(p.g - desert1.g) < 0.05 && Math.abs(p.b - desert1.b) < 0.05;
+      const match2 = Math.abs(p.r - desert2.r) < 0.05 && Math.abs(p.g - desert2.g) < 0.05 && Math.abs(p.b - desert2.b) < 0.05;
+      expect(match1 || match2).toBe(true);
+    }
+
+    vfx.dispose();
+  });
+
+  it("spawns bright colored spark feedback (green #39ff4a and orange #ff4a1f) on dash plate boost", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const vfx = new RaceVfxManager(scene, camera, { maxSparks: 32 });
+
+    vfx.spawnDashBoostSparks(5, 0.2, 10, Math.PI / 4);
+
+    const sparkPool = (vfx as unknown as { sparkPool: { r: number; g: number; b: number; active: boolean }[] }).sparkPool;
+    const activeSparks = sparkPool.filter((s) => s.active);
+    expect(activeSparks.length).toBeGreaterThanOrEqual(18);
+
+    const green = new THREE.Color("#39ff4a");
+    const orange = new THREE.Color("#ff4a1f");
+
+    let foundGreen = false;
+    let foundOrange = false;
+
+    for (const s of activeSparks) {
+      if (Math.abs(s.r - green.r) < 0.05 && Math.abs(s.g - green.g) < 0.05 && Math.abs(s.b - green.b) < 0.05) {
+        foundGreen = true;
+      }
+      if (Math.abs(s.r - orange.r) < 0.05 && Math.abs(s.g - orange.g) < 0.05 && Math.abs(s.b - orange.b) < 0.05) {
+        foundOrange = true;
+      }
+    }
+
+    expect(foundGreen).toBe(true);
+    expect(foundOrange).toBe(true);
+
+    // Update and ensure sparks move and fade without errors
+    vfx.update(0.016, 16);
+
+    vfx.dispose();
+  });
+});
