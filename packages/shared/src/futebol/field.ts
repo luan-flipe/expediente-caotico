@@ -16,15 +16,16 @@ const GOAL: Record<FutFormat, [number, number]> = { 1: [2, 2], 2: [2, 2], 3: [2,
 
 export function fieldFor(format: FutFormat): Field {
   const [L, W] = SIZES[format];
-  const boxL = L * 0.16;
   const [goalHalfW, goalH] = GOAL[format];
+  // no estádio a grande área e a marca do pênalti são as pintadas no mapa; nos outros formatos são proporcionais
+  const boxL = format === 5 ? IPATINGAO.boxL : L * 0.16;
   return {
     halfL: L / 2,
     halfW: W / 2,
     goalHalfW,
     goalH,
     boxL,
-    boxHalfW: W * 0.3,
-    penaltySpot: boxL * 0.7,
+    boxHalfW: format === 5 ? IPATINGAO.boxHalfW : W * 0.3,
+    penaltySpot: format === 5 ? IPATINGAO.penaltySpot : boxL * 0.7,
   };
 }

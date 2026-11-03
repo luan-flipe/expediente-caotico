@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Field } from "@ec/shared";
 import { ANUNCIANTES, ROTACAO_ANUNCIOS_S, type Anunciante } from "./anunciantes";
-import { BOARD_H, BOARD_LEN, BOARD_TILT, adIndex, adStep, boardSlots, frameRects, type BoardSlot } from "./arenaLayout";
+import { BOARD_H, campoDoMapa, BOARD_LEN, BOARD_TILT, adIndex, adStep, boardSlots, frameRects, type BoardSlot } from "./arenaLayout";
 
 const FRAME_Y = 0.012;
 const TILE_M = 5;
@@ -80,7 +80,8 @@ export class Arena {
     f: Field,
     private readonly ads: readonly Anunciante[] = ANUNCIANTES,
   ) {
-    this.buildFrame(f);
+    // no campo do mapa o gramado e as linhas pintadas já são os do arquivo: a moldura de piso ficaria por cima delas
+    if (!campoDoMapa(f)) this.buildFrame(f);
     this.slots = boardSlots(f);
     this.buildBoards();
     this.scene.add(this.group);

@@ -1,7 +1,12 @@
-import type { Field } from "@ec/shared";
+import { IPATINGAO, type Field } from "@ec/shared";
 
 /** Bordas do gramado do mapa (nó do plano do gramado, medido no .glb): um pouco além das linhas grandes de 97 x 60,7 m. */
 export const GRASS_EDGE = { halfL: 52.6, halfW: 34.3 } as const;
+
+/** O campo é o do mapa (formato 5v5 Estádio): linhas e gols vêm pintados no ipatingao.glb e o código não desenha nenhum. */
+export function campoDoMapa(f: Field): boolean {
+  return Math.abs(f.halfL - IPATINGAO.grassHalfL) < 1e-6 && Math.abs(f.halfW - IPATINGAO.grassHalfW) < 1e-6;
+}
 
 export interface Rect {
   /** Centro. */

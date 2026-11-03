@@ -3,7 +3,6 @@ import * as THREE from "three";
 import {
   FUT,
   FUT_COLORS,
-  IPATINGAO,
   PRESETS,
   fieldFor,
   keepClear,
@@ -34,6 +33,7 @@ import pitchUrl from "../assets/futebol/ipatingao.glb?url";
 import { predictedPlayer, reconcileDrawn } from "./reconcile";
 import { TOUCH_KICK, TOUCH_PASS, cancelCharges, chargePower, hasBallReach, mouseSide, newCharge, newControlState, newMouse, pressMouse, readFutInput, releaseMouse, stepCharge, syncMouseButtons, type FutKeys } from "./controls";
 import { Arena } from "./arena";
+import { campoDoMapa } from "./arenaLayout";
 import { Comemoracoes } from "./comemoracoes";
 import { EquipeFilmagem } from "./equipe";
 import { Juiz } from "./juiz";
@@ -408,7 +408,7 @@ export class FutebolEngine {
     const sy = this.field.goalH / 2;
     // o mapa do estádio já traz os gols (traves, travessão e rede): o modelo avulso ficaria dobrado por cima deles,
     // com as traves em outro lugar. Nele a sim usa as medidas do gol do mapa (IPATINGAO)
-    const noMapa = Math.abs(this.field.halfL - IPATINGAO.grassHalfL) < 1e-6;
+    const noMapa = campoDoMapa(this.field);
     for (const g of this.goals) {
       g.visible = !noMapa;
       g.scale.set(sx, sy, sx);
@@ -417,8 +417,11 @@ export class FutebolEngine {
 
   private buildField(format: FutSnapshot["format"]): void {
     this.field = fieldFor(format);
-    this.lines = buildLines(this.field, this.lineMat);
-    this.scene.add(this.lines);
+    // no campo do mapa as linhas (contorno, meio, círculo, áreas, marca do pênalti) já vêm pintadas no gramado do glb
+    if (!campoDoMapa(this.field)) {
+      this.lines = buildLines(this.field, this.lineMat);
+      this.scene.add(this.lines);
+    }
     this.arena = new Arena(this.scene, this.field);
     this.crew = new EquipeFilmagem(this.scene, this.field);
     this.placeGoals();

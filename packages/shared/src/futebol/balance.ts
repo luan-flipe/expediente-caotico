@@ -77,4 +77,13 @@ export const FUT_COLORS = [
 ] as const;
 /** Mapa Ipatingão já na escala do jogo (metros, centrado na origem, eixo comprido em X): meio comprimento e meia largura das linhas, e o gol que o próprio mapa traz (meia-boca 3,29 m, altura 2,27 m). */
 /** Medidas do mapa ipatingao.glb: gramado e o gol que o mapa já traz (boca 3,29 m de cada lado, 2,27 m de altura). */
-export const IPATINGAO = { grassHalfL: 48.52, grassHalfW: 30.35, goalHalfW: 3.29, goalH: 2.27 } as const;
+export const IPATINGAO = {
+  grassHalfL: 48.52,
+  grassHalfW: 30.35,
+  goalHalfW: 3.29,
+  goalH: 2.27,
+  // linhas pintadas na textura do gramado (340x520 px, 0,2017 m/px), medidas pela borda de fora da linha, a partir da linha de fundo
+  boxL: 14.72,
+  boxHalfW: 17.85,
+  penaltySpot: 10.59,
+} as const;
