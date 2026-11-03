@@ -18,8 +18,11 @@ const TEMPLATE = join(DIR, "01_romarinho.glb");
 const VERTICES = 15000; // menos que isso perde as pontas das mechas
 const [input, output, width, top] = process.argv.slice(2);
 const WIDTH = Number(width); // largura da cabeça com o cabelo (01: 1.1)
-const TOP = Number(top); // altura do topo (01: 1.98)
+const TOP = Number(top); // altura do topo (01: 1.98), medida com o osso cabeca em HEAD_Y
 const CENTER_Z = -0.025; // centro da cabeça de frente para trás
+// altura do osso cabeca no boneco em que as medidas acima foram tiradas; o boneco de pernas compridas
+// tem a cabeça mais alta, e o topo sobe junto
+const HEAD_Y = 0.9;
 
 await MeshoptSimplifier.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
@@ -35,6 +38,10 @@ await hair.transform(
 const position = src.getAttribute("POSITION");
 const min = position.getMin([]);
 const max = position.getMax([]);
+const doc = await io.read(TEMPLATE);
+const node = doc.getRoot().listNodes().find((n) => n.getMesh());
+const headBone = node.getSkin().listJoints().find((j) => j.getName() === "cabeca");
+const lift = headBone.getWorldMatrix()[13] - HEAD_Y;
 const scale = WIDTH / (max[0] - min[0]);
 const midX = (min[0] + max[0]) / 2;
 const midZ = (min[2] + max[2]) / 2;
@@ -42,7 +49,7 @@ const count = position.getCount();
 const positions = new Float32Array(count * 3);
 for (let v = 0; v < count; v++) {
   const [x, y, z] = position.getElement(v, []);
-  positions.set([(x - midX) * scale, TOP + (y - max[1]) * scale, CENTER_Z + (z - midZ) * scale], v * 3);
+  positions.set([(x - midX) * scale, TOP + lift + (y - max[1]) * scale, CENTER_Z + (z - midZ) * scale], v * 3);
 }
 
 // normais suaves: cada vértice soma as faces em volta, pesadas pela área
@@ -63,10 +70,8 @@ for (let v = 0; v < count; v++) {
   for (let k = 0; k < 3; k++) n[k] /= length;
 }
 
-const doc = await io.read(TEMPLATE);
 const prim = doc.getRoot().listMeshes()[0].listPrimitives()[0];
-const node = doc.getRoot().listNodes().find((n) => n.getMesh());
-const head = node.getSkin().listJoints().findIndex((j) => j.getName() === "cabeca");
+const head =node.getSkin().listJoints().findIndex((j) => j.getName() === "cabeca");
 const joints = new Uint8Array(count * 4);
 const weights = new Float32Array(count * 4);
 for (let v = 0; v < count; v++) {
