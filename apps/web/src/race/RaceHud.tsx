@@ -64,6 +64,7 @@ export function RaceHud({ myId }: { myId: string }) {
         setMiniStars(stars);
         const t1 = setTimeout(() => setPlaceSquash(false), 650);
         const t2 = setTimeout(() => setMiniStars([]), 900);
+        prevPlaceRef.current = me.place;
         return () => {
           clearTimeout(t1);
           clearTimeout(t2);
@@ -82,7 +83,7 @@ export function RaceHud({ myId }: { myId: string }) {
         const raw = document.documentElement.style.getPropertyValue("--draft-progress");
         const v = parseFloat(raw);
         if (!isNaN(v)) {
-          setDraftPct((prev) => (Math.abs(prev - v) > 0.02 ? v : prev));
+          setDraftPct((prev) => (Math.abs(prev - v) > 0.04 ? v : prev));
         }
       }
       raf = requestAnimationFrame(updateDraft);
@@ -94,18 +95,9 @@ export function RaceHud({ myId }: { myId: string }) {
   // Vinheta animada de Última Volta (Final Lap) com confetes
   const [finalLapBanner, setFinalLapBanner] = useState(false);
   const [confetti, setConfetti] = useState<Array<{ id: number; x: number; r: number; color: string; scale: number; dur: number; delay: number }>>([]);
-  const finalLapSeenRef = useRef(false);
-
   useEffect(() => {
-    if (!snap) return;
-    if (snap.phase === "countdown") {
-      finalLapSeenRef.current = false;
-      setFinalLapBanner(false);
-    }
-  }, [snap]);
-
-  useEffect(() => {
-    const triggerBanner = () => {
+    let timer = 0;
+    const handleEvent = () => {
       setFinalLapBanner(true);
       const colors = ["#ffd23f", "#ff4d4d", "#38bdf8", "#a855f7", "#4ade80", "#ffffff"];
       const pieces = Array.from({ length: 42 }, (_, i) => ({
@@ -118,28 +110,25 @@ export function RaceHud({ myId }: { myId: string }) {
         delay: Math.random() * 0.4,
       }));
       setConfetti(pieces);
-      setTimeout(() => {
+      timer = window.setTimeout(() => {
         setFinalLapBanner(false);
         setConfetti([]);
       }, 2800);
     };
 
-    const handleEvent = () => {
-      if (!finalLapSeenRef.current) {
-        finalLapSeenRef.current = true;
-        triggerBanner();
-      }
-    };
-
     window.addEventListener("ec:finallap", handleEvent);
+    return () => {
+      window.removeEventListener("ec:finallap", handleEvent);
+      clearTimeout(timer);
+    };
+  }, []);
 
-    if (me && snap && snap.phase === "active" && !snap.timeTrial && snap.laps > 1 && me.lap === snap.laps && !finalLapSeenRef.current) {
-      finalLapSeenRef.current = true;
-      triggerBanner();
+  useEffect(() => {
+    if (snap?.phase === "countdown") {
+      setFinalLapBanner(false);
+      setConfetti([]);
     }
-
-    return () => window.removeEventListener("ec:finallap", handleEvent);
-  }, [me, snap]);
+  }, [snap?.phase]);
 
   // bipe a cada número da contagem e um mais agudo no VAI
   const countSec = snap?.phase === "countdown" && snap.countdownMs - (RACE.countdownMs - RACE.introMs) <= 0 ? Math.max(1, Math.ceil(snap.countdownMs / 1000)) : 0;

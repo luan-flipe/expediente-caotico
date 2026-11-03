@@ -241,7 +241,7 @@ function nameOf(id: string | null): string {
 
 const HIT_TEXT = { spin: "grampeou", slip: "molhou de café", resma: "barrou com papel", postit: "colou um post-it em" } as const;
 
-function raceFeed(s: RaceSnapshot): void {
+function computeRaceFeed(s: RaceSnapshot): FeedItem[] | null {
   const me = state.myId;
   const items: Omit<FeedItem, "id" | "at">[] = [];
   for (const e of s.events) {
@@ -255,7 +255,9 @@ function raceFeed(s: RaceSnapshot): void {
       items.push({ kind: "me", text: `Você usou ${ITEM_NAMES[e.item]}` });
     }
   }
-  pushFeed(items);
+  if (!items.length) return null;
+  const now = performance.now();
+  return [...state.feed, ...items.map((i) => ({ ...i, id: ++feedId, at: now }))].filter((f) => now - f.at < 6000).slice(-6);
 }
 
 function onMessage(msg: ServerMsg): void {
@@ -269,15 +271,16 @@ function onMessage(msg: ServerMsg): void {
       setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null } : {}) });
       return;
     case "results":
-      setState({ results: msg.rows, awards: msg.awards, raceResults: null, snap: null, me: null, feed: [] });
+      setState({ results: msg.rows, awards: msg.awards, raceResults: null, snap: null, me: null, feed: [], pauseOpen: false });
       return;
     case "rresults":
-      setState({ raceResults: msg.rows, awards: msg.awards, results: null, rsnap: null, rme: null, feed: [] });
+      setState({ raceResults: msg.rows, awards: msg.awards, results: null, rsnap: null, rme: null, feed: [], pauseOpen: false });
       return;
-    case "rsnap":
-      setState({ rsnap: msg.s, rme: msg.me });
-      raceFeed(msg.s);
+    case "rsnap": {
+      const feed = computeRaceFeed(msg.s);
+      setState({ rsnap: msg.s, rme: msg.me, ...(feed ? { feed } : {}) });
       return;
+    }
     case "chat":
       setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });
       return;
