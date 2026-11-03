@@ -97,3 +97,83 @@ export function hasBallReach(ball: { x: number; y: number; z: number; ownerId: s
 /** Códigos de tecla dos botões da tela (o toque aperta a mesma tecla que o teclado usa). */
 export const TOUCH_KICK = "FutChute";
 export const TOUCH_PASS = "FutPasse";
+
+// ---------- botões do mouse ----------
+
+/** Bits de MouseEvent.buttons: esquerdo e direito. */
+export const BTN_LEFT = 1;
+export const BTN_RIGHT = 2;
+
+/** Botão do evento (MouseEvent.button) para o nosso: 0 = esquerdo (chute), 2 = direito (passe); os outros não valem. */
+export function mouseSide(button: number): "left" | "right" | null {
+  return button === 0 ? "left" : button === 2 ? "right" : null;
+}
+
+export function pressMouse(m: FutMouse, side: "left" | "right"): void {
+  if (side === "left") {
+    if (!m.left) m.leftHit = true;
+    m.left = true;
+  } else {
+    if (!m.right) m.rightHit = true;
+    m.right = true;
+  }
+}
+
+export function releaseMouse(m: FutMouse, side: "left" | "right"): void {
+  if (side === "left") m.left = false;
+  else m.right = false;
+}
+
+/**
+ * Alinha o estado com MouseEvent.buttons (a verdade do navegador): pega mouseup perdido (soltou fora da janela, no
+ * meio de uma troca de foco) e botão que já estava apertado quando o mouse foi preso. Os dois botões juntos funcionam.
+ */
+export function syncMouseButtons(m: FutMouse, buttons: number): void {
+  const left = (buttons & BTN_LEFT) !== 0;
+  const right = (buttons & BTN_RIGHT) !== 0;
+  if (left && !m.left) pressMouse(m, "left");
+  else if (!left && m.left) releaseMouse(m, "left");
+  if (right && !m.right) pressMouse(m, "right");
+  else if (!right && m.right) releaseMouse(m, "right");
+}
+
+/**
+ * Cancela a carga em andamento sem chutar (perdeu o mouse preso, foco, menu ou chat por cima): os botões voltam a
+ * "soltos" e o estado de leitura esquece o aperto, então a próxima leitura manda "none" (e não "release", que chutaria).
+ * Quem ainda está com o dedo no botão precisa apertar de novo.
+ */
+export function cancelCharges(m: FutMouse, st: FutControlState): void {
+  m.left = m.right = m.leftHit = m.rightHit = false;
+  st.kickHeld = st.passHeld = false;
+  st.kickRelease = st.passRelease = 0;
+}
+
+// ---------- barra de força ----------
+
+export interface ChargeState {
+  kind: "kick" | "pass" | null;
+  /** Instante em que a carga atual começou. */
+  since: number;
+}
+
+export function newCharge(): ChargeState {
+  return { kind: null, since: 0 };
+}
+
+/**
+ * A barra segue o INPUT LOCAL (o que acabou de ser enviado), não o servidor: aparece no mesmo passo em que o botão
+ * é apertado, com ou sem a bola (o servidor decide ao soltar: chute/passe com a bola, carrinho/disputa sem ela).
+ * Com os dois botões juntos fica no que já estava carregando, sem reiniciar.
+ */
+export function stepCharge(c: ChargeState, input: Pick<FutInput, "kick" | "pass">, now: number): void {
+  const kick = input.kick === "charge";
+  const pass = input.pass === "charge";
+  const kind = kick && pass ? (c.kind ?? "kick") : kick ? "kick" : pass ? "pass" : null;
+  if (kind !== c.kind) c.since = now;
+  c.kind = kind;
+}
+
+/** Força 0..1 da carga no instante `now`. */
+export function chargePower(c: ChargeState, now: number): number {
+  return c.kind ? Math.max(0, Math.min(1, (now - c.since) / FUT.chargeMaxMs)) : 0;
+}

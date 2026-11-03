@@ -24,8 +24,8 @@ export function FutebolView({ myId }: { myId: string }) {
       }
     };
     const engine = new FutebolEngine(canvasRef.current!, myId, onUi);
-    engine.powerEl = powerRef.current;
-    engine.powerFill = fillRef.current;
+    engine.powerRef = powerRef;
+    engine.powerFillRef = fillRef;
     engineRef.current = engine;
     if (import.meta.env.DEV) Object.assign(window, { __fut: engine });
     engine.setAvatars(getState().lobby?.players ?? []);

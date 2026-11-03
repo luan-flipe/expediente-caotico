@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import * as THREE from "three";
 import {
   FUT,
@@ -28,7 +29,7 @@ import ballUrl from "../assets/futebol/bola.glb?url";
 import goalUrl from "../assets/futebol/gol.glb?url";
 import pitchUrl from "../assets/futebol/ipatingao.glb?url";
 import { reconcileDrawn } from "./reconcile";
-import { TOUCH_KICK, TOUCH_PASS, newControlState, newMouse, readFutInput, type FutKeys } from "./controls";
+import { TOUCH_KICK, TOUCH_PASS, cancelCharges, chargePower, hasBallReach, mouseSide, newCharge, newControlState, newMouse, pressMouse, readFutInput, releaseMouse, stepCharge, syncMouseButtons, type FutKeys } from "./controls";
 import { Arena } from "./arena";
 import { Comemoracoes } from "./comemoracoes";
 import { EquipeFilmagem } from "./equipe";
@@ -215,8 +216,7 @@ export class FutebolEngine {
   private prevZ = 0;
   private pending: { seq: number; input: FutInput }[] = [];
   private vis = { x: 0, z: 0 };
-  private chargeSince = 0;
-  private chargeKind: "kick" | "pass" | null = null;
+  private charge = newCharge();
   private myPos = new THREE.Vector3();
   // temporários do quadro (nada de new por frame)
   private tmpFwd = new THREE.Vector3();
@@ -232,8 +232,8 @@ export class FutebolEngine {
   private looks = new Map<string, { sig: string; key: string }>();
 
   /** Barra de força (DOM do HUD): o motor posiciona e preenche a cada quadro. */
-  powerEl: HTMLElement | null = null;
-  powerFill: HTMLElement | null = null;
+  powerRef: RefObject<HTMLElement | null> | null = null;
+  powerFillRef: RefObject<HTMLElement | null> | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -404,11 +404,14 @@ export class FutebolEngine {
       this.cleanup.push(() => target.removeEventListener(t, fn as EventListener));
     };
     const canvas = this.canvas;
-    const click = () => {
-      if (!this.locked && !IS_TOUCH) canvas.requestPointerLock();
+    // o mouse é preso já no aperto (não no clique, que só chega depois de soltar): quem segura o botão enquanto o mouse
+    // é preso começa a carregar assim que o navegador entrega o estado dos botões
+    const grab = (e: MouseEvent) => {
+      if (this.locked || IS_TOUCH || e.button !== 0 || inputBlocked(getState())) return;
+      canvas.requestPointerLock();
     };
-    canvas.addEventListener("click", click);
-    this.cleanup.push(() => canvas.removeEventListener("click", click));
+    canvas.addEventListener("mousedown", grab);
+    this.cleanup.push(() => canvas.removeEventListener("mousedown", grab));
 
     // o botão direito é passe: nada de menu de contexto na tela do jogo
     on<Event>("contextmenu", (e) => e.preventDefault());
@@ -416,35 +419,49 @@ export class FutebolEngine {
       "pointerlockchange",
       () => {
         this.locked = document.pointerLockElement === canvas;
-        if (!this.locked) this.releaseButtons();
+        if (!this.locked) this.cancelButtons();
         this.onUi(this.locked ? "lock" : "unlock");
       },
       document,
     );
     on<MouseEvent>("mousemove", (e) => {
-      if (!this.locked || this.fixedYaw) return;
+      if (!this.locked) return;
+      // o estado dos botões vem do navegador: corrige aperto/solta perdido e botão já apertado ao prender o mouse
+      if (!inputBlocked(getState())) syncMouseButtons(this.mouse, e.buttons);
+      if (this.fixedYaw) return;
       const { mouseSens, invertY } = getSettings();
       this.yaw -= e.movementX * 0.0025 * mouseSens;
       this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - e.movementY * 0.0022 * mouseSens * (invertY ? -1 : 1)));
     });
     on<MouseEvent>("mousedown", (e) => {
-      if (!this.locked) return;
-      if (e.button === 0) {
-        this.mouse.left = true;
-        this.mouse.leftHit = true;
-      } else if (e.button === 2) {
-        this.mouse.right = true;
-        this.mouse.rightHit = true;
-      }
+      // botão do meio abriria o rolamento automático e roubaria o mouse
+      if (this.locked && e.button === 1) e.preventDefault();
+      const side = mouseSide(e.button);
+      // o aperto que só prende o mouse (grab, acima) não vira ação; menu e chat por cima também não
+      if (!this.locked || !side || inputBlocked(getState())) return;
+      pressMouse(this.mouse, side);
     });
     on<MouseEvent>("mouseup", (e) => {
-      if (e.button === 0) this.mouse.left = false;
-      else if (e.button === 2) this.mouse.right = false;
+      const side = mouseSide(e.button);
+      if (side) releaseMouse(this.mouse, side);
+      // soltou um botão com o outro ainda apertado: confirma pelo estado do navegador
+      if (this.locked && !inputBlocked(getState())) syncMouseButtons(this.mouse, e.buttons);
     });
+    // perdeu o foco ou a aba: cancela a carga (soltar o botão fora da janela não pode chutar sem o jogador ver)
     on("blur", () => {
       this.keys.clear();
-      this.releaseButtons();
+      this.cancelButtons();
     });
+    on(
+      "visibilitychange",
+      () => {
+        if (document.visibilityState === "hidden") {
+          this.keys.clear();
+          this.cancelButtons();
+        }
+      },
+      document,
+    );
     on<KeyboardEvent>("keydown", (e) => {
       if (inputBlocked(getState())) return;
       const k = e.code;
@@ -481,9 +498,9 @@ export class FutebolEngine {
     });
   }
 
-  private releaseButtons(): void {
-    this.mouse.left = false;
-    this.mouse.right = false;
+  /** Cancela a carga sem chutar (ver cancelCharges). */
+  private cancelButtons(): void {
+    cancelCharges(this.mouse, this.ctl);
   }
 
   // ---------- rede ----------
@@ -730,16 +747,19 @@ export class FutebolEngine {
     const s = this.snap;
     if (!s) return;
     if (s.phase === "over") {
-      this.chargeKind = null;
+      this.charge.kind = null;
       return;
     }
     const me = s.players.find((p) => p.id === this.myId);
-    if (!me || me.role !== "linha") return;
+    if (!me || me.role !== "linha") {
+      this.charge.kind = null;
+      return;
+    }
     let input: FutInput;
     if (inputBlocked(getState()) || me.sentOff) {
       // menu ou chat por cima: comando parado. Sem botão apertado o servidor zera a carga sem chutar (touch.ts), ou seja, cancela
       this.ctl = newControlState();
-      this.mouse.leftHit = this.mouse.rightHit = false;
+      cancelCharges(this.mouse, this.ctl);
       input = { mx: 0, mz: 0, aim: this.aimYaw, sprint: false, kick: "none", pass: "none" };
     } else {
       const keys = this.readKeys();
@@ -760,15 +780,7 @@ export class FutebolEngine {
     }
     const seq = ++this.seq;
     net.send({ t: "futInput", ...input, seq });
-    if (input.kick === "charge" || input.pass === "charge") {
-      const kind = input.kick === "charge" ? "kick" : "pass";
-      if (this.chargeKind !== kind) {
-        this.chargeKind = kind;
-        this.chargeSince = now;
-      }
-    } else {
-      this.chargeKind = null;
-    }
+    stepCharge(this.charge, input, now);
     if (this.pred && this.field && this.canPredict(me)) {
       this.pending.push({ seq, input });
       if (this.pending.length > 90) this.pending.shift();
@@ -893,7 +905,7 @@ export class FutebolEngine {
     const live = !!me && !me.sentOff && this.snap?.phase !== "over";
     this.aimArrow.visible = live && !!this.field;
     if (!this.aimArrow.visible) return;
-    const power = this.chargeKind ? Math.min(1, (now - this.chargeSince) / FUT.chargeMaxMs) : 0;
+    const power = chargePower(this.charge, now);
     const len = 1.6 + power * 4;
     const w = 1.1 + power * 0.5;
     this.aimArrow.scale.set(w, len, 1);
@@ -902,25 +914,35 @@ export class FutebolEngine {
     this.aimArrow.rotation.set(Math.PI / 2, this.aimYaw, 0);
     this.aimArrow.position.set(this.myPos.x + Math.sin(this.aimYaw) * 0.8, 0.07, this.myPos.z + Math.cos(this.aimYaw) * 0.8);
     const mat = this.aimArrow.material as THREE.MeshBasicMaterial;
-    mat.opacity = this.chargeKind ? 0.85 : 0.35;
-    mat.color.set(this.chargeKind === "pass" ? "#5ad1ff" : this.chargeKind === "kick" ? "#ff5a3d" : "#ffe14d");
+    mat.opacity = this.charge.kind ? 0.85 : 0.35;
+    mat.color.set(this.charge.kind === "pass" ? "#5ad1ff" : this.charge.kind === "kick" ? "#ff5a3d" : "#ffe14d");
   }
 
+  /** Barra de força: segue o input local (carga atual), não o servidor; o elemento é lido a cada quadro porque o HUD pode montar depois do motor. */
   private updatePower(now: number): void {
-    const el = this.powerEl;
+    const el = this.powerRef?.current;
     if (!el) return;
-    if (!this.chargeKind || !this.snap || this.snap.phase === "over") {
+    const kind = this.charge.kind;
+    if (!kind || !this.snap || this.snap.phase === "over") {
+      if (el.style.display !== "none") el.style.display = "none";
+      return;
+    }
+    const p = this.tmpWant.set(this.myPos.x, 2.3, this.myPos.z).project(this.camera);
+    // atrás da câmera: não há onde desenhar
+    if (p.z > 1) {
       el.style.display = "none";
       return;
     }
-    const power = Math.min(1, (now - this.chargeSince) / FUT.chargeMaxMs);
-    const p = this.tmpWant.set(this.myPos.x, 2.3, this.myPos.z).project(this.camera);
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
+    const me = this.views.get(this.myId)?.last;
     el.style.display = "block";
-    el.dataset.kind = this.chargeKind;
+    el.dataset.kind = kind;
+    // sem a bola ao alcance o mesmo botão vira carrinho/disputa
+    el.dataset.ball = me && hasBallReach(this.snap.ball, me) ? "1" : "0";
     el.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px) translate(-50%, -100%)`;
-    if (this.powerFill) this.powerFill.style.width = `${Math.round(power * 100)}%`;
+    const fill = this.powerFillRef?.current;
+    if (fill) fill.style.width = `${Math.round(chargePower(this.charge, now) * 100)}%`;
   }
 
   private updateCamera(dt: number): void {

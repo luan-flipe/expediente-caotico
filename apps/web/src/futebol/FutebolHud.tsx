@@ -191,7 +191,20 @@ export function FutebolHud({ myId, locked, powerRef, fillRef }: { myId: string; 
   const scoreboard = useStore((s) => s.scoreboard);
   const keys = useSettings().keys.futebol;
 
-  if (!hasSnap) return <div className="hud center-msg">Entrando no campo...</div>;
+  // a barra de força existe sempre: o motor a procura pelo ref e o HUD pode chegar antes do primeiro snapshot
+  const power = (
+    <div className="fut-power" ref={powerRef} style={{ display: "none" }}>
+      <div className="fill" ref={fillRef} />
+    </div>
+  );
+  if (!hasSnap) {
+    return (
+      <div className="hud fut-hud">
+        <div className="center-msg">Entrando no campo...</div>
+        {power}
+      </div>
+    );
+  }
 
   return (
     <LockedContext.Provider value={locked}>
@@ -201,9 +214,7 @@ export function FutebolHud({ myId, locked, powerRef, fillRef }: { myId: string; 
         <FutNotices myId={myId} />
         <FutBanners myId={myId} />
 
-        <div className="fut-power" ref={powerRef} style={{ display: "none" }}>
-          <div className="fill" ref={fillRef} />
-        </div>
+        {power}
 
         {!IS_TOUCH && (
           <div className="fut-keys">
