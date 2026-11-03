@@ -489,6 +489,8 @@ export interface StandFit {
   shoulder: THREE.Vector3;
   /** Do ombro ao pulso. */
   reach: number;
+  /** Do pulso ao meio da mão fechada, onde fica o punho do guidão. */
+  grip?: number;
 }
 
 /** Altura (no espaço do boneco) da parte mais baixa das peças, já na pose sentada. */
@@ -509,6 +511,8 @@ const TARGET_HEIGHT = 1.75;
 const HEIGHT_SCALE = [0.9, 1, 1.1];
 /** Pernas em pé no patinete: o pé esquerdo um pouco à frente. */
 const STANCE = 0.14;
+/** Sentado, a canela cai da beira do assento: com a perna comprida, esticada ela passava muito da cadeira. */
+const SEATED_KNEE = Math.PI / 2;
 /** Duração em segundos de cada ação no jogo (os clipes originais são mais longos). */
 const ACTION_SECONDS: Record<CharacterAction, number> = { throw: 0.45, cafe: 0.7, dash: 0.3, tchau: 3.2 };
 const CLIP_OF: Record<CharacterAction, string> = { throw: "jogar_bolinha", cafe: "jogar_cafe", dash: "dash", tchau: "tchau" };
@@ -1450,7 +1454,13 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         ["ombro_D", -0.75],
         ["ombro_E", -0.75],
       ]);
-      return sole();
+      // a altura do assento é a de baixo da coxa: mede com a perna esticada, depois a canela desce
+      const thigh = sole();
+      bend([
+        ["joelho_D", SEATED_KNEE],
+        ["joelho_E", SEATED_KNEE],
+      ]);
+      return thigh;
     },
     stand() {
       riding = true;
@@ -1467,10 +1477,12 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       const at = (name: string) => inner.getObjectByName(name)?.getWorldPosition(new THREE.Vector3());
       const shoulder = at("ombro_E");
       const wrist = at("punho_E");
+      const fingers = at("dedos_E");
       return {
         sole: bottom,
         shoulder: shoulder ? root.worldToLocal(shoulder.clone()) : new THREE.Vector3(0.17, 0.7, 0),
         reach: shoulder && wrist ? shoulder.distanceTo(wrist) : 0.3,
+        grip: wrist && fingers ? wrist.distanceTo(fingers) : undefined,
       };
     },
     restHands(left, right) {
