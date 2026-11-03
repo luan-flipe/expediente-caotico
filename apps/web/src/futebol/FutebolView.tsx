@@ -3,7 +3,7 @@ import { TouchControls } from "../hud/TouchControls";
 import { getState, net, setState, useStore } from "../store";
 import { IS_TOUCH } from "../touch";
 import { FutebolHud } from "./FutebolHud";
-import { FutebolEngine, type FutUiSignal } from "./futebolEngine";
+import { FutebolEngine, type FutCamUi, type FutUiSignal } from "./futebolEngine";
 
 export function FutebolView({ myId }: { myId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -12,6 +12,7 @@ export function FutebolView({ myId }: { myId: string }) {
   const engineRef = useRef<FutebolEngine | null>(null);
   const players = useStore((s) => s.lobby?.players);
   const [locked, setLocked] = useState(false);
+  const [cam, setCam] = useState<FutCamUi>({ spectating: false, cam: "tv", replay: false, shot: "" });
 
   useEffect(() => {
     const onUi = (s: FutUiSignal) => {
@@ -23,7 +24,7 @@ export function FutebolView({ myId }: { myId: string }) {
         if (document.hasFocus() && !st.chatOpen && !st.settingsOpen) setState({ pauseOpen: true });
       }
     };
-    const engine = new FutebolEngine(canvasRef.current!, myId, onUi);
+    const engine = new FutebolEngine(canvasRef.current!, myId, onUi, setCam);
     engine.powerRef = powerRef;
     engine.powerFillRef = fillRef;
     engineRef.current = engine;
@@ -50,7 +51,7 @@ export function FutebolView({ myId }: { myId: string }) {
     <div className="game">
       <canvas ref={canvasRef} className="view" />
       {IS_TOUCH && <TouchControls mode="futebol" />}
-      <FutebolHud myId={myId} locked={locked} powerRef={powerRef} fillRef={fillRef} />
+      <FutebolHud myId={myId} locked={locked} powerRef={powerRef} fillRef={fillRef} cam={cam} onCam={(k) => engineRef.current?.setCam(k)} onSkip={() => engineRef.current?.skipReplay()} />
     </div>
   );
 }

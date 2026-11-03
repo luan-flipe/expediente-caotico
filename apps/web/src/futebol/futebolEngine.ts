@@ -36,10 +36,26 @@ import { Arena } from "./arena";
 import { Comemoracoes } from "./comemoracoes";
 import { EquipeFilmagem } from "./equipe";
 import { Juiz } from "./juiz";
+import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
+import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
 import { Torcida } from "./torcida";
 import { uniformDNA } from "./uniforme";
 
 export type FutUiSignal = "lock" | "unlock";
+
+/** O que o HUD precisa saber das câmeras: se o jogador só assiste, a câmera escolhida e o replay em andamento. */
+export interface FutCamUi {
+  spectating: boolean;
+  cam: CamKind;
+  replay: boolean;
+  shot: string;
+}
+
+/** Replay de gol: espera depois do gol (a comemoração), quanto do jogo antes e depois do gol entra no clipe (ms). */
+const REPLAY_DELAY_MS = 1500;
+const REPLAY_BACK_MS = 5500;
+const REPLAY_TAIL_MS = 800;
+const FOV_PLAY = 65;
 
 interface Sample {
   t: number;
@@ -183,6 +199,18 @@ export class FutebolEngine {
   private crowd: Torcida | null = null;
   private crew: EquipeFilmagem | null = null;
   private ref: Juiz | null = null;
+  // câmeras: espectador e replay
+  private history = new ReplayBuffer();
+  private pendingReplay: { at: number; goalT: number; goalSide: number } | null = null;
+  private replay: { clip: Clip; start: number; goalSide: number; shot: ReplayShot } | null = null;
+  private skipReq = false;
+  private camKind: CamKind = "tv";
+  private followId = "";
+  private fovWant = FOV_PLAY;
+  private camCut = false;
+  private camUiKey = "";
+  private rsNow: ReplaySample | null = null;
+  private replayP = 0;
   private clock = 0;
   private goals: THREE.Object3D[] = [];
   private lineMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.92 });
@@ -243,6 +271,7 @@ export class FutebolEngine {
     private readonly canvas: HTMLCanvasElement,
     private readonly myId: string,
     private readonly onUi: (s: FutUiSignal) => void,
+    private readonly onCam?: (s: FutCamUi) => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -411,7 +440,8 @@ export class FutebolEngine {
     // o mouse é preso já no aperto (não no clique, que só chega depois de soltar): quem segura o botão enquanto o mouse
     // é preso começa a carregar assim que o navegador entrega o estado dos botões
     const grab = (e: MouseEvent) => {
-      if (this.locked || IS_TOUCH || e.button !== 0 || inputBlocked(getState())) return;
+      // quem só assiste não prende o mouse: precisa dele para os botões de câmera
+      if (this.locked || IS_TOUCH || e.button !== 0 || inputBlocked(getState()) || this.isSpectating()) return;
       canvas.requestPointerLock();
     };
     canvas.addEventListener("mousedown", grab);
@@ -475,6 +505,28 @@ export class FutebolEngine {
         setState({ scoreboard: true });
         return;
       }
+      // replay de gol: Espaço ou Enter pulam
+      if ((k === "Space" || k === "Enter") && this.replay) {
+        e.preventDefault();
+        this.skipReplay();
+        return;
+      }
+      // espectador: C troca a câmera, 1 a 5 escolhem, setas trocam o jogador seguido
+      if (this.isSpectating()) {
+        const n = k.startsWith("Digit") ? Number(k.slice(5)) - 1 : -1;
+        if (k === "KeyC") {
+          this.cycleCam(e.shiftKey ? -1 : 1);
+          return;
+        }
+        if (n >= 0 && n < CAM_KINDS.length) {
+          this.setCam(CAM_KINDS[n]);
+          return;
+        }
+        if (this.camKind === "jogador" && (k === "ArrowLeft" || k === "ArrowRight")) {
+          this.cycleTarget(k === "ArrowRight" ? 1 : -1);
+          return;
+        }
+      }
       // botões da tela: Chute e Passe viram os botões do mouse
       if (k === TOUCH_KICK) {
         this.mouse.left = true;
@@ -512,6 +564,7 @@ export class FutebolEngine {
     const now = performance.now();
     this.snap = s;
     this.me = me;
+    this.history.push(s);
     this.teamsSig = s.teams.map((t) => `${t.name}|${t.kit}|${t.color}`).join("/");
     if (!this.field) this.buildField(s.format);
     if (this.field && (!this.ref || this.ref.retint(s.teams))) {
@@ -571,8 +624,12 @@ export class FutebolEngine {
       } else if (e.type === "foul") {
         playWhistle("foul");
         this.ref?.foul(e.x ?? s.ball.x, e.z ?? s.ball.z);
-      } else if (e.type === "card") this.ref?.showCard(e.card);
-      else if (e.type === "goal") this.celebrateGoal(e, s);
+      } else if (e.type === "card") {
+        this.ref?.showCard(e.card);
+      } else if (e.type === "goal") {
+        this.celebrateGoal(e, s);
+        this.pendingReplay = { at: performance.now(), goalT: s.t, goalSide: Math.sign(s.ball.x) || 1 };
+      }
     }
   }
 
@@ -835,13 +892,22 @@ export class FutebolEngine {
     this.vis.z *= Math.exp(-dt * 12);
 
     const rt = now - INTERP_MS;
+    const rs = this.stepReplay(now);
     for (const [id, v] of this.views) {
       const p = v.last;
       let x: number;
       let z: number;
       let f: number;
       let speed: number;
-      if (id === this.myId && this.pred) {
+      let lying = p.down;
+      const rp = rs?.players.get(id);
+      if (rp) {
+        x = rp.x;
+        z = rp.z;
+        f = rp.f;
+        speed = rp.speed;
+        lying = rp.down;
+      } else if (id === this.myId && this.pred) {
         const k = this.acc / DT;
         x = this.prevX + (this.pred.x - this.prevX) * k + this.vis.x;
         z = this.prevZ + (this.pred.z - this.prevZ) * k + this.vis.z;
@@ -855,7 +921,6 @@ export class FutebolEngine {
         speed = Math.hypot(p.vx, p.vz);
       }
       const root = v.char.root;
-      const lying = p.down;
       root.position.set(x, lying ? 0.18 : 0, z);
       root.rotation.y = f;
       root.rotation.x = lying ? -1.35 : 0;
@@ -882,7 +947,7 @@ export class FutebolEngine {
     }
 
     // bola
-    const bs = this.sampleAt(this.ballBuf, rt);
+    const bs = rs ? { t: rt, x: rs.ball.x, y: rs.ball.y, z: rs.ball.z, f: 0 } : this.sampleAt(this.ballBuf, rt);
     if (bs) {
       this.ball.position.set(bs.x, bs.y, bs.z);
       this.ballShadow.position.set(bs.x, 0.06, bs.z);
@@ -907,6 +972,7 @@ export class FutebolEngine {
     this.updateAim(now);
     this.updateCamera(dt);
     this.updatePower(now);
+    this.reportCam();
     this.sky.update(dt, this.camera.position);
   }
 
@@ -914,7 +980,7 @@ export class FutebolEngine {
   private updateAim(now: number): void {
     const me = this.views.get(this.myId)?.last;
     const live = !!me && !me.sentOff && this.snap?.phase !== "over";
-    this.aimArrow.visible = live && !!this.field;
+    this.aimArrow.visible = live && !!this.field && !this.replay && !this.isSpectating();
     if (!this.aimArrow.visible) return;
     const power = chargePower(this.charge, now);
     const len = 1.6 + power * 4;
@@ -934,7 +1000,7 @@ export class FutebolEngine {
     const el = this.powerRef?.current;
     if (!el) return;
     const kind = this.charge.kind;
-    if (!kind || !this.snap || this.snap.phase === "over") {
+    if (!kind || !this.snap || this.snap.phase === "over" || this.replay) {
       if (el.style.display !== "none") el.style.display = "none";
       return;
     }
@@ -956,8 +1022,150 @@ export class FutebolEngine {
     if (fill) fill.style.width = `${Math.round(chargePower(this.charge, now) * 100)}%`;
   }
 
+  /** Replay em andamento: quando termina (fim do clipe, pulo, jogo rolando de novo) e quando começa (depois da comemoração). */
+  private stepReplay(now: number): ReplaySample | null {
+    const s = this.snap;
+    // o replay só vale na comemoração e na espera da saída de bola (antes da contagem), nunca com o jogo valendo
+    const idle = !!s && (s.phase === "goal" || (s.phase === "restart" && s.restart?.kind === "saida" && s.restart.leftMs > FUT.restartCountdownMs));
+    const rp = this.replay;
+    if (!rp) {
+      const pend = this.pendingReplay;
+      this.rsNow = null;
+      if (!pend) return null;
+      if (!idle) {
+        this.pendingReplay = null;
+        return null;
+      }
+      if (now - pend.at >= REPLAY_DELAY_MS && this.history.lastT >= pend.goalT + REPLAY_TAIL_MS) {
+        const clip = this.history.slice(pend.goalT - REPLAY_BACK_MS, pend.goalT + REPLAY_TAIL_MS);
+        this.pendingReplay = null;
+        if (clip && clip.to - clip.from > 1500) {
+          this.replay = { clip, start: now, goalSide: pend.goalSide, shot: "" as ReplayShot };
+          this.camCut = true;
+          this.fx.clear();
+        }
+      }
+      return null;
+    }
+    const span = rp.clip.to - rp.clip.from;
+    const el = now - rp.start;
+    if (this.skipReq || el >= span || !idle) {
+      this.replay = null;
+      this.skipReq = false;
+      this.rsNow = null;
+      this.camCut = true;
+      return null;
+    }
+    this.replayP = el / span;
+    this.rsNow = sampleClip(rp.clip, rp.clip.from + el);
+    return this.rsNow;
+  }
+
+  /** Pula o replay em andamento. */
+  skipReplay(): void {
+    if (this.replay) this.skipReq = true;
+  }
+
+  /** O jogador só assiste: expulso ou fora da partida. */
+  private isSpectating(): boolean {
+    const s = this.snap;
+    if (!s) return false;
+    const me = s.players.find((p) => p.id === this.myId);
+    return !me || me.role !== "linha" || me.sentOff;
+  }
+
+  /** Escolhe a câmera do espectador. */
+  setCam(k: CamKind): void {
+    if (k !== this.camKind) this.camCut = true;
+    this.camKind = k;
+  }
+
+  private cycleCam(step: number): void {
+    const i = CAM_KINDS.indexOf(this.camKind);
+    this.setCam(CAM_KINDS[(i + step + CAM_KINDS.length) % CAM_KINDS.length]);
+  }
+
+  /** Próximo (ou anterior) jogador seguido pela câmera "seguir jogador". */
+  private cycleTarget(step: number): void {
+    const ids = [...this.views.values()].filter((v) => v.last.role === "linha" && !v.last.sentOff).map((v) => v.last.id).sort();
+    if (!ids.length) return;
+    const i = ids.indexOf(this.followId);
+    this.followId = ids[(i < 0 ? (step > 0 ? 0 : ids.length - 1) : i + step + ids.length) % ids.length];
+    this.camCut = true;
+  }
+
+  /** Quem a câmera "seguir jogador" mostra: o escolhido, senão quem está com a bola, senão o mais perto dela. */
+  private followTarget(): { x: number; z: number; facing: number } | null {
+    const chosen = this.views.get(this.followId);
+    let v = chosen && !chosen.last.sentOff ? chosen : undefined;
+    if (!v && this.snap?.ball.ownerId) v = this.views.get(this.snap.ball.ownerId);
+    if (!v) {
+      let best = Infinity;
+      for (const c of this.views.values()) {
+        if (c.last.role !== "linha" || c.last.sentOff) continue;
+        const d = Math.hypot(c.char.root.position.x - this.ball.position.x, c.char.root.position.z - this.ball.position.z);
+        if (d < best) {
+          best = d;
+          v = c;
+        }
+      }
+    }
+    return v ? { x: v.char.root.position.x, z: v.char.root.position.z, facing: v.char.root.rotation.y } : null;
+  }
+
+  private setFov(fov: number, dt: number, snap = false): void {
+    const next = snap ? fov : this.camera.fov + (fov - this.camera.fov) * Math.min(1, dt * 5);
+    if (Math.abs(next - this.camera.fov) < 0.01) return;
+    this.camera.fov = next;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Câmera de pose pronta (espectador ou replay): suaviza a posição, corta quando pedido. */
+  private applyPose(p: CamPose, dt: number): void {
+    const want = this.tmpWant.set(p.pos[0], p.pos[1], p.pos[2]);
+    const look = this.tmpLook.set(p.look[0], p.look[1], p.look[2]);
+    if (this.camCut || !this.camReady) {
+      this.camPos.copy(want);
+      this.camLook.copy(look);
+      this.camReady = true;
+    } else {
+      this.camPos.lerp(want, 1 - Math.exp(-dt * 4));
+      this.camLook.lerp(look, 1 - Math.exp(-dt * 7));
+    }
+    this.setFov(p.fov, dt, this.camCut);
+    this.camCut = false;
+    this.camera.position.copy(this.camPos);
+    this.camera.lookAt(this.camLook);
+  }
+
+  /** Avisa o HUD quando muda o que ele mostra das câmeras. */
+  private reportCam(): void {
+    if (!this.onCam) return;
+    const ui: FutCamUi = { spectating: this.isSpectating(), cam: this.camKind, replay: !!this.replay, shot: this.replay ? REPLAY_LABELS[this.replay.shot || "equipe"] : "" };
+    const key = `${ui.spectating}|${ui.cam}|${ui.replay}|${ui.shot}`;
+    if (key === this.camUiKey) return;
+    this.camUiKey = key;
+    this.onCam(ui);
+  }
+
   private updateCamera(dt: number): void {
     const s = this.snap;
+    if (this.replay && this.rsNow && this.field) {
+      const rp = this.replay;
+      const shot = shotAt(this.replayP);
+      if (shot !== rp.shot) {
+        rp.shot = shot;
+        this.camCut = true;
+      }
+      this.applyPose(replayPose(shot, { field: this.field, ball: this.rsNow.ball, goalSide: rp.goalSide }), dt);
+      return;
+    }
+    if (s && this.field && this.isSpectating()) {
+      const bp = this.ball.position;
+      this.applyPose(camPose(this.camKind, { field: this.field, ball: { x: bp.x, y: bp.y, z: bp.z, vx: s.ball.vx, vz: s.ball.vz }, target: this.camKind === "jogador" ? this.followTarget() : null }), dt);
+      return;
+    }
+    this.setFov(FOV_PLAY, dt);
     let base = this.myPos;
     let yaw = this.yaw;
     // disputa de pênaltis: quem não cobra assiste da cobrança, olhando para o gol

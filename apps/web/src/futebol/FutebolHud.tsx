@@ -3,6 +3,8 @@ import { FUT, FUT_COLORS, type FutEvent, type FutSnapshot, type RestartKind, typ
 import { keyLabel, useSettings } from "../settings";
 import { net, useStore } from "../store";
 import { IS_TOUCH } from "../touch";
+import { CAM_KINDS, CAM_LABELS, type CamKind } from "./cameras";
+import type { FutCamUi } from "./futebolEngine";
 
 const fmt = (ms: number) => {
   const s = Math.ceil(Math.max(0, ms) / 1000);
@@ -186,7 +188,51 @@ const FutNotices = memo(function FutNotices({ myId }: { myId: string }) {
 const LockedContext = createContext(false);
 const useLocked = () => useContext(LockedContext);
 
-export function FutebolHud({ myId, locked, powerRef, fillRef }: { myId: string; locked: boolean; powerRef: RefObject<HTMLDivElement | null>; fillRef: RefObject<HTMLDivElement | null> }) {
+/** Câmeras: o espectador escolhe o ângulo; durante o replay de gol aparece o plano atual e o botão de pular. */
+function FutCameras({ cam, onCam, onSkip }: { cam: FutCamUi; onCam: (k: CamKind) => void; onSkip: () => void }) {
+  return (
+    <>
+      {cam.replay && (
+        <div className="fut-replay">
+          <b>REPLAY</b>
+          <span>{cam.shot}</span>
+          <button type="button" onClick={onSkip}>
+            Pular{IS_TOUCH ? "" : " (Espaço)"}
+          </button>
+        </div>
+      )}
+      {cam.spectating && !cam.replay && (
+        <div className="fut-cams" role="group" aria-label="Câmera">
+          {CAM_KINDS.map((k, i) => (
+            <button key={k} type="button" className={cam.cam === k ? "on" : ""} aria-pressed={cam.cam === k} onClick={() => onCam(k)}>
+              {!IS_TOUCH && <i>{i + 1}</i>}
+              {CAM_LABELS[k]}
+            </button>
+          ))}
+          {cam.cam === "jogador" && !IS_TOUCH && <span>setas trocam o jogador</span>}
+        </div>
+      )}
+    </>
+  );
+}
+
+export function FutebolHud({
+  myId,
+  locked,
+  powerRef,
+  fillRef,
+  cam,
+  onCam,
+  onSkip,
+}: {
+  myId: string;
+  locked: boolean;
+  powerRef: RefObject<HTMLDivElement | null>;
+  fillRef: RefObject<HTMLDivElement | null>;
+  cam: FutCamUi;
+  onCam: (k: CamKind) => void;
+  onSkip: () => void;
+}) {
   const hasSnap = useStore((s) => !!s.fsnap);
   const scoreboard = useStore((s) => s.scoreboard);
   const keys = useSettings().keys.futebol;
@@ -213,6 +259,7 @@ export function FutebolHud({ myId, locked, powerRef, fillRef }: { myId: string; 
         <FutPens />
         <FutNotices myId={myId} />
         <FutBanners myId={myId} />
+        <FutCameras cam={cam} onCam={onCam} onSkip={onSkip} />
 
         {power}
 
