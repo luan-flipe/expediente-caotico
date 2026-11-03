@@ -6,3 +6,6 @@ dist
 .vs
 data/
 assets-src/futebol/ipatingao.glb
+apps/mobile/android/app/build/
+apps/mobile/android/build/
+apps/mobile/android/.gradle/

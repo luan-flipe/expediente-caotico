@@ -8,7 +8,7 @@ import type { ChairDNA } from "./chair";
 import { pickBoxes, stepHazards, useItem } from "./items";
 import { collideKarts, NO_INPUT, newKart, respawnAt, stepKart, type KartInput } from "./kart";
 import { lapsDone, newLapState, raceProgress, ranking, updateProgress } from "./laps";
-import { boxSpots, checkpoints, clampToTrack, cupSpots, deltaS, getTrack, gridSlots, progressOf, rampStart, type TrackId } from "./track";
+import { boxSpots, checkpoints, clampToTrack, cupSpots, deltaS, getTrack, gridSlots, heightAt, progressOf, rampStart, type TrackId } from "./track";
 import type { GhostSample } from "../ranking/types";
 import type { ItemId, RaceMatch, Racer, RacePrivate, RaceResultRow, RaceSnapshot } from "./types";
 
@@ -53,10 +53,14 @@ export function createRace(opts: { seed: number; players: RacePlayerInfo[]; laps
   order.forEach((info, i) => {
     const slot = slots[i];
     const s = progressOf(track, slot.pos).s;
+    const kart = newKart(slot.pos, slot.heading);
+    if (track.heights) {
+      kart.y = heightAt(track, s);
+    }
     const r: Racer = {
       ...info,
       connected: true,
-      kart: newKart(slot.pos, slot.heading),
+      kart,
       input: { ...NO_INPUT },
       lap: newLapState(s, RACE.countdownMs),
       progress: 0,
@@ -373,6 +377,7 @@ function flagsOf(r: Racer, now: number): string[] {
   if (r.kart.air) f.push("air");
   // paraquedas aberto depois do pico do salto
   if (r.kart.air && (r.kart.vy ?? 0) < 0) f.push("chute");
+  if (r.kart.trick) f.push("trick");
   return f;
 }
 

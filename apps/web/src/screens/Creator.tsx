@@ -23,7 +23,7 @@ import {
 } from "@ec/shared";
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail } from "../game/character";
-import { BEARD_LABELS, HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
+import { BEARD_LABELS, GLASSES_LABELS, HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
 import { saveAvatar, saveChair, setState, useStore } from "../store";
 
 type Step = "start" | "body" | "hair" | "clothes";
@@ -179,6 +179,11 @@ export function Creator() {
         <Field label="Cor dos olhos">
           <Swatches colors={EYE_COLORS} value={dna.eyes} onPick={set("eyes")} />
         </Field>
+        {GLASSES_LABELS.length > 1 && (
+          <Field label="Óculos">
+            <Seg items={GLASSES_LABELS} value={dna.glasses} onPick={set("glasses")} />
+          </Field>
+        )}
         <Field label="Rosto">
           <Seg items={FACES} value={dna.face} onPick={set("face")} />
         </Field>
@@ -290,6 +295,7 @@ export function Creator() {
                     ...randomAvatar(Math.random, d.name),
                     hair: pick(HAIR_LABELS.length),
                     beard: Math.random() < 0.3 ? pick(BEARD_LABELS.length) : 0,
+                    glasses: Math.random() < 0.4 ? pick(GLASSES_LABELS.length) : 0,
                     shirt: pick(SHIRT_LABELS.length),
                     pants: pick(PANTS_LABELS.length),
                     shoes: pick(SHOE_LABELS.length),

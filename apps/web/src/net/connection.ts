@@ -30,7 +30,11 @@ export class Connection {
   }
 
   private open(): void {
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+    const isDev = import.meta.env.DEV;
+    const url =
+      isDev && (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+        ? `ws://${location.hostname}:2567/ws`
+        : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => {

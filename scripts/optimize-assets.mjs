@@ -32,30 +32,42 @@ const MODELS = [
   "characters/boneco_completo.glb",
   "characters/boneco_comemora.glb",
   "chairs/cadeira_escritorio.glb",
+  "chairs/cadeira_gamer_ciano.glb",
+  "chairs/cadeira_escritorio_vermelho.glb",
   "characters/comandante_helicoptero.glb",
 ];
 // Roupas e cabelos: originais em assets-src/roupas/<pasta>, saída em apps/web/src/assets/<pasta>
 // (o jogo lista as peças pelo glob do Vite). As animações das peças saem: o jogo só usa a malha e o skin,
 // quem anima é o esqueleto do boneco_completo.
 const WEARABLES = [
-  "cabelos/01_cabelo.glb",
+  "cabelos/01_romarinho.glb",
   "cabelos/02_repicado.glb",
   "cabelos/03_black_power.glb",
   "cabelos/04_longo.glb",
   "cabelos/05_medio_cacheado.glb",
   "cabelos/06_topete.glb",
+  "cabelos/07_nicoleiro.glb",
+  "cabelos/08_pompadour.glb",
+  "cabelos/09_coque_menina.glb",
+  "cabelos/10_goku.glb",
+  "cabelos/11_guigo.glb",
+  "cabelos/12_longo_com_franja.glb",
   "barbas/01_barba.glb",
   "barbas/02_barba_longa.glb",
+  "oculos/01_redondo.glb",
+  "oculos/02_quadrado.glb",
   "camisetas/01_camiseta.glb",
   "camisetas/02_polo.glb",
   "camisetas/03_moletom.glb",
   "camisetas/04_corta_vento.glb",
+  "camisetas/05_jaqueta_jeans.glb",
   "calcas/01_calca.glb",
   "calcas/02_saia.glb",
   "tenis/01_tenis.glb",
   "tenis/02_galocha.glb",
   "tenis/03_salto_alto.glb",
   "tenis/04_crocs.glb",
+  "tenis/05_tenis_adidas.glb",
 ];
 // Futebol: originais em assets-src/futebol (gerar-bola.mjs, gerar-gol.mjs), saída em apps/web/src/assets/futebol.
 const FUTEBOL = ["futebol/bola.glb", "futebol/gol.glb"];

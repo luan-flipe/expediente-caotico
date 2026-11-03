@@ -217,6 +217,9 @@ describe("rampas e voo", () => {
     expect(TRACKS.estacionamento.ramps[0].path).toBe(0);
     expect(TRACKS.estacionamento.ramps[0].gap).toBeDefined();
     expect(TRACKS.copa.ramps).toHaveLength(0);
+    expect(TRACKS.parque.ramps).toHaveLength(1);
+    expect(TRACKS.parque.ramps[0].path).toBe(-1);
+    expect(TRACKS.parque.ramps[0].gap).toBeUndefined();
   });
 
   it("chão sobe na rampa do Corporativo", () => {

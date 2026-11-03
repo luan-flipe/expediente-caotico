@@ -248,6 +248,7 @@ export class RaceMusic {
   private base = 0;
   private ducked = false;
   private stopped = false;
+  private isFinalLap = false;
 
   constructor(
     private ctx: BaseAudioContext,
@@ -279,6 +280,9 @@ export class RaceMusic {
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = true;
+    if (this.isFinalLap) {
+      src.playbackRate.value = 1.15;
+    }
     src.connect(this.gain);
     src.start();
     this.src = src;
@@ -292,10 +296,27 @@ export class RaceMusic {
     if (this.src && !this.stopped) this.rampTo(this.target(), DUCK_RAMP);
   }
 
+  /** Acelera a música para 1.15x com pitch shift estimulante para a última volta */
+  setFinalLap(active: boolean): void {
+    if (this.isFinalLap === active) return;
+    this.isFinalLap = active;
+    if (this.src && !this.stopped) {
+      const t = this.ctx.currentTime;
+      const rate = active ? 1.15 : 1.0;
+      this.src.playbackRate.cancelScheduledValues(t);
+      this.src.playbackRate.setTargetAtTime(rate, t, 0.12);
+    }
+  }
+
+  get finalLap(): boolean {
+    return this.isFinalLap;
+  }
+
   /** Fade de saída; `onDone` roda quando o som de fato parou (ou na hora, se nada tocava). */
   stop(onDone?: () => void): void {
     if (this.stopped) return;
     this.stopped = true;
+    this.isFinalLap = false;
     const src = this.src;
     this.src = null;
     if (!src) {
@@ -401,6 +422,217 @@ export function playZombieSound(opts?: SoundPosition & { volume?: number }): voi
     gain.connect(effectsGain!);
 
     src.start();
+  });
+}
+
+
+/**
+ * Toca a vinheta/fanfarra sonora de última volta (Final Lap Hype).
+ * Arpejo triunfal em ondas triangulares com leve vibrato no estilo Mario Kart.
+ */
+export function playFinalLapChime(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  // Arpejo enérgico no estilo Mario Kart (F5 -> A5 -> C6 -> F6)
+  const freqs = [698.46, 880.0, 1046.5, 1396.91];
+  freqs.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+
+    osc.type = "triangle";
+    const start = t + idx * 0.08;
+    const dur = idx === freqs.length - 1 ? 0.45 : 0.16;
+
+    osc.frequency.setValueAtTime(freq, start);
+
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(0.24, start + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+
+    osc.connect(g);
+    g.connect(effectsGain!);
+
+    osc.start(start);
+    osc.stop(start + dur + 0.05);
+  });
+}
+
+
+/**
+ * Toca o jingle/chime de manobra aérea no estilo Mario Kart (Trick Stunt).
+ * Tríade ascendente rápida e cristalina (C6 -> E6 -> G6) com ataque imediato.
+ */
+export function playTrickChime(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  const freqs = [1046.5, 1318.51, 1567.98];
+  freqs.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+
+    osc.type = "sine";
+    const start = t + idx * 0.045;
+    const dur = 0.14;
+
+    osc.frequency.setValueAtTime(freq, start);
+
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(0.2, start + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+
+    osc.connect(g);
+    g.connect(effectsGain!);
+
+    osc.start(start);
+    osc.stop(start + dur + 0.02);
+  });
+}
+
+/**
+ * Toca o som de impacto e turbo ao aterrissar de uma manobra (Landing Boost).
+ * Punch dinâmico de graves com subida rápida e dissipação.
+ */
+export function playLandingBoostSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(160, t);
+  osc.frequency.exponentialRampToValueAtTime(320, t + 0.07);
+  osc.frequency.exponentialRampToValueAtTime(80, t + 0.26);
+
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.25, t + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+
+  osc.connect(g);
+  g.connect(effectsGain!);
+
+  osc.start(t);
+  osc.stop(t + 0.32);
+}
+
+
+/**
+ * Toca um assovio/slide cômico de provocação (Taunt whistle) ao ultrapassar um rival.
+ */
+export function playTauntSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(520, t);
+  osc.frequency.exponentialRampToValueAtTime(960, t + 0.16);
+  osc.frequency.exponentialRampToValueAtTime(840, t + 0.24);
+
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+
+  osc.connect(g);
+  g.connect(effectsGain!);
+
+  osc.start(t);
+  osc.stop(t + 0.3);
+}
+
+/**
+ * Toca o som cômico de gole de café rápido (Drink Gulp).
+ */
+export function playCoffeeGulpSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(240, t);
+  osc.frequency.exponentialRampToValueAtTime(420, t + 0.08);
+
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.24, t + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+
+  osc.connect(g);
+  g.connect(effectsGain!);
+
+  osc.start(t);
+  osc.stop(t + 0.16);
+}
+
+/**
+ * Toca o estalo mecânico duplo de grampeador disparado.
+ */
+export function playStaplerClickSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+
+  const t = ctx.currentTime;
+  [0, 0.04].forEach((offset) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(1400, t + offset);
+    osc.frequency.exponentialRampToValueAtTime(300, t + offset + 0.03);
+
+    g.gain.setValueAtTime(0.0001, t + offset);
+    g.gain.exponentialRampToValueAtTime(0.18, t + offset + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + offset + 0.035);
+
+    osc.connect(g);
+    g.connect(effectsGain!);
+    osc.start(t + offset);
+    osc.stop(t + offset + 0.04);
   });
 }
 

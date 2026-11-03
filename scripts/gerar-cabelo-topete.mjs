@@ -8,7 +8,7 @@
 //   linha do cabelo (entradas, costeleta em ponta, contorno da orelha, nuca afinando);
 // - topete: mechas em gomo que nascem na testa, sobem, rolam para trás e morrem no cocuruto, em duas
 //   camadas intercaladas e com leve varrido para o lado -X.
-// O esqueleto, a skin e o material vêm do 01_cabelo.glb, então a peça pega a cor do crachá.
+// O esqueleto, a skin e o material vêm do 01_romarinho.glb, então a peça pega a cor do crachá.
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeIO } from "@gltf-transform/core";
@@ -17,7 +17,7 @@ import { MeshoptDecoder } from "meshoptimizer";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BONECO = join(root, "assets-src", "characters", "boneco_completo.glb");
-const BASE = join(root, "assets-src", "roupas", "cabelos", "01_cabelo.glb");
+const BASE = join(root, "assets-src", "roupas", "cabelos", "01_romarinho.glb");
 const OUT = join(root, "assets-src", "roupas", "cabelos", "06_topete.glb");
 
 const HEAD_BONE = "cabeca";
@@ -211,7 +211,7 @@ for (let t = 0; t < tri.length; t += 3) {
 }
 console.log(`cabeça: ${tris.length} triângulos`);
 
-// Troca a geometria do 01_cabelo.glb pela nova, mantendo nós, skin e material.
+// Troca a geometria do 01_romarinho.glb pela nova, mantendo nós, skin e material.
 const doc = await io.read(BASE);
 for (const anim of doc.getRoot().listAnimations()) anim.dispose();
 const prim = doc.getRoot().listMeshes()[0].listPrimitives()[0];

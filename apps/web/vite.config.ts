@@ -19,6 +19,9 @@ function appVersion(): string {
 
 export default defineConfig({
   plugins: [react(), pwaSw()],
+  resolve: {
+    dedupe: ["react", "react-dom"],
+  },
   define: { __APP_VERSION__: JSON.stringify(appVersion()) },
   optimizeDeps: {
     exclude: ["@ec/shared"],
