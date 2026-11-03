@@ -889,6 +889,7 @@ export class RaceEngine {
       air: k.air,
       trick: k.trick,
       fell: k.fell,
+      roll: k.roll,
     };
     const old = this.pred;
     if (!old || this.snap?.phase !== "active" || me.finished) {
@@ -1916,38 +1917,32 @@ export class RaceEngine {
     this.camDriftOffset += (targetCamSwing - this.camDriftOffset) * Math.min(1, dt * 4.5);
     this.camLookOffset += (targetLookSwing - this.camLookOffset) * Math.min(1, dt * 4.5);
 
-    const pr = progressOf(this.track, { x: p.x, z: p.z }, 0);
+    const pr = this.pred ? progressOf(this.track, this.pred.pos, 0) : progressOf(this.track, { x: v.last.x, z: v.last.z }, 0);
     const roll = this.track.corkscrew ? corkscrewRoll(this.track, pr.s) : 0;
     const targetUp = new THREE.Vector3(0, 1, 0);
 
     if (roll > 0) {
-      const p3 = trackPoint3D(this.track, pr.s, pr.lateral, 0.02);
-      const aheadS = (pr.s + 2.0) % this.track.length;
-      const q3 = trackPoint3D(this.track, aheadS, pr.lateral, 0.02);
-      const up3 = trackPoint3D(this.track, pr.s, pr.lateral, 1.02);
+      // Posição da câmera segue a espiral 3D da pista atrás do kart (estilo Mario Kart 8)
+      // garantindo que ela nunca perfure o chão, o tubo ou a montanha externa
+      const camDistS = 8.0;
+      const camS = ((pr.s - camDistS) % this.track.length + this.track.length) % this.track.length;
+      const camH = 3.3;
+      const camP = trackPoint3D(this.track, camS, pr.lateral * 0.5 + this.camDriftOffset, camH);
+      const camUpPt = trackPoint3D(this.track, camS, pr.lateral * 0.5, camH + 1.0);
 
-      const fwd = new THREE.Vector3(q3.x - p3.x, q3.y - p3.y, q3.z - p3.z).normalize();
-      const rawNorm = new THREE.Vector3(up3.x - p3.x, up3.y - p3.y, up3.z - p3.z).normalize();
-      const right = new THREE.Vector3().crossVectors(fwd, rawNorm).normalize();
-      const norm = new THREE.Vector3().crossVectors(right, fwd).normalize();
-      targetUp.copy(norm);
+      targetUp.set(camUpPt.x - camP.x, camUpPt.y - camP.y, camUpPt.z - camP.z).normalize();
+
+      const lookAheadS = (pr.s + 3.0) % this.track.length;
+      const lookP = trackPoint3D(this.track, lookAheadS, pr.lateral * 0.5 + this.camLookOffset, 0.9);
 
       if (this.lookBackActive) {
-        _camWant.copy(p)
-          .addScaledVector(fwd, camDist)
-          .addScaledVector(norm, camHeight);
-        _camLook.copy(p)
-          .addScaledVector(fwd, -10)
-          .addScaledVector(norm, 0.6);
+        const lookBackS = (pr.s + camDistS) % this.track.length;
+        const lookBackP = trackPoint3D(this.track, lookBackS, pr.lateral * 0.5, camH);
+        _camWant.set(lookBackP.x, lookBackP.y, lookBackP.z);
+        _camLook.copy(p);
       } else {
-        _camWant.copy(p)
-          .addScaledVector(fwd, -camDist)
-          .addScaledVector(norm, camHeight)
-          .addScaledVector(right, this.camDriftOffset);
-        _camLook.copy(p)
-          .addScaledVector(fwd, 10)
-          .addScaledVector(norm, 0.6)
-          .addScaledVector(right, this.camLookOffset);
+        _camWant.set(camP.x, camP.y, camP.z);
+        _camLook.set(lookP.x, lookP.y, lookP.z);
       }
     } else {
       this.camY += (Math.max(0, p.y) - this.camY) * Math.min(1, dt * 4);

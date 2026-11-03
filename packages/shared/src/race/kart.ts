@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 import { RACE } from "./balance";
-import { branchPointAt, clampToTrack, corkscrewRoll, corkscrewTransform, deltaS, groundAt, inCarpet, progressOf, type Track, type TrackProgress } from "./track";
+import { branchPointAt, clampToTrack, corkscrewRoll, corkscrewTransform, deltaS, groundAt, inCarpet, pointAt, progressOf, sideNormal, type Track, type TrackProgress } from "./track";
 
 export interface KartState {
   pos: Vec2;
@@ -157,11 +157,23 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   if (!airborne && s.speed > cap) s.speed = Math.max(cap, s.speed - RACE.overSpeedDecel * dt * (boosting ? 1 : 2));
   if (s.speed < -RACE.reverseMax) s.speed = -RACE.reverseMax;
   if (slipping) s.speed *= 1 - 1.2 * dt;
-  if (inCorkscrew0) {
-    s.speed = Math.max(s.speed, 18);
-  }
+  if (inCorkscrew0 && track && pr0) {
+    s.speed = Math.max(s.speed, 20);
+    const at0 = pointAt(track, pr0.s);
+    // Guia magnético anti-gravitacional: alinha o heading com a tangente da pista no loop 3D
+    const dH = Math.atan2(Math.sin(at0.heading - s.heading), Math.cos(at0.heading - s.heading));
+    s.heading += dH * Math.min(1, dt * 12);
 
-  if (spinning) {
+    // O volante do piloto desloca o kart suavemente entre as faixas da pista
+    let newLat = pr0.lateral;
+    if (Math.abs(steer) > 0.01) {
+      newLat = Math.max(-5.5, Math.min(5.5, pr0.lateral - steer * 7.5 * dt));
+    }
+    const nextS = (pr0.s + s.speed * dt) % track.length;
+    const nextAt = pointAt(track, nextS);
+    const nrm0 = sideNormal(Math.sin(nextAt.heading), Math.cos(nextAt.heading));
+    s.pos = { x: nextAt.pos.x + nrm0.x * newLat, z: nextAt.pos.z + nrm0.z * newLat };
+  } else if (spinning) {
     s.heading += 12 * dt;
   } else if (s.drifting) {
     // Curva dinâmica estilo Mario Kart com contra-esterço total:
@@ -187,10 +199,10 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
   const dir = s.heading + (s.drifting ? slipAngle : 0);
   const vx = Math.sin(dir) * s.speed;
   const vz = Math.cos(dir) * s.speed;
-  const next = { x: s.pos.x + vx * dt, z: s.pos.z + vz * dt };
+  const next = inCorkscrew0 ? s.pos : { x: s.pos.x + vx * dt, z: s.pos.z + vz * dt };
   let wall = false;
   let progress: TrackProgress | null = null;
-  if (track) {
+  if (track && !inCorkscrew0) {
     const c = clampToTrack(track, next, RACE.kartRadius, s.path);
     s.pos = c.pos;
     if (c.progress.path !== (s.path ?? -1)) s.path = c.progress.path;
@@ -198,13 +210,12 @@ export function stepKart(k: KartState, input: KartInput, dtMs: number, now: numb
     if (c.hit && Math.abs(s.speed) > 0.01) {
       const into = (vx * c.normal.x + vz * c.normal.z) / Math.abs(s.speed);
       if (into > 0) {
-        const inCork = corkscrewRoll(track, c.progress.s) > 0;
-        wall = into > 0.3 && !inCork;
-        if (!inCork) {
-          s.speed *= 1 - (1 - RACE.wallSpeedKeep) * into;
-        }
+        wall = into > 0.3;
+        s.speed *= 1 - (1 - RACE.wallSpeedKeep) * into;
       }
     }
+  } else if (track) {
+    progress = progressOf(track, s.pos, s.path);
   } else {
     s.pos = next;
   }
