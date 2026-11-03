@@ -46,24 +46,25 @@ function turnInWorld(bone: THREE.Object3D, q: THREE.Quaternion): void {
 }
 
 /**
- * Mão fechada no guidão: o pulso gira até os dedos apontarem em GRIP_DIR e, em volta dessa direção, até o
- * polegar apontar para o meio do guidão (a esquerda do boneco fica em +x). Sem isso a mão pende do pulso.
+ * Mão fechada por cima do guidão: o pulso gira até os dedos apontarem em GRIP_DIR e, em volta dessa direção,
+ * até o lado para onde a mão fecha (a ponta dos dedos dobrados) ficar para baixo: as costas da mão para cima e
+ * os dedos descendo em volta do guidão. Chame com as mãos já fechadas. Sem isso a mão pende do pulso.
  */
 function gripBar(rider: THREE.Object3D): void {
   rider.updateMatrixWorld(true);
   for (const side of ["E", "D"]) {
     const wrist = rider.getObjectByName(`punho_${side}`);
     const fingers = rider.getObjectByName(`dedos_${side}`);
-    const thumb = rider.getObjectByName(`polegar_${side}`);
+    const tips = rider.getObjectByName(`dedos2_${side}`);
     if (!wrist || !fingers) continue;
     const at = (o: THREE.Object3D) => o.getWorldPosition(new THREE.Vector3());
     const hand = at(fingers).sub(at(wrist)).normalize();
     turnInWorld(wrist, new THREE.Quaternion().setFromUnitVectors(hand, GRIP_DIR));
-    if (!thumb) continue;
+    if (!tips) continue;
     // só a parte de lado de cada direção, no plano em volta dos dedos
     const flat = (v: THREE.Vector3) => v.addScaledVector(GRIP_DIR, -v.dot(GRIP_DIR)).normalize();
-    const from = flat(at(thumb).sub(at(wrist)));
-    const to = flat(new THREE.Vector3(side === "E" ? -1 : 1, 0, 0));
+    const from = flat(at(tips).sub(at(fingers)));
+    const to = flat(new THREE.Vector3(0, -1, 0));
     const angle = Math.atan2(new THREE.Vector3().crossVectors(from, to).dot(GRIP_DIR), from.dot(to));
     turnInWorld(wrist, new THREE.Quaternion().setFromAxisAngle(GRIP_DIR, angle));
   }

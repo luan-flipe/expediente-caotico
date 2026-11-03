@@ -710,7 +710,13 @@ function addTrinket(
     mesh.position.set(x, y, z);
     mesh.rotation.set(rx, ry, rz);
     mesh.castShadow = true;
-    parent.add(mesh);
+    // os pontos de encaixe são da cadeira inteira; assento e encosto têm posição e escala próprias, então o
+    // enfeite entra na cadeira e passa para eles mantendo o lugar (somar no espaço deles fazia ele flutuar)
+    g.add(mesh);
+    if (parent !== g) {
+      g.updateMatrixWorld(true);
+      parent.attach(mesh);
+    }
     extras.push(mesh);
     return mesh;
   };

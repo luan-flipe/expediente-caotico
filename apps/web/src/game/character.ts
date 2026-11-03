@@ -520,7 +520,7 @@ const STANCE = 0.14;
 /** Sentado, a canela cai da beira do assento: com a perna comprida, esticada ela passava muito da cadeira. */
 const SEATED_KNEE = Math.PI / 2;
 /** Mão fechada: quanto cada falange dos dedos dobra (rad), e a fração disso no polegar. */
-const FIST_CURL = 1.2;
+const FIST_CURL = -1.2;
 const THUMB_SHARE = 0.5;
 /** Antebraço no braço da cadeira: quanto o cotovelo fica para trás do ombro (fração do que sobra do braço). */
 const ELBOW_BACK = 0.6;
