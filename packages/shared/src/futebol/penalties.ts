@@ -22,6 +22,10 @@ const AUTO_TARGET = 0.6;
 /** Chance do goleiro da IA de ler o canto e saltar para ele, por nível. */
 const DIVE_CHANCE: Record<BotLevel, number> = { easy: 0.25, normal: 0.4, hard: 0.55 };
 
+/** Entrada lateral (eixo z) a partir da qual o goleiro humano escolheu um lado, e quanto da meia-trave ele alcança ao pular. */
+const LATERAL_PICK = 0.35;
+const DIVE_REACH = 0.75;
+
 const other = (s: TeamSide): TeamSide => (s === 0 ? 1 : 0);
 
 function keeperOf(m: FutMatch, side: TeamSide): FutPlayer {
@@ -48,6 +52,7 @@ function setupKick(m: FutMatch, s: Shootout): void {
   s.keeperId = keeper.id;
   s.stage = "aim";
   s.timerMs = 0;
+  s.dive = 0;
 
   let parked = 0;
   for (const p of m.players) {
@@ -89,6 +94,7 @@ export function startShootout(m: FutMatch): void {
     takerId: "",
     keeperId: "",
     timerMs: 0,
+    dive: 0,
   };
   setupKick(m, m.shootout);
 }
@@ -123,10 +129,24 @@ function resolveKick(m: FutMatch, s: Shootout, scored: boolean): void {
   m.events.push({ type: "pen", side, takerId: s.takerId, scored });
 }
 
-/** Ao sair o chute, o goleiro pode adivinhar o canto e já estar lá quando a bola chega. */
+/** Humano conectado do time que defende: ele escolhe o lado do pulo do goleiro (o goleiro em si é sempre da IA). */
+function keeperPilot(m: FutMatch, s: Shootout): FutPlayer | undefined {
+  const side = other(s.turn);
+  return activeOutfield(m.players, side).filter((p) => m.connected.has(p.id) && !p.isBot).sort((a, b) => (a.id < b.id ? -1 : 1))[0];
+}
+
+/** Ao sair o chute, o goleiro pode adivinhar o canto e já estar lá quando a bola chega (ou pula para o lado que o humano escolheu). */
 function keeperDive(m: FutMatch, s: Shootout): void {
   const b = m.ball;
   const keeper = m.players.find((p) => p.id === s.keeperId)!;
+  if (s.dive !== 0) {
+    keeper.z = s.dive * m.field.goalHalfW * DIVE_REACH;
+    return;
+  }
+  if (keeperPilot(m, s)) {
+    // humano defendendo que não escolheu: o goleiro fica no meio
+    return;
+  }
   const dir = attackDir(other(keeper.side));
   if (b.vx * dir <= 0.5 || m.rng() >= DIVE_CHANCE[m.botLevel]) {
     return;
@@ -172,6 +192,11 @@ export function stepShootout(m: FutMatch, dtMs: number): void {
 
   const only = new Set([s.takerId, s.keeperId]);
   if (s.stage === "aim") {
+    const pilot = keeperPilot(m, s);
+    const pick = pilot ? (m.inputs.get(pilot.id)?.mz ?? 0) : 0;
+    if (Math.abs(pick) >= LATERAL_PICK) {
+      s.dive = pick > 0 ? 1 : -1;
+    }
     stepWorld(m, dtMs, { only, keeperIdle: true, aimOnly: true, restartAi: false });
     if (m.restart && m.restart.leftMs <= 0) {
       autoShot(m, s);

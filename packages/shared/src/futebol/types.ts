@@ -136,6 +136,8 @@ export interface Shootout {
   takerId: string;
   keeperId: string;
   timerMs: number;
+  /** Lado (z) para onde o goleiro humano pulará: -1, 0 (sem escolha) ou 1. Fica só no servidor. */
+  dive: -1 | 0 | 1;
 }
 
 /** Partida completa. connected = ids humanos conectados; bots e goleiros contam sempre. */
@@ -179,7 +181,16 @@ export interface FutSnapshot {
   celebrateMs: number;
   format: FutFormat;
   score: [number, number];
-  pens: { goals: [number, number]; taken: [number, number]; takerId: string } | null;
+  pens: {
+    goals: [number, number];
+    taken: [number, number];
+    takerId: string;
+    keeperId: string;
+    turn: TeamSide;
+    stage: Shootout["stage"];
+    /** Passou das cinco cobranças de cada time: morte súbita. */
+    sudden: boolean;
+  } | null;
   teams: [FutTeamConfig, FutTeamConfig];
   restart: { kind: RestartKind; side: TeamSide; x: number; z: number; takerId: string; leftMs: number; wall?: string[] } | null;
   ball: { x: number; y: number; z: number; vx: number; vy: number; vz: number; ownerId: string | null };

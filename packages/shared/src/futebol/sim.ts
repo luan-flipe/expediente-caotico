@@ -16,7 +16,7 @@ export interface WorldOpts {
   only?: ReadonlySet<string>;
   /** Goleiros da IA ficam parados (disputa de pênaltis: o salto é sorteado em penalties.ts). */
   keeperIdle?: boolean;
-  /** Cobrador só mira e chuta: não anda, e conduzir a bola não encerra a cobrança. */
+  /** Cobrador só mira e chuta: não anda (o lado apertado ainda escolhe o canto), e conduzir a bola não encerra a cobrança. */
   aimOnly?: boolean;
   /** false = a IA não cobra sozinha quando os 8 s acabam (a disputa de pênaltis cuida disso). */
   restartAi?: boolean;
@@ -32,7 +32,7 @@ function inputFor(m: FutMatch, p: FutPlayer, o: WorldOpts): FutInput {
     return o.keeperIdle ? { ...IDLE, aim: p.facing } : keeperInput(p, m.ball, m.field, m.botLevel, m.players);
   }
   const raw = p.isBot || !m.connected.has(p.id) ? botInput(p, m, m.botLevel) : (m.inputs.get(p.id) ?? IDLE);
-  return o.aimOnly ? { ...raw, mx: 0, mz: 0, sprint: false } : raw;
+  return raw;
 }
 
 /** Carimba o tempo no toque atual (e o mantém fresco enquanto o dono conduz ou chuta); prevTouch guarda o carimbo que tinha. */
@@ -55,7 +55,9 @@ export function stepWorld(m: FutMatch, dtMs: number, o: WorldOpts = {}): WorldSt
   }
   for (const p of active) {
     markCarry(p, m.ball.ownerId);
-    stepPlayer(p, inputs.get(p.id)!, m.field, dtMs);
+    const own = inputs.get(p.id)!;
+    // cobrança de pênalti: o cobrador não anda, mas o lado que ele aperta (mz) segue valendo para escolher o canto
+    stepPlayer(p, o.aimOnly ? { ...own, mx: 0, mz: 0, sprint: false } : own, m.field, dtMs);
   }
 
   const touchers: FutPlayer[] = [];

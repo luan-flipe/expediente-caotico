@@ -5,6 +5,7 @@ import { net, useStore } from "../store";
 import { IS_TOUCH } from "../touch";
 import { CAM_KINDS, CAM_LABELS, type CamKind } from "./cameras";
 import type { FutCamUi } from "./futebolEngine";
+import { penaltyHint, penaltyRole, penaltyRound } from "./penaltyUi";
 
 const fmt = (ms: number) => {
   const s = Math.ceil(Math.max(0, ms) / 1000);
@@ -138,18 +139,20 @@ const FutTop = memo(function FutTop() {
 });
 
 const FutPens = memo(function FutPens() {
-  const d = useFut((s) => ({ pens: s.pens, names: [s.teams[0].name, s.teams[1].name] }));
+  const d = useFut((s) => ({ pens: s.pens, names: [s.teams[0].name, s.teams[1].name], taker: s.players.find((p) => p.id === s.pens?.takerId)?.name ?? "" }));
   if (!d?.pens) return null;
   const { pens, names } = d;
   return (
     <div className="panel fut-pens">
+      <header>Disputa de pênaltis · {penaltyRound(pens.taken, pens.sudden)}</header>
       {([0, 1] as const).map((i) => (
-        <div key={i}>
+        <div key={i} className={pens.turn === i ? "turn" : ""}>
           <span>{names[i]}</span>
           <Dots goals={pens.goals[i]} taken={pens.taken[i]} />
           <b>{pens.goals[i]}</b>
         </div>
       ))}
+      <footer>{pens.stage === "result" ? "Resultado da cobrança" : `Bate: ${d.taker}`}</footer>
     </div>
   );
 });
@@ -165,6 +168,7 @@ const FutNotices = memo(function FutNotices({ myId }: { myId: string }) {
     return {
       restart: r && s.phase !== "penalties" ? `${RESTART_TEXT[r.kind]}${r.takerId === myId ? " (você cobra)" : ` (${name(r.takerId) ?? "alguém"} cobra)`}` : null,
       pen: penTaker ? (penTaker === myId ? "Sua vez de bater o pênalti" : `${name(penTaker) ?? "Alguém"} vai bater`) : null,
+      role: penaltyRole(s, myId),
       count: counting && r ? Math.max(1, Math.ceil(r.leftMs / 1000)) : 0,
       down: !!me?.down,
       sentOff: !!me?.sentOff,
@@ -172,11 +176,14 @@ const FutNotices = memo(function FutNotices({ myId }: { myId: string }) {
     };
   });
   const locked = useLocked();
+  const keys = useSettings().keys.futebol;
   if (!d) return null;
+  const hint = d.role ? penaltyHint(d.role, { esquerda: keyLabel(keys.esquerda), direita: keyLabel(keys.direita), touch: IS_TOUCH }) : null;
   return (
     <>
       {d.restart && <div className="panel fut-restart">{d.restart}</div>}
       {d.pen && <div className="panel fut-restart">{d.pen}</div>}
+      {hint && <div className="panel fut-hint">{hint}</div>}
       {d.count > 0 && <div className="fut-count">{d.count}</div>}
       {d.down && <div className="panel fut-state">No chão...</div>}
       {d.sentOff && <div className="panel fut-state">Você foi expulso. Seu time joga com um a menos.</div>}

@@ -2818,6 +2818,29 @@ input.fut-team-name {
   font-weight: 800;
 }
 
+.fut-pens header,
+.fut-pens footer {
+  font-size: 13px;
+  text-align: center;
+  opacity: 0.85;
+}
+
+.fut-pens > div.turn {
+  color: #ffe14d;
+}
+
+.fut-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  max-width: min(640px, 92vw);
+  text-align: center;
+  font-weight: 800;
+  font-size: 17px;
+  border: 2px solid #ffe14d;
+}
+
 .fut-pens > div {
   display: flex;
   align-items: center;

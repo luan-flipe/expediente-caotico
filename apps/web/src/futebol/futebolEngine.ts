@@ -36,6 +36,7 @@ import { campoDoMapa } from "./arenaLayout";
 import { Comemoracoes } from "./comemoracoes";
 import { EquipeFilmagem } from "./equipe";
 import { Juiz } from "./juiz";
+import { penaltyAttackSide, penaltyRole, pickedSide, tagScale } from "./penaltyUi";
 import { createGolMesh, disposeGolMesh } from "./golMesh";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
 import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
@@ -102,24 +103,37 @@ function hashOf(s: string): number {
   return h;
 }
 
+/** Tamanho base (m) do nome sobre o jogador; o quadro multiplica por tagScale(distância da câmera). */
+const TAG_W = 2.1;
+const TAG_H = 0.525;
+
 function makeTag(name: string, hex: string): THREE.Sprite {
   const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 64;
+  c.width = 320;
+  c.height = 80;
   const g = c.getContext("2d")!;
-  g.font = "800 30px 'Bricolage Grotesque', sans-serif";
+  // nomes longos encolhem a fonte em vez de vazar da etiqueta
+  let size = 40;
+  g.font = `800 ${size}px 'Bricolage Grotesque', sans-serif`;
+  const w = g.measureText(name).width;
+  if (w > 300) {
+    size = Math.max(22, Math.floor((size * 300) / w));
+    g.font = `800 ${size}px 'Bricolage Grotesque', sans-serif`;
+  }
   g.textAlign = "center";
-  g.lineWidth = 6;
-  g.strokeStyle = "rgba(20,18,15,0.9)";
-  g.strokeText(name, 128, 32);
+  g.textBaseline = "middle";
+  g.lineJoin = "round";
+  g.lineWidth = 9;
+  g.strokeStyle = "rgba(20,18,15,0.95)";
+  g.strokeText(name, 160, 30);
   g.fillStyle = "#fffdf7";
-  g.fillText(name, 128, 32);
-  g.fillStyle = "rgba(20,18,15,0.9)";
-  g.fillRect(58, 42, 140, 12);
+  g.fillText(name, 160, 30);
+  g.fillStyle = "rgba(20,18,15,0.95)";
+  g.fillRect(70, 54, 180, 16);
   g.fillStyle = hex;
-  g.fillRect(61, 44, 134, 8);
+  g.fillRect(74, 57, 172, 10);
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
-  s.scale.set(1.9, 0.475, 1);
+  s.scale.set(TAG_W, TAG_H, 1);
   s.renderOrder = 5;
   return s;
 }
@@ -224,6 +238,10 @@ export class FutebolEngine {
   private ballPrev: THREE.Vector3 | null = null;
 
   private aimArrow: THREE.Mesh;
+  /** Anel no chão de quem está com a bola, e os dois alvos (cantos) da cobrança de pênalti: 3 malhas no total. */
+  private ownerRing: THREE.Mesh;
+  private penMarks: THREE.Mesh[] = [];
+  private lastMz = 0;
 
   private yaw = 0;
   private pitch = PITCH_START;
@@ -320,6 +338,20 @@ export class FutebolEngine {
     this.aimArrow.renderOrder = 3;
     this.aimArrow.visible = false;
     this.scene.add(this.aimArrow);
+
+    this.ownerRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 36), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
+    this.ownerRing.rotation.x = -Math.PI / 2;
+    this.ownerRing.renderOrder = 3;
+    this.ownerRing.visible = false;
+    this.scene.add(this.ownerRing);
+    for (let i = 0; i < 2; i++) {
+      const mark = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.38, 28), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false, depthTest: false }));
+      mark.rotation.y = Math.PI / 2;
+      mark.renderOrder = 6;
+      mark.visible = false;
+      this.penMarks.push(mark);
+      this.scene.add(mark);
+    }
 
     void this.loadAssets();
     this.applySettings();
@@ -600,6 +632,14 @@ export class FutebolEngine {
       this.yaw = attackYaw(mine.side);
       this.aimYaw = this.yaw;
     }
+    // quem defende (ou só assiste) a cobrança vê do mesmo lado do cobrador: o movimento lateral vale na tela
+    if (taker && taker !== this.penTaker && taker !== this.myId && s.phase === "penalties") {
+      const tk = s.players.find((p) => p.id === taker);
+      if (tk) {
+        this.yaw = attackYaw(tk.side);
+        this.aimYaw = this.yaw;
+      }
+    }
     this.penTaker = taker;
 
     if (mine) this.reconcile(mine, me);
@@ -811,6 +851,12 @@ export class FutebolEngine {
       this.charge.kind = null;
       return;
     }
+    // quem escolhe o pulo do goleiro olha o gol de frente: o lado apertado é o lado da tela
+    const pens = s.phase === "penalties" ? s.pens : null;
+    if (pens && pens.takerId !== this.myId) {
+      this.yaw = attackYaw(pens.turn);
+      this.aimYaw = this.yaw;
+    }
     let input: FutInput;
     if (inputBlocked(getState()) || me.sentOff) {
       // menu ou chat por cima: comando parado. Sem botão apertado o servidor zera a carga sem chutar (touch.ts), ou seja, cancela
@@ -835,6 +881,7 @@ export class FutebolEngine {
       const hasBall = hasBallReach(s.ball, { id: me.id, x: this.pred?.x ?? me.x, z: this.pred?.z ?? me.z });
       input = readFutInput(keys, this.btn, now, this.ctl, { yaw: this.yaw, aim, hasBall });
     }
+    this.lastMz = input.mz;
     const seq = ++this.seq;
     net.send({ t: "futInput", ...input, seq });
     stepCharge(this.charge, input, now);
@@ -925,6 +972,10 @@ export class FutebolEngine {
       root.rotation.x = lying ? -1.35 : 0;
       root.visible = !p.sentOff;
       v.char.update(dt, lying || p.sliding ? 0 : Math.min(1, speed / FUT.walkSpeed));
+      // o nome acompanha a distância da câmera (legível de longe) e cresce em quem está com a bola
+      const grow = tagScale(this.camera.position.distanceTo(root.position)) * (id === this.snap?.ball.ownerId ? 1.3 : 1);
+      v.tag.scale.set(TAG_W * grow, TAG_H * grow, 1);
+      v.tag.position.y = 2.2 + 0.15 * grow;
       if (id === this.myId) this.myPos.set(x, 0, z);
     }
 
@@ -969,6 +1020,7 @@ export class FutebolEngine {
     this.crew?.update(dt, this.ball.position.x, this.ball.position.z);
     this.ref?.update(dt, this.ball.position.x, this.ball.position.z);
     this.updateAim(now);
+    this.updateMarks(now);
     this.updateCamera(dt);
     this.updatePower(now);
     this.reportCam();
@@ -983,6 +1035,39 @@ export class FutebolEngine {
     if (!s || !me || !this.field || (k && k !== "falta" && k !== "penalti")) return this.aimYaw;
     const gx = (me.side === 0 ? 1 : -1) * this.field.halfL;
     return Math.atan2(gx - this.myPos.x, -this.myPos.z);
+  }
+
+  /** Anel de quem está com a bola e alvos dos cantos na cobrança de pênalti (o canto escolhido acende e sobe com a força). */
+  private updateMarks(now: number): void {
+    const s = this.snap;
+    const oid = s ? (s.ball.ownerId ?? (s.phase === "penalties" ? s.pens?.takerId : s.restart?.takerId) ?? null) : null;
+    const ov = oid ? this.views.get(oid) : undefined;
+    const ringOn = !!ov && !!s && s.phase !== "over" && ov.last.role === "linha" && !ov.last.sentOff && !this.replay;
+    this.ownerRing.visible = ringOn;
+    if (ringOn && ov) {
+      const p = ov.char.root.position;
+      this.ownerRing.position.set(p.x, 0.07, p.z);
+      this.ownerRing.scale.setScalar(1 + 0.07 * Math.sin(now / 170));
+    }
+    const role = s ? penaltyRole(s, this.myId) : null;
+    const attack = s ? penaltyAttackSide(s) : null;
+    const on = (role === "taker" || role === "keeper") && attack !== null && !!this.field && !this.replay;
+    if (!on || !this.field) {
+      for (const m of this.penMarks) m.visible = false;
+      return;
+    }
+    const picked = pickedSide(this.lastMz);
+    const y = role === "taker" ? 0.4 + chargePower(this.charge, now) * 1.2 : 0.9;
+    this.penMarks.forEach((m, i) => {
+      const sign = i === 0 ? -1 : 1;
+      const hit = picked === sign;
+      const mat = m.material as THREE.MeshBasicMaterial;
+      mat.opacity = hit ? 0.95 : 0.4;
+      mat.color.set(hit ? "#ffe14d" : "#ffffff");
+      m.visible = true;
+      m.scale.setScalar(hit ? 1.35 : 1);
+      m.position.set((attack === 0 ? 1 : -1) * (this.field!.halfL - 0.05), y, sign * this.field!.goalHalfW * FUT.assistCorner);
+    });
   }
 
   /** Seta no chão na direção do chute: fraca parada, mais forte e longa carregando. */

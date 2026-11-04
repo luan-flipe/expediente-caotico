@@ -372,7 +372,9 @@ export function buildFutSnapshot(m: FutMatch): FutSnapshot {
     celebrateMs: m.phase === "goal" ? Math.max(0, Math.round(m.phaseMs)) : 0,
     format: m.format,
     score: [m.score[0], m.score[1]],
-    pens: s ? { goals: [s.goals[0], s.goals[1]], taken: [s.taken[0], s.taken[1]], takerId: s.takerId } : null,
+    pens: s
+      ? { goals: [s.goals[0], s.goals[1]], taken: [s.taken[0], s.taken[1]], takerId: s.takerId, keeperId: s.keeperId, turn: s.turn, stage: s.stage, sudden: s.taken[0] >= 5 && s.taken[1] >= 5 }
+      : null,
     teams: m.teams,
     restart: r ? { kind: r.kind, side: r.side, x: r2(r.x), z: r2(r.z), takerId: r.takerId, leftMs: Math.round(r.leftMs), wall: r.wall } : null,
     ball: { x: r2(b.x), y: r2(b.y), z: r2(b.z), vx: r2(b.vx), vy: r2(b.vy), vz: r2(b.vz), ownerId: b.ownerId },
