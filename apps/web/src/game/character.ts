@@ -802,6 +802,10 @@ const HEEL_TILT = 0.35;
  */
 const HEEL_LIFT = 0.044;
 
+/** Patoleiro como chapéu, no espaço do osso `cabeca`: escala do pato e quanto ele afunda no cabelo. */
+const PATOLEIRO_HAT_SCALE = 2.6;
+const PATOLEIRO_SINK = 0.03;
+
 /** Altura do cós medida a partir do topo da saia. */
 const TUCK_BAND = 0.03;
 /** Folga entre a camiseta apertada e o lado de dentro da saia. */
@@ -1036,7 +1040,13 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     cabecaNode.add(glbCapVisor);
   }
   if (cabecaNode && dna.accessory === 5) {
-    const duck = addPatoleiro(cabecaNode, 0, 0.42, 0.02, 1.0);
+    // o topo varia com o cabelo: um raio de cima para baixo no eixo da cabeça acha onde o pato senta
+    inner.updateMatrixWorld(true);
+    const down = new THREE.Vector3(0, -1, 0).transformDirection(cabecaNode.matrixWorld);
+    const from = cabecaNode.localToWorld(new THREE.Vector3(0, 3, 0));
+    const hit = new THREE.Raycaster(from, down).intersectObjects(body ? [body, ...attachedHairMeshes] : attachedHairMeshes)[0];
+    const top = hit ? cabecaNode.worldToLocal(hit.point.clone()) : new THREE.Vector3(0, 1, 0);
+    const duck = addPatoleiro(cabecaNode, top.x, top.y - PATOLEIRO_SINK, top.z, PATOLEIRO_HAT_SCALE);
     duck.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh && m.material) {
