@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { TeamSide } from "@ec/shared";
 import type { Character } from "../game/character";
+import { DeslizeDeJoelhos, slideDistance } from "../game/joelhos";
 
 export type Comemoracao = "papel" | "caneca" | "cracha" | "dancinha";
 export const COMEMORACOES: readonly Comemoracao[] = ["papel", "caneca", "cracha", "dancinha"];
@@ -89,7 +90,8 @@ function mug(): THREE.Group {
 
 /**
  * Comemorações do Futebol da Firma, só visuais. Reaproveitam as animações do boneco (cafe, tchau)
- * e acrescentam adereços criados em código: papel picado, caneca, crachá carimbado, giro de dança.
+ * e acrescentam adereços criados em código: papel picado, caneca, crachá carimbado, dancinha dos colegas.
+ * O autor do gol sempre desliza de joelhos (pose em código, ver game/joelhos.ts), seja qual for a comemoração dos colegas.
  * O motor chama update() depois de posicionar os bonecos no quadro.
  */
 export class Comemoracoes {
@@ -97,6 +99,7 @@ export class Comemoracoes {
   private t = 0;
   private props: THREE.Object3D[] = [];
   private scorer: Character | null = null;
+  private slide: DeslizeDeJoelhos | null = null;
   private mates: Character[] = [];
   private nextCup = 0;
   private paper: { mesh: THREE.InstancedMesh; seeds: Float32Array; center: THREE.Vector3 } | null = null;
@@ -112,11 +115,17 @@ export class Comemoracoes {
     return this.kind !== null;
   }
 
+  /** Quanto (m) o autor do gol já deslizou para a frente: a câmera da comemoração se afasta dele por esse tanto. */
+  get slideDist(): number {
+    return this.slide ? slideDistance(this.t) : 0;
+  }
+
   /** Dispara uma comemoração (sorteada se não for informada). */
   start(cena: GolCena, kind: Comemoracao = COMEMORACOES[Math.floor(Math.random() * COMEMORACOES.length)]): void {
     this.clear();
     this.kind = cena.scorer ? kind : "papel";
     this.scorer = cena.scorer;
+    this.slide = cena.scorer ? new DeslizeDeJoelhos(cena.scorer.root) : null;
     this.mates = cena.mates;
     this.t = 0;
     this.nextCup = 0;
@@ -125,7 +134,6 @@ export class Comemoracoes {
       for (const c of [cena.scorer, ...cena.mates]) if (c) this.attachMug(c);
     } else if (this.kind === "cracha") this.startBadge(cena);
     else {
-      cena.scorer?.play("tchau");
       for (const m of cena.mates) m.play("tchau");
     }
   }
@@ -204,13 +212,9 @@ export class Comemoracoes {
       const ss = 2.2 - st * 1.2;
       this.stamp.scale.set(ss * 1.25, ss * 0.5, 1);
       (this.stamp.material as THREE.SpriteMaterial).opacity = st;
-    } else if (this.kind === "dancinha" && this.scorer) {
-      // a dancinha da reunião que acabou mais cedo: gira e pula enquanto o tchau acena
-      const r = this.scorer.root;
-      r.rotation.y += t * 7;
-      r.position.y += Math.abs(Math.sin(t * 6)) * 0.28;
-      if (t > 3.1 && t - dt <= 3.1) this.scorer.play("tchau");
     }
+    // por último: a pose e o deslize sobrescrevem o que a animação e o motor puseram neste quadro
+    this.slide?.apply(t);
   }
 
   private updatePaper(t: number): void {
@@ -251,6 +255,8 @@ export class Comemoracoes {
   }
 
   clear(): void {
+    this.slide?.restore();
+    this.slide = null;
     this.kind = null;
     this.scorer = null;
     this.mates = [];

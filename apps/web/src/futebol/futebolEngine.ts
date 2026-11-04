@@ -1201,7 +1201,9 @@ export class FutebolEngine {
       // comemoração: câmera curta de frente para o autor do gol
       const f = focus.last.facing;
       const p = focus.char.root.position;
-      const want = this.tmpWant.set(p.x + Math.sin(f) * 3.4, 1.7, p.z + Math.cos(f) * 3.4);
+      // o autor desliza para a frente: a câmera fica 2 m mais longe, parada no ponto de partida do deslize, para ele não passar por ela
+      const d = 3.4 + 2 - this.fx.slideDist;
+      const want = this.tmpWant.set(p.x + Math.sin(f) * d, 1.7, p.z + Math.cos(f) * d);
       const look = this.tmpLook.set(p.x, 1.3, p.z);
       this.camPos.lerp(want, 1 - Math.exp(-dt * 5));
       this.camLook.lerp(look, 1 - Math.exp(-dt * 8));
