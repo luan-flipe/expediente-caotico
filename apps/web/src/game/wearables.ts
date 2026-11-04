@@ -15,6 +15,13 @@ function labelOf(path: string): string {
   const file = path.split("/").pop()!.replace(/\.glb$/i, "");
   if (/jaqueta_jeans/i.test(file)) return "Jaqueta jeans";
   if (/adidas/i.test(file)) return "Tenis adidas";
+  if (/camisa_gravata/i.test(file)) return "Camisa e gravata";
+  if (/camisa_time/i.test(file)) return "Camisa de time";
+  if (/polo_trico/i.test(file)) return "Polo de tricô";
+  if (/calca_social/i.test(file)) return "Calça social";
+  if (/calca_jeans/i.test(file)) return "Calça jeans";
+  if (/short_futebol/i.test(file)) return "Short de futebol";
+  if (/chuteira_meiao/i.test(file)) return "Chuteira com meião";
   const name = file.replace(/^\d+[_-]?/, "").replace(/[_-]+/g, " ").trim();
   return name ? name[0].toUpperCase() + name.slice(1) : "Peça";
 }

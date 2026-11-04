@@ -166,5 +166,8 @@ export function dressFace(inner: THREE.Object3D, dna: AvatarDNA, mats: THREE.Mat
     uIrisMask: { value: mask },
   });
   body.material = m;
+  // o short justo é outra malha com o mesmo material do corpo: pega a mesma pele
+  const short = inner.getObjectByName("short") as THREE.Mesh | undefined;
+  if (short?.isMesh) short.material = m;
   mats.push(m);
 }

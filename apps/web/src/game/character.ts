@@ -945,7 +945,8 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     const mesh = o as THREE.SkinnedMesh;
     if (!mesh.isMesh) return;
     mesh.castShadow = true;
-    if (mesh.isSkinnedMesh) body = mesh;
+    // o corpo é a malha "boneco"; o short justo também tem pele, mas não serve de corpo
+    if (mesh.isSkinnedMesh && (mesh.name === "boneco" || !body)) body = mesh;
   });
 
   const mats: THREE.Material[] = [];
@@ -971,6 +972,9 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   // com saia, a camiseta vai para dentro do cós
   const pants = model.pants[dna.pants - 1];
   const skirt = PANTS_3D[dna.pants - 1]?.tuck && pants?.length ? pants : null;
+  // com calça, short ou saia, o short justo do boneco some por baixo dela
+  const short = inner.getObjectByName("short");
+  if (short && pants?.length) short.visible = false;
   const shirt = model.shirts[dna.shirt - 1];
   // roupa vem com o índice de CLOTH_COLORS (0 deixa a cor original da peça)
   const pieces: [THREE.SkinnedMesh[] | undefined, string | undefined, number?][] = [
