@@ -303,7 +303,7 @@ export function FutebolHud({
 
         {!IS_TOUCH && (
           <div className="fut-keys">
-            {keyLabel(keys.frente)} {keyLabel(keys.esquerda)} {keyLabel(keys.tras)} {keyLabel(keys.direita)} andar · Shift corre ({keyLabel(keys.frente)} duas vezes também) · Espaço segurado carrega e, ao soltar, chuta para o gol (ande para o lado para escolher o canto) · Espaço rápido passa · sem a bola: Espaço dá o carrinho · mouse ou setas movem a câmera
+            {keyLabel(keys.frente)} {keyLabel(keys.esquerda)} {keyLabel(keys.tras)} {keyLabel(keys.direita)} andar · Shift corre ({keyLabel(keys.frente)} duas vezes também) · Espaço segurado carrega e, ao soltar, chuta para o gol (ande para o lado para escolher o canto) · Espaço rápido passa · sem a bola: Espaço dá o carrinho · a câmera fica na bola, mouse ou setas giram em volta dela
           </div>
         )}
         {scoreboard && <FutScoreboard myId={myId} />}

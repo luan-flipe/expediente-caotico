@@ -3328,3 +3328,15 @@ input.fut-team-name {
   height: 14px;
   border: 1.5px solid #1d1b17;
 }
+
+/* seta na borda da tela apontando para o meu jogador quando ele sai do quadro */
+.fut-medir {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  font-size: 22px;
+  line-height: 1;
+  color: #ffe14d;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+}
