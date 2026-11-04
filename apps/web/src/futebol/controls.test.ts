@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { FUT } from "@ec/shared";
-import { BTN_LEFT, BTN_RIGHT, cancelCharges, chargePower, mouseSide, newCharge, newControlState, newMouse, pressMouse, readFutInput, releaseMouse, stepCharge, syncMouseButtons, type FutKeys } from "./controls";
+import { TAP_PASS_MS, cancelCharges, chargePower, newButtons, newCharge, newControlState, pressButton, readFutInput, releaseButton, stepCharge, type FutKeys } from "./controls";
 
-const idle = (): FutKeys => ({ frente: false, tras: false, esquerda: false, direita: false, stick: { x: 0, y: 0 } });
+const idle = (): FutKeys => ({ frente: false, tras: false, esquerda: false, direita: false, correr: false, stick: { x: 0, y: 0 } });
 const w = (): FutKeys => ({ ...idle(), frente: true });
+const COM_BOLA = { yaw: 0, hasBall: true };
 
 describe("controles do futebol", () => {
   it("toque duplo em W liga a corrida", () => {
     const st = newControlState();
-    const m = newMouse();
+    const m = newButtons();
     expect(readFutInput(w(), m, 1000, st).sprint).toBe(false);
     readFutInput(idle(), m, 1100, st);
     const again = readFutInput(w(), m, 1000 + FUT.doubleTapMs - 10, st);
@@ -21,7 +22,7 @@ describe("controles do futebol", () => {
 
   it("W segurado sem toque duplo só anda", () => {
     const st = newControlState();
-    const m = newMouse();
+    const m = newButtons();
     for (let t = 0; t < 2000; t += 33) {
       const i = readFutInput(w(), m, t, st);
       expect(i.sprint).toBe(false);
@@ -34,40 +35,18 @@ describe("controles do futebol", () => {
     expect(readFutInput(w(), m, 2200 + FUT.doubleTapMs + 50, st).sprint).toBe(false);
   });
 
-  it("segurar esquerdo é charge e soltar é release", () => {
+  it("Shift corre enquanto anda, em qualquer direção, e parado não corre", () => {
     const st = newControlState();
-    const m = newMouse();
-    m.left = true;
-    expect(readFutInput(idle(), m, 0, st).kick).toBe("charge");
-    expect(readFutInput(idle(), m, 33, st).kick).toBe("charge");
-    m.left = false;
-    expect(readFutInput(idle(), m, 66, st).kick).toBe("release");
-    expect(readFutInput(idle(), m, 99, st).kick).toBe("release");
-    expect(readFutInput(idle(), m, 132, st).kick).toBe("none");
-  });
-
-  it("clique rápido que solta antes da leitura ainda vira charge e release", () => {
-    const st = newControlState();
-    const m = newMouse();
-    m.leftHit = true;
-    expect(readFutInput(idle(), m, 0, st).kick).toBe("charge");
-    expect(readFutInput(idle(), m, 33, st).kick).toBe("release");
-  });
-
-  it("direito vira pass", () => {
-    const st = newControlState();
-    const m = newMouse();
-    m.right = true;
-    const a = readFutInput(idle(), m, 0, st);
-    expect(a.pass).toBe("charge");
-    expect(a.kick).toBe("none");
-    m.right = false;
-    expect(readFutInput(idle(), m, 33, st).pass).toBe("release");
+    const m = newButtons();
+    expect(readFutInput({ ...w(), correr: true }, m, 0, st).sprint).toBe(true);
+    expect(readFutInput({ ...idle(), direita: true, correr: true }, m, 33, st).sprint).toBe(true);
+    expect(readFutInput({ ...idle(), correr: true }, m, 66, st).sprint).toBe(false);
+    expect(readFutInput(w(), m, 5000, st).sprint).toBe(false);
   });
 
   it("andar é relativo à câmera e a mira segue a câmera", () => {
     const st = newControlState();
-    const i = readFutInput(w(), newMouse(), 0, st, { yaw: Math.PI / 2 });
+    const i = readFutInput(w(), newButtons(), 0, st, { yaw: Math.PI / 2 });
     expect(i.mx).toBeCloseTo(1);
     expect(i.mz).toBeCloseTo(0);
     expect(i.aim).toBeCloseTo(Math.PI / 2);
@@ -76,64 +55,127 @@ describe("controles do futebol", () => {
   it("analógico na borda corre", () => {
     const st = newControlState();
     const k = { ...idle(), stick: { x: 0, y: 1 } };
-    expect(readFutInput(k, newMouse(), 0, st).sprint).toBe(true);
-    expect(readFutInput({ ...idle(), stick: { x: 0, y: 0.5 } }, newMouse(), 33, st).sprint).toBe(false);
+    expect(readFutInput(k, newButtons(), 0, st).sprint).toBe(true);
+    expect(readFutInput({ ...idle(), stick: { x: 0, y: 0.5 } }, newButtons(), 33, st).sprint).toBe(false);
   });
 });
 
-describe("botões do mouse", () => {
-  it("o botão já apertado quando o mouse é preso vira carga", () => {
-    const m = newMouse();
-    syncMouseButtons(m, BTN_LEFT);
-    expect(m.left).toBe(true);
-    expect(readFutInput(idle(), m, 0, newControlState()).kick).toBe("charge");
+describe("Espaço: segurar chuta, toque rápido passa", () => {
+  it("segurar é charge de chute e soltar depois do limiar é release de chute", () => {
+    const st = newControlState();
+    const m = newButtons();
+    m.space = true;
+    expect(readFutInput(idle(), m, 0, st, COM_BOLA).kick).toBe("charge");
+    expect(readFutInput(idle(), m, 100, st, COM_BOLA).kick).toBe("charge");
+    expect(readFutInput(idle(), m, TAP_PASS_MS + 33, st, COM_BOLA).kick).toBe("charge");
+    m.space = false;
+    const a = readFutInput(idle(), m, TAP_PASS_MS + 66, st, COM_BOLA);
+    expect([a.kick, a.pass]).toEqual(["release", "none"]);
+    expect(readFutInput(idle(), m, TAP_PASS_MS + 99, st, COM_BOLA).kick).toBe("release");
+    expect(readFutInput(idle(), m, TAP_PASS_MS + 132, st, COM_BOLA).kick).toBe("none");
   });
 
-  it("mouseup perdido é corrigido pelo estado dos botões e solta o chute", () => {
+  it("toque rápido com a bola vira passe, sem chute", () => {
     const st = newControlState();
-    const m = newMouse();
-    pressMouse(m, "left");
+    const m = newButtons();
+    m.space = true;
+    expect(readFutInput(idle(), m, 0, st, COM_BOLA).kick).toBe("charge");
+    m.space = false;
+    const a = readFutInput(idle(), m, 66, st, COM_BOLA);
+    expect([a.kick, a.pass]).toEqual(["none", "release"]);
+    const b = readFutInput(idle(), m, 99, st, COM_BOLA);
+    expect([b.kick, b.pass]).toEqual(["none", "release"]);
+    const c = readFutInput(idle(), m, 132, st, COM_BOLA);
+    expect([c.kick, c.pass]).toEqual(["none", "none"]);
+  });
+
+  it("toque que solta antes da leitura ainda vale como passe", () => {
+    const st = newControlState();
+    const m = newButtons();
+    pressButton(m, "space");
+    releaseButton(m, "space");
+    expect(readFutInput(idle(), m, 0, st, COM_BOLA).kick).toBe("charge");
+    const a = readFutInput(idle(), m, 33, st, COM_BOLA);
+    expect([a.kick, a.pass]).toEqual(["none", "release"]);
+  });
+
+  it("sem a bola o toque rápido também é carrinho (kick release)", () => {
+    const st = newControlState();
+    const m = newButtons();
+    m.space = true;
+    readFutInput(idle(), m, 0, st, { yaw: 0, hasBall: false });
+    m.space = false;
+    const a = readFutInput(idle(), m, 66, st, { yaw: 0, hasBall: false });
+    expect([a.kick, a.pass]).toEqual(["release", "none"]);
+  });
+
+  it("apertar de novo depois de soltar gera nova carga", () => {
+    const st = newControlState();
+    const m = newButtons();
+    pressButton(m, "space");
+    m.spaceHit = false;
+    pressButton(m, "space");
+    expect(m.spaceHit).toBe(false);
+    releaseButton(m, "space");
+    pressButton(m, "space");
+    expect(m.spaceHit).toBe(true);
     expect(readFutInput(idle(), m, 0, st).kick).toBe("charge");
-    syncMouseButtons(m, 0);
+  });
+
+  it("cancelar a carga não chuta nem passa: a leitura seguinte é none", () => {
+    const st = newControlState();
+    const m = newButtons();
+    pressButton(m, "space");
+    readFutInput(idle(), m, 0, st, COM_BOLA);
+    cancelCharges(m, st);
+    for (const t of [33, 66, 99]) {
+      const i = readFutInput(idle(), m, t, st, COM_BOLA);
+      expect([i.kick, i.pass]).toEqual(["none", "none"]);
+    }
+  });
+});
+
+describe("botões da tela (toque)", () => {
+  it("segurar Chute é charge e soltar é release", () => {
+    const st = newControlState();
+    const m = newButtons();
+    m.kick = true;
+    expect(readFutInput(idle(), m, 0, st).kick).toBe("charge");
+    expect(readFutInput(idle(), m, 33, st).kick).toBe("charge");
+    m.kick = false;
+    expect(readFutInput(idle(), m, 66, st).kick).toBe("release");
+    expect(readFutInput(idle(), m, 99, st).kick).toBe("release");
+    expect(readFutInput(idle(), m, 132, st).kick).toBe("none");
+  });
+
+  it("toque rápido no Chute que solta antes da leitura ainda vira charge e release", () => {
+    const st = newControlState();
+    const m = newButtons();
+    pressButton(m, "kick");
+    releaseButton(m, "kick");
+    expect(readFutInput(idle(), m, 0, st).kick).toBe("charge");
     expect(readFutInput(idle(), m, 33, st).kick).toBe("release");
   });
 
-  it("os dois botões juntos funcionam e soltam em separado", () => {
+  it("Passe vira pass", () => {
     const st = newControlState();
-    const m = newMouse();
-    syncMouseButtons(m, BTN_LEFT | BTN_RIGHT);
+    const m = newButtons();
+    m.pass = true;
     const a = readFutInput(idle(), m, 0, st);
-    expect([a.kick, a.pass]).toEqual(["charge", "charge"]);
-    syncMouseButtons(m, BTN_RIGHT);
-    const b = readFutInput(idle(), m, 33, st);
-    expect([b.kick, b.pass]).toEqual(["release", "charge"]);
+    expect(a.pass).toBe("charge");
+    expect(a.kick).toBe("none");
+    m.pass = false;
+    expect(readFutInput(idle(), m, 33, st).pass).toBe("release");
   });
 
-  it("cancelar a carga não chuta: a leitura seguinte é none", () => {
+  it("cancelar a carga não chuta", () => {
     const st = newControlState();
-    const m = newMouse();
-    pressMouse(m, "left");
+    const m = newButtons();
+    pressButton(m, "kick");
     readFutInput(idle(), m, 0, st);
     cancelCharges(m, st);
     expect(readFutInput(idle(), m, 33, st).kick).toBe("none");
     expect(readFutInput(idle(), m, 66, st).kick).toBe("none");
-  });
-
-  it("só esquerdo e direito valem", () => {
-    expect(mouseSide(0)).toBe("left");
-    expect(mouseSide(2)).toBe("right");
-    expect(mouseSide(1)).toBeNull();
-  });
-
-  it("apertar de novo depois de soltar gera novo aperto", () => {
-    const m = newMouse();
-    pressMouse(m, "right");
-    m.rightHit = false;
-    pressMouse(m, "right");
-    expect(m.rightHit).toBe(false);
-    releaseMouse(m, "right");
-    pressMouse(m, "right");
-    expect(m.rightHit).toBe(true);
   });
 });
 

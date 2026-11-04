@@ -205,7 +205,7 @@ export function Settings() {
             </div>
             <div className="grid-2 even">{column("futebol", "Teclas do Futebol", FUT_ACTIONS, FUT_LABELS)}</div>
             <p className="muted" style={{ margin: 0 }}>
-              No Rally as setas também valem para pilotar. No Futebol o botão esquerdo do mouse chuta (ou dá o carrinho) e o direito passa (ou disputa a bola). A mesma tecla não pode ficar em duas ações do mesmo modo.
+              No Rally as setas também valem para pilotar. No Futebol o mouse e as setas só movem a câmera: Shift corre, Espaço segurado chuta (solte para chutar), Espaço rápido passa e, sem a bola, dá o carrinho. A mesma tecla não pode ficar em duas ações do mesmo modo.
             </p>
           </>
         )}

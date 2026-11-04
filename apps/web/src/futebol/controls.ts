@@ -1,21 +1,27 @@
 import { FUT, type FutInput } from "@ec/shared";
 
-/** Teclas de movimento já resolvidas (o motor traduz o mapa de teclas) e o analógico da tela (x direita, y frente). */
+/** Teclas de movimento já resolvidas (o motor traduz o mapa de teclas) e o analógico da tela (x direita, y frente). `correr` = Shift. */
 export interface FutKeys {
   frente: boolean;
   tras: boolean;
   esquerda: boolean;
   direita: boolean;
+  correr: boolean;
   stick: { x: number; y: number };
 }
 
-/** Botões do mouse (ou os botões da tela). left/right = segurado agora; leftHit/rightHit = apertou desde a última leitura, mesmo que já tenha soltado. */
-export interface FutMouse {
-  left: boolean;
-  right: boolean;
-  leftHit: boolean;
-  rightHit: boolean;
+/** Botões de ação: Espaço do teclado (chute e passe) e Chute/Passe da tela. O mouse não faz parte: ele só move a câmera.
+ *  Cada um: segurado agora; xHit = apertou desde a última leitura, mesmo que já tenha soltado. */
+export interface FutButtons {
+  space: boolean;
+  spaceHit: boolean;
+  kick: boolean;
+  kickHit: boolean;
+  pass: boolean;
+  passHit: boolean;
 }
+
+export type FutButton = "space" | "kick" | "pass";
 
 export interface FutControlState {
   /** Instante do último aperto de W (para o toque duplo). */
@@ -27,19 +33,36 @@ export interface FutControlState {
   passRelease: number;
   kickHeld: boolean;
   passHeld: boolean;
+  /** Espaço: segurado na leitura anterior, instante do aperto e quantas leituras ainda faltam do passe de um toque rápido. */
+  spaceHeld: boolean;
+  spaceSince: number;
+  tapRelease: number;
 }
 
 /** Quantas leituras seguidas mandam "release": a segunda cobre o caso de duas mensagens caírem no mesmo tick do servidor. */
 const RELEASE_STEPS = 2;
 /** Analógico além disso conta como borda: corrida. */
 export const STICK_RUN_EDGE = 0.92;
+/** Espaço solto antes disso (ms) é um toque rápido: passe. Segurar mais que isso carrega o chute. */
+export const TAP_PASS_MS = 150;
 
-export function newMouse(): FutMouse {
-  return { left: false, right: false, leftHit: false, rightHit: false };
+export function newButtons(): FutButtons {
+  return { space: false, spaceHit: false, kick: false, kickHit: false, pass: false, passHit: false };
 }
 
 export function newControlState(): FutControlState {
-  return { lastFrente: -Infinity, frenteHeld: false, running: false, kickRelease: 0, passRelease: 0, kickHeld: false, passHeld: false };
+  return {
+    lastFrente: -Infinity,
+    frenteHeld: false,
+    running: false,
+    kickRelease: 0,
+    passRelease: 0,
+    kickHeld: false,
+    passHeld: false,
+    spaceHeld: false,
+    spaceSince: 0,
+    tapRelease: 0,
+  };
 }
 
 function phase(down: boolean, held: boolean, release: number): { out: FutInput["kick"]; held: boolean; release: number } {
@@ -50,11 +73,18 @@ function phase(down: boolean, held: boolean, release: number): { out: FutInput["
 }
 
 /**
- * Uma leitura dos controles por passo de envio. Toque duplo em W (até FUT.doubleTapMs) liga a corrida até soltar W;
- * esquerdo = chute (carrega enquanto segura, solta = release), direito = passe. `yaw` é a câmera (frente = para onde ela olha);
- * `aim` é a direção do chute/passe (padrão: a câmera). Os botões Hit são consumidos aqui.
+ * Uma leitura dos controles por passo de envio. Toque duplo em W (até FUT.doubleTapMs) ou Shift ligam a corrida.
+ * Espaço segurado carrega o chute (soltar = release); solto antes de TAP_PASS_MS, com a bola, vira passe. Sem a bola o
+ * toque rápido continua sendo "kick" (o servidor lê como carrinho). Chute/Passe da tela fazem o mesmo por botão.
+ * `yaw` é a câmera (frente = para onde ela olha); `aim` é a direção do chute/passe (padrão: a câmera). Os Hit são consumidos aqui.
  */
-export function readFutInput(keys: FutKeys, mouse: FutMouse, now: number, state: FutControlState, view: { yaw: number; aim?: number } = { yaw: 0 }): FutInput {
+export function readFutInput(
+  keys: FutKeys,
+  btn: FutButtons,
+  now: number,
+  state: FutControlState,
+  view: { yaw: number; aim?: number; hasBall?: boolean } = { yaw: 0 },
+): FutInput {
   if (keys.frente && !state.frenteHeld && now - state.lastFrente <= FUT.doubleTapMs) state.running = true;
   if (keys.frente && !state.frenteHeld) state.lastFrente = now;
   if (!keys.frente) state.running = false;
@@ -72,23 +102,40 @@ export function readFutInput(keys: FutKeys, mouse: FutMouse, now: number, state:
     mz /= len;
   }
   const stickRun = Math.hypot(keys.stick.x, keys.stick.y) >= STICK_RUN_EDGE;
+  const shiftRun = keys.correr && len > 0;
 
-  const k = phase(mouse.left || mouse.leftHit, state.kickHeld, state.kickRelease);
-  const p = phase(mouse.right || mouse.rightHit, state.passHeld, state.passRelease);
-  mouse.leftHit = false;
-  mouse.rightHit = false;
+  const spaceDown = btn.space || btn.spaceHit;
+  if (spaceDown && !state.spaceHeld) {
+    state.spaceHeld = true;
+    state.spaceSince = now;
+  } else if (!spaceDown && state.spaceHeld) {
+    state.spaceHeld = false;
+    if (view.hasBall && now - state.spaceSince < TAP_PASS_MS) state.tapRelease = RELEASE_STEPS;
+  }
+
+  let k = phase(spaceDown || btn.kick || btn.kickHit, state.kickHeld, state.kickRelease);
+  let p = phase(btn.pass || btn.passHit, state.passHeld, state.passRelease);
+  if (state.tapRelease > 0) {
+    // toque rápido com a bola: o que seria soltar o chute vira o passe
+    state.tapRelease--;
+    k = { out: "none", held: false, release: 0 };
+    if (p.out === "none") p = { out: "release", held: false, release: 0 };
+  }
+  btn.spaceHit = false;
+  btn.kickHit = false;
+  btn.passHit = false;
   state.kickHeld = k.held;
   state.kickRelease = k.release;
   state.passHeld = p.held;
   state.passRelease = p.release;
 
-  return { mx, mz, aim: view.aim ?? view.yaw, sprint: (state.running && keys.frente) || stickRun, kick: k.out, pass: p.out };
+  return { mx, mz, aim: view.aim ?? view.yaw, sprint: (state.running && keys.frente) || stickRun || shiftRun, kick: k.out, pass: p.out };
 }
 
 /** Alcance (m) da bola solta para o botão de chute valer como chute (igual ao do servidor: sprintTouch + 0,1). */
 const LOOSE_REACH = FUT.sprintTouch + 0.1;
 
-/** true = o botão esquerdo chuta e o direito passa; false = viram carrinho e disputa. */
+/** true = chute e passe valem como chute e passe; false = sem alcance da bola: viram carrinho e disputa. */
 export function hasBallReach(ball: { x: number; y: number; z: number; ownerId: string | null }, me: { id: string; x: number; z: number }): boolean {
   if (ball.ownerId === me.id) return true;
   return ball.ownerId === null && ball.y <= 1.2 && Math.hypot(ball.x - me.x, ball.z - me.z) <= LOOSE_REACH;
@@ -98,43 +145,17 @@ export function hasBallReach(ball: { x: number; y: number; z: number; ownerId: s
 export const TOUCH_KICK = "FutChute";
 export const TOUCH_PASS = "FutPasse";
 
-// ---------- botões do mouse ----------
+// ---------- botões de ação ----------
 
-/** Bits de MouseEvent.buttons: esquerdo e direito. */
-export const BTN_LEFT = 1;
-export const BTN_RIGHT = 2;
+const HIT = { space: "spaceHit", kick: "kickHit", pass: "passHit" } as const;
 
-/** Botão do evento (MouseEvent.button) para o nosso: 0 = esquerdo (chute), 2 = direito (passe); os outros não valem. */
-export function mouseSide(button: number): "left" | "right" | null {
-  return button === 0 ? "left" : button === 2 ? "right" : null;
+export function pressButton(b: FutButtons, which: FutButton): void {
+  if (!b[which]) b[HIT[which]] = true;
+  b[which] = true;
 }
 
-export function pressMouse(m: FutMouse, side: "left" | "right"): void {
-  if (side === "left") {
-    if (!m.left) m.leftHit = true;
-    m.left = true;
-  } else {
-    if (!m.right) m.rightHit = true;
-    m.right = true;
-  }
-}
-
-export function releaseMouse(m: FutMouse, side: "left" | "right"): void {
-  if (side === "left") m.left = false;
-  else m.right = false;
-}
-
-/**
- * Alinha o estado com MouseEvent.buttons (a verdade do navegador): pega mouseup perdido (soltou fora da janela, no
- * meio de uma troca de foco) e botão que já estava apertado quando o mouse foi preso. Os dois botões juntos funcionam.
- */
-export function syncMouseButtons(m: FutMouse, buttons: number): void {
-  const left = (buttons & BTN_LEFT) !== 0;
-  const right = (buttons & BTN_RIGHT) !== 0;
-  if (left && !m.left) pressMouse(m, "left");
-  else if (!left && m.left) releaseMouse(m, "left");
-  if (right && !m.right) pressMouse(m, "right");
-  else if (!right && m.right) releaseMouse(m, "right");
+export function releaseButton(b: FutButtons, which: FutButton): void {
+  b[which] = false;
 }
 
 /**
@@ -142,10 +163,10 @@ export function syncMouseButtons(m: FutMouse, buttons: number): void {
  * "soltos" e o estado de leitura esquece o aperto, então a próxima leitura manda "none" (e não "release", que chutaria).
  * Quem ainda está com o dedo no botão precisa apertar de novo.
  */
-export function cancelCharges(m: FutMouse, st: FutControlState): void {
-  m.left = m.right = m.leftHit = m.rightHit = false;
-  st.kickHeld = st.passHeld = false;
-  st.kickRelease = st.passRelease = 0;
+export function cancelCharges(b: FutButtons, st: FutControlState): void {
+  b.space = b.spaceHit = b.kick = b.kickHit = b.pass = b.passHit = false;
+  st.kickHeld = st.passHeld = st.spaceHeld = false;
+  st.kickRelease = st.passRelease = st.tapRelease = 0;
 }
 
 // ---------- barra de força ----------

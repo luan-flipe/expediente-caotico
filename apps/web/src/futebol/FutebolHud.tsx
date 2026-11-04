@@ -180,7 +180,7 @@ const FutNotices = memo(function FutNotices({ myId }: { myId: string }) {
       {d.count > 0 && <div className="fut-count">{d.count}</div>}
       {d.down && <div className="panel fut-state">No chão...</div>}
       {d.sentOff && <div className="panel fut-state">Você foi expulso. Seu time joga com um a menos.</div>}
-      {!locked && !IS_TOUCH && !d.over && <div className="panel lock-hint">Clique na tela para jogar com o mouse</div>}
+      {!locked && !IS_TOUCH && !d.over && <div className="panel lock-hint">Clique na tela para mover a câmera com o mouse</div>}
     </>
   );
 });
@@ -265,7 +265,7 @@ export function FutebolHud({
 
         {!IS_TOUCH && (
           <div className="fut-keys">
-            {keyLabel(keys.frente)} {keyLabel(keys.esquerda)} {keyLabel(keys.tras)} {keyLabel(keys.direita)} andar · {keyLabel(keys.frente)} duas vezes corre · esquerdo chuta (segure para força; perto do gol, a mira escolhe o canto) · direito passa · sem a bola: carrinho e disputa
+            {keyLabel(keys.frente)} {keyLabel(keys.esquerda)} {keyLabel(keys.tras)} {keyLabel(keys.direita)} andar · Shift corre ({keyLabel(keys.frente)} duas vezes também) · Espaço segurado carrega e, ao soltar, chuta para o gol (ande para o lado para escolher o canto) · Espaço rápido passa · sem a bola: Espaço dá o carrinho · mouse ou setas movem a câmera
           </div>
         )}
         {scoreboard && <FutScoreboard myId={myId} />}
