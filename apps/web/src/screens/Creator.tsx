@@ -24,6 +24,7 @@ import {
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail } from "../game/character";
 import { BEARD_LABELS, GLASSES_LABELS, HAIR_LABELS, PANTS_LABELS, SHIRT_LABELS, SHOE_LABELS } from "../game/wearables";
+import { playQuackSound } from "../sound";
 import { saveAvatar, saveChair, setState, useStore } from "../store";
 
 type Step = "start" | "body" | "hair" | "clothes";
@@ -246,6 +247,12 @@ export function Creator() {
             <ClothSwatches value={dna.shoesColor} onPick={set("shoesColor")} />
           </Field>
         )}
+        <Field label="Acessório">
+          <Seg items={ACCESSORIES} value={dna.accessory} onPick={(i) => {
+            set("accessory")(i);
+            if (i === 5) playQuackSound();
+          }} />
+        </Field>
       </>
     ),
   };
@@ -338,7 +345,10 @@ export function Creator() {
                 )}
                 <div style={{ gridColumn: "1 / -1" }}>
                   <p className="label">Enfeite</p>
-                  <Seg items={CHAIR_TRINKETS} value={chair.trinket} onPick={setC("trinket")} />
+                  <Seg items={CHAIR_TRINKETS} value={chair.trinket} onPick={(i) => {
+                    setC("trinket")(i);
+                    if (i === 6) playQuackSound();
+                  }} />
                 </div>
               </div>
               <div className="card">

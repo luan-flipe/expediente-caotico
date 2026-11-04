@@ -12,6 +12,7 @@ import {
   buildAvatar,
   disposeAvatar,
 } from "./avatarMesh";
+import { addPatoleiro } from "./patoleiro";
 import { createGltfLoader } from "./gltfLoader";
 import { dressFace } from "./rosto";
 import { BEARDS_3D, GLASSES_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
@@ -1008,7 +1009,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   };
   tiltFeet();
 
-  // Acessórios procedurais no modelo GLB (gravata, boné). O crachá (acessório 4) saiu: as caixas ficavam
+// Acessórios procedurais no modelo GLB (gravata, boné). O crachá (acessório 4) saiu: as caixas ficavam
   // dentro do corpo da nova proporção.
   const troncoNode = inner.getObjectByName("tronco");
   const cabecaNode = inner.getObjectByName("cabeca");
@@ -1033,6 +1034,16 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     cabecaNode.add(at(box(0.48, 0.15, 0.48, capMat, 0.05), 0, 0.25, -0.01));
     glbCapVisor = at(box(0.44, 0.04, 0.22, capMat, 0.02), 0, 0.20, 0.28);
     cabecaNode.add(glbCapVisor);
+  }
+  if (cabecaNode && dna.accessory === 5) {
+    const duck = addPatoleiro(cabecaNode, 0, 0.42, 0.02, 1.0);
+    duck.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        if (Array.isArray(m.material)) mats.push(...m.material);
+        else mats.push(m.material);
+      }
+    });
   }
 
   // Peças de expressão facial do GLB e suas transformações base
@@ -1081,6 +1092,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const emotion = new CharacterEmotionManager();
   const inertia = new CharacterPhysicsInertia();
   const wind = new CharacterWindPhysics();
+
 
   const mixer = new THREE.AnimationMixer(inner);
   let activeItemGesture: { item: ItemId; timer: number; duration: number } | null = null;

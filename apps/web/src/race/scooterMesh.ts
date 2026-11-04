@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CHAIR_BASES, CHAIR_SEATS, type ChairDNA } from "@ec/shared";
+import { addPatoleiro } from "../game/patoleiro";
 import type { Character, StandFit } from "../game/character";
 import type { Vehicle } from "./chairMesh";
 
@@ -213,6 +214,11 @@ export function mountScooter(chair: ChairDNA, char: Character): Vehicle {
         ] as const)
           add(g, new THREE.CircleGeometry(0.018, 16), new THREE.MeshStandardMaterial({ color: c }), s * 0.1605, deckTop + y, z, 0, (s * Math.PI) / 2);
       break;
+    case 6: {
+      const x = -(palm.x - 0.1);
+      addPatoleiro(g, x, bar.y + 0.02, bar.z, 0.7);
+      break;
+    }
   }
 
   return {

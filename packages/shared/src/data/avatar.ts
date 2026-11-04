@@ -30,7 +30,7 @@ export const CLOTH_COLORS = [
   "#2f4d3a", "#f2b632", "#e2483c", "#ef7aa8", "#7b4bd6", "#8a6a4a", "#c9b48a",
 ];
 export const GLASSES =["Sem óculos", "Redondo", "Quadrado"];
-export const ACCESSORIES = ["Nenhum", "Fone", "Boné", "Gravata", "Crachá"];
+export const ACCESSORIES = ["Nenhum", "Fone", "Boné", "Gravata", "Crachá", "Patoleiro"];
 export const HEIGHTS = ["Baixo", "Médio", "Alto"];
 /** Teto do índice de cabelo, barba, camiseta, calça e tênis: 0 é nenhum, os demais vêm das pastas de peças do cliente. */
 export const MAX_WEARABLES = 32;

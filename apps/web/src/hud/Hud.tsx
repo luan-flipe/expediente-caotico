@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ABILITIES, BALANCE, roomNameAt } from "@ec/shared";
 import { keyLabel, useSettings } from "../settings";
+import { playCountdownBeep } from "../sound";
 import { useStore } from "../store";
 import { IS_TOUCH } from "../touch";
 import { Evolution } from "./Evolution";
@@ -48,6 +49,17 @@ export function Hud({ myId, locked, hitAt, hurtAt }: { myId: string; locked: boo
     const t = setInterval(() => force((n) => n + 1), 120);
     return () => clearInterval(t);
   }, []);
+
+  // bipe a cada número da contagem e um mais agudo ao virar "ativo" (sem introMs/cutscene como na corrida)
+  const countSec = snap?.phase === "countdown" ? Math.max(1, Math.ceil(snap.countdownMs / 1000)) : 0;
+  useEffect(() => {
+    if (countSec > 0) playCountdownBeep("tick");
+  }, [countSec]);
+  const prevPhase = useRef(snap?.phase);
+  useEffect(() => {
+    if (prevPhase.current === "countdown" && snap?.phase === "active") playCountdownBeep("go");
+    prevPhase.current = snap?.phase;
+  }, [snap?.phase]);
 
   if (!snap) return <div className="hud center-msg">Entrando no escritório...</div>;
   const now = performance.now();

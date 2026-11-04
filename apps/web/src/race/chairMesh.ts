@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
 import { CHAIR_BASES, CHAIR_SEATS, SCOOTER, type AvatarDNA, type ChairDNA } from "@ec/shared";
 import { celebrationExtras, createCharacter, modelReady, type Character, type CharacterSeatedOptions } from "../game/character";
 import { createGltfLoader } from "../game/gltfLoader";
+import { addPatoleiro } from "../game/patoleiro";
 import { mountScooter } from "./scooterMesh";
 
 const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
@@ -771,6 +772,9 @@ function addTrinket(
         add(new THREE.CircleGeometry(0.06, 16), new THREE.MeshStandardMaterial({ color: c }), x, a.seatTop + h * y, a.backZ - 0.004, 0, Math.PI, 0, targetParent);
       break;
     }
+    case 6:
+      addPatoleiro(g, -a.armX, a.armY + 0.01, 0.1, 0.85, extras);
+      break;
   }
 }
 

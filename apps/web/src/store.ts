@@ -43,6 +43,15 @@ export interface ChatItem {
   index: number;
 }
 
+/** Uma reação rápida dirigida a alguém no lobby (ver LOBBY_REACTIONS). */
+export interface ReactionItem {
+  id: number;
+  at: number;
+  from: string;
+  to: string;
+  index: number;
+}
+
 export interface State {
   editing: boolean;
   avatar: AvatarDNA;
@@ -89,6 +98,8 @@ export interface State {
   chat: ChatItem[];
   /** Painel do chat rápido aberto: o jogo ignora o teclado e solta o mouse enquanto isso. */
   chatOpen: boolean;
+  /** Últimas reações rápidas dirigidas a alguém no lobby (o roster mostra sobre o crachá do alvo). */
+  reactions: ReactionItem[];
   /** Aviso de desafio da semana cumprido (some sozinho depois de alguns segundos). */
   toast: { id: number; text: string; points: number } | null;
 }
@@ -163,6 +174,7 @@ let state: State = {
   ghosts: null,
   chat: [],
   chatOpen: false,
+  reactions: [],
   toast: null,
 };
 const listeners = new Set<() => void>();
@@ -239,11 +251,12 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, fsnap: null, fme: null, futResults: null, feed: [], ghosts: null, chat: [], chatOpen: false, pauseOpen: false, settingsOpen: false });
+  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, fsnap: null, fme: null, futResults: null, feed: [], ghosts: null, chat: [], chatOpen: false, reactions: [], pauseOpen: false, settingsOpen: false });
 }
 
 let feedId = 0;
 let chatId = 0;
+let reactionId = 0;
 let toastId = 0;
 const TOAST_MS = 7000;
 function pushFeed(items: Omit<FeedItem, "id" | "at">[]): void {
@@ -305,6 +318,9 @@ function onMessage(msg: ServerMsg): void {
       return;
     case "chat":
       setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });
+      return;
+    case "reaction":
+      setState({ reactions: [...state.reactions, { id: ++reactionId, at: performance.now(), from: msg.from, to: msg.to, index: msg.index }].slice(-8) });
       return;
     case "challenge": {
       const id = ++toastId;
