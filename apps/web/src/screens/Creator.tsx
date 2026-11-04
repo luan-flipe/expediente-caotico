@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  ACCESSORIES,
   CHAIR_BACKS,
   CHAIR_BASES,
   CHAIR_SEATS,
