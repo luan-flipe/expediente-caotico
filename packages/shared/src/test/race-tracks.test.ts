@@ -15,7 +15,7 @@ const LIMITS: Record<string, { min: number; max: number; raceMs: number }> = {
   estacionamento: { min: 300, max: 450, raceMs: 150000 },
   copa: { min: 150, max: 250, raceMs: 110000 },
   parque: { min: 500, max: 650, raceMs: 180000 },
-  deserto: { min: 650, max: 780, raceMs: 220000 },
+  deserto: { min: 1550, max: 1650, raceMs: 360000 },
 };
 
 describe("registro de pistas", () => {
@@ -54,10 +54,10 @@ for (const id of TRACK_IDS) {
       expect(t.length).toBeLessThan(lim.max);
     });
 
-    it("largura entre 8 e 14 m e curvas sem dobrar a borda interna", () => {
+    it("largura entre 8 e 18 m e curvas sem dobrar a borda interna", () => {
       for (const w of t.widths) {
         expect(w).toBeGreaterThanOrEqual(8);
-        expect(w).toBeLessThanOrEqual(14);
+        expect(w).toBeLessThanOrEqual(18);
       }
       // raio da curva (por três pontos seguidos) sempre maior que meia largura
       for (let i = 0; i < n; i++) {
@@ -236,10 +236,10 @@ describe("Pista do Deserto: mecânicas específicas (salto do cânion e boost pa
   });
 
   describe("Saca-rolhas 360° (Corkscrew Loop) no Túnel do Deserto", () => {
-    it("tem saca-rolhas configurado nos pontos de controle 14 a 20 com axisY = 9.4", () => {
+    it("tem saca-rolhas configurado nos pontos de controle 23 a 30 com axisY = 9.4", () => {
       expect(t.corkscrew).toBeDefined();
-      expect(t.corkscrew!.sStart).toBe(t.ctrlS[14]);
-      expect(t.corkscrew!.sEnd).toBe(t.ctrlS[20]);
+      expect(t.corkscrew!.sStart).toBe(t.ctrlS[23]);
+      expect(t.corkscrew!.sEnd).toBe(t.ctrlS[30]);
       expect(t.corkscrew!.sEnd).toBeGreaterThan(t.corkscrew!.sStart);
       expect(t.corkscrew!.axisY).toBe(9.4);
       expect(TRACKS.corporativo.corkscrew).toBeUndefined();
@@ -314,7 +314,7 @@ describe("Pista do Deserto: mecânicas específicas (salto do cânion e boost pa
       let maxRoll = 0;
       let reachedEnd = false;
 
-      for (let step = 0; step < 220; step++) {
+      for (let step = 0; step < 350; step++) {
         const pr = progressOf(t, kart.pos, kart.path);
         const ahead = routeAhead(t, pr, -1, 10);
         const want = Math.atan2(ahead.pos.x - kart.pos.x, ahead.pos.z - kart.pos.z);

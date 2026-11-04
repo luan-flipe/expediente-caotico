@@ -68,6 +68,10 @@ export class ReplayEngine {
     this.scene.add(sun);
     this.sun = sun;
     this.disposeTrack = buildTrack(this.scene, track);
+    if (track.id === "deserto") {
+      this.camera.far = 3000;
+      this.camera.updateProjectionMatrix();
+    }
 
     this.racer = buildRacer(data.avatar, data.chair);
     this.tag = nameTag(data.name, "#ffd23f");

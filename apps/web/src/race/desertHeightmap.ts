@@ -1,3 +1,5 @@
+import { heightAt, type Track } from "@ec/shared";
+
 /**
  * Amostragem de luminância pré-calculada da textura original 'deserto.jpg' (200x150)
  * para relevo síncrono e determinístico do terreno e maciço rochoso.
@@ -54,7 +56,7 @@ const ss = (a: number, b: number, v: number) => {
 
 export const MW = 1000;
 export const MH = 745.5;
-export const DESERT_SCALE = 0.4483;
+export const DESERT_SCALE = 1.0;
 
 /** Relevo base natural derivado da pintura do deserto e dunas */
 export function naturalBase(x: number, z: number): number {
@@ -88,6 +90,99 @@ export function mountain(x: number, z: number): number {
 
 export function natural(x: number, z: number): number {
   return naturalBase(x, z) + mountain(x, z);
+}
+
+/** Contexto otimizado de relevo e busca espacial O(1) fiel a 3-pista-deserto/index.html */
+export function createDesertGround(track: Track): {
+  ground: (x: number, z: number) => number;
+  nearest: (x: number, z: number) => { d: number; i: number; s: number; y: number } | null;
+  inTunnel: (s: number, margin?: number) => boolean;
+  inJump: (s: number, margin?: number) => boolean;
+} {
+  const G = 20;
+  const grid = new Map<string, number[]>();
+  const pts = track.points;
+  pts.forEach((p, i) => {
+    const k = `${Math.floor(p.x / G)},${Math.floor(p.z / G)}`;
+    const list = grid.get(k);
+    if (list) list.push(i);
+    else grid.set(k, [i]);
+  });
+
+  function nearest(x: number, z: number) {
+    const gx = Math.floor(x / G);
+    const gz = Math.floor(z / G);
+    let best = 1e9;
+    let bi = -1;
+    for (let a = -2; a <= 2; a++) {
+      for (let b = -2; b <= 2; b++) {
+        const l = grid.get(`${gx + a},${gz + b}`);
+        if (!l) continue;
+        for (const i of l) {
+          const d = (pts[i].x - x) ** 2 + (pts[i].z - z) ** 2;
+          if (d < best) {
+            best = d;
+            bi = i;
+          }
+        }
+      }
+    }
+    if (bi < 0) return null;
+    const sVal = track.cum[bi];
+    const yVal = track.heights?.[bi] ?? heightAt(track, sVal);
+    return { d: Math.sqrt(best), i: bi, s: sVal, y: yVal };
+  }
+
+  const cork = track.corkscrew;
+  const tunStart = cork ? cork.sStart - 55 : (track.ctrlS[22] ?? 505);
+  const tunEnd = cork ? cork.sEnd + 70 : (track.ctrlS[31] ?? 820);
+  const L = track.length;
+
+  function inTunnel(s: number, margin = 0): boolean {
+    const sMod = ((s % L) + L) % L;
+    return sMod >= tunStart - margin && sMod <= tunEnd + margin;
+  }
+
+  const gap = track.ramps.find((r) => r.path === -1 && r.gap)?.gap;
+  const g0 = gap ? gap.sFrom : -1;
+  const g1 = gap ? gap.sTo : -1;
+  const gc = gap ? (gap.sFrom + gap.sTo) / 2 : -1;
+  const gapHalf = gap ? (gap.sTo - gap.sFrom) / 2 : 16;
+  const LR = 37;
+
+  function inJump(s: number, margin = 0): boolean {
+    if (!gap) return false;
+    const sMod = ((s % L) + L) % L;
+    return sMod >= g0 - LR - margin && sMod <= g1 + LR + margin;
+  }
+
+  const TR = 14;
+  const ROAD = 17;
+  const KERB = 1.1;
+
+  function ground(x: number, z: number): number {
+    let h = natural(x, z);
+    const n = nearest(x, z);
+    if (n) {
+      const tun = inTunnel(n.s, -3);
+      const edge = tun ? TR + 1.5 : ROAD / 2 + KERB + 1;
+      const w = ss(edge, edge + 26, n.d);
+      const road = n.y - (tun ? 7 : 0.25);
+      h = n.d < edge ? road : road * (1 - w) + h * w;
+    }
+    if (n && gap) {
+      const ds = Math.abs(n.s - gc);
+      const sm = (v: number) => {
+        const t = Math.max(0, Math.min(1, v));
+        return t * t * (3 - 2 * t);
+      };
+      const dep = (1 - sm((ds - gapHalf - 2) / 14)) * (1 - sm((n.d - 28) / 34));
+      if (dep > 0) h = h * (1 - dep) + (n.y - 20) * dep;
+    }
+    return h;
+  }
+
+  return { ground, nearest, inTunnel, inJump };
 }
 
 /** Altura do terreno combinando o relevo natural, aproximação da pista e cânion */

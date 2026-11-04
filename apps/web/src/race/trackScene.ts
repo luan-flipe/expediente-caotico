@@ -7,16 +7,19 @@ import rampGlbUrl from "../assets/itens/ramp-jump.glb?url";
 import { createGltfLoader } from "../game/gltfLoader";
 import {
   buildDesertBleachers,
-  buildDesertCanyonRampBody,
-  buildDesertHousesAndSkulls,
-  buildDesertMudPool,
+  buildDesertCanyon,
+  buildDesertDynamics,
+  buildDesertRoadMesh,
+  buildDesertScenery,
   buildDesertSky,
+  buildDesertStartGantry,
   buildDesertTerrain,
-  buildDesertTunnelMountain,
-  buildDesertVegetationOfficial,
-  buildDesertWalls,
+  buildDesertTunnel,
   getDesertTexture,
+  updateDesert,
 } from "./desertTrackBuilder";
+
+export { updateDesert };
 
 let parqueModel: THREE.Group | null = null;
 let parquePromise: Promise<THREE.Group | null> | null = null;
@@ -1154,88 +1157,13 @@ function buildRampGlb(track: Track, r: Ramp, template: THREE.Group): THREE.Group
   return clone;
 }
 
-/** Vão: buraco no piso com paredes descendo até o subsolo (estacionamento) ou cânion escarpado com lama (deserto). */
+/** Vão: buraco no piso com paredes descendo até o subsolo (estacionamento). */
 function gapPit(track: Track, r: Ramp): { group: THREE.Group; outline: Vec2[] } {
   const gap = r.gap!;
   const e = edgesBetween(track, r.path, gap.sFrom, gap.sTo, 0.5);
   const outline = [...e.plus, ...[...e.minus].reverse()];
   const group = new THREE.Group();
-  const isDeserto = track.id === "deserto";
-  const depth = isDeserto ? 6.5 : 3;
-
-  if (isDeserto) {
-    // Paredes de penhasco rochoso escarpado descendo até o fundo do cânion
-    const cliffMat = new THREE.MeshStandardMaterial({
-      color: "#6b4530",
-      roughness: 0.95,
-      flatShading: true,
-      side: THREE.DoubleSide,
-    });
-    const cliffPos: number[] = [];
-    const count = outline.length;
-    const bottomY = -depth;
-
-    for (let i = 0; i < count; i++) {
-      const a = outline[i];
-      const b = outline[(i + 1) % count];
-      const prA = progressOf(track, a);
-      const prB = progressOf(track, b);
-      const topYA = heightAt(track, prA.s);
-      const topYB = heightAt(track, prB.s);
-
-      cliffPos.push(
-        a.x, topYA, a.z,
-        b.x, topYB, b.z,
-        b.x, bottomY, b.z,
-
-        a.x, topYA, a.z,
-        b.x, bottomY, b.z,
-        a.x, bottomY, a.z,
-      );
-    }
-    const cliffGeo = new THREE.BufferGeometry();
-    cliffGeo.setAttribute("position", new THREE.Float32BufferAttribute(cliffPos, 3));
-    cliffGeo.computeVertexNormals();
-    group.add(new THREE.Mesh(cliffGeo, cliffMat));
-
-    // Poço de lama viscosa escura no fundo (#3d2817, roughness 0.2, levemente reflexivo)
-    const mudMat = new THREE.MeshStandardMaterial({
-      color: "#3d2817",
-      roughness: 0.2,
-      metalness: 0.15,
-    });
-    const mudFloor = new THREE.Mesh(ribbon(e.plus, e.minus, bottomY, null, false), mudMat);
-    group.add(mudFloor);
-
-    // Bolhas e ondulações viscosas
-    const bubbleMat = new THREE.MeshStandardMaterial({
-      color: "#2a1b10",
-      roughness: 0.15,
-      metalness: 0.2,
-    });
-    for (let k = 1; k < e.at.length - 1; k += 2) {
-      const at = e.at[k];
-      const bubble = mesh(new THREE.SphereGeometry(0.65 + (k % 3) * 0.2, 8, 6), bubbleMat, at.pos.x + ((k % 2) - 0.5) * 2, bottomY + 0.12, at.pos.z);
-      bubble.scale.set(1.4, 0.25, 1.4);
-      group.add(bubble);
-    }
-
-    // Estacas e avisos de madeira rústica na beira do abismo
-    const woodPostMat = new THREE.MeshStandardMaterial({ color: "#422818", roughness: 0.9 });
-    const warnMat = new THREE.MeshStandardMaterial({ color: "#d97724", roughness: 0.7 });
-    for (const side of [e.plus, e.minus]) {
-      for (let i = 0; i < side.length; i += 3) {
-        const p = side[i];
-        const pr = progressOf(track, p);
-        const py = heightAt(track, pr.s);
-        const post = mesh(new THREE.CylinderGeometry(0.12, 0.14, 1.2, 8), woodPostMat, p.x, py + 0.6, p.z);
-        group.add(post);
-        const sign = mesh(new THREE.BoxGeometry(0.8, 0.25, 0.06), warnMat, p.x, py + 0.9, p.z, Math.atan2(p.x, p.z));
-        group.add(sign);
-      }
-    }
-    return { group, outline };
-  }
+  const depth = 3;
 
   const wallMat = new THREE.MeshStandardMaterial({ color: "#4a4b4f", roughness: 1, side: THREE.DoubleSide });
   const pos: number[] = [];
@@ -1266,373 +1194,6 @@ function gapPit(track: Track, r: Ramp): { group: THREE.Group; outline: Vec2[] } 
   return { group, outline };
 }
 
-/** Placa de Dash (Boost Pad) de aço com moldura listrada de perigo e chevrons fluorescentes. */
-function buildBoostPad(track: Track, s: number, textures: THREE.Texture[], laneOffset?: number, width?: number): THREE.Group {
-  const at = pointAt(track, s);
-  const y = heightAt(track, s);
-  const heading = at.heading;
-  const padW = width ?? (laneOffset !== undefined ? 2.8 : Math.max(5.5, Math.min(8.0, at.halfWidth * 1.1)));
-  const padLen = 4.2;
-  const group = new THREE.Group();
-  const nrm = sideNormal(Math.sin(heading), Math.cos(heading));
-  const posX = laneOffset !== undefined ? at.pos.x + nrm.x * laneOffset : at.pos.x;
-  const posZ = laneOffset !== undefined ? at.pos.z + nrm.z * laneOffset : at.pos.z;
-  group.position.set(posX, y + 0.025, posZ);
-  group.rotation.y = heading;
-
-  // 1. Chapa de base de aço/ferrugem
-  const baseMat = new THREE.MeshStandardMaterial({
-    color: "#524339",
-    roughness: 0.65,
-    metalness: 0.55,
-  });
-  const baseMesh = mesh(new THREE.BoxGeometry(padW, 0.03, padLen), baseMat, 0, 0.015, 0);
-  baseMesh.receiveShadow = true;
-  group.add(baseMesh);
-
-  // 2. Moldura listrada de perigo (amarelo/preto)
-  const stripeTex = hazardStripeTexture(textures);
-  const frameMat = new THREE.MeshStandardMaterial({
-    map: stripeTex,
-    roughness: 0.5,
-    metalness: 0.2,
-  });
-  const borderThick = 0.28;
-  const h = 0.04;
-  const sideGeo = new THREE.BoxGeometry(borderThick, h, padLen);
-  group.add(mesh(sideGeo, frameMat, -padW / 2 + borderThick / 2, h / 2, 0));
-  group.add(mesh(sideGeo, frameMat, padW / 2 - borderThick / 2, h / 2, 0));
-  const endGeo = new THREE.BoxGeometry(padW, h, borderThick);
-  group.add(mesh(endGeo, frameMat, 0, h / 2, -padLen / 2 + borderThick / 2));
-  group.add(mesh(endGeo, frameMat, 0, h / 2, padLen / 2 - borderThick / 2));
-
-  // 3. Chevrons / setas fluorescentes em relevo que brilham com emissive verde/laranja
-  const chevronGreenMat = new THREE.MeshStandardMaterial({
-    color: "#39ff4a",
-    emissive: "#39ff4a",
-    emissiveIntensity: 1.6,
-    roughness: 0.25,
-    metalness: 0.1,
-  });
-  const chevronOrangeMat = new THREE.MeshStandardMaterial({
-    color: "#ff4a1f",
-    emissive: "#ff4a1f",
-    emissiveIntensity: 1.6,
-    roughness: 0.25,
-    metalness: 0.1,
-  });
-
-  const numChevrons = 3;
-  const zStep = (padLen * 0.6) / numChevrons;
-  const arrowW = (padW - borderThick * 2) * 0.72;
-  const armLen = arrowW * 0.58;
-  const armThickness = 0.32;
-  const armH = 0.055;
-  const chevronArmGeo = new THREE.BoxGeometry(armThickness, armH, armLen);
-
-  for (let c = 0; c < numChevrons; c++) {
-    const cz = -padLen * 0.3 + c * zStep;
-    const isOrange = c === 1;
-    const mat = isOrange ? chevronOrangeMat : chevronGreenMat;
-    const angle = 0.6;
-    const halfSpan = (armLen * Math.sin(angle)) / 2;
-
-    const leftArm = mesh(chevronArmGeo, mat, -halfSpan, 0.03 + armH / 2, cz, angle);
-    const rightArm = mesh(chevronArmGeo, mat, halfSpan, 0.03 + armH / 2, cz, -angle);
-    group.add(leftArm);
-    group.add(rightArm);
-  }
-
-  return group;
-}
-
-/** Túnel monumental com tubo cilíndrico envolvente (TR = 14, TAX = 9.4), anéis de néon, luzes âmbar, portais de perigo e morro externo. */
-function buildDesertTunnel(track: Track, textures: THREE.Texture[]): THREE.Group {
-  const group = new THREE.Group();
-  const sStart = track.ctrlS[14] ?? 0;
-  const sEnd = track.ctrlS[20] ?? sStart + 110;
-  const TR = 14;
-  const TAX = 9.4;
-  const Wo = 36;
-  const step = 1.5;
-  const numSteps = Math.max(8, Math.ceil((sEnd - sStart) / step));
-  const numRadial = 32;
-
-  // 1. Tubo interno cilíndrico de concreto
-  const tubePositions: number[] = [];
-  const tubeColors: number[] = [];
-  const tubeIndices: number[] = [];
-
-  // 2. Maciço rochoso externo cobrindo o túnel por cima
-  const hillPositions: number[] = [];
-  const hillIndices: number[] = [];
-  const numHillX = 24;
-
-  for (let i = 0; i <= numSteps; i++) {
-    const s = sStart + ((sEnd - sStart) * i) / numSteps;
-    const at = pointAt(track, s);
-    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-    const baseY = heightAt(track, s);
-    const band = Math.floor(i / 4) % 2 === 0 ? 0.82 : 1.0;
-
-    // Vértices do tubo interno (raio TR em torno de TAX)
-    for (let j = 0; j <= numRadial; j++) {
-      const theta = (j / numRadial) * Math.PI * 2;
-      const lat = Math.cos(theta) * TR;
-      const h = TAX + Math.sin(theta) * TR;
-      tubePositions.push(at.pos.x + nrm.x * lat, baseY + h, at.pos.z + nrm.z * lat);
-      tubeColors.push(band, band, band);
-    }
-
-    // Vértices do maciço rochoso externo
-    const R2 = TR + 2.8;
-    const ax = baseY + TAX;
-    for (let j = 0; j <= numHillX; j++) {
-      const u = j / numHillX;
-      const lat = -Wo + 2 * Wo * u;
-      const absLat = Math.abs(lat);
-      const roof = absLat <= R2 ? ax + Math.sqrt(Math.max(0, R2 * R2 - absLat * absLat)) : ax - (absLat - R2) * 1.15;
-      const noise = Math.sin(s * 0.12 + lat * 0.15) * 1.8 + Math.cos(s * 0.28 + lat * 0.08) * 1.2;
-      const py = Math.max(baseY - 1.5, roof + noise);
-      hillPositions.push(at.pos.x + nrm.x * lat, py, at.pos.z + nrm.z * lat);
-    }
-  }
-
-  // Índices para o tubo interno (normais para dentro)
-  for (let i = 0; i < numSteps; i++) {
-    for (let j = 0; j < numRadial; j++) {
-      const a = i * (numRadial + 1) + j;
-      const b = (i + 1) * (numRadial + 1) + j;
-      tubeIndices.push(a, b, a + 1, a + 1, b, b + 1);
-    }
-  }
-
-  // Índices para o morro externo (normais para fora)
-  for (let i = 0; i < numSteps; i++) {
-    for (let j = 0; j < numHillX; j++) {
-      const a = i * (numHillX + 1) + j;
-      const b = (i + 1) * (numHillX + 1) + j;
-      hillIndices.push(a, a + 1, b, b, a + 1, b + 1);
-    }
-  }
-
-  const tubeGeo = new THREE.BufferGeometry();
-  tubeGeo.setAttribute("position", new THREE.Float32BufferAttribute(tubePositions, 3));
-  tubeGeo.setAttribute("color", new THREE.Float32BufferAttribute(tubeColors, 3));
-  tubeGeo.setIndex(tubeIndices);
-  tubeGeo.computeVertexNormals();
-
-  const tubeMat = new THREE.MeshStandardMaterial({
-    color: "#8a847c",
-    vertexColors: true,
-    roughness: 0.9,
-    side: THREE.DoubleSide,
-    emissive: "#1a1612",
-  });
-  const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
-  tubeMesh.receiveShadow = true;
-  group.add(tubeMesh);
-
-  const hillGeo = new THREE.BufferGeometry();
-  hillGeo.setAttribute("position", new THREE.Float32BufferAttribute(hillPositions, 3));
-  hillGeo.setIndex(hillIndices);
-  hillGeo.computeVertexNormals();
-
-  const hillMat = new THREE.MeshStandardMaterial({
-    color: "#8b5840",
-    roughness: 0.95,
-    side: THREE.DoubleSide,
-  });
-  const hillMesh = new THREE.Mesh(hillGeo, hillMat);
-  hillMesh.castShadow = true;
-  hillMesh.receiveShadow = true;
-  group.add(hillMesh);
-
-  // 3. Anéis de néon circundando o tubo a cada poucos metros
-  const ringGeo = new THREE.TorusGeometry(TR - 0.05, 0.1, 8, 48);
-  const ringMat = new THREE.MeshStandardMaterial({
-    color: "#ffcf6e",
-    emissive: "#ffaa33",
-    emissiveIntensity: 2.2,
-    roughness: 0.25,
-  });
-  for (let s = sStart + 5; s < sEnd - 4; s += 6.5) {
-    const at = pointAt(track, s);
-    const by = heightAt(track, s);
-    const ring = mesh(ringGeo, ringMat, at.pos.x, by + TAX, at.pos.z, at.heading);
-    group.add(ring);
-  }
-
-  // 4. Luzes pontuais internas âmbar
-  for (const frac of [0.15, 0.35, 0.55, 0.75, 0.9]) {
-    const s = sStart + (sEnd - sStart) * frac;
-    const at = pointAt(track, s);
-    const by = heightAt(track, s);
-    const pl = new THREE.PointLight("#ffd9a0", 1.8, 80);
-    pl.position.set(at.pos.x, by + TAX, at.pos.z);
-    group.add(pl);
-  }
-
-  // 5. Portais de concreto monumentais nas duas entradas do túnel (pontos 14 e 20) com listras de perigo
-  const stripeTex = hazardStripeTexture(textures);
-  const hazardMat = new THREE.MeshStandardMaterial({
-    map: stripeTex,
-    color: "#f2c21b",
-    roughness: 0.5,
-    metalness: 0.2,
-  });
-  const portalMat = new THREE.MeshStandardMaterial({
-    color: "#9c8466",
-    roughness: 0.88,
-  });
-  const portalW = 34;
-  const portalH = TAX + TR + 3.2;
-
-  const shape = new THREE.Shape();
-  shape.moveTo(-portalW / 2, -1);
-  shape.lineTo(portalW / 2, -1);
-  shape.lineTo(portalW / 2, portalH);
-  shape.lineTo(-portalW / 2, portalH);
-  shape.closePath();
-
-  const hole = new THREE.Path();
-  hole.moveTo(TR, TAX);
-  for (let a = 1; a < 32; a++) {
-    const th = (2 * Math.PI * a) / 32;
-    hole.lineTo(Math.cos(th) * TR, TAX + Math.sin(th) * TR);
-  }
-  hole.closePath();
-  shape.holes.push(hole);
-
-  const portalGeo = new THREE.ExtrudeGeometry(shape, { depth: 1.8, bevelEnabled: false });
-  portalGeo.translate(0, 0, -0.9);
-
-  const archRingGeo = new THREE.TorusGeometry(TR + 0.35, 0.45, 8, 48);
-
-  for (const [sPortal, dirSign] of [[sStart, -1], [sEnd, 1]]) {
-    const at = pointAt(track, sPortal);
-    const by = heightAt(track, sPortal);
-
-    const portal = mesh(portalGeo, portalMat, at.pos.x, by, at.pos.z, at.heading);
-    portal.castShadow = true;
-    portal.receiveShadow = true;
-    group.add(portal);
-
-    const archRing = mesh(archRingGeo, hazardMat, at.pos.x, by + TAX, at.pos.z, at.heading);
-    archRing.translateZ(dirSign * 0.95);
-    group.add(archRing);
-  }
-
-  // 6. Placas de boost no túnel em todas as faixas para os karts entrarem velozes no saca-rolhas
-  for (const sPad of [sStart + 5.0, sStart + 10.5]) {
-    const at = pointAt(track, sPad);
-    for (const f of [-0.6, -0.2, 0.2, 0.6]) {
-      group.add(buildBoostPad(track, sPad, textures, f * at.halfWidth, 2.6));
-    }
-  }
-
-  return group;
-}
-
-
-/** Palmeiras e espelho d'água perto do Oásis do Sertão. */
-function buildOasis(track: Track): THREE.Group {
-  const group = new THREE.Group();
-  const sOasis = track.ctrlS[4] ?? 40;
-  const at = pointAt(track, sOasis);
-  const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-  const baseY = heightAt(track, sOasis);
-
-  const poolCenter = {
-    x: at.pos.x + nrm.x * 20,
-    z: at.pos.z + nrm.z * 20,
-  };
-
-  const poolMat = new THREE.MeshStandardMaterial({
-    color: "#26a69a",
-    roughness: 0.1,
-    metalness: 0.35,
-    transparent: true,
-    opacity: 0.85,
-  });
-  const waterMesh = mesh(new THREE.CircleGeometry(11, 24), poolMat, poolCenter.x, baseY + 0.08, poolCenter.z);
-  waterMesh.rotation.x = -Math.PI / 2;
-  waterMesh.receiveShadow = true;
-  group.add(waterMesh);
-
-  const oasisGrassMat = new THREE.MeshStandardMaterial({ color: "#3d9154", roughness: 0.85 });
-  const oasisRing = mesh(new THREE.RingGeometry(10.5, 13.5, 24), oasisGrassMat, poolCenter.x, baseY + 0.06, poolCenter.z);
-  oasisRing.rotation.x = -Math.PI / 2;
-  oasisRing.receiveShadow = true;
-  group.add(oasisRing);
-
-  const trunkMat = new THREE.MeshStandardMaterial({ color: "#6d472c", roughness: 0.85 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: "#2d7d32", roughness: 0.6, flatShading: true });
-
-  const numPalms = 8;
-  for (let p = 0; p < numPalms; p++) {
-    const angle = (p / numPalms) * Math.PI * 2;
-    const r = 12 + (p % 3) * 1.5;
-    const px = poolCenter.x + Math.cos(angle) * r;
-    const pz = poolCenter.z + Math.sin(angle) * r;
-    const palmH = 6.5 + (p % 3) * 1.2;
-
-    const palm = new THREE.Group();
-    palm.position.set(px, baseY, pz);
-    const trunkSegs = 4;
-    for (let s = 0; s < trunkSegs; s++) {
-      const segH = palmH / trunkSegs;
-      const seg = mesh(new THREE.CylinderGeometry(0.24 - s * 0.03, 0.28 - s * 0.03, segH, 8), trunkMat, Math.sin(s * 0.3) * 0.3, s * segH + segH / 2, Math.cos(s * 0.3) * 0.3);
-      palm.add(seg);
-    }
-
-    const crownY = palmH;
-    const numLeaves = 7;
-    for (let l = 0; l < numLeaves; l++) {
-      const la = (l / numLeaves) * Math.PI * 2;
-      const leafGeo = new THREE.BoxGeometry(0.35, 0.08, 3.2);
-      const leaf = mesh(leafGeo, leafMat, Math.cos(la) * 1.2, crownY - 0.4, Math.sin(la) * 1.2, -la);
-      leaf.rotation.x = 0.45;
-      palm.add(leaf);
-    }
-    group.add(palm);
-  }
-
-  return group;
-}
-
-function decorateDeserto(scene: THREE.Scene, _stat: THREE.Group, track: Track, textures: THREE.Texture[]): void {
-  const desertTex = getDesertTexture();
-
-  // Maciço rochoso monumental sobre o túnel saca-rolhas
-  const mountain = buildDesertTunnelMountain(track, desertTex);
-  if (mountain) scene.add(mountain);
-
-  // Muretas de concreto com faixas vermelhas e cinzas
-  scene.add(buildDesertWalls(track));
-
-  // Cânion do salto: corpos das rampas e barreiras zebradas
-  scene.add(buildDesertCanyonRampBody(track));
-
-  // Poço de lama viscosa borbulhante
-  scene.add(buildDesertMudPool(track));
-
-  // Vilarejos de adobe com vigas e caveiras de boi
-  scene.add(buildDesertHousesAndSkulls(track));
-
-  // Oásis com palmeiras e espelho d'água
-  scene.add(buildOasis(track));
-
-  // Vegetação oficial (saguaros orgânicos, cactos-bola com flores, palmas e capim)
-  scene.add(buildDesertVegetationOfficial(track));
-
-  // Túnel com tubo cilíndrico, anéis de néon, luzes âmbar e portais
-  scene.add(buildDesertTunnel(track, textures));
-
-  // 12 setores de arquibancadas com torcedores viradas para o asfalto
-  buildDesertBleachers(track).then((b) => scene.add(b));
-}
-
 /**
  * Monta a pista a partir do traçado (o mesmo da simulação do servidor).
  * Devolve a função que libera as texturas de canvas (placas e faixa de largada); geometrias e materiais saem com a cena.
@@ -1646,19 +1207,34 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const isParque = track.id === "parque";
   const isDeserto = track.id === "deserto";
 
-  // Iluminação, Céu e Névoa para o Deserto (fiel a 3-pista-deserto/index.html)
+  // Iluminação, Céu e Cenário para o Deserto (fiel a 3-pista-deserto/index.html)
   if (isDeserto) {
-    scene.fog = new THREE.Fog(0xe7cfa8, 250, 650);
+    const HAZE = 0xe7cfa8;
+    scene.fog = new THREE.Fog(HAZE, 560, 1350);
     if (scene.background instanceof THREE.Color) {
-      scene.background.set("#e7cfa8");
+      scene.background.setHex(HAZE);
     }
-    scene.add(new THREE.HemisphereLight(0xfff1dc, 0x8a6a45, 0.75));
-    const sun = new THREE.DirectionalLight(0xffe2b8, 1.4);
-    sun.position.set(-175, 150, -135);
+    scene.add(new THREE.HemisphereLight(0xfff1dc, 0x8a6a45, 0.7));
+    const sun = new THREE.DirectionalLight(0xffe2b8, 1.35);
+    sun.position.set(-390, 330, -300);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(4096, 4096);
+    Object.assign(sun.shadow.camera, { left: -480, right: 480, top: 390, bottom: -390, near: 50, far: 1500 });
     sun.shadow.bias = -0.0004;
     scene.add(sun);
+
+    buildDesertSky(scene, sun.position);
+    const desertTex = getDesertTexture();
+    scene.add(buildDesertTerrain(track, desertTex));
+    scene.add(buildDesertRoadMesh(track, textures));
+    scene.add(buildDesertTunnel(track, desertTex, textures));
+    scene.add(buildDesertCanyon(track));
+    scene.add(buildDesertStartGantry(track, textures));
+    void buildDesertBleachers(track).then((b) => scene.add(b));
+    scene.add(buildDesertScenery(track));
+    scene.add(buildDesertDynamics(track));
+
+    return () => textures.forEach((t) => t.dispose());
   }
 
   // chão em volta do traçado, com folga para a decoração
@@ -1945,13 +1521,6 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     }
   });
 
-  // Placas de Dash (Boost Pads)
-  if (track.boostPads) {
-    for (const s of track.boostPads) {
-      scene.add(buildBoostPad(track, s, textures));
-    }
-  }
-
   if (!isParque) {
     // fita amarela tracejada no meio
     const mainGap = track.ramps.find((r) => r.path === -1 && r.gap)?.gap;
@@ -2160,9 +1729,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   if (!isParque && !isDeserto) skyline(stat, cx, cz, Math.max(gw, gd) / 2 + 12, textures);
 
   // Cenário específico do deserto
-  if (isDeserto) {
-    decorateDeserto(scene, stat, track, textures);
-  }
+  
 
   decorate(stat, track, textures);
   for (const m of mergeStatic(stat)) scene.add(m);

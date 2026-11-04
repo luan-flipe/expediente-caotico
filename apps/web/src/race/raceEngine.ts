@@ -8,6 +8,7 @@ import {
   HOLDABLE_ITEMS,
   RACE,
   groundAt,
+  heightAt,
   progressOf,
   newKart,
   stepKart,
@@ -38,7 +39,7 @@ import type { CharacterSeatedOptions } from "../game/character";
 import { createCommander, type Commander } from "./commander";
 import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, GHOST_RIVAL, nameTag } from "./ghosts";
 import type { Ghosts } from "../store";
-import { buildTrack } from "./trackScene";
+import { buildTrack, updateDesert } from "./trackScene";
 import { buildParachute, parachuteFor } from "./parachute";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
 import { applyFresnelRimToHierarchy, applyStylizedToonToHierarchy, calculateDynamicFov, CasterBlobShadows, RaceVfxManager, type DriftLevel } from "./vfxJuice";
@@ -291,6 +292,17 @@ export class RaceEngine {
     this.disposeTrack = buildTrack(this.scene, track);
     const isParque = track.id === "parque";
     const isDeserto = track.id === "deserto";
+    if (isDeserto) {
+      this.camera.far = 3000;
+      this.camera.updateProjectionMatrix();
+      if (this.sky) {
+        this.sky.dome.visible = false;
+        if (this.sky.shadowPlane) this.sky.shadowPlane.visible = false;
+        this.sky.sunLight.intensity = 0;
+        this.sky.sunLight.castShadow = false;
+        this.sky.hemiLight.intensity = 0;
+      }
+    }
     const isCorporate = !isParque && !isDeserto;
     this.vfx = new RaceVfxManager(this.scene, this.camera, { isDeserto, trackId: track.id });
     this.interactive = new TrackInteractiveManager({
@@ -1403,7 +1415,11 @@ export class RaceEngine {
     } else {
       this.updateCamera(dt);
     }
-    this.sky.update(dt, this.camera.position);
+    if (this.track.id === "deserto") {
+      updateDesert(dt, now);
+    } else {
+      this.sky.update(dt, this.camera.position);
+    }
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -1869,15 +1885,16 @@ export class RaceEngine {
   /** Abertura: primeiro segue o Comandante pela reta final, depois mostra o grid com ele chegando. */
   private cutsceneCamera(u: number, dt: number): void {
     const start = pointAt(this.track, 0).pos;
-    const c = this.commander?.root.position ?? new THREE.Vector3(start.x, 5.5, start.z);
+    const startY = heightAt(this.track, 0);
+    const c = this.commander?.root.position ?? new THREE.Vector3(start.x, startY + 5.5, start.z);
     if (u < 0.55) {
       const h = pointAt(this.track, -40).heading;
       _cutWant.set(c.x - Math.sin(h) * 11 + Math.cos(h) * 4, c.y + 3, c.z - Math.cos(h) * 11 - Math.sin(h) * 4);
       _cutLook.set(c.x, c.y + 1.6, c.z);
     } else {
-      // atrás do grid: as cadeiras de costas e o Comandante sobre o pórtico, de frente para elas
       const back = pointAt(this.track, this.track.length - 17);
-      _cutWant.set(back.pos.x, 2.4, back.pos.z);
+      const backY = heightAt(this.track, this.track.length - 17);
+      _cutWant.set(back.pos.x, backY + 2.4, back.pos.z);
       _cutLook.set(c.x, c.y - 1.2, c.z);
     }
     const snap = !this.camReady || u < 0.02 || Math.abs(u - 0.55) < 0.02;
@@ -1947,7 +1964,11 @@ export class RaceEngine {
         _camLook.set(lookP.x, lookP.y, lookP.z);
       }
     } else {
-      this.camY += (Math.max(0, p.y) - this.camY) * Math.min(1, dt * 4);
+      if (!this.camReady) {
+        this.camY = p.y;
+      } else {
+        this.camY += (Math.max(0, p.y) - this.camY) * Math.min(1, dt * 4);
+      }
       if (this.lookBackActive) {
         // Câmera retrovisor (KeyC ou botão do meio do mouse): olha para trás 180°
         _camWant.set(p.x + fx * camDist, camHeight + this.camY, p.z + fz * camDist);
@@ -1994,9 +2015,11 @@ export class RaceEngine {
     this.camera.lookAt(this.camLook);
 
     // a luz do sol e a caixa de sombra acompanham o kart do jogador
-    this.sun.position.set(p.x + 25, 45, p.z + 18);
-    this.sun.target.position.set(p.x, 0.5, p.z);
-    this.sun.target.updateMatrixWorld();
+    if (this.track.id !== "deserto") {
+      this.sun.position.set(p.x + 25, 45, p.z + 18);
+      this.sun.target.position.set(p.x, 0.5, p.z);
+      this.sun.target.updateMatrixWorld();
+    }
 
     // FOV dinâmico elástico que abre suavemente de 60° a 74° com velocidade, boost, vácuo e café (e 56° ao frear)
     const isBraking = this.keys.has("ArrowDown") || this.keys.has("KeyS");

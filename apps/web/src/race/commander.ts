@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { pointAt, RACE, type Track } from "@ec/shared";
+import { heightAt, pointAt, RACE, type Track } from "@ec/shared";
 import { createGltfLoader } from "../game/gltfLoader";
 
 /** Comandante: o narrador da corrida, sobrevoando a pista de helicóptero. */
@@ -211,7 +211,8 @@ export function createCommander(track: Track, listener?: THREE.AudioListener, ef
         faceGrid = u > 0.45;
       }
       const at = pointAt(track, s);
-      root.position.set(at.pos.x, y + Math.sin(t * 1.8) * 0.2, at.pos.z);
+      const trackY = heightAt(track, s);
+      root.position.set(at.pos.x, trackY + y + Math.sin(t * 1.8) * 0.2, at.pos.z);
       const facing = faceGrid ? at.heading + Math.PI : at.heading;
       root.rotation.y = placed ? angleTo(root.rotation.y, facing, dt * 2) : facing;
       placed = true;

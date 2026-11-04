@@ -189,78 +189,107 @@ const PARQUE_CARPET: [number, number][] = [
 const PARQUE_BOXES = [1.0, 7.0, 13.0, 19.5, 25.5, 33.0];
 const PARQUE_CUPS = [4.0, 10.0, 16.5, 22.5, 28.5, 34.5];
 
-/** Pista do Deserto: cânions, oásis, dunas, maciço rochoso, túnel e salto do abismo. */
+/** Pista do Deserto: cânions, oásis, dunas, maciço rochoso, túnel e salto do abismo.
+ * 64 pontos de controle fiéis ao traçado original (CENTRO de 168 pontos, extensão oficial 1,59 km).
+ */
 const DESERTO: Ctrl[] = [
-  { x: -6.7, z: 18.9, w: 14, y: 1.20 }, // 0 Largada do Cânion, linha de chegada
-  { x: -26.0, z: 19.2, w: 14, y: 1.30 }, // 1 Reta do cânion
-  { x: -43.3, z: 29.9, w: 14, y: 1.10 }, // 2 Curva do cânion
-  { x: -49.4, z: 49.3, w: 14, y: 0.90 }, // 3 Aproximação do oásis
-  { x: -54.3, z: 66.9, w: 14, y: 1.00 }, // 4 Oásis do Sertão
-  { x: -67.9, z: 78.6, w: 14, y: 1.40 }, // 5 Saída do oásis
-  { x: -85.8, z: 80.4, w: 14, y: 1.80 }, // 6 Entrada das dunas
-  { x: -103.0, z: 75.3, w: 14, y: 2.40 }, // 7 Subida das dunas
-  { x: -111.2, z: 62.1, w: 14, y: 2.90 }, // 8 Crista das dunas
-  { x: -105.4, z: 44.7, w: 14, y: 2.60 }, // 9 Descida das dunas
-  { x: -95.8, z: 24.9, w: 14, y: 2.20 }, // 10 Dunas Escaldantes
-  { x: -103.3, z: 10.3, w: 14, y: 2.50 }, // 11 Chicane de areia
-  { x: -123.0, z: 12.9, w: 14, y: 3.10 }, // 12 Transição rochosa
-  { x: -141.6, z: 20.5, w: 14, y: 3.80 }, // 13 Reta do maciço
-  { x: -159.3, z: 22.1, w: 14, y: 4.40 }, // 14 Subida da serra
-  { x: -172.9, z: 12.7, w: 14, y: 4.90 }, // 15 Curva do mirante rochoso
-  { x: -175.3, z: -3.9, w: 14, y: 5.30 }, // 16 Encosta do maciço
-  { x: -166.5, z: -21.1, w: 14, y: 5.50 }, // 17 Maciço Rochoso
-  { x: -150.3, z: -33.8, w: 14, y: 5.20 }, // 18 Planalto rochoso
-  { x: -132.7, z: -37.7, w: 14, y: 4.60 }, // 19 Descida para o túnel
-  { x: -114.8, z: -32.2, w: 14, y: 3.90 }, // 20 Aproximação da caverna
-  { x: -96.0, z: -20.5, w: 14, y: 3.40 }, // 21 Chicane da entrada
-  { x: -75.6, z: -16.6, w: 14, y: 2.90 }, // 22 Portal da caverna
-  { x: -64.5, z: -30.6, w: 14, y: 2.50 }, // 23 Túnel da Caverna
-  { x: -71.8, z: -50.5, w: 14, y: 2.20 }, // 24 Meio do túnel
-  { x: -76.5, z: -68.0, w: 14, y: 1.90 }, // 25 Saída da caverna
-  { x: -67.8, z: -83.9, w: 14, y: 1.80 }, // 26 Curva de adobe
-  { x: -51.6, z: -92.4, w: 14, y: 1.80 }, // 27 Reta de embalo do salto
-  { x: -35.6, z: -90.4, w: 14, y: 1.90 }, // 28 Rampa do cânion
-  { x: -23.4, z: -77.6, w: 14, y: 1.90 }, // 29 Salto do Abismo
-  { x: -21.2, z: -60.0, w: 14, y: 1.80 }, // 30 Aterrissagem do cânion
-  { x: -22.0, z: -40.7, w: 14, y: 1.70 }, // 31 Desaceleração do salto
-  { x: -9.7, z: -28.5, w: 14, y: 1.60 }, // 32 Entrada do vilarejo
-  { x: 9.2, z: -26.8, w: 14, y: 1.70 }, // 33 Reta do vilarejo
-  { x: 25.5, z: -19.2, w: 14, y: 1.80 }, // 34 Vilarejo de Adobe
-  { x: 33.7, z: -3.6, w: 14, y: 1.90 }, // 35 Curva das casas de adobe
-  { x: 28.1, z: 10.8, w: 14, y: 1.60 }, // 36 Saída do vilarejo
-  { x: 11.7, z: 17.5, w: 14, y: 1.40 }, // 37 Reta principal de volta à largada
+  { x: -17.42, z: 41.91, y: 13.81, w: 17 }, // 0 Largada do Cânion
+  { x: -41.92, z: 41.22, y: 8.47, w: 17 },
+  { x: -67.24, z: 45.06, y: 4.95, w: 17 },
+  { x: -88.27, z: 57.4, y: 7.42, w: 17 },
+  { x: -102.34, z: 77.29, y: 14.65, w: 17 },
+  { x: -108.93, z: 102.09, y: 19.69, w: 17 },
+  { x: -112.19, z: 126.38, y: 19.48, w: 17 }, // 6 Início da subida para o salto
+  { x: -120.75, z: 149.24, y: 16.6, w: 17 },
+  { x: -138.18, z: 167.93, y: 13.41, w: 17 }, // 8 Salto do Abismo (rampa e vão sobre o cânion)
+  { x: -160.57, z: 177.6, y: 9.68, w: 17 },
+  { x: -184.95, z: 179.3, y: 7.15, w: 17 }, // 10 Pouso da rampa
+  { x: -209.16, z: 175.71, y: 5.72, w: 17 },
+  { x: -232.33, z: 164.83, y: 7.66, w: 17 },
+  { x: -246.2, z: 145.13, y: 8.15, w: 17 },
+  { x: -244.47, z: 121.04, y: 7.25, w: 17 }, // 14 Vilarejo de Adobe
+  { x: -233.43, z: 97.87, y: 6.12, w: 17 },
+  { x: -220.75, z: 76.82, y: 4.76, w: 17 },
+  { x: -212.44, z: 53.86, y: 4.5, w: 17 },
+  { x: -218.78, z: 29.73, y: 7.0, w: 17 },
+  { x: -240.84, z: 20.52, y: 6.1, w: 17 },
+  { x: -264.78, z: 25.43, y: 6.53, w: 17 },
+  { x: -288.49, z: 35.51, y: 9.29, w: 17 },
+  { x: -311.19, z: 44.68, y: 12.23, w: 17 }, // 22 Entrada do Túnel da Caverna
+  { x: -335.1, z: 49.95, y: 15.75, w: 17 }, // 23 Início do Saca-rolhas 360°
+  { x: -360.49, z: 47.25, y: 22.06, w: 17 },
+  { x: -380.62, z: 33.76, y: 31.82, w: 17 },
+  { x: -390.47, z: 11.61, y: 42.94, w: 17 },
+  { x: -388.69, z: -12.66, y: 45.9, w: 17 }, // 27 Maciço Rochoso (pico da montanha)
+  { x: -378.07, z: -36.02, y: 41.6, w: 17 },
+  { x: -362.6, z: -54.99, y: 32.89, w: 17 },
+  { x: -343.36, z: -70.14, y: 23.07, w: 17 }, // 30 Fim do Saca-rolhas
+  { x: -319.94, z: -80.71, y: 16.78, w: 17 },
+  { x: -295.77, z: -83.89, y: 10.55, w: 17 }, // 32 Saída do Túnel
+  { x: -271.81, z: -79.21, y: 5.69, w: 17 },
+  { x: -248.75, z: -67.93, y: 4.22, w: 17 },
+  { x: -228.14, z: -54.6, y: 4.76, w: 17 },
+  { x: -206.96, z: -42.24, y: 6.91, w: 17 },
+  { x: -182.41, z: -35.01, y: 9.05, w: 17 },
+  { x: -158.82, z: -40.52, y: 6.6, w: 17 },
+  { x: -144.13, z: -59.37, y: 1.98, w: 17 },
+  { x: -145.8, z: -84.75, y: 6.92, w: 17 }, // 40 Dunas Escaldantes
+  { x: -156.59, z: -106.77, y: 10.98, w: 17 },
+  { x: -167.24, z: -128.88, y: 10.35, w: 17 },
+  { x: -169.99, z: -152.95, y: 8.92, w: 17 },
+  { x: -159.85, z: -176.35, y: 9.01, w: 17 },
+  { x: -142.12, z: -193.15, y: 11.91, w: 17 },
+  { x: -120.2, z: -203.99, y: 16.8, w: 17 },
+  { x: -94.79, z: -206.28, y: 21.11, w: 17 },
+  { x: -72.23, z: -197.1, y: 22.48, w: 17 },
+  { x: -55.49, z: -179.47, y: 21.57, w: 17 },
+  { x: -47.08, z: -155.3, y: 18.17, w: 17 },
+  { x: -47.45, z: -130.92, y: 12.38, w: 17 },
+  { x: -50.36, z: -106.51, y: 6.12, w: 17 }, // 52 Oásis do Sertão
+  { x: -45.82, z: -81.45, y: 4.66, w: 17 },
+  { x: -27.93, z: -65.33, y: 8.91, w: 17 },
+  { x: -3.94, z: -60.65, y: 9.8, w: 17 },
+  { x: 21.68, z: -59.31, y: 6.41, w: 17 },
+  { x: 44.78, z: -51.48, y: 1.92, w: 17 },
+  { x: 63.22, z: -35.55, y: -2.04, w: 17 },
+  { x: 74.01, z: -13.66, y: 1.35, w: 17 },
+  { x: 71.95, z: 11.49, y: 11.6, w: 17 }, // 60 Reta principal de volta à largada
+  { x: 55.45, z: 29.05, y: 16.19, w: 17 },
+  { x: 32.53, z: 37.61, y: 18.49, w: 17 },
+  { x: 7.06, z: 41.2, y: 17.5, w: 17 },
 ];
 
 const DESERTO_ROOMS: TrackRoom[] = [
   { name: "Largada do Cânion", ctrl: 0 },
-  { name: "Oásis do Sertão", ctrl: 4 },
-  { name: "Dunas Escaldantes", ctrl: 10 },
-  { name: "Maciço Rochoso", ctrl: 17 },
-  { name: "Túnel da Caverna", ctrl: 23 },
-  { name: "Salto do Abismo", ctrl: 29 },
-  { name: "Vilarejo de Adobe", ctrl: 34 },
+  { name: "Salto do Abismo", ctrl: 8 },
+  { name: "Vilarejo de Adobe", ctrl: 14 },
+  { name: "Túnel Saca-Rolhas", ctrl: 22 },
+  { name: "Maciço Rochoso", ctrl: 27 },
+  { name: "Dunas Escaldantes", ctrl: 40 },
+  { name: "Oásis do Sertão", ctrl: 52 },
+  { name: "Largada do Cânion", ctrl: 63 },
 ];
 
 const DESERTO_CARPET: [number, number][] = [
-  [6.5, 8.5],
-  [10.2, 12.0],
-  [21.5, 23.5],
-  [34.5, 36.5],
+  [10.0, 13.0],
+  [17.0, 20.0],
+  [33.0, 37.0],
+  [44.0, 48.0],
 ];
 
-const DESERTO_BOXES = [2.0, 9.2, 13.5, 19.5, 25.5, 31.5, 37.2];
-const DESERTO_CUPS = [4.5, 12.5, 16.5, 20.5, 26.5, 33.5];
+const DESERTO_BOXES = [3.0, 12.5, 18.0, 26.0, 33.0, 42.0, 50.0, 58.0];
+const DESERTO_CUPS = [5.0, 15.0, 24.0, 31.0, 38.0, 48.0, 55.0, 62.0];
 
-/** Placas de impulso estratégicas: entrada do túnel, antes da rampa do cânion e nas retas abertas. */
-const DESERTO_BOOSTS = [1.5, 9.5, 14.0, 22.2, 27.2, 33.0];
+/** Placas de impulso estratégicas: reta da largada, antes do salto, no túnel e nas retas abertas. */
+const DESERTO_BOOSTS = [1.6, 6.0, 7.2, 20.9, 21.7, 36.1, 46.2, 56.2];
 
-/** Rampa com elevação e vão livre sobre o Cânion: exige velocidade e derruba quem for devagar. */
+/** Rampa com elevação e vão livre sobre o Cânion: 8m de altura, com decolagem e voo sobre o abismo. */
 const DESERTO_RAMP: RampDef = {
   path: -1,
-  at: 28.0,
-  len: 8,
-  height: 2.8,
-  gap: [28.45, 29.45],
+  at: 6.9,
+  len: 36.8,
+  height: 8.0,
+  gap: [8.37, 9.65],
 };
 
 /**
@@ -539,14 +568,14 @@ function buildTrack(def: TrackDef): Track {
   };
   if (def.corkscrew) {
     track.corkscrew = {
-      sStart: ctrlS[def.corkscrew.ctrlFrom],
-      sEnd: ctrlS[def.corkscrew.ctrlTo],
+      sStart: sAtCtrl(def.corkscrew.ctrlFrom),
+      sEnd: sAtCtrl(def.corkscrew.ctrlTo),
       axisY: def.corkscrew.axisY,
     };
   } else if (def.id === "deserto") {
     track.corkscrew = {
-      sStart: ctrlS[14],
-      sEnd: ctrlS[20],
+      sStart: sAtCtrl(22.55),
+      sEnd: sAtCtrl(30.13),
       axisY: 9.4,
     };
   }
@@ -805,8 +834,9 @@ export function corkscrewRoll(track: Track, s: number): number {
   const { sStart, sEnd } = track.corkscrew;
   const L = track.length;
   const ss = ((s % L) + L) % L;
-  if (ss < sStart || ss > sEnd) return 0;
-  const u = (ss - sStart) / (sEnd - sStart);
+  const EPS = 1e-4;
+  if (ss < sStart - EPS || ss > sEnd + EPS) return 0;
+  const u = Math.max(0, Math.min(1, (ss - sStart) / (sEnd - sStart)));
   return 2 * Math.PI * (u - Math.sin(2 * Math.PI * u) / (2 * Math.PI));
 }
 
@@ -958,7 +988,7 @@ export const TRACKS: Record<TrackId, Track> = {
   estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS, branch: ESTACIONAMENTO_BRANCH, ramp: ESTACIONAMENTO_RAMP }),
   copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS, branch: COPA_BRANCH }),
   parque: buildTrack({ id: "parque", name: "Parque Ipanema", ctrl: PARQUE, rooms: PARQUE_ROOMS, carpet: PARQUE_CARPET, boxes: PARQUE_BOXES, cups: PARQUE_CUPS, ramp: PARQUE_RAMP }),
-  deserto: buildTrack({ id: "deserto", name: "Pista do Deserto", ctrl: DESERTO, rooms: DESERTO_ROOMS, carpet: DESERTO_CARPET, boxes: DESERTO_BOXES, cups: DESERTO_CUPS, ramp: DESERTO_RAMP, boostPads: DESERTO_BOOSTS, corkscrew: { ctrlFrom: 14, ctrlTo: 20, axisY: 9.4 } }),
+  deserto: buildTrack({ id: "deserto", name: "Pista do Deserto", ctrl: DESERTO, rooms: DESERTO_ROOMS, carpet: DESERTO_CARPET, boxes: DESERTO_BOXES, cups: DESERTO_CUPS, ramp: DESERTO_RAMP, boostPads: DESERTO_BOOSTS, corkscrew: { ctrlFrom: 23, ctrlTo: 30, axisY: 9.4 } }),
 };
 
 export const isTrackId = (v: unknown): v is TrackId => typeof v === "string" && (TRACK_IDS as readonly string[]).includes(v);
