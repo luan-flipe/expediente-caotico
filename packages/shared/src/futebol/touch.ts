@@ -26,7 +26,11 @@ const MOVING_EPS = 0.1;
 /** Bola solta que se afasta do último toque mais rápido que isso não é retomada (m/s). */
 const AWAY_EPS = 0.5;
 /** Parado com a bola, ela descansa a essa distância (m) à frente do boneco, na direção em que ele olha. */
-const REST_OFFSET = 0.55;
+const REST_OFFSET = 0.45;
+/** Constante de tempo (ms) com que a bola conduzida acompanha o ponto à frente do pé (suaviza curvas e arrancadas). */
+const CARRY_FOLLOW_MS = 70;
+/** A bola conduzida nunca chega mais perto que isso (m) do centro do boneco, nem ao inverter o sentido. */
+const CARRY_MIN = 0.35;
 /** Carrinho: comprimento do deslize (m), raio de contato (m), recarga e tempo no chão da vítima (ms), toque na bola (m/s). */
 const TACKLE_LEN = 2;
 const TACKLE_REACH = 0.8;
@@ -278,15 +282,35 @@ export function resolveTouches(
     }
     if (speed > MOVING_EPS) {
       const sprint = (inputs.get(owner.id) ?? NO_INPUT).sprint;
-      const d = sprint ? FUT.sprintTouch : FUT.dribbleTouch;
+      // distância à frente cresce com a velocidade (de andar até correr)
+      const run = Math.min(1, Math.max(0, (speed - FUT.walkSpeed) / (FUT.sprintSpeed - FUT.walkSpeed)));
+      const d = FUT.dribbleTouch + (FUT.sprintTouch - FUT.dribbleTouch) * run;
       const k = sprint ? SPRINT_BALL_SPEED : 1;
-      ball.x = owner.x + (owner.vx / speed) * d;
-      ball.z = owner.z + (owner.vz / speed) * d;
+      const tx = (owner.vx / speed) * d;
+      const tz = (owner.vz / speed) * d;
+      // a bola acompanha o ponto alvo suave: curva ou arrancada não a estica, e ela nunca atravessa o boneco
+      let rx = ball.x - owner.x;
+      let rz = ball.z - owner.z;
+      const f = 1 - Math.exp(-dtMs / CARRY_FOLLOW_MS);
+      rx += (tx - rx) * f;
+      rz += (tz - rz) * f;
+      const len = Math.hypot(rx, rz);
+      if (len < CARRY_MIN) {
+        const ux = len > 1e-6 ? rx / len : tx / d;
+        const uz = len > 1e-6 ? rz / len : tz / d;
+        rx = ux * CARRY_MIN;
+        rz = uz * CARRY_MIN;
+      } else if (len > d + 0.05) {
+        rx *= (d + 0.05) / len;
+        rz *= (d + 0.05) / len;
+      }
+      ball.x = owner.x + rx;
+      ball.z = owner.z + rz;
       ball.y = FUT.ballRadius;
       ball.vx = owner.vx * k;
       ball.vz = owner.vz * k;
       ball.vy = 0;
-      if (d > FUT.controlRadius) {
+      if (Math.hypot(rx, rz) > FUT.controlRadius) {
         ball.ownerId = null;
       }
     }

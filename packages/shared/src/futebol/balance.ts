@@ -16,8 +16,9 @@ export const FUT = {
   recoverMs: 400,
   doubleTapMs: 250,
   controlRadius: 0.9,
-  dribbleTouch: 0.7,
-  sprintTouch: 1.6,
+  /** Condução: a bola fica a dribbleTouch (m) do boneco andando e a sprintTouch na velocidade máxima (proporcional à velocidade entre as duas). */
+  dribbleTouch: 0.55,
+  sprintTouch: 0.9,
   /** Tempo (ms) para a carga de chute/passe chegar à força máxima. */
   chargeMaxMs: 400,
   shotMin: 10,

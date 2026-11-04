@@ -17,15 +17,15 @@ function ball(over: Partial<Ball> = {}): Ball {
 }
 
 describe("bola dominada à frente dos pés", () => {
-  it("parado, a bola fica 0,5 a 0,7 m à frente, na direção em que o boneco olha", () => {
+  it("parado, a bola fica 0,4 a 0,5 m à frente, na direção em que o boneco olha", () => {
     const p = mk({ facing: Math.PI / 2 });
     const b = ball({ x: 0.1, z: 0 });
     resolveTouches([p], b, new Map([["p1", IDLE]]), DT);
     expect(b.ownerId).toBe("p1");
     const d = Math.hypot(b.x - p.x, b.z - p.z);
-    expect(d).toBeGreaterThanOrEqual(0.5);
-    expect(d).toBeLessThanOrEqual(0.7);
-    expect(b.x - p.x).toBeGreaterThan(0.45);
+    expect(d).toBeGreaterThanOrEqual(0.4);
+    expect(d).toBeLessThanOrEqual(0.5);
+    expect(b.x - p.x).toBeGreaterThan(0.4);
     expect(Math.abs(b.z - p.z)).toBeLessThan(0.05);
   });
 
@@ -33,18 +33,18 @@ describe("bola dominada à frente dos pés", () => {
     const p = mk({ facing: Math.PI });
     const b = ball({ x: 0, z: 0.2 });
     resolveTouches([p], b, new Map([["p1", IDLE]]), DT);
-    expect(b.z - p.z).toBeLessThan(-0.45);
+    expect(b.z - p.z).toBeLessThan(-0.4);
   });
 
-  it("andando, a bola fica entre 0,5 e 0,7 m; correndo, mais longe", () => {
+  it("andando, a bola fica entre 0,5 e 0,6 m; correndo, mais longe", () => {
     const walk = mk({ vx: FUT.walkSpeed });
     const bw = ball({ x: 0.3, ownerId: "p1" });
-    resolveTouches([walk], bw, new Map([["p1", IDLE]]), DT);
+    for (let i = 0; i < 12; i++) resolveTouches([walk], bw, new Map([["p1", IDLE]]), DT);
     expect(bw.x - walk.x).toBeGreaterThanOrEqual(0.5);
-    expect(bw.x - walk.x).toBeLessThanOrEqual(0.7);
+    expect(bw.x - walk.x).toBeLessThanOrEqual(0.6);
     const run = mk({ vx: FUT.sprintSpeed });
     const br = ball({ x: 0.3, ownerId: "p1" });
-    resolveTouches([run], br, new Map([["p1", { ...IDLE, sprint: true }]]), DT);
+    for (let i = 0; i < 12; i++) resolveTouches([run], br, new Map([["p1", { ...IDLE, sprint: true }]]), DT);
     expect(br.x - run.x).toBeGreaterThan(bw.x - walk.x);
   });
 

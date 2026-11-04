@@ -18,21 +18,76 @@ function inp(over: Partial<FutInput> = {}): FutInput {
 const dist = (b: Ball, p: FutPlayer) => Math.hypot(b.x - p.x, b.z - p.z);
 
 describe("toques no futebol", () => {
-  it("dono conduz a bola à frente andando", () => {
+  it("dono conduz a bola à frente andando, perto do pé", () => {
     const p = mk({ vz: FUT.walkSpeed, facing: 0 });
     const b = ball({ z: 0.3, ownerId: "p1" });
-    resolveTouches([p], b, new Map([["p1", inp({ mz: 1 })]]), 16);
+    for (let i = 0; i < 12; i++) {
+      resolveTouches([p], b, new Map([["p1", inp({ mz: 1 })]]), 33);
+    }
     expect(b.ownerId).toBe("p1");
-    expect(b.z - p.z).toBeCloseTo(FUT.dribbleTouch, 5);
+    expect(b.z - p.z).toBeCloseTo(FUT.dribbleTouch, 2);
+    expect(FUT.dribbleTouch).toBeLessThanOrEqual(0.6);
     expect(b.vz).toBeCloseTo(p.vz, 5);
   });
 
-  it("correndo o toque é mais longo e a bola sai do raio", () => {
+  it("correndo o toque é um pouco mais longo, mas a bola não descola do pé", () => {
     const p = mk({ vz: FUT.sprintSpeed, facing: 0 });
     const b = ball({ z: 0.3, ownerId: "p1" });
-    resolveTouches([p], b, new Map([["p1", inp({ mz: 1, sprint: true })]]), 16);
-    expect(b.z - p.z).toBeCloseTo(FUT.sprintTouch, 5);
-    expect(b.ownerId).toBeNull();
+    for (let i = 0; i < 12; i++) {
+      resolveTouches([p], b, new Map([["p1", inp({ mz: 1, sprint: true })]]), 33);
+    }
+    expect(b.z - p.z).toBeCloseTo(FUT.sprintTouch, 2);
+    expect(FUT.sprintTouch).toBeLessThanOrEqual(1);
+    expect(FUT.sprintTouch).toBeGreaterThan(FUT.dribbleTouch);
+    expect(b.ownerId).toBe("p1");
+  });
+
+  it("mudança de direção e arrancada: a bola acompanha sem esticar nem atravessar o boneco", () => {
+    const p = mk({ vz: FUT.sprintSpeed, facing: 0 });
+    const b = ball({ z: 0.9, ownerId: "p1" });
+    const hold = (n: number, vx: number, vz: number, sprint: boolean) => {
+      const dists: number[] = [];
+      let prev = { x: b.x - p.x, z: b.z - p.z };
+      let maxStep = 0;
+      for (let i = 0; i < n; i++) {
+        p.vx = vx;
+        p.vz = vz;
+        resolveTouches([p], b, new Map([["p1", inp({ mx: vx, mz: vz, sprint })]]), 33);
+        const rel = { x: b.x - p.x, z: b.z - p.z };
+        maxStep = Math.max(maxStep, Math.hypot(rel.x - prev.x, rel.z - prev.z));
+        prev = rel;
+        dists.push(Math.hypot(rel.x, rel.z));
+      }
+      return { dists, maxStep };
+    };
+    hold(12, 0, FUT.sprintSpeed, true);
+    // inversão total de sentido, depois curva de 90 graus, depois arrancada do repouso
+    for (const [vx, vz] of [[0, -FUT.sprintSpeed], [FUT.sprintSpeed, 0], [0, 2], [0, FUT.sprintSpeed]] as const) {
+      const r = hold(8, vx, vz, true);
+      expect(Math.max(...r.dists)).toBeLessThanOrEqual(FUT.sprintTouch + 0.01);
+      expect(Math.min(...r.dists)).toBeGreaterThanOrEqual(0.3);
+      expect(r.maxStep).toBeLessThanOrEqual(0.75);
+      expect(b.ownerId).toBe("p1");
+    }
+  });
+
+  it("parado, a bola descansa colada ao pé", () => {
+    const p = mk({ facing: 0 });
+    const b = ball({ z: 0.3, ownerId: "p1" });
+    resolveTouches([p], b, new Map(), 33);
+    expect(b.z - p.z).toBeLessThanOrEqual(0.45 + 1e-6);
+  });
+
+  it("quem conduz correndo ainda pode ser desarmado por quem está colado", () => {
+    const p = mk({ id: "a", vz: FUT.sprintSpeed, z: 0 });
+    const d = mk({ id: "d", side: 1, z: 0.6, x: 0.2, vz: FUT.sprintSpeed });
+    const b = ball({ z: 0.9, ownerId: "a" });
+    const ev = resolveTouches([p, d], b, new Map([["d", inp({ pass: "charge" })]]), 33);
+    expect(ev).toEqual([]);
+    d.chargeKind = "pass";
+    d.chargeMs = 100;
+    const ev2 = resolveTouches([p, d], b, new Map([["d", inp({ pass: "release" })]]), 33);
+    expect(ev2.some((e) => e.t === "steal" && e.ok)).toBe(true);
   });
 
   it("correndo, o adversário mais perto toma a bola solta", () => {
