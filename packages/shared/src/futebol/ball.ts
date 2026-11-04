@@ -26,6 +26,10 @@ export function stepBall(b: Ball, dtMs: number): void {
     b.curve = 0;
     if (b.vy < -MIN_BOUNCE_VY) {
       b.vy = -b.vy * FUT.bounce;
+      if (b.lob) {
+        b.vx *= FUT.lobScrub;
+        b.vz *= FUT.lobScrub;
+      }
     } else {
       b.vy = 0;
     }
@@ -97,6 +101,7 @@ export function kickBall(b: Ball, dirYaw: number, power01: number, kind: "kick" 
   const [min, max] = kind === "kick" ? [FUT.shotMin, FUT.shotMax] : [FUT.passMin, FUT.passMax];
   const speed = opts.speed ?? min + (max - min) * p;
   b.curve = opts.curve ?? 0;
+  b.lob = opts.lob !== undefined;
   b.vx = Math.sin(dirYaw) * speed;
   b.vz = Math.cos(dirYaw) * speed;
   b.vy = opts.vy ?? (opts.lob !== undefined ? speed * opts.lob : kind === "kick" ? loftVy(speed, p) : 0);

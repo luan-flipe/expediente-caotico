@@ -63,8 +63,10 @@ function firstBounceDist(m: FutMatch, gk: FutMatch["players"][number], via: "sim
       break;
     }
   }
+  lastBounce = { x: m.ball.x, z: m.ball.z };
   return Math.hypot(m.ball.x - x0, m.ball.z - z0);
 }
+let lastBounce = { x: 0, z: 0 };
 
 describe("goleiro lança longe", () => {
   const cases: [FutFormat, "sim" | "meta", "perto" | "meio" | "nenhum"][] = [];
@@ -80,6 +82,33 @@ describe("goleiro lança longe", () => {
       const { m, gk } = setup(format, seed, mate);
       const len = m.field.halfL * 2;
       expect(firstBounceDist(m, gk, via)).toBeGreaterThanOrEqual(len * 0.45);
+    }
+  });
+});
+
+describe("goleiro lança a bola para a frente em todos os formatos", () => {
+  const cases: [FutFormat, "sim" | "meta", "perto" | "meio" | "nenhum"][] = [];
+  for (const format of [1, 2, 3, 4, 5] as const) {
+    for (const via of ["sim", "meta"] as const) {
+      for (const mate of ["perto", "meio", "nenhum"] as const) {
+        cases.push([format, via, mate]);
+      }
+    }
+  }
+  it.each(cases)("formato %i via %s, companheiros %s: primeiro quique no meio ou no campo adversário, sem sair pelo fundo", (format, via, mate) => {
+    for (const seed of [1, 2, 3]) {
+      const { m, gk } = setup(format, seed, mate);
+      firstBounceDist(m, gk, via);
+      expect(lastBounce.x).toBeGreaterThanOrEqual(-0.5);
+      expect(lastBounce.x).toBeLessThanOrEqual(m.field.halfL - 0.5);
+      expect(Math.abs(lastBounce.z)).toBeLessThanOrEqual(m.field.halfW);
+      // depois do quique a bola morre perto: até alguém dominá-la, não sai pelo fundo nem pela lateral
+      const e0 = m.events.length;
+      for (let i = 0; i < 150 && m.ball.ownerId === null && m.phase === "play"; i++) {
+        stepFutebol(m, DT);
+      }
+      const bad = m.events.slice(e0).filter((e) => e.type === "goal" || (e.type === "restart" && ["lateral", "meta", "escanteio"].includes(e.kind)));
+      expect(bad).toEqual([]);
     }
   });
 });

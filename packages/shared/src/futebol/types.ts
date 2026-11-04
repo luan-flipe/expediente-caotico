@@ -81,6 +81,8 @@ export interface Ball {
   prevTouch: BallTouch | null;
   /** Efeito: taxa (rad/s) com que a direção horizontal gira enquanto a bola está no ar (cobrança de falta). */
   curve?: number;
+  /** Lançamento do goleiro no ar: cada quique segura a velocidade horizontal (FUT.lobScrub), a bola morre perto de onde cai. */
+  lob?: boolean;
 }
 
 export type RestartKind = "lateral" | "escanteio" | "meta" | "falta" | "penalti" | "saida";

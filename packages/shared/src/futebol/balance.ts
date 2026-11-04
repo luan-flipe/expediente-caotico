@@ -58,6 +58,8 @@ export const FUT = {
   kickoffWaitMs: 2000,
   gravity: 9.8,
   bounce: 0.55,
+  /** Lançamento do goleiro: cada quique mantém essa fração da velocidade horizontal (a bola cai e morre, não corre até o fundo). */
+  lobScrub: 0.5,
   groundFrictionPerSec: 0.35,
   ballStopSpeed: 0.05,
 } as const;

@@ -65,11 +65,41 @@ export function lobPowerFor(d: number): number {
 
 /** Sem alvo livre além do meio-campo, o goleiro lança até esta fração do meio comprimento a favor do ataque. */
 const LAUNCH_FRAC = 0.1;
-/** Campos com meio comprimento a partir daqui (4v4 e 5v5 Estádio) usam o lançamento longo por padrão. */
-const LONG_FIELD_HALF_L = 30;
+/** Fração da meia largura além da qual o lançamento não mira. */
+const LAUNCH_Z_MAX = 0.65;
+/** Campos com meio comprimento abaixo disso (1v1, 2v2, 3v3) lançam no companheiro além do meio-campo mesmo com marcador colado. */
+const SMALL_FIELD_HALF_L = 30;
+/** Peso da distância do companheiro mais perto contra a do adversário ao escolher o ponto do lançamento. */
+const LAUNCH_FRIEND_W = 0.6;
 
 /** Distância (m) do adversário mais perto de um companheiro para ele contar como livre. */
 export const FREE_GAP = 4;
+
+/** Sem atacante livre: ponto logo depois do meio-campo onde o companheiro chega antes do marcador (longe dos adversários, perto dos companheiros). */
+function launchSpot(players: readonly FutPlayer[], k: FutPlayer, f: Field, mate: FutPlayer | null): { x: number; z: number } {
+  const dir = attackDir(k.side);
+  const rivals = players.filter((p) => p.side !== k.side && p.role === "linha" && !p.sentOff);
+  const mates = players.filter((p) => p.side === k.side && p.role === "linha" && !p.sentOff);
+  const zs = [-0.55, 0, 0.55].map((fz) => fz * f.halfW);
+  if (mate) {
+    zs.push(Math.max(-f.halfW, Math.min(f.halfW, mate.z)));
+  }
+  let best = { x: dir * f.halfL * LAUNCH_FRAC, z: 0 };
+  let bestScore = -Infinity;
+  for (const fx of [LAUNCH_FRAC, LAUNCH_FRAC * 2.5]) {
+    for (const z of zs) {
+      const c = { x: dir * f.halfL * fx, z };
+      const foe = rivals.reduce((g, r) => Math.min(g, dist(r, c)), Infinity);
+      const friend = mates.reduce((g, r) => Math.min(g, dist(r, c)), Infinity);
+      const score = Math.min(foe, 12) - LAUNCH_FRIEND_W * Math.min(friend, 12);
+      if (score > bestScore) {
+        best = c;
+        bestScore = score;
+      }
+    }
+  }
+  return best;
+}
 
 /** Onde o goleiro lança a bola: no atacante mais avançado e livre se ele já está além do meio-campo; senão, em um ponto
  *  logo depois do meio-campo (chutão). Sempre lançamento alto, com a força que faz a bola cair ali. */
@@ -77,17 +107,13 @@ export function keeperLaunch(players: readonly FutPlayer[], k: FutPlayer, f: Fie
   const dir = attackDir(k.side);
   const mate = advancedFreeMate(players, k);
   const clear = mate !== null && players.every((r) => r.side === k.side || r.sentOff || dist(r, mate) >= FREE_GAP);
-  if (f.halfL < LONG_FIELD_HALF_L) {
-    // campo pequeno: o passe para o companheiro mais avançado e livre rola perto e só vira lançamento a partir de lobFrom
-    const x = mate ? mate.x : 0;
-    const z = mate ? mate.z : 0;
-    const d = dist(k, { x, z });
-    return { x, z, power: d >= FUT.lobFrom ? keeperLobPowerFor(d) : passPowerFor(d), free: clear };
-  }
-  const free = clear && mate.x * dir > 0;
-  const x = free ? mate.x : dir * f.halfL * LAUNCH_FRAC;
-  const z = free ? mate.z : mate ? Math.max(-f.halfW, Math.min(f.halfW, mate.z * 0.5)) : 0;
-  return { x, z, power: keeperLobPowerFor(dist(k, { x, z })), free };
+  // campo pequeno: o marcador sempre cola no receptor, então basta o companheiro estar além do meio-campo
+  const free = mate !== null && mate.x * dir > 0 && (clear || f.halfL < SMALL_FIELD_HALF_L);
+  const spot = free ? mate : launchSpot(players, k, f, mate);
+  // o lançamento cai longe da lateral: o quique não pode levar a bola para fora
+  const zMax = f.halfW * LAUNCH_Z_MAX;
+  const z = Math.max(-zMax, Math.min(zMax, spot.z));
+  return { x: spot.x, z, power: keeperLobPowerFor(dist(k, { x: spot.x, z })), free };
 }
 
 /** Companheiro de linha ativo mais avançado no ataque entre os livres (adversário a FREE_GAP ou mais);
@@ -250,11 +276,11 @@ function supportSpot(p: FutPlayer, m: FutMatch, gk: FutPlayer): { x: number; z: 
   // k 0 recua para receber curto, depois alternam laterais e meio
   const slots: [number, number][] = [
     [gx + dir * (f.boxL + 4), 0],
-    [gx + dir * f.halfL * 0.7, -f.halfW * 0.7],
-    [gx + dir * f.halfL * 0.7, f.halfW * 0.7],
+    [gx + dir * f.halfL * 1.15, -f.halfW * 0.7],
+    [gx + dir * f.halfL * 1.15, f.halfW * 0.7],
     [gx + dir * f.halfL * 1, 0],
   ];
-  const [sx, sz] = n === 1 ? [gx + dir * f.halfL * 0.7, gk.z >= 0 ? -f.halfW * 0.6 : f.halfW * 0.6] : slots[k % slots.length];
+  const [sx, sz] = n === 1 ? [gx + dir * f.halfL * 1.15, gk.z >= 0 ? -f.halfW * 0.6 : f.halfW * 0.6] : slots[k % slots.length];
   const lim = f.halfW - 1;
   return {
     x: Math.max(-f.halfL + 2, Math.min(f.halfL - 2, sx + Math.cos(t) * SUPPORT_SWAY)),
