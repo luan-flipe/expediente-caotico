@@ -57,13 +57,23 @@ const WEARABLES = [
   "camisetas/03_moletom.glb",
   "camisetas/04_corta_vento.glb",
   "camisetas/05_jaqueta_jeans.glb",
+  "camisetas/06_camisa_gravata.glb",
+  "camisetas/07_camisa_time.glb",
+  "camisetas/08_polo_trico.glb",
   "calcas/01_calca.glb",
   "calcas/02_saia.glb",
+  "calcas/03_calca_social.glb",
+  "calcas/04_calca_jeans.glb",
+  "calcas/05_short_cargo.glb",
+  "calcas/06_short_futebol.glb",
   "tenis/01_tenis.glb",
   "tenis/02_galocha.glb",
   "tenis/03_salto_alto.glb",
   "tenis/04_crocs.glb",
   "tenis/05_tenis_adidas.glb",
+  "tenis/06_chinelo.glb",
+  "tenis/07_chuteira_meiao.glb",
+  "tenis/08_loafer.glb",
 ];
 // Futebol: originais em assets-src/futebol (gerar-bola.mjs, gerar-gol.mjs), saída em apps/web/src/assets/futebol.
 const FUTEBOL = ["futebol/bola.glb", "futebol/gol.glb"];

@@ -32,6 +32,61 @@ function knobs(r: number, w: number): THREE.BufferGeometry {
   return merged;
 }
 
+/** Quanto o meio da mão fechada fica do pulso até os dedos. */
+const FIST = 0.6;
+/** Para onde os dedos apontam segurando o guidão: para a frente e um pouco para baixo, por cima do punho. */
+const GRIP_DIR = new THREE.Vector3(0, -0.6, 1).normalize();
+
+/** Gira o osso no espaço do mundo (q aplicada por fora) e devolve a rotação para o espaço do pai. */
+function turnInWorld(bone: THREE.Object3D, q: THREE.Quaternion): void {
+  const world = bone.getWorldQuaternion(new THREE.Quaternion()).premultiply(q);
+  const parent = bone.parent ? bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert() : new THREE.Quaternion();
+  bone.quaternion.copy(parent.multiply(world));
+  bone.updateMatrixWorld(true);
+}
+
+/**
+ * Mão fechada por cima do guidão: o pulso gira até os dedos apontarem em GRIP_DIR e, em volta dessa direção,
+ * até o lado para onde a mão fecha (a ponta dos dedos dobrados) ficar para baixo: as costas da mão para cima e
+ * os dedos descendo em volta do guidão. Chame com as mãos já fechadas. Sem isso a mão pende do pulso.
+ */
+function gripBar(rider: THREE.Object3D): void {
+  rider.updateMatrixWorld(true);
+  for (const side of ["E", "D"]) {
+    const wrist = rider.getObjectByName(`punho_${side}`);
+    const fingers = rider.getObjectByName(`dedos_${side}`);
+    const tips = rider.getObjectByName(`dedos2_${side}`);
+    if (!wrist || !fingers) continue;
+    const at = (o: THREE.Object3D) => o.getWorldPosition(new THREE.Vector3());
+    const hand = at(fingers).sub(at(wrist)).normalize();
+    turnInWorld(wrist, new THREE.Quaternion().setFromUnitVectors(hand, GRIP_DIR));
+    if (!tips) continue;
+    // só a parte de lado de cada direção, no plano em volta dos dedos
+    const flat = (v: THREE.Vector3) => v.addScaledVector(GRIP_DIR, -v.dot(GRIP_DIR)).normalize();
+    const from = flat(at(tips).sub(at(fingers)));
+    const to = flat(new THREE.Vector3(0, -1, 0));
+    const angle = Math.atan2(new THREE.Vector3().crossVectors(from, to).dot(GRIP_DIR), from.dot(to));
+    turnInWorld(wrist, new THREE.Quaternion().setFromAxisAngle(GRIP_DIR, angle));
+  }
+}
+
+/**
+ * Meio das duas mãos fechadas (entre o pulso e os dedos), com x positivo: a mão esquerda e o espelho da
+ * direita. null no boneco sem esses ossos.
+ */
+function fistsCenter(rider: THREE.Object3D): THREE.Vector3 | null {
+  rider.updateMatrixWorld(true);
+  const fist = (side: string) => {
+    const wrist = rider.getObjectByName(`punho_${side}`);
+    const fingers = rider.getObjectByName(`dedos_${side}`);
+    return wrist && fingers ? wrist.getWorldPosition(new THREE.Vector3()).lerp(fingers.getWorldPosition(new THREE.Vector3()), FIST) : null;
+  };
+  const left = fist("E");
+  const right = fist("D");
+  if (!left || !right) return null;
+  return new THREE.Vector3((Math.abs(left.x) + Math.abs(right.x)) / 2, (left.y + right.y) / 2, (left.z + right.z) / 2);
+}
+
 /** Patinete elétrico com o boneco em pé: o guidão vai para onde as mãos dele alcançam. */
 export function mountScooter(chair: ChairDNA, char: Character): Vehicle {
   const g = new THREE.Group();
@@ -94,10 +149,12 @@ export function mountScooter(chair: ChairDNA, char: Character): Vehicle {
   const shoulder = fit.shoulder.clone().add(char.root.position);
   const arm = v(0.15, -Math.sin(ARM_DROP), Math.cos(ARM_DROP)).normalize();
   const wrist = shoulder.clone().addScaledVector(arm, fit.reach);
-  // o guidão passa no meio da mão fechada, medido no boneco (a mão do boneco de braço comprido é maior)
-  const palm = wrist.clone().addScaledVector(arm, fit.grip ?? 0.045);
   const toRider = (x: number) => v(x, wrist.y, wrist.z).sub(char.root.position);
   char.restHands(toRider(wrist.x), toRider(-wrist.x));
+  gripBar(char.root);
+  // o guidão passa no meio das mãos fechadas, onde elas ficaram depois de os braços irem até ele: a mão do
+  // boneco pende do pulso, então a reta do braço não diz onde ela está
+  const palm = fistsCenter(char.root) ?? wrist.clone().addScaledVector(arm, fit.grip ?? 0.045);
 
   const bar = v(0, palm.y, palm.z);
   const head = v(0, headY, FRONT_Z);
@@ -128,9 +185,11 @@ export function mountScooter(chair: ChairDNA, char: Character): Vehicle {
     case 3: {
       const x = -(palm.x - 0.1);
       const cup = new THREE.MeshStandardMaterial({ color: "#f5f0e1" });
-      add(g, new THREE.CylinderGeometry(0.04, 0.035, 0.09, 14), cup, x, bar.y + 0.06, bar.z);
-      add(g, new THREE.TorusGeometry(0.022, 0.007, 6, 12), cup, x - 0.045, bar.y + 0.06, bar.z, 0, Math.PI / 2);
-      add(g, new THREE.CircleGeometry(0.035, 14), new THREE.MeshStandardMaterial({ color: "#4a2c1a" }), x, bar.y + 0.101, bar.z, -Math.PI / 2);
+      // porta-copo: aro preso no guidão, com a caneca encaixada nele (no guidão fino ela parecia flutuar)
+      add(g, new THREE.TorusGeometry(0.043, 0.008, 6, 16), metal, x, bar.y + 0.012, bar.z, Math.PI / 2);
+      add(g, new THREE.CylinderGeometry(0.04, 0.035, 0.09, 14), cup, x, bar.y + 0.04, bar.z);
+      add(g, new THREE.TorusGeometry(0.022, 0.007, 6, 12), cup, x - 0.045, bar.y + 0.04, bar.z, 0, Math.PI / 2);
+      add(g, new THREE.CircleGeometry(0.035, 14), new THREE.MeshStandardMaterial({ color: "#4a2c1a" }), x, bar.y + 0.081, bar.z, -Math.PI / 2);
       break;
     }
     case 4: {

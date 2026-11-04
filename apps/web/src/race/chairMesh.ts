@@ -80,8 +80,10 @@ export function preloadChair(onProgress?: (e: ProgressEvent) => void): Promise<b
 
 const ENCOSTO_K = [0.7, 1, 1.2];
 /** Braço da cadeira mais perto e mais alto que no GLB, ao alcance das mãos do boneco sentado. */
-const ARM_X = 0.38;
-const ARM_LIFT = 0.06;
+const ARM_X = 0.3;
+const ARM_LIFT = 0.16;
+/** Enfeite no braço da cadeira: quanto fica atrás do meio dele (na frente descansa a mão do boneco). */
+const TRINKET_BACK = 0.08;
 
 /** Traz haste e apoio de cada braço para ARM_X, encurta o suporte e estreita o assento para caber entre eles. */
 function fitArms(inner: THREE.Object3D): void {
@@ -708,7 +710,13 @@ function addTrinket(
     mesh.position.set(x, y, z);
     mesh.rotation.set(rx, ry, rz);
     mesh.castShadow = true;
-    parent.add(mesh);
+    // os pontos de encaixe são da cadeira inteira; assento e encosto têm posição e escala próprias, então o
+    // enfeite entra na cadeira e passa para eles mantendo o lugar (somar no espaço deles fazia ele flutuar)
+    g.add(mesh);
+    if (parent !== g) {
+      g.updateMatrixWorld(true);
+      parent.attach(mesh);
+    }
     extras.push(mesh);
     return mesh;
   };
@@ -724,28 +732,32 @@ function addTrinket(
       break;
     }
     case 2: {
+      // buzina por fora do braço da cadeira, com a corneta para a frente ao lado da mão
       const targetParent = seatParent ?? g;
-      add(new THREE.SphereGeometry(0.06, 12, 10), new THREE.MeshStandardMaterial({ color: "#d62828", roughness: 0.5 }), a.armX, a.armY + 0.05, 0.09, 0, 0, 0, targetParent);
-      add(new THREE.ConeGeometry(0.05, 0.16, 12, 1, true), new THREE.MeshStandardMaterial({ color: "#d4af37", metalness: 0.7, roughness: 0.3, side: THREE.DoubleSide }), a.armX, a.armY + 0.05, 0.21, -Math.PI / 2, 0, 0, targetParent);
+      const z = a.armZ - TRINKET_BACK;
+      add(new THREE.SphereGeometry(0.06, 12, 10), new THREE.MeshStandardMaterial({ color: "#d62828", roughness: 0.5 }), a.armX + 0.05, a.armY + 0.05, z, 0, 0, 0, targetParent);
+      add(new THREE.ConeGeometry(0.05, 0.16, 12, 1, true), new THREE.MeshStandardMaterial({ color: "#d4af37", metalness: 0.7, roughness: 0.3, side: THREE.DoubleSide }), a.armX + 0.05, a.armY + 0.05, z + 0.12, -Math.PI / 2, 0, 0, targetParent);
       break;
     }
     case 3: {
       const targetParent = seatParent ?? g;
-      add(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 14), new THREE.MeshStandardMaterial({ color: "#f5f0e1" }), -a.armX, a.armY + 0.05, 0.12, 0, 0, 0, targetParent);
-      add(new THREE.TorusGeometry(0.025, 0.008, 6, 12), new THREE.MeshStandardMaterial({ color: "#f5f0e1" }), -a.armX - 0.05, a.armY + 0.05, 0.12, 0, Math.PI / 2, 0, targetParent);
-      add(new THREE.CircleGeometry(0.04, 14), new THREE.MeshStandardMaterial({ color: "#4a2c1a" }), -a.armX, a.armY + 0.095, 0.12, -Math.PI / 2, 0, 0, targetParent);
+      const z = a.armZ - TRINKET_BACK;
+      add(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 14), new THREE.MeshStandardMaterial({ color: "#f5f0e1" }), -a.armX, a.armY + 0.05, z, 0, 0, 0, targetParent);
+      add(new THREE.TorusGeometry(0.025, 0.008, 6, 12), new THREE.MeshStandardMaterial({ color: "#f5f0e1" }), -a.armX - 0.05, a.armY + 0.05, z, 0, Math.PI / 2, 0, targetParent);
+      add(new THREE.CircleGeometry(0.04, 14), new THREE.MeshStandardMaterial({ color: "#4a2c1a" }), -a.armX, a.armY + 0.095, z, -Math.PI / 2, 0, 0, targetParent);
       break;
     }
     case 4: {
       const targetParent = seatParent ?? g;
-      add(new THREE.CylinderGeometry(0.05, 0.04, 0.08, 10), new THREE.MeshStandardMaterial({ color: "#b5651d" }), a.armX, a.armY + 0.04, 0.12, 0, 0, 0, targetParent);
+      const z = a.armZ - TRINKET_BACK;
+      add(new THREE.CylinderGeometry(0.05, 0.04, 0.08, 10), new THREE.MeshStandardMaterial({ color: "#b5651d" }), a.armX, a.armY + 0.04, z, 0, 0, 0, targetParent);
       const leaf = new THREE.MeshStandardMaterial({ color: "#3e9b52", flatShading: true });
       for (const [x, y, z] of [
         [0, 0.12, 0],
         [0.04, 0.1, 0.02],
         [-0.03, 0.1, -0.02],
       ])
-        add(new THREE.IcosahedronGeometry(0.045, 0), leaf, a.armX + x, a.armY + y, 0.12 + z, 0, 0, 0, targetParent);
+        add(new THREE.IcosahedronGeometry(0.045, 0), leaf, a.armX + x, a.armY + y, a.armZ - TRINKET_BACK + z, 0, 0, 0, targetParent);
       break;
     }
     case 5: {
@@ -801,7 +813,8 @@ function seatChair(chair: ChairDNA, char: Character): Vehicle {
   char.root.position.z = baseCharZ;
   // pontos no topo de cada braço da cadeira, no espaço do boneco (a esquerda dele fica em +x)
   const arm = (x: number) => new THREE.Vector3(x, a.armY + 0.03, a.armZ).sub(char.root.position);
-  char.restHands(arm(Math.abs(a.armX)), arm(-Math.abs(a.armX)));
+  if (char.restForearms) char.restForearms(arm(Math.abs(a.armX)), arm(-Math.abs(a.armX)));
+  else char.restHands(arm(Math.abs(a.armX)), arm(-Math.abs(a.armX)));
   return seat;
 }
 
