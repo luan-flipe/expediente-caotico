@@ -3190,6 +3190,111 @@ input.fut-team-name {
   }
 }
 
+.fut-stats {
+  display: grid;
+  gap: 8px;
+}
+
+.fut-stat {
+  display: grid;
+  grid-template-columns: 56px 1fr 56px;
+  align-items: center;
+  gap: 2px 8px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.fut-stat > span {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.fut-stat .bar {
+  grid-column: 1 / -1;
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.fut-stat .bar i {
+  display: block;
+  height: 100%;
+}
+
+.fut-mvp {
+  margin: 0;
+  text-align: center;
+}
+
+.fut-champion h2 {
+  margin: 0;
+  text-align: center;
+  font-size: 34px;
+}
+
+.fut-champion .label {
+  text-align: center;
+}
+
+.cup {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.cup-round {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 140px;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 10px;
+}
+
+.cup-round h4 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  opacity: 0.7;
+  text-align: center;
+}
+
+.cup-match {
+  border: 2px solid rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.cup-match.next {
+  border-color: #e0a800;
+  box-shadow: 0 0 0 2px rgba(255, 225, 77, 0.6);
+}
+
+.cup-team {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 14px;
+}
+
+.cup-team + .cup-team {
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.cup-team.human span::after {
+  content: " *";
+}
+
+.cup-team.won {
+  font-weight: 800;
+  background: rgba(255, 225, 77, 0.45);
+}
+
 .fut-res-head {
   display: flex;
   gap: 12px;

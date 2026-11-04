@@ -257,3 +257,72 @@ describe("modo futebol no servidor", () => {
     b.close();
   }, 15000);
 });
+
+describe("campeonato entre setores", () => {
+  async function ready(a: Client, b: Client, wb: { id: string }, size: number) {
+    a.send({ t: "mode", mode: "futebol" });
+    a.send({ t: "options", futCup: size });
+    b.send({ t: "ready", ready: true });
+    await a.waitFor("lobby", (m) => m.state.options.futCup === size && m.state.players.find((p) => p.id === wb.id)?.ready === true);
+  }
+  async function waitMatch(room: NonNullable<ReturnType<typeof srv.manager.rooms.get>>) {
+    for (let t = 0; t < 150 && !(room.phase === "match" && room.futebol); t++) await new Promise((r) => setTimeout(r, 20));
+    expect(room.futebol).not.toBeNull();
+  }
+  /** Joga o jogo atual até o fim com o lado vencedor forçado e devolve o lobby já com a chave atualizada. */
+  async function playUntilEnd(a: Client, room: NonNullable<ReturnType<typeof srv.manager.rooms.get>>, winner: 0 | 1, played: number) {
+    await waitMatch(room);
+    const fut = room.futebol!;
+    fut.score = winner === 0 ? [1, 0] : [0, 1];
+    fut.phase = "play";
+    fut.durationMs = fut.elapsedMs + 300;
+    return a.waitFor("lobby", (m) => m.state.phase === "results" && m.state.cup!.matches.filter((x) => x.winner !== null).length >= played, 8000);
+  }
+  async function next(a: Client, b: Client, room: NonNullable<ReturnType<typeof srv.manager.rooms.get>>) {
+    a.send({ t: "lobby" });
+    for (let t = 0; t < 150 && room.phase !== "lobby"; t++) await new Promise((r) => setTimeout(r, 20));
+    b.send({ t: "ready", ready: true });
+    for (let t = 0; t < 150 && !room.humans().every((h) => h.id === room.hostId || h.ready); t++) await new Promise((r) => setTimeout(r, 20));
+    a.send({ t: "start" });
+  }
+
+  it("opção liga a chave e o primeiro jogo é de um time humano contra um setor de bots", async () => {
+    const { a, b, wa, wb } = await twoPlayers();
+    await ready(a, b, wb, 4);
+    a.send({ t: "start" });
+    const first = await a.waitFor("fsnap");
+    const lob = await a.waitFor("lobby", (m) => !!m.state.cup);
+    expect(lob.state.cup!.matches).toHaveLength(3);
+    // Ana joga pelo Financeiro; o TI de Beto só entra no outro jogo e ele assiste
+    expect(first.s.teams[0].name).toBe("Financeiro");
+    expect(["TI", "Financeiro"]).not.toContain(first.s.teams[1].name);
+    expect(first.s.players.some((p) => p.id === wa.id)).toBe(true);
+    expect(first.s.players.some((p) => p.id === wb.id)).toBe(false);
+    a.close();
+    b.close();
+  }, 15000);
+
+  it("a chave avança a cada partida e termina com campeão", async () => {
+    const { a, b, wb, room } = await twoPlayers();
+    await ready(a, b, wb, 4);
+    a.send({ t: "start" });
+    // jogo 1: Financeiro (Ana) vence
+    let lob = await playUntilEnd(a, room, 0, 1);
+    const cup = () => lob.state.cup!;
+    const fin = cup().teams.findIndex((t) => t.side === 0);
+    const ti = cup().teams.findIndex((t) => t.side === 1);
+    expect(cup().matches[0].winner).toBe(fin);
+    expect(cup().champion).toBeNull();
+    // jogo 2: TI (Beto) vence o seu; a final fica Financeiro x TI
+    await next(a, b, room);
+        lob = await playUntilEnd(a, room, 1, 2);
+    expect(cup().matches[1].winner).toBe(ti);
+    expect(cup().matches[2].a).not.toBeNull();
+    // final entre os dois humanos: Financeiro leva
+    await next(a, b, room);
+        lob = await playUntilEnd(a, room, 0, 3);
+    expect(cup().champion).toBe(fin);
+    a.close();
+    b.close();
+  }, 40000);
+});

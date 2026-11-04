@@ -246,6 +246,10 @@ export interface FutResultRow {
   assists: number;
   yellow: number;
   red: number;
+  shots: number;
+  shotsOn: number;
+  passes: number;
+  fouls: number;
 }
 
 /** Linha com a conta do jogador: fica só no servidor (ranking), nunca vai para os clientes. */

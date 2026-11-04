@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { Award } from "./awards";
 import { BOT_LEVELS, LAPS_MAX, LAPS_MIN, type RoomOptions } from "./botLevels";
 import { FUT_COLORS, FUT_KITS } from "./futebol/balance";
+import type { Cup } from "./futebol/campeonato";
+import type { FutMatchStats } from "./futebol/resumo";
 import type { FutPrivate, FutResultRow, FutSnapshot, TeamSide } from "./futebol/types";
 import type { ChairDNA } from "./race/chair";
 import { TRACK_IDS } from "./race/track";
@@ -49,6 +51,7 @@ export const ClientMsg = z.discriminatedUnion("t", [
       botLevel: z.enum(BOT_LEVELS).optional(),
       track: z.enum(TRACK_IDS).optional(),
       futFormat: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]).optional(),
+      futCup: z.union([z.literal(0), z.literal(4), z.literal(8)]).optional(),
     })
     .strict(),
   z.object({ t: z.literal("start") }),
@@ -121,6 +124,8 @@ export interface LobbyState {
   durationMs: number;
   options: RoomOptions;
   players: LobbyPlayer[];
+  /** Futebol: a chave do campeonato entre setores em andamento (ausente fora dele). */
+  cup?: Cup | null;
 }
 
 /** Um fantasma: tempo da volta e amostras [tempo na volta, x, z, direção]. */
@@ -137,7 +142,7 @@ export type ServerMsg =
   | { t: "rsnap"; s: RaceSnapshot; me: RacePrivate | null }
   | { t: "rresults"; rows: RaceResultRow[]; awards: Award[] }
   | { t: "fsnap"; s: FutSnapshot; me: FutPrivate | null }
-  | { t: "fresults"; rows: FutResultRow[]; score: { score: [number, number]; pens: [number, number] | null; winner: TeamSide | null }; awards: Award[] }
+  | { t: "fresults"; rows: FutResultRow[]; score: { score: [number, number]; pens: [number, number] | null; winner: TeamSide | null }; awards: Award[]; stats?: FutMatchStats }
   /** Fantasmas da pista: o do próprio jogador (conta ou sessão), o do recordista e o do rival (a volta logo à frente da sua). Reenviado quando algum muda. */
   | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null; rival?: (GhostLap & { name: string }) | null }
   /** Chat rápido de alguém da sala (inclusive de quem mandou). */

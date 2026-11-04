@@ -13,6 +13,7 @@ import {
   type RacePrivate,
   type Award,
   type FutPrivate,
+  type FutMatchStats,
   type FutResultRow,
   type FutSnapshot,
   type TeamSide,
@@ -96,6 +97,7 @@ export interface FutResults {
   rows: FutResultRow[];
   score: { score: [number, number]; pens: [number, number] | null; winner: TeamSide | null };
   awards: Award[];
+  stats?: FutMatchStats;
 }
 
 export interface Ghosts {
@@ -299,7 +301,7 @@ function onMessage(msg: ServerMsg): void {
       setState({ fsnap: msg.s, fme: msg.me });
       return;
     case "fresults":
-      setState({ futResults: { rows: msg.rows, score: msg.score, awards: msg.awards }, awards: msg.awards, results: null, raceResults: null, feed: [] });
+      setState({ futResults: { rows: msg.rows, score: msg.score, awards: msg.awards, stats: msg.stats }, awards: msg.awards, results: null, raceResults: null, feed: [] });
       return;
     case "chat":
       setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });

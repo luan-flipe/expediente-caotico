@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, FUT_COLORS, FUT_FORMATS, FUT_KITS, LAPS_MAX, LAPS_MIN, pistaDoDia, RACE, TRACK_IDS, TRACKS, type LobbyPlayer, type LobbyState, type TeamSide } from "@ec/shared";
+import { CupBracket } from "../futebol/CupBracket";
 import { uniformDNA } from "../futebol/uniforme";
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail, type CharacterAction } from "../game/character";
@@ -199,7 +200,15 @@ export function Lobby() {
         {!online && <div className="error">Reconectando ao servidor...</div>}
 
         {futebol ? (
-          <FutTeams lobby={lobby} myId={myId} isHost={isHost} />
+          <>
+            <FutTeams lobby={lobby} myId={myId} isHost={isHost} />
+            {lobby.cup && (
+              <div>
+                <p className="label">Chave do campeonato</p>
+                <CupBracket cup={lobby.cup} />
+              </div>
+            )}
+          </>
         ) : (
         <div>
           <p className="label">
@@ -342,6 +351,16 @@ export function Lobby() {
                     ))}
                   </div>
                 </div>
+                <div className="row">
+                  <span className="muted">Campeonato:</span>
+                  <div className="seg">
+                    {([0, 4, 8] as const).map((n) => (
+                      <button key={n} className={opts.futCup === n ? "on" : ""} title={n ? "Mata-mata entre setores: os times da sala jogam e o resto é simulado" : "Partida avulsa"} disabled={!isHost} onClick={() => net.send({ t: "options", futCup: n })}>
+                        {n === 0 ? "Desligado" : `${n} setores`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {botRow}
                 <div className="row">
                   <span className="muted">Vagas que sobrarem em cada time são preenchidas por bots. Goleiros são sempre bots.</span>
@@ -412,7 +431,7 @@ export function Lobby() {
                   </div>
                 )}
                 <button className="btn primary" onClick={() => net.send({ t: "start" })}>
-{futebol ? "Iniciar partida" : trial ? "Iniciar treino" : race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
+{futebol ? (lobby.cup ? "Próxima partida" : opts.futCup ? "Iniciar campeonato" : "Iniciar partida") : trial ? "Iniciar treino" : race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
                 </button>
               </>
             )}

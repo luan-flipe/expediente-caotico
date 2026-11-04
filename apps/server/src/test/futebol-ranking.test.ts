@@ -9,7 +9,7 @@ import { Store } from "../store";
 let dir: string;
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-const row = (id: string, side: 0 | 1, accountId: string | null, isBot: boolean, goals: number, assists: number): FutResultRowFull => ({ id, name: id, side, isBot, accountId, goals, assists, yellow: 0, red: 0 });
+const row = (id: string, side: 0 | 1, accountId: string | null, isBot: boolean, goals: number, assists: number): FutResultRowFull => ({ id, name: id, side, isBot, accountId, goals, assists, yellow: 0, red: 0, shots: 0, shotsOn: 0, passes: 0, fouls: 0 });
 
 describe("recordFutebolRanking", () => {
   it("empate decidido nos pênaltis: vencedor dos pênaltis ganha a vitória e gols da disputa não contam", () => {
@@ -52,5 +52,19 @@ describe("recordFutebolRanking", () => {
     r.futScore = { score: [2, 0], pens: null, winner: 0 };
     r.recordFutebolRanking();
     expect(store.data.stats.a).toBeUndefined();
+  });
+
+  it("o craque da partida entra nos prêmios da conta (só com 2 humanos)", () => {
+    dir = mkdtempSync(join(tmpdir(), "ec-futrank-"));
+    const store = new Store(dir);
+    for (const id of ["a", "b"]) store.data.accounts[id] = { email: `${id}@x.com`, name: id, since: 1 };
+    const room = new Room("TESTE", {}, store);
+    const r = room as unknown as { futResults: FutResultRowFull[]; futScore: unknown; awards: unknown; recordFutebolRanking(): void };
+    r.futResults = [row("a", 0, "a", false, 2, 0), row("b", 1, "b", false, 0, 0)];
+    r.futScore = { score: [2, 0], pens: null, winner: 0 };
+    r.awards = [{ id: "craque", title: "Craque da partida", winnerId: "a", winnerName: "a", detail: "2 gols" }];
+    r.recordFutebolRanking();
+    expect(store.data.accounts.a.awards).toEqual({ "Craque da partida": 1 });
+    expect(store.data.accounts.b.awards ?? {}).toEqual({});
   });
 });

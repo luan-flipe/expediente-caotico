@@ -433,6 +433,10 @@ export function getFutResults(m: FutMatch): FutResultRowFull[] {
         assists: i.assists,
         yellow: p.yellow,
         red: p.sentOff ? 1 : 0,
+        shots: i.shots,
+        shotsOn: i.shotsOn,
+        passes: i.passes,
+        fouls: i.fouls,
       };
     })
     .sort((a, b) => b.goals - a.goals || b.assists - a.assists || (a.id < b.id ? -1 : 1));
