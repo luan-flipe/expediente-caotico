@@ -24,7 +24,7 @@ import { createDynamicSky, type DynamicSky } from "../game/sky";
 import { inputBlocked } from "../pause";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
-import { playWhistle } from "../sound";
+import { playCrowd, playKick, playNet, playWhistle } from "../sound";
 import { getState, net, setState } from "../store";
 import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
 import ballUrl from "../assets/futebol/bola.glb?url";
@@ -36,6 +36,7 @@ import { campoDoMapa } from "./arenaLayout";
 import { Comemoracoes } from "./comemoracoes";
 import { EquipeFilmagem } from "./equipe";
 import { Juiz } from "./juiz";
+import { DIVE_LIFT, DIVE_MS, DIVE_REACH, DIVE_ROLL, SLUMP, diveAmount, diveSide } from "./reacoes";
 import { penaltyAttackSide, penaltyRole, pickedSide, tagScale } from "./penaltyUi";
 import { createGolMesh, disposeGolMesh } from "./golMesh";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
@@ -75,6 +76,8 @@ interface View {
   buf: Sample[];
   last: FutSnapshot["players"][number];
   ring: THREE.Mesh | null;
+  /** Inclinação atual para a frente (cabeça baixa de quem levou gol). */
+  slump: number;
 }
 
 /** Passo de envio e de previsão: o mesmo do servidor (30 Hz). */
@@ -242,6 +245,9 @@ export class FutebolEngine {
   private ownerRing: THREE.Mesh;
   private penMarks: THREE.Mesh[] = [];
   private lastMz = 0;
+  /** Mergulhos em andamento (lado no eixo do boneco e início) e time que levou o gol da comemoração atual. */
+  private dives = new Map<string, { t0: number; side: number }>();
+  private conceded: TeamSide | null = null;
 
   private yaw = 0;
   private pitch = PITCH_START;
@@ -651,11 +657,20 @@ export class FutebolEngine {
     if (s.phase !== "goal") {
       this.fx.clear();
       this.focusId = "";
+      this.conceded = null;
     }
     if (s.t <= this.eventsT) return;
     this.eventsT = s.t;
     for (const e of s.events) {
-      if (e.type === "whistle") {
+      if (e.type === "kick") {
+        playKick(e.power);
+      } else if (e.type === "shot") {
+        if (e.onTarget) this.startDive(e, s);
+      } else if (e.type === "save") {
+        playCrowd("defesa");
+      } else if (e.type === "near") {
+        playCrowd("quase");
+      } else if (e.type === "whistle") {
         playWhistle(e.kind);
         if (e.kind === "end") this.crowd?.cheer();
       } else if (e.type === "foul") {
@@ -663,11 +678,25 @@ export class FutebolEngine {
         this.ref?.foul(e.x ?? s.ball.x, e.z ?? s.ball.z);
       } else if (e.type === "card") {
         this.ref?.showCard(e.card);
+        // reclama com o juiz: punho cerrado e cara de quem não concorda
+        this.views.get(e.id)?.char.playTaunt?.("fist", e.card === "red" ? 2.4 : 1.6);
       } else if (e.type === "goal") {
+        playNet();
+        playCrowd("gol");
+        this.conceded = e.side === 0 ? 1 : 0;
         this.celebrateGoal(e, s);
         this.pendingReplay = { at: performance.now(), goalT: s.t, goalSide: Math.sign(s.ball.x) || 1 };
       }
     }
+  }
+
+  /** Chute no alvo: o goleiro de quem defende mergulha para o lado em que a bola cruza (pose em código). */
+  private startDive(e: Extract<FutSnapshot["events"][number], { type: "shot" }>, s: FutSnapshot): void {
+    const gk = s.players.find((p) => p.role === "goleiro" && p.side !== e.side);
+    const v = gk ? this.views.get(gk.id) : undefined;
+    if (!gk || !v) return;
+    const side = diveSide(v.char.root.rotation.y, v.char.root.position.z, e.z);
+    if (side !== 0) this.dives.set(gk.id, { t0: performance.now(), side });
   }
 
   private celebrateGoal(e: Extract<FutSnapshot["events"][number], { type: "goal" }>, s: FutSnapshot): void {
@@ -776,7 +805,7 @@ export class FutebolEngine {
     tag.position.y = 2.35;
     if (p.id !== this.myId) char.root.add(tag);
     this.scene.add(char.root);
-    v = { char, key, tag, tagKey: `${p.name}|${p.side}|${teams[p.side].color}`, buf, last: p, ring };
+    v = { char, key, tag, tagKey: `${p.name}|${p.side}|${teams[p.side].color}`, buf, last: p, ring, slump: 0 };
     this.views.set(p.id, v);
     return v;
   }
@@ -969,7 +998,24 @@ export class FutebolEngine {
       const root = v.char.root;
       root.position.set(x, lying ? 0.18 : 0, z);
       root.rotation.y = f;
-      root.rotation.x = lying ? -1.35 : 0;
+      // time que levou gol abaixa a cabeça durante a comemoração do outro
+      const want = this.conceded === p.side && p.role === "linha" && !lying ? SLUMP : 0;
+      v.slump += (want - v.slump) * Math.min(1, dt * 5);
+      root.rotation.x = lying ? -1.35 : v.slump;
+      root.rotation.z = 0;
+      const dv = this.dives.get(id);
+      if (dv) {
+        const u = (now - dv.t0) / DIVE_MS;
+        const a = diveAmount(u);
+        if (u >= 1) this.dives.delete(id);
+        else {
+          // inclina o corpo para o lado (eixo de frente do boneco), desloca na mesma direção e sobe um pouco
+          root.rotation.z = -dv.side * DIVE_ROLL * a;
+          root.position.x += Math.cos(f) * dv.side * DIVE_REACH * a;
+          root.position.z += -Math.sin(f) * dv.side * DIVE_REACH * a;
+          root.position.y += DIVE_LIFT * a;
+        }
+      }
       root.visible = !p.sentOff;
       v.char.update(dt, lying || p.sliding ? 0 : Math.min(1, speed / FUT.walkSpeed));
       // o nome acompanha a distância da câmera (legível de longe) e cresce em quem está com a bola

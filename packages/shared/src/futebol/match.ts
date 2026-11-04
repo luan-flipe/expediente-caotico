@@ -9,6 +9,7 @@ import { fieldFor } from "./field";
 import { activeOutfield, applyCard, isPenaltyFoul, judgeShove, judgeTackle, repeatCard } from "./fouls";
 import { startShootout, stepShootout } from "./penalties";
 import { restartForOut, startRestart } from "./restarts";
+import { nearMiss, recordKicks, recordPossession } from "./stats";
 import { stepWorld, type WorldStep } from "./sim";
 import { linePlayers } from "./types";
 import type {
@@ -62,9 +63,9 @@ export function createFutebol(opts: {
   const players: FutPlayer[] = [];
   const info = new Map<string, FutPlayerInfo>();
   const connected = new Set<string>();
-  const add = (p: FutPlayer, i: Omit<FutPlayerInfo, "goals" | "assists">): void => {
+  const add = (p: FutPlayer, i: Omit<FutPlayerInfo, "goals" | "assists" | "shots" | "shotsOn" | "passes" | "fouls">): void => {
     players.push(p);
-    info.set(p.id, { ...i, goals: 0, assists: 0 });
+    info.set(p.id, { ...i, goals: 0, assists: 0, shots: 0, shotsOn: 0, passes: 0, fouls: 0 });
   };
   const line = linePlayers(opts.format);
   for (const side of [0, 1] as const) {
@@ -106,6 +107,7 @@ export function createFutebol(opts: {
     beaten: null,
     shootout: null,
     winner: null,
+    possMs: [0, 0],
   };
   resetPositions(m);
   return m;
@@ -238,6 +240,10 @@ function judgeContacts(m: FutMatch, step: WorldStep): void {
       continue;
     }
     m.events.push({ type: "foul", id: tackler.id, victimId: victim.id, x: r2(victim.x), z: r2(victim.z) });
+    const fi = m.info.get(tackler.id);
+    if (fi) {
+      fi.fouls++;
+    }
     // reincidência: a cada foulsForYellow faltas sem cartão o árbitro mostra o amarelo
     const card = repeatCard(tackler, j.card);
     if (card !== "none") {
@@ -299,6 +305,8 @@ function scoreGoal(m: FutMatch, defending: TeamSide): void {
 function playTick(m: FutMatch, dtMs: number): void {
   const step = stepWorld(m, dtMs);
   m.elapsedMs += dtMs;
+  recordKicks(m, step.events);
+  recordPossession(m, dtMs);
   const hadRestart = m.restart !== null;
   judgeContacts(m, step);
   if (m.phase === "over") {
@@ -312,6 +320,9 @@ function playTick(m: FutMatch, dtMs: number): void {
       return;
     }
     if (out) {
+      if (out.kind === "fundo") {
+        nearMiss(m, out.side);
+      }
       const r = restartForOut(m.ball, m.field);
       if (r) {
         beginRestart(m, r.kind, r.side, r.x, r.z);

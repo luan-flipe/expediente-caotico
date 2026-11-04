@@ -43,4 +43,5 @@ export * from "./futebol/restarts";
 export * from "./futebol/keeper";
 export * from "./futebol/bots";
 export * from "./futebol/penalties";
+export * from "./futebol/stats";
 export * from "./futebol/match";

@@ -107,7 +107,15 @@ export type FutEvent =
   | { type: "foul"; id: string; victimId?: string; x?: number; z?: number }
   | { type: "restart"; kind: RestartKind }
   | { type: "whistle"; kind: "start" | "half" | "end" }
-  | { type: "pen"; side: TeamSide; takerId: string; scored: boolean };
+  | { type: "pen"; side: TeamSide; takerId: string; scored: boolean }
+  /** Qualquer chute ou passe: power é a velocidade (m/s) da bola logo depois do toque. */
+  | { type: "kick"; id: string; kind: "kick" | "pass"; power: number }
+  /** Chute em direção ao gol: z é onde a bola cruza a linha do gol. */
+  | { type: "shot"; id: string; side: TeamSide; onTarget: boolean; z: number }
+  /** Goleiro (do time side) parou ou desviou um chute. */
+  | { type: "save"; keeperId: string; side: TeamSide }
+  /** Chute que passou rente ao gol (side = quem atacou); post = encostou na trave ou no travessão. */
+  | { type: "near"; side: TeamSide; post: boolean };
 
 /** Uniforme de um time: kit = índice do modelo (0..2), color = índice da cor (0..7). */
 export interface FutTeamConfig {
@@ -124,6 +132,11 @@ export interface FutPlayerInfo {
   human: boolean;
   goals: number;
   assists: number;
+  /** Chutes ao gol (shots), no alvo (shotsOn), passes e faltas cometidas; só do jogo normal, a disputa de pênaltis não entra. */
+  shots: number;
+  shotsOn: number;
+  passes: number;
+  fouls: number;
 }
 
 /** Disputa de pênaltis: cobranças alternadas, cinco por time e depois morte súbita. */
@@ -171,6 +184,8 @@ export interface FutMatch {
   beaten: BallTouch | null;
   shootout: Shootout | null;
   winner: TeamSide | null;
+  /** Posse de bola em ms por time (jogo normal). */
+  possMs: [number, number];
 }
 
 export interface FutSnapshot {

@@ -5,6 +5,7 @@ import { net, useStore } from "../store";
 import { IS_TOUCH } from "../touch";
 import { CAM_KINDS, CAM_LABELS, type CamKind } from "./cameras";
 import type { FutCamUi } from "./futebolEngine";
+import { narrate, newNarra } from "./narracao";
 import { penaltyHint, penaltyRole, penaltyRound } from "./penaltyUi";
 
 const fmt = (ms: number) => {
@@ -109,6 +110,35 @@ const FutBanners = memo(function FutBanners({ myId }: { myId: string }) {
           {b.sub && <span>{b.sub}</span>}
         </div>
       ))}
+    </div>
+  );
+});
+
+/** Narração em texto: uma frase de cada vez, só nos lances importantes e com descanso entre elas. */
+const FutNarracao = memo(function FutNarracao() {
+  const [line, setLine] = useState<{ id: number; text: string } | null>(null);
+  const st = useRef(newNarra());
+  const lastT = useRef(-1);
+  useEffect(() => {
+    return net.listen((m) => {
+      if (m.t !== "fsnap" || m.s.t === lastT.current) return;
+      lastT.current = m.s.t;
+      const now = performance.now();
+      for (const e of m.s.events) {
+        const text = narrate(m.s, e, st.current, now, Math.random);
+        if (text) setLine({ id: ++bannerId, text });
+      }
+    });
+  }, []);
+  useEffect(() => {
+    if (!line) return;
+    const t = setTimeout(() => setLine(null), 4800);
+    return () => clearTimeout(t);
+  }, [line]);
+  if (!line) return null;
+  return (
+    <div key={line.id} className="panel fut-narra">
+      {line.text}
     </div>
   );
 });
@@ -266,6 +296,7 @@ export function FutebolHud({
         <FutPens />
         <FutNotices myId={myId} />
         <FutBanners myId={myId} />
+        <FutNarracao />
         <FutCameras cam={cam} onCam={onCam} onSkip={onSkip} />
 
         {power}

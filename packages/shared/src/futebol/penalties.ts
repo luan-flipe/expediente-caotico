@@ -5,6 +5,7 @@ import { attackDir } from "./bots";
 import { activeOutfield } from "./fouls";
 import { touchBall } from "./goalkeeping";
 import { stepWorld } from "./sim";
+import { recordKicks } from "./stats";
 import type { FutMatch, FutPlayer, Shootout, TeamSide } from "./types";
 
 const REGULATION_KICKS = 5;
@@ -165,6 +166,7 @@ function autoShot(m: FutMatch, s: Shootout): void {
   const yaw = Math.atan2(dir * m.field.halfL - m.ball.x, side * m.field.goalHalfW * AUTO_TARGET - m.ball.z);
   touchBall(m.ball, taker);
   kickBall(m.ball, yaw, AUTO_POWER, "kick");
+  recordKicks(m, [{ t: "kick", id: taker.id, ok: true }], false);
   m.restart = null;
 }
 
@@ -197,7 +199,8 @@ export function stepShootout(m: FutMatch, dtMs: number): void {
     if (Math.abs(pick) >= LATERAL_PICK) {
       s.dive = pick > 0 ? 1 : -1;
     }
-    stepWorld(m, dtMs, { only, keeperIdle: true, aimOnly: true, restartAi: false });
+    const w = stepWorld(m, dtMs, { only, keeperIdle: true, aimOnly: true, restartAi: false });
+    recordKicks(m, w.events, false);
     if (m.restart && m.restart.leftMs <= 0) {
       autoShot(m, s);
     }

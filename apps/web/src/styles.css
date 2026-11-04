@@ -2829,6 +2829,26 @@ input.fut-team-name {
   color: #ffe14d;
 }
 
+.fut-narra {
+  position: absolute;
+  left: 50%;
+  bottom: 156px;
+  transform: translateX(-50%);
+  max-width: min(620px, 92vw);
+  text-align: center;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 16px;
+  animation: fut-narra-in 0.25s ease-out;
+}
+
+@keyframes fut-narra-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
 .fut-hint {
   position: absolute;
   left: 50%;

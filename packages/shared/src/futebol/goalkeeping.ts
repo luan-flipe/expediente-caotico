@@ -3,6 +3,7 @@ import { FUT } from "./balance";
 import { keeperLobSpeed, kickBall } from "./ball";
 import { attackDir } from "./bots";
 import { keeperReach } from "./keeper";
+import { SAVE_MIN_SPEED } from "./stats";
 import type { TouchEvent } from "./touch";
 import type { Ball, FutInput, FutMatch, FutPlayer } from "./types";
 
@@ -64,6 +65,9 @@ export function keeperSave(m: FutMatch, k: FutPlayer): void {
     // Chute que o goleiro não alcança: a bola passa por ele (uma só chance por chute).
     m.beaten = b.lastTouch;
     return;
+  }
+  if (b.lastTouch !== null && b.lastTouch.side !== k.side && speed >= SAVE_MIN_SPEED) {
+    m.events.push({ type: "save", keeperId: k.id, side: k.side });
   }
   touchBall(b, k);
   if (speed <= CATCH_SPEED) {

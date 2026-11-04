@@ -35,5 +35,6 @@ export function makeFutMatch(
     beaten: null,
     shootout: null,
     winner: null,
+    possMs: [0, 0],
   };
 }
