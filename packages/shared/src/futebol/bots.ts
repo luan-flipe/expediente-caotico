@@ -28,6 +28,9 @@ const SPRINT_FROM = 2.5;
 const SPRINT_HOME = 6;
 /** Quanto a posição de formação acompanha a bola em x. */
 const BALL_FOLLOW = 0.35;
+/** Zona viva: com a posse do time a formação avança essa fração do meio comprimento; sem ela, recua a segunda. */
+const ATTACK_SHIFT = 0.2;
+const DEFEND_SHIFT = 0.12;
 /** Recuo mínimo do ponto de formação à linha de fundo (m). */
 const HOME_MARGIN = 2;
 /** Margem (m) fora da área do goleiro que os adversários respeitam enquanto ele segura a bola. */
@@ -163,6 +166,15 @@ const DIAMOND_FOLLOW_Z = 0.25;
 /** Alcance máximo (m) do chute dos bots em campo grande. */
 const SHOOT_MAX = 26;
 
+/** Deslocamento (m, a favor do ataque) da zona: avança com a posse do time, recua com a posse do adversário, neutro com a bola solta. */
+function phaseShift(p: FutPlayer, m: FutMatch): number {
+  const owner = m.ball.ownerId === null ? undefined : m.players.find((q) => q.id === m.ball.ownerId);
+  if (!owner) {
+    return 0;
+  }
+  return m.field.halfL * (owner.side === p.side ? ATTACK_SHIFT : -DEFEND_SHIFT);
+}
+
 /** Ponto de formação: jogadores abertos em z, metade mais recuada, acompanhando a bola. Com quatro de linha, losango. */
 function formationSpot(p: FutPlayer, m: FutMatch): { x: number; z: number } {
   const f = m.field;
@@ -174,15 +186,16 @@ function formationSpot(p: FutPlayer, m: FutMatch): { x: number; z: number } {
   if (n === DIAMOND.length) {
     const [fx, fz] = DIAMOND[k];
     const lim = f.halfL - HOME_MARGIN;
+    const shift = phaseShift(p, m);
     const zlim = f.halfW - 1;
     return {
-      x: Math.max(-lim, Math.min(lim, attackDir(p.side) * f.halfL * fx + m.ball.x * BALL_FOLLOW)),
+      x: Math.max(-lim, Math.min(lim, attackDir(p.side) * (f.halfL * fx + shift) + m.ball.x * BALL_FOLLOW)),
       z: Math.max(-zlim, Math.min(zlim, f.halfW * fz + m.ball.z * DIAMOND_FOLLOW_Z)),
     };
   }
   const z = n === 1 ? 0 : (((k + 0.5) / n) * 2 - 1) * f.halfW * 0.6;
   const depth = n === 1 ? -0.1 : k % 2 === 0 ? -0.35 : 0.1;
-  const x = attackDir(p.side) * f.halfL * depth + m.ball.x * BALL_FOLLOW;
+  const x = attackDir(p.side) * (f.halfL * depth + phaseShift(p, m)) + m.ball.x * BALL_FOLLOW;
   const lim = f.halfL - HOME_MARGIN;
   return { x: Math.max(-lim, Math.min(lim, x)), z };
 }
