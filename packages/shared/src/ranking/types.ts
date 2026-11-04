@@ -16,13 +16,18 @@ export interface PlayerStats {
   raceWins: number;
   racePodiums: number;
   raceMatches: number;
+  /** Futebol da Firma. Arquivos antigos não têm: vale 0. */
+  futWins: number;
+  futMatches: number;
+  futGoals: number;
+  futAssists: number;
   bestLapMs: number | null;
 }
 
 /** Resumo de uma partida que contou para o ranking (o perfil mostra as últimas). */
 export interface MatchSummary {
   at: number;
-  mode: "shooter" | "race";
+  mode: "shooter" | "race" | "futebol";
   /** Pista da corrida (só no rally). */
   track?: string;
   /** Colocação final (1 = vencedor). */
@@ -97,6 +102,12 @@ export interface RallyRow extends RankingRowBase {
   podiums: number;
   matches: number;
 }
+export interface FutRow extends RankingRowBase {
+  wins: number;
+  goals: number;
+  assists: number;
+  matches: number;
+}
 export interface LapRow extends RankingRowBase {
   ms: number;
 }
@@ -126,6 +137,7 @@ export interface RankingView {
   mes: RankingTab<MonthRow>;
   tiroteio: RankingTab<ShooterRow>;
   rally: RankingTab<RallyRow>;
+  futebol: RankingTab<FutRow>;
   /** Recordes de volta do Circuito Corporativo (o mesmo que pistas[0]). */
   voltas: RankingTab<LapRow>;
   /** Recordes de volta de cada pista, na ordem do seletor. */

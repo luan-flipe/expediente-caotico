@@ -659,3 +659,162 @@ export function playCountdownBeep(kind: "tick" | "go"): void {
   osc.start(t);
   osc.stop(t + dur + 0.02);
 }
+
+/** Apito do juiz sintetizado: tom agudo com vibrato (a bolinha dentro do apito). "start" e "foul" apitam uma vez, "half" duas, "end" três (a última longa). */
+export function playWhistle(kind: "start" | "half" | "end" | "foul"): void {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+  if (ctx.state === "suspended") void ctx.resume();
+  const blasts: [number, number][] =
+    kind === "end"
+      ? [
+          [0, 0.28],
+          [0.4, 0.28],
+          [0.8, 0.8],
+        ]
+      : kind === "half"
+        ? [
+            [0, 0.3],
+            [0.42, 0.3],
+          ]
+        : kind === "foul"
+          ? [[0, 0.32]]
+          : [[0, 0.5]];
+  for (const [at, dur] of blasts) {
+    const t = ctx.currentTime + at;
+    const osc = ctx.createOscillator();
+    const vib = ctx.createOscillator();
+    const vibDepth = ctx.createGain();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 2900;
+    vib.frequency.value = 38;
+    vibDepth.gain.value = 140;
+    vib.connect(vibDepth);
+    vibDepth.connect(osc.frequency);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.28, t + 0.02);
+    gain.gain.setValueAtTime(0.28, t + dur - 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain);
+    gain.connect(effectsGain);
+    osc.start(t);
+    vib.start(t);
+    osc.stop(t + dur + 0.02);
+    vib.stop(t + dur + 0.02);
+  }
+}
+
+// ==================== FUTEBOL: chute, rede e torcida (sintetizados) ====================
+
+let noiseBuf: AudioBuffer | null = null;
+
+/** Contexto pronto para um efeito de futebol, ou null com som mudo ou sem Web Audio. */
+function fxContext(): AudioContext | null {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return null;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return null;
+  if (ctx.state === "suspended") void ctx.resume();
+  return ctx;
+}
+
+function noiseSource(ctx: AudioContext): AudioBufferSourceNode {
+  if (!noiseBuf) {
+    noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 2), ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf;
+  return src;
+}
+
+/** Chute na bola: um baque grave e um estalo curto; mais forte, mais alto. `power` = velocidade da bola (m/s). */
+export function playKick(power: number): void {
+  const ctx = fxContext();
+  if (!ctx) return;
+  const p = Math.max(0, Math.min(1, power / 28));
+  const t = ctx.currentTime;
+  const thump = ctx.createOscillator();
+  const tg = ctx.createGain();
+  thump.type = "sine";
+  thump.frequency.setValueAtTime(170, t);
+  thump.frequency.exponentialRampToValueAtTime(55, t + 0.12);
+  tg.gain.setValueAtTime(0.0001, t);
+  tg.gain.exponentialRampToValueAtTime(0.12 + 0.3 * p, t + 0.01);
+  tg.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+  thump.connect(tg);
+  tg.connect(effectsGain!);
+  thump.start(t);
+  thump.stop(t + 0.18);
+  const click = noiseSource(ctx);
+  const lp = ctx.createBiquadFilter();
+  const cg = ctx.createGain();
+  lp.type = "lowpass";
+  lp.frequency.value = 1800;
+  cg.gain.setValueAtTime(0.0001, t);
+  cg.gain.exponentialRampToValueAtTime(0.06 + 0.12 * p, t + 0.004);
+  cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+  click.connect(lp);
+  lp.connect(cg);
+  cg.connect(effectsGain!);
+  click.start(t);
+  click.stop(t + 0.08);
+}
+
+/** Bola na rede: um chiado que desce e some. */
+export function playNet(): void {
+  const ctx = fxContext();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const src = noiseSource(ctx);
+  const bp = ctx.createBiquadFilter();
+  const g = ctx.createGain();
+  bp.type = "bandpass";
+  bp.Q.value = 0.8;
+  bp.frequency.setValueAtTime(1500, t);
+  bp.frequency.exponentialRampToValueAtTime(380, t + 0.55);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.28, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+  src.connect(bp);
+  bp.connect(g);
+  g.connect(effectsGain!);
+  src.start(t);
+  src.stop(t + 0.65);
+}
+
+export type CrowdKind = "gol" | "quase" | "defesa";
+
+/** Torcida: ruído filtrado com envelope. Gol = rugido longo; quase = "ooh" que cai; defesa = suspiro curto. */
+export function playCrowd(kind: CrowdKind): void {
+  const ctx = fxContext();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const src = noiseSource(ctx);
+  src.loop = true;
+  const bp = ctx.createBiquadFilter();
+  const g = ctx.createGain();
+  bp.type = "bandpass";
+  bp.Q.value = 0.7;
+  const spec =
+    kind === "gol"
+      ? { f0: 600, f1: 1000, peak: 0.34, rise: 0.3, hold: 1.8, end: 3.4 }
+      : kind === "quase"
+        ? { f0: 950, f1: 480, peak: 0.24, rise: 0.15, hold: 0.45, end: 1.3 }
+        : { f0: 800, f1: 600, peak: 0.16, rise: 0.12, hold: 0.3, end: 0.9 };
+  bp.frequency.setValueAtTime(spec.f0, t);
+  bp.frequency.linearRampToValueAtTime(spec.f1, t + spec.end);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(spec.peak, t + spec.rise);
+  g.gain.setValueAtTime(spec.peak, t + spec.hold);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + spec.end);
+  src.connect(bp);
+  bp.connect(g);
+  g.connect(effectsGain!);
+  src.start(t);
+  src.stop(t + spec.end + 0.05);
+}

@@ -2,7 +2,7 @@ import { promises as fsp } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { emptyRankingData } from "@ec/shared";
+import { emptyRankingData, type PlayerStats } from "@ec/shared";
 import { Store } from "../store";
 
 let root: string;
@@ -130,7 +130,7 @@ describe("Store: zerar recordes depois da física nova (PR 31)", () => {
   it("apaga voltas, fantasmas e melhor volta uma única vez e mantém o resto", async () => {
     const old = emptyRankingData();
     old.accounts["g1"] = { email: "a@b.c", name: "Ana", since: 1 };
-    old.stats["g1"] = { shooterWins: 2, shooterMatches: 3, shooterKills: 9, raceWins: 1, racePodiums: 1, raceMatches: 2, bestLapMs: 25000 };
+    old.stats["g1"] = { shooterWins: 2, shooterMatches: 3, shooterKills: 9, raceWins: 1, racePodiums: 1, raceMatches: 2, bestLapMs: 25000 } as unknown as PlayerStats;
     old.months["2026-10"] = { g1: 21 };
     old.laps["corporativo"] = { g1: { ms: 25000, at: 1, ghost: [[0, 0, 0, 0]] } };
     delete (old as Partial<typeof old>).resets;

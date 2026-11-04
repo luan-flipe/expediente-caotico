@@ -1,5 +1,6 @@
 import { useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import { ABILITIES } from "@ec/shared";
+import { TOUCH_KICK, TOUCH_PASS, hasBallReach } from "../futebol/controls";
 import { getSettings, useSettings } from "../settings";
 import { getState, setState, useStore } from "../store";
 import { pressKey, steerFromDrag, stickVector, touchInput } from "../touch";
@@ -264,11 +265,52 @@ function RaceControls() {
   );
 }
 
+/** Futebol: analógico à esquerda (a borda corre) e, à direita, Chute e Passe (segurar carrega); sem a bola viram Carrinho e Disputa. A mira é a direção do analógico. */
+function FutebolControls() {
+  const ball = useStore((s) => {
+    const me = s.fsnap?.players.find((p) => p.id === s.myId);
+    return !!s.fsnap && !!me && hasBallReach(s.fsnap.ball, me);
+  });
+  const stick = useDrag(
+    (dx, dy) => {
+      touchInput.move = stickVector(dx, dy, STICK_R, STICK_DEAD);
+    },
+    () => {
+      touchInput.move = { x: 0, y: 0 };
+    },
+  );
+  const knob = stick.origin ? stickVector(stick.origin.dx, stick.origin.dy, STICK_R, 0) : null;
+
+  return (
+    <>
+      <div className="tc-zone left" {...stick.handlers}>
+        {stick.origin ? (
+          <div className="tc-stick" style={{ left: stick.origin.x, top: stick.origin.y }}>
+            <i style={{ transform: `translate(${(knob?.x ?? 0) * STICK_R}px, ${-(knob?.y ?? 0) * STICK_R}px)` }} />
+          </div>
+        ) : (
+          <div className="tc-zone-hint">Arraste para andar (na borda corre)</div>
+        )}
+      </div>
+      <div className="tc-cluster fut">
+        <div className="tc-main">
+          <HoldButton code={TOUCH_PASS} className="mid pass" label={ball ? "Passe (segure para força)" : "Disputa"}>
+            {ball ? "Passe" : "Disputa"}
+          </HoldButton>
+          <HoldButton code={TOUCH_KICK} className="big fire" label={ball ? "Chute (segure para força)" : "Carrinho"}>
+            {ball ? "Chute" : "Carrinho"}
+          </HoldButton>
+        </div>
+      </div>
+    </>
+  );
+}
+
 /** Controles na tela para celular e tablet. Só aparecem em aparelho de toque (quem decide é quem monta). */
-export function TouchControls({ mode }: { mode: "shooter" | "race" }) {
+export function TouchControls({ mode }: { mode: "shooter" | "race" | "futebol" }) {
   return (
     <div className="touch-ui">
-      {mode === "shooter" ? <ShooterControls /> : <RaceControls />}
+      {mode === "shooter" ? <ShooterControls /> : mode === "futebol" ? <FutebolControls /> : <RaceControls />}
       <TopButtons />
       <RotateHint />
     </div>

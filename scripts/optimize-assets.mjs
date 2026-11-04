@@ -65,6 +65,8 @@ const WEARABLES = [
   "tenis/04_crocs.glb",
   "tenis/05_tenis_adidas.glb",
 ];
+// Futebol: originais em assets-src/futebol (gerar-bola.mjs, gerar-gol.mjs), saída em apps/web/src/assets/futebol.
+const FUTEBOL = ["futebol/bola.glb", "futebol/gol.glb"];
 const wearablesOut = join(root, "apps", "web", "src", "assets");
 const MUSIC = "audio/turbo_pixel_drift.mp3";
 
@@ -121,5 +123,6 @@ function stripMusic(rel) {
 }
 
 for (const m of MODELS) await optimizeModel(m);
+for (const f of FUTEBOL) await optimizeModel(f, { to: join(wearablesOut, f) });
 for (const w of WEARABLES) await optimizeModel(`roupas/${w}`, { to: join(wearablesOut, w), dropAnimations: true });
 stripMusic(MUSIC);

@@ -8,8 +8,27 @@ import {
   applyLap,
   applyAwards,
   applyRaceResult,
+  applyFutebolResult,
   applyShooterResult,
   applyWeeklyLap,
+  buildFutPrivate,
+  buildFutSnapshot,
+  createFutebol,
+  dropFutPlayer,
+  reviveFutPlayer,
+  FUT_COLORS,
+  FUT_KITS,
+  getFutResults,
+  getFutScore,
+  getFutStats,
+  mulberry32,
+  newCup,
+  nextHumanMatch,
+  recordCupMatch,
+  simulateRest,
+  linePlayers,
+  setFutInput,
+  stepFutebol,
   challengeOfWeek,
   weekKey,
   DEFAULT_CHAIR,
@@ -42,6 +61,14 @@ import {
   stepMatch,
   stepRace,
   type AvatarDNA,
+  type Cup,
+  type CupSize,
+  type FutMatch,
+  type FutMatchStats,
+  type FutResultRow,
+  type FutTeamConfig,
+  type FutResultRowFull,
+  type TeamSide,
   type ChairDNA,
   type GameMode,
   type GhostLap,
@@ -60,6 +87,8 @@ import {
 import { readSession } from "./auth";
 import { TokenBucket } from "./ratelimit";
 import type { Store } from "./store";
+
+type FutScore = ReturnType<typeof getFutScore>;
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const BOT_NAMES = ["Estagiário Kevin", "Estagiária Bia", "Estagiário Davi", "Estagiária Lu", "Estagiário Téo", "Estagiária Mel", "Estagiário Juca"];
@@ -91,6 +120,8 @@ interface Member {
   chair: ChairDNA;
   ready: boolean;
   isBot: boolean;
+  /** Futebol: time do jogador (bots da sala não têm). */
+  side?: TeamSide;
   /** Id da conta (Google) quando entrou com sessão válida; null para visitante e bot. */
   accountId: string | null;
   /** Melhor volta da sessão de quem não tem conta (visitante): só em memória. */
@@ -105,6 +136,11 @@ interface Member {
 function send(conn: Conn | null, msg: ServerMsg | string): void {
   if (!conn || conn.ws.readyState !== conn.ws.OPEN) return;
   conn.ws.send(typeof msg === "string" ? msg : JSON.stringify(msg));
+}
+
+/** Linhas do placar para os clientes: sem a conta de ninguém. */
+function futPublicRows(rows: FutResultRowFull[]): FutResultRow[] {
+  return rows.map((r) => ({ id: r.id, name: r.name, side: r.side, isBot: r.isBot, goals: r.goals, assists: r.assists, yellow: r.yellow, red: r.red, shots: r.shots, shotsOn: r.shotsOn, passes: r.passes, fouls: r.fouls }));
 }
 
 function log(...args: unknown[]): void {
@@ -122,6 +158,13 @@ export class Room {
   members = new Map<string, Member>();
   match: Match | null = null;
   race: RaceMatch | null = null;
+  futebol: FutMatch | null = null;
+  futResults: FutResultRowFull[] | null = null;
+  futScore: FutScore | null = null;
+  futStats: FutMatchStats | null = null;
+  /** Campeonato entre setores em andamento e o jogo da chave que está valendo (quais times da chave estão nos lados 0 e 1). */
+  cup: Cup | null = null;
+  private cupMatch: { index: number; teams: [number, number] } | null = null;
   results: ResultRow[] | null = null;
   awards: Award[] = [];
   raceResults: RaceResultRow[] | null = null;
@@ -140,7 +183,7 @@ export class Room {
     private readonly raceOpts: { laps?: number; graceMs?: number } = {},
     private readonly store?: Store,
   ) {
-    this.options = { ...DEFAULT_ROOM_OPTIONS, laps: raceOpts.laps ?? DEFAULT_ROOM_OPTIONS.laps };
+    this.options = { ...DEFAULT_ROOM_OPTIONS, laps: raceOpts.laps ?? DEFAULT_ROOM_OPTIONS.laps, futTeams: DEFAULT_ROOM_OPTIONS.futTeams.map((t) => ({ ...t })) as RoomOptions["futTeams"] };
   }
 
   humans(): Member[] {
@@ -156,6 +199,7 @@ export class Room {
       shooterSubmode: this.shooterSubmode,
       durationMs: this.durationMs,
       options: { ...this.options },
+      cup: this.cup,
       players: [...this.members.values()].map((m) => ({
         id: m.id,
         name: m.name,
@@ -165,13 +209,85 @@ export class Room {
         isBot: m.isBot,
         connected: m.isBot || m.conn !== null,
         ranked: m.accountId !== null,
+        ...(m.side !== undefined ? { side: m.side } : {}),
       })),
     };
+  }
+
+  /** Time com menos humanos (empate fica com o 0). */
+  private lighterSide(): TeamSide {
+    const count = [0, 0];
+    for (const h of this.humans()) if (h.side !== undefined) count[h.side]++;
+    return count[0] <= count[1] ? 0 : 1;
+  }
+
+  /** Ao entrar no modo futebol: distribui os humanos alternando entre os times. */
+  private distributeSides(): void {
+    this.humans().forEach((h, i) => {
+      h.side = (i % 2) as TeamSide;
+    });
+  }
+
+  /** Só o anfitrião ou o primeiro humano do time mexe no uniforme dele. */
+  private canConfigTeam(member: Member, side: TeamSide): boolean {
+    if (member.id === this.hostId) return true;
+    const first = this.humans().find((h) => h.side === side);
+    return first?.id === member.id;
   }
 
   broadcast(msg: ServerMsg): void {
     const raw = JSON.stringify(msg);
     for (const m of this.members.values()) send(m.conn, raw);
+  }
+
+  /** Mensagem do resultado do futebol (a mesma no fim da partida e para quem volta à sala depois). */
+  futResultsMsg(): ServerMsg | null {
+    if (!this.futResults || !this.futScore) return null;
+    return { t: "fresults", rows: futPublicRows(this.futResults), score: this.futScore, awards: this.awards, ...(this.futStats ? { stats: this.futStats } : {}) };
+  }
+
+  /** Prepara o próximo jogo do campeonato: cria a chave, simula o que não tem humano e acha os times do jogo (um humano pode jogar contra um setor de bots). */
+  private cupSetup(): { teams: [FutTeamConfig, FutTeamConfig]; playing: Set<TeamSide> } | string {
+    const size = this.options.futCup as CupSize;
+    if (!this.cup || this.cup.size !== size || this.cup.champion !== null) {
+      const sides = ([0, 1] as const).filter((s) => this.humans().some((h) => h.side === s));
+      this.cup = newCup(size, sides.map((s) => ({ name: this.options.futTeams[s].name, side: s })));
+    }
+    const cup = this.cup;
+    simulateRest(cup, mulberry32(randomInt(1, 2 ** 31)));
+    const i = nextHumanMatch(cup);
+    if (i === null) return "O campeonato não tem jogo para os times humanos";
+    const m = cup.matches[i];
+    const a = cup.teams[m.a!];
+    const b = cup.teams[m.b!];
+    const cfg = this.options.futTeams;
+    if (a.side !== null && b.side !== null) {
+      const [t0, t1] = a.side === 0 ? [m.a!, m.b!] : [m.b!, m.a!];
+      this.cupMatch = { index: i, teams: [t0, t1] };
+      return { teams: [{ ...cfg[0], name: cup.teams[t0].name }, { ...cfg[1], name: cup.teams[t1].name }], playing: new Set<TeamSide>([0, 1]) };
+    }
+    // um humano contra um setor de bots: o setor joga no lado oposto, com uniforme de outra cor
+    const [hi, bi] = a.side !== null ? [m.a!, m.b!] : [m.b!, m.a!];
+    const mine = cup.teams[hi].side as TeamSide;
+    const foe = (mine === 0 ? 1 : 0) as TeamSide;
+    const color = cfg[foe].color !== cfg[mine].color ? cfg[foe].color : (cfg[mine].color + 1) % FUT_COLORS.length;
+    const teams: [FutTeamConfig, FutTeamConfig] = mine === 0 ? [{ ...cfg[0], name: cup.teams[hi].name }, { name: cup.teams[bi].name, kit: cfg[foe].kit, color }] : [{ name: cup.teams[bi].name, kit: cfg[foe].kit, color }, { ...cfg[1], name: cup.teams[hi].name }];
+    this.cupMatch = { index: i, teams: mine === 0 ? [hi, bi] : [bi, hi] };
+    return { teams, playing: new Set<TeamSide>([mine]) };
+  }
+
+  /** Fim de um jogo do campeonato: o vencedor avança e o resto da rodada sem humanos é simulado. */
+  private cupFinish(score: FutScore): void {
+    const cup = this.cup;
+    const cm = this.cupMatch;
+    this.cupMatch = null;
+    if (!cup || !cm) return;
+    const m = cup.matches[cm.index];
+    const flip = cm.teams[0] !== m.a;
+    const order = <T,>(v: [T, T]): [T, T] => (flip ? [v[1], v[0]] : v);
+    const winner = cm.teams[score.winner ?? 0];
+    recordCupMatch(cup, cm.index, order(score.score), score.pens ? order(score.pens) : null, winner);
+    simulateRest(cup, mulberry32(randomInt(1, 2 ** 31)));
   }
 
   broadcastLobby(): void {
@@ -183,6 +299,7 @@ export class Room {
     const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, sessionLaps: {}, conn, leftAt: null, lastChatAt: 0 };
     this.members.set(id, m);
     if (!this.hostId && !isBot) this.hostId = id;
+    if (!isBot && this.mode === "futebol") m.side = this.lighterSide();
     return m;
   }
 
@@ -217,21 +334,51 @@ export class Room {
 
   start(): string | null {
     if (this.phase !== "lobby") return "A partida já começou";
+    const fut = this.mode === "futebol";
     const trial = this.mode === "timetrial";
     const zombies = this.mode === "shooter" && this.shooterSubmode === "zombies";
-    if (!trial && !zombies && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
+    if (!trial && !zombies && !fut && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
     const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
     if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
+    if (fut) {
+      const size = [0, 0];
+      for (const h of this.humans()) size[h.side ?? 0]++;
+      if (size[0] > linePlayers(this.options.futFormat) || size[1] > linePlayers(this.options.futFormat)) return "Time com gente demais para o formato";
+    }
     const seed = randomInt(1, 2 ** 31);
     const players = [...this.members.values()]
       .filter((m) => !trial || !m.isBot)
       .map((m) => ({ id: m.id, name: m.name, avatar: m.avatar, chair: m.chair, isBot: m.isBot }));
     const { laps, items, botLevel, track } = this.options;
-    if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial, track });
+    if (fut) {
+      let teams = this.options.futTeams;
+      let playing: Set<TeamSide> | null = null;
+      this.cupMatch = null;
+      if (this.options.futCup > 0) {
+        const setup = this.cupSetup();
+        if (typeof setup === "string") return setup;
+        teams = setup.teams;
+        playing = setup.playing;
+      }
+      this.futebol = createFutebol({
+        seed,
+        format: this.options.futFormat,
+        durationMs: this.durationMs,
+        botLevel,
+        // bots da sala não jogam: o createFutebol completa os times sozinho (no campeonato, humano de time eliminado assiste)
+        players: this.humans()
+          .filter((h) => !playing || playing.has(h.side ?? 0))
+          .map((h) => ({ id: h.id, name: h.name, avatar: h.avatar, side: h.side ?? 0, isBot: false, accountId: h.accountId })),
+        teams,
+      });
+    } else if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial, track });
     else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel, submode: this.shooterSubmode });
     this.phase = "match";
     this.results = null;
     this.raceResults = null;
+    this.futResults = null;
+    this.futScore = null;
+    this.futStats = null;
     this.tickCount = 0;
     this.broadcastLobby();
     if (this.race) for (const m of this.members.values()) this.sendGhosts(m);
@@ -239,7 +386,7 @@ export class Room {
     this.pendingMs = 0;
     // intervalo menor que o passo: no Windows o timer arredonda para ~16 ms e a partida andaria mais devagar
     this.timer = setInterval(() => this.tick(), TICK_MS / 2);
-    log(`[${this.code}] ${this.mode === "shooter" ? (this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida") : "corrida"} iniciada com ${this.members.size} participantes`);
+    log(`[${this.code}] ${this.mode === "futebol" ? "futebol" : this.mode === "shooter" ? (this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida") : "corrida"} iniciada com ${this.members.size} participantes`);
     return null;
   }
 
@@ -264,6 +411,8 @@ export class Room {
     this.dispose();
     this.match = null;
     this.race = null;
+    this.futebol = null;
+    this.cupMatch = null;
     this.phase = "lobby";
     for (const mem of this.members.values()) mem.ready = false;
     this.broadcast({ t: "error", msg: "A partida travou e foi encerrada. Tentem de novo." });
@@ -272,6 +421,7 @@ export class Room {
 
   private step(): void {
     if (this.race) return this.stepRace(this.race);
+    if (this.futebol) return this.stepFut(this.futebol);
     const m = this.match;
     if (!m) return;
     stepMatch(m, TICK_MS);
@@ -390,10 +540,36 @@ export class Room {
     if (r.phase === "finished") this.finish();
   }
 
+  private stepFut(f: FutMatch): void {
+    stepFutebol(f, TICK_MS);
+    this.tickCount++;
+    if (this.tickCount % BALANCE.snapshotEvery === 0 || f.phase === "over") {
+      const s = JSON.stringify(buildFutSnapshot(f));
+      // o snapshot leva só os eventos do tick
+      f.events = [];
+      for (const mem of this.members.values()) {
+        if (!mem.conn) continue;
+        send(mem.conn, `{"t":"fsnap","s":${s},"me":${JSON.stringify(buildFutPrivate(f, mem.id))}}`);
+      }
+    }
+    if (f.phase === "over") this.finish();
+  }
+
   private finish(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (this.race) {
+    if (this.futebol) {
+      this.futResults = getFutResults(this.futebol);
+      this.futScore = getFutScore(this.futebol);
+      this.futStats = getFutStats(this.futebol);
+      const mvp = this.futResults.find((r) => r.id === this.futStats?.mvpId);
+      const info = this.futebol.info.get(mvp?.id ?? "");
+      const detail = info ? `${info.goals} gol(s), ${info.assists} assistência(s), ${info.shotsOn} chute(s) no gol` : "";
+      this.awards = mvp ? [{ id: "craque", title: "Craque da partida", winnerId: mvp.id, winnerName: mvp.name, detail }] : [];
+      this.cupFinish(this.futScore);
+      this.results = null;
+      this.raceResults = null;
+    } else if (this.race) {
       this.raceResults = getRaceResults(this.race);
       this.awards = getRaceAwards(this.race);
       this.results = null;
@@ -405,13 +581,16 @@ export class Room {
     this.recordRanking();
     this.match = null;
     this.race = null;
+    this.futebol = null;
     this.phase = "results";
     for (const mem of this.members.values()) mem.ready = false;
     for (const id of [...this.members.keys()]) {
       const mem = this.members.get(id)!;
       if (!mem.isBot && !mem.conn) this.removeMember(id);
     }
-    if (this.raceResults) this.broadcast({ t: "rresults", rows: this.raceResults, awards: this.awards });
+    const fmsg = this.futResultsMsg();
+    if (fmsg) this.broadcast(fmsg);
+    else if (this.raceResults) this.broadcast({ t: "rresults", rows: this.raceResults, awards: this.awards });
     else if (this.results) this.broadcast({ t: "results", rows: this.results, awards: this.awards });
     this.broadcastLobby();
     log(`[${this.code}] partida finalizada`);
@@ -421,6 +600,7 @@ export class Room {
   private recordRanking(): void {
     const store = this.store;
     if (!store) return;
+    if (this.futResults) return this.recordFutebolRanking();
     try {
       const accountOf = (id: string) => this.members.get(id)?.accountId ?? null;
       const now = Date.now();
@@ -442,6 +622,27 @@ export class Room {
       applyAwards(store.data, this.awards.map((a) => ({ accountId: accountOf(a.winnerId), title: a.title })));
       store.save();
       this.notifyChallenge(completed);
+    } catch (err) {
+      console.error(`[${this.code}] falha ao registrar o ranking`, err);
+    }
+  }
+
+  /** Futebol: aba própria, só com 2+ humanos; derrota não pontua e gols de pênalti não contam (getFutResults já os exclui). */
+  private recordFutebolRanking(): void {
+    const store = this.store;
+    if (!store || !this.futResults || !this.futScore) return;
+    try {
+      const { winner } = this.futScore;
+      const rows = this.futResults.map((r) => ({ accountId: r.accountId, won: winner !== null && r.side === winner, goals: r.goals, assists: r.assists }));
+      if (!matchCounts(rows)) return;
+      const humans = this.futResults.filter((r) => !r.isBot).length;
+      applyFutebolResult(store.data, rows, humans, Date.now());
+      // o craque da partida entra nos prêmios da conta pelo mesmo mecanismo dos outros modos
+      if (humans >= 2) {
+        const accountOf = (id: string) => this.futResults?.find((r) => r.id === id)?.accountId ?? null;
+        applyAwards(store.data, this.awards.map((a) => ({ accountId: accountOf(a.winnerId), title: a.title })));
+      }
+      store.save();
     } catch (err) {
       console.error(`[${this.code}] falha ao registrar o ranking`, err);
     }
@@ -493,9 +694,11 @@ export class Room {
       }
       case "mode":
         if (!isHost || this.phase !== "lobby") return;
+        if (msg.mode === "futebol" && this.mode !== "futebol") this.distributeSides();
+        if (msg.mode !== this.mode) this.cup = null;
         this.mode = msg.mode;
-        // contra o relógio é só de humanos
-        if (this.mode === "timetrial") for (const x of [...this.members.values()]) if (x.isBot) this.members.delete(x.id);
+        // contra o relógio e futebol: o servidor completa as vagas, sem bots na sala
+        if (this.mode === "timetrial" || this.mode === "futebol") for (const x of [...this.members.values()]) if (x.isBot) this.members.delete(x.id);
         return this.broadcastLobby();
       case "shooterSubmode":
         if (!isHost || this.phase !== "lobby") return;
@@ -511,6 +714,11 @@ export class Room {
         if (msg.items !== undefined) this.options.items = msg.items;
         if (msg.botLevel !== undefined) this.options.botLevel = msg.botLevel;
         if (msg.track !== undefined) this.options.track = msg.track;
+        if (msg.futFormat !== undefined) this.options.futFormat = msg.futFormat;
+        if (msg.futCup !== undefined && msg.futCup !== this.options.futCup) {
+          this.options.futCup = msg.futCup;
+          this.cup = null;
+        }
         return this.broadcastLobby();
       case "start": {
         if (!isHost) return;
@@ -518,6 +726,27 @@ export class Room {
         if (err) send(conn, { t: "error", msg: err });
         return;
       }
+      case "futTeam":
+        if (this.phase !== "lobby" || this.mode !== "futebol") return;
+        member.side = msg.side;
+        return this.broadcastLobby();
+      case "futTeamConfig": {
+        if (this.phase !== "lobby" || this.mode !== "futebol" || !this.canConfigTeam(member, msg.side)) return;
+        const team = this.options.futTeams[msg.side];
+        const rival = this.options.futTeams[msg.side === 0 ? 1 : 0];
+        if (msg.color !== undefined && msg.color === rival.color) return send(conn, { t: "error", msg: "Essa cor já é do outro time" });
+        // no meio de um campeonato o nome do setor não muda (a chave já o guarda)
+        if (msg.name !== undefined && !this.cup) {
+          const name = sanitizeName(msg.name, "");
+          if (name) team.name = name;
+        }
+        if (msg.kit !== undefined && msg.kit < FUT_KITS.length) team.kit = msg.kit;
+        if (msg.color !== undefined && msg.color < FUT_COLORS.length) team.color = msg.color;
+        return this.broadcastLobby();
+      }
+      case "futInput":
+        if (this.futebol) setFutInput(this.futebol, member.id, msg, msg.seq);
+        return;
       case "chat":
       case "emote": {
         // limite por jogador: o que chega antes do intervalo é descartado em silêncio
@@ -528,6 +757,8 @@ export class Room {
       }
       case "lobby":
         if (!isHost || this.phase !== "results") return;
+        // campeonato terminado: o próximo começa uma chave nova
+        if (this.cup?.champion != null) this.cup = null;
         this.phase = "lobby";
         return this.broadcastLobby();
       case "input":
@@ -571,6 +802,15 @@ export class Room {
       if (!racer.connected) {
         racer.input = { ...NO_INPUT };
         racer.inputQueue = [];
+      }
+    }
+    const fut = this.futebol;
+    const fp = fut?.players.find((q) => q.id === member.id);
+    if (fut && fp && fut.info.get(member.id)?.human) {
+      if (member.conn === null) dropFutPlayer(fut, member.id);
+      else {
+        // reconexão com o mesmo token devolve o controle ao humano
+        reviveFutPlayer(fut, member.id);
       }
     }
     const p = this.match?.players.get(member.id);
@@ -642,6 +882,8 @@ export class RoomManager {
     send(conn, { t: "welcome", id: member.id, token: member.token, code: room.code });
     if (room.results && room.phase === "results") send(conn, { t: "results", rows: room.results, awards: room.awards });
     if (room.raceResults && room.phase === "results") send(conn, { t: "rresults", rows: room.raceResults, awards: room.awards });
+    const fmsg = room.phase === "results" ? room.futResultsMsg() : null;
+    if (fmsg) send(conn, fmsg);
     if (room.race && room.phase === "match") room.sendGhosts(member);
     room.broadcastLobby();
   }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   DEFAULT_SETTINGS,
+  FUT_ACTIONS,
+  FUT_LABELS,
   RACE_ACTIONS,
   RACE_LABELS,
   SENS_MAX,
@@ -17,7 +19,7 @@ import {
 import { setState } from "../store";
 import { IS_TOUCH, defaultQuality } from "../touch";
 
-type Mode = "shooter" | "race";
+type Mode = "shooter" | "race" | "futebol";
 interface Capture {
   mode: Mode;
   action: string;
@@ -63,7 +65,7 @@ export function Settings() {
       const keys = s.keys[capture.mode] as Record<string, string>;
       const other = findConflict(keys, capture.action, e.code);
       if (other) {
-        const labels = (capture.mode === "shooter" ? SHOOTER_LABELS : RACE_LABELS) as Record<string, string>;
+        const labels = (capture.mode === "shooter" ? SHOOTER_LABELS : capture.mode === "futebol" ? FUT_LABELS : RACE_LABELS) as Record<string, string>;
         setWarn(`${keyLabel(e.code)} já é de "${labels[other]}" neste modo. Aperte outra tecla.`);
         return;
       }
@@ -201,8 +203,9 @@ export function Settings() {
               {column("shooter", "Teclas do tiroteio", SHOOTER_ACTIONS, SHOOTER_LABELS)}
               {column("race", "Teclas do Rally", RACE_ACTIONS, RACE_LABELS)}
             </div>
+            <div className="grid-2 even">{column("futebol", "Teclas do Futebol", FUT_ACTIONS, FUT_LABELS)}</div>
             <p className="muted" style={{ margin: 0 }}>
-              No Rally as setas também valem para pilotar. A mesma tecla não pode ficar em duas ações do mesmo modo.
+              No Rally as setas também valem para pilotar. No Futebol o mouse e as setas só movem a câmera: Shift corre, Espaço segurado chuta (solte para chutar), Espaço rápido passa e, sem a bola, dá o carrinho. A mesma tecla não pode ficar em duas ações do mesmo modo.
             </p>
           </>
         )}

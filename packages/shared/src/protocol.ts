@@ -1,13 +1,17 @@
 import { z } from "zod";
 import type { Award } from "./awards";
 import { BOT_LEVELS, LAPS_MAX, LAPS_MIN, type RoomOptions } from "./botLevels";
+import { FUT_COLORS, FUT_KITS } from "./futebol/balance";
+import type { Cup } from "./futebol/campeonato";
+import type { FutMatchStats } from "./futebol/resumo";
+import type { FutPrivate, FutResultRow, FutSnapshot, TeamSide } from "./futebol/types";
 import type { ChairDNA } from "./race/chair";
 import { TRACK_IDS } from "./race/track";
 import type { RacePrivate, RaceResultRow, RaceSnapshot } from "./race/types";
 import type { GhostSample } from "./ranking/types";
 import type { AvatarDNA, PrivateState, ResultRow, Snapshot } from "./types";
 
-export type GameMode = "shooter" | "race" | "timetrial";
+export type GameMode = "shooter" | "race" | "timetrial" | "futebol";
 export type ShooterSubmode = "pvp" | "zombies";
 
 /** Chat rápido: só índices, nunca texto livre. Frases e emotes ficam aqui para cliente e servidor concordarem. */
@@ -33,7 +37,7 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("resume"), code, token: z.string().min(16).max(64), session }),
   z.object({ t: z.literal("ready"), ready: z.boolean() }),
   z.object({ t: z.literal("avatar"), avatar, chair }),
-  z.object({ t: z.literal("mode"), mode: z.enum(["shooter", "race", "timetrial"]) }),
+  z.object({ t: z.literal("mode"), mode: z.enum(["shooter", "race", "timetrial", "futebol"]) }),
   z.object({ t: z.literal("shooterSubmode"), submode: z.enum(["pvp", "zombies"]) }),
   z.object({ t: z.literal("addBot") }),
   z.object({ t: z.literal("removeBot") }),
@@ -46,9 +50,32 @@ export const ClientMsg = z.discriminatedUnion("t", [
       items: z.boolean().optional(),
       botLevel: z.enum(BOT_LEVELS).optional(),
       track: z.enum(TRACK_IDS).optional(),
+      futFormat: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]).optional(),
+      futCup: z.union([z.literal(0), z.literal(4), z.literal(8)]).optional(),
     })
     .strict(),
   z.object({ t: z.literal("start") }),
+  /** Futebol: o jogador escolhe o time (0 ou 1). */
+  z.object({ t: z.literal("futTeam"), side: z.union([z.literal(0), z.literal(1)]) }),
+  /** Futebol: o primeiro humano do time ou o anfitrião muda nome, modelo e cor do uniforme. */
+  z.object({
+    t: z.literal("futTeamConfig"),
+    side: z.union([z.literal(0), z.literal(1)]),
+    name: z.string().min(1).max(18).optional(),
+    kit: z.number().int().min(0).max(FUT_KITS.length - 1).optional(),
+    color: z.number().int().min(0).max(FUT_COLORS.length - 1).optional(),
+  }),
+  /** Futebol: intenção do jogador de linha (ver FutInput). */
+  z.object({
+    t: z.literal("futInput"),
+    mx: unit,
+    mz: unit,
+    aim: num.min(-100).max(100),
+    sprint: z.boolean(),
+    kick: z.enum(["none", "charge", "release"]),
+    pass: z.enum(["none", "charge", "release"]),
+    seq: z.number().int().min(1).max(2 ** 31),
+  }),
   z.object({ t: z.literal("input"), mx: num.min(-1.01).max(1.01), mz: num.min(-1.01).max(1.01), yaw: num.min(-100).max(100), fire: z.boolean() }),
   z.object({
     t: z.literal("action"),
@@ -84,6 +111,8 @@ export interface LobbyPlayer {
   connected: boolean;
   /** Logado com conta: a partida pode contar para o ranking. */
   ranked: boolean;
+  /** Futebol: time do jogador (bots da sala não têm). */
+  side?: TeamSide;
 }
 
 export interface LobbyState {
@@ -95,6 +124,8 @@ export interface LobbyState {
   durationMs: number;
   options: RoomOptions;
   players: LobbyPlayer[];
+  /** Futebol: a chave do campeonato entre setores em andamento (ausente fora dele). */
+  cup?: Cup | null;
 }
 
 /** Um fantasma: tempo da volta e amostras [tempo na volta, x, z, direção]. */
@@ -110,6 +141,8 @@ export type ServerMsg =
   | { t: "results"; rows: ResultRow[]; awards: Award[] }
   | { t: "rsnap"; s: RaceSnapshot; me: RacePrivate | null }
   | { t: "rresults"; rows: RaceResultRow[]; awards: Award[] }
+  | { t: "fsnap"; s: FutSnapshot; me: FutPrivate | null }
+  | { t: "fresults"; rows: FutResultRow[]; score: { score: [number, number]; pens: [number, number] | null; winner: TeamSide | null }; awards: Award[]; stats?: FutMatchStats }
   /** Fantasmas da pista: o do próprio jogador (conta ou sessão), o do recordista e o do rival (a volta logo à frente da sua). Reenviado quando algum muda. */
   | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null; rival?: (GhostLap & { name: string }) | null }
   /** Chat rápido de alguém da sala (inclusive de quem mandou). */

@@ -1,0 +1,124 @@
+import { stepBall } from "./ball";
+import { botInput } from "./bots";
+import { holdBall, keeperKick, keeperSave } from "./goalkeeping";
+import { keeperInput } from "./keeper";
+import { markCarry, stepPlayer } from "./player";
+import { restartBlocks, stepRestart } from "./restarts";
+import { resolveTouches, type TouchEvent } from "./touch";
+import type { FutInput, FutMatch, FutPlayer } from "./types";
+
+const IDLE: FutInput = { mx: 0, mz: 0, aim: 0, sprint: false, kick: "none", pass: "none" };
+/** Abaixo disso (m/s) o cobrador está parado (não conduziu a bola). */
+const MOVING_EPS = 0.1;
+
+export interface WorldOpts {
+  /** Só estes ids participam (os demais ficam parados e fora de jogo). */
+  only?: ReadonlySet<string>;
+  /** Goleiros da IA ficam parados (disputa de pênaltis: o salto é sorteado em penalties.ts). */
+  keeperIdle?: boolean;
+  /** Cobrador só mira e chuta: não anda (o lado apertado ainda escolhe o canto), e conduzir a bola não encerra a cobrança. */
+  aimOnly?: boolean;
+  /** false = a IA não cobra sozinha quando os 8 s acabam (a disputa de pênaltis cuida disso). */
+  restartAi?: boolean;
+}
+
+export interface WorldStep {
+  events: TouchEvent[];
+  inputs: Map<string, FutInput>;
+}
+
+function inputFor(m: FutMatch, p: FutPlayer, o: WorldOpts): FutInput {
+  if (p.role === "goleiro") {
+    return o.keeperIdle ? { ...IDLE, aim: p.facing } : keeperInput(p, m.ball, m.field, m.botLevel, m.players);
+  }
+  const raw = p.isBot || !m.connected.has(p.id) ? botInput(p, m, m.botLevel) : (m.inputs.get(p.id) ?? IDLE);
+  return raw;
+}
+
+/** Carimba o tempo no toque atual (e o mantém fresco enquanto o dono conduz ou chuta); prevTouch guarda o carimbo que tinha. */
+function trackTouches(m: FutMatch, events: TouchEvent[]): void {
+  const lt = m.ball.lastTouch;
+  if (!lt) {
+    return;
+  }
+  if (lt.at === undefined || m.ball.ownerId === lt.id || events.some((e) => (e.t === "kick" || e.t === "pass") && e.id === lt.id)) {
+    lt.at = m.now;
+  }
+}
+
+/** Um tick do mundo: intenções, movimento, goleiros, toques, cobrança e bola. */
+export function stepWorld(m: FutMatch, dtMs: number, o: WorldOpts = {}): WorldStep {
+  const active = m.players.filter((p) => !p.sentOff && (!o.only || o.only.has(p.id)));
+  const inputs = new Map<string, FutInput>();
+  for (const p of active) {
+    inputs.set(p.id, inputFor(m, p, o));
+  }
+  for (const p of active) {
+    markCarry(p, m.ball.ownerId);
+    const own = inputs.get(p.id)!;
+    // cobrança de pênalti: o cobrador não anda, mas o lado que ele aperta (mz) segue valendo para escolher o canto
+    stepPlayer(p, o.aimOnly ? { ...own, mx: 0, mz: 0, sprint: false } : own, m.field, dtMs);
+  }
+
+  const touchers: FutPlayer[] = [];
+  for (const p of active) {
+    if (restartBlocks(m, p.id)) {
+      p.chargeMs = 0;
+      p.chargeKind = null;
+    } else {
+      touchers.push(p);
+    }
+  }
+
+  const events: TouchEvent[] = [];
+  for (const k of touchers) {
+    if (k.role !== "goleiro") {
+      continue;
+    }
+    if (m.ball.ownerId === k.id) {
+      k.holdMs = (k.holdMs ?? 0) + dtMs;
+      const ev = keeperKick(m, k, inputs.get(k.id)!, dtMs);
+      if (ev) {
+        events.push(ev);
+      }
+    } else {
+      k.holdMs = 0;
+      k.chargeMs = 0;
+      k.chargeKind = null;
+      keeperSave(m, k);
+    }
+  }
+
+  // resolveTouches só trata jogador de linha e solta a bola do goleiro: com ela
+  // nas mãos, o motor recebe uma cópia fora de alcance.
+  const holder = m.players.find((p) => p.role === "goleiro" && p.id === m.ball.ownerId) ?? null;
+  const ball = holder ? { ...m.ball, y: 99, ownerId: null } : m.ball;
+  events.push(...resolveTouches(touchers.filter((p) => p.role === "linha"), ball, inputs, dtMs, m.field, { rng: m.rng, freeKick: m.restart?.kind === "falta", restart: m.restart?.kind ?? null }));
+  if (holder) {
+    holdBall(m, holder);
+  }
+
+  const r = m.restart;
+  if (r) {
+    const taker = m.players.find((p) => p.id === r.takerId);
+    const touched =
+      events.some((e) => (e.t === "kick" || e.t === "pass") && e.id === r.takerId) ||
+      (!o.aimOnly && taker !== undefined && m.ball.ownerId === taker.id && Math.hypot(taker.vx, taker.vz) > MOVING_EPS);
+    if (touched) {
+      m.restart = null;
+    }
+  }
+  if (m.restart) {
+    if (o.restartAi === false) {
+      m.restart.leftMs = Math.max(0, m.restart.leftMs - dtMs);
+    } else {
+      stepRestart(m, dtMs);
+    }
+  }
+
+  if (!holder) {
+    stepBall(m.ball, dtMs);
+  }
+  trackTouches(m, events);
+  return { events, inputs };
+}

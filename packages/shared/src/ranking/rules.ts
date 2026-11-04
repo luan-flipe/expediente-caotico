@@ -2,7 +2,7 @@ import { CHALLENGE_POINTS, WEEKS_KEPT, challengeDone, challengeOfWeek, emptyProg
 import { DEFAULT_TRACK_ID, TRACKS, TRACK_IDS, type TrackId } from "../race/track";
 import { DEFAULT_AVATAR, sanitizeAvatar } from "../data/avatar";
 import { sanitizeChair } from "../race/chair";
-import type { ChallengeView, GhostSample, LapRow, MatchSummary, MonthRow, PlayerProfile, PlayerStats, RallyRow, RankingData, RankingRowBase, RankingTab, RankingView, ShooterRow, StoredLap } from "./types";
+import type { ChallengeView, FutRow, GhostSample, LapRow, MatchSummary, MonthRow, PlayerProfile, PlayerStats, RallyRow, RankingData, RankingRowBase, RankingTab, RankingView, ShooterRow, StoredLap } from "./types";
 
 /** Pontos do mês por colocação (1º, 2º, 3º); os demais ganham PARTICIPATION_POINTS. */
 export const PLACE_POINTS = [10, 6, 4];
@@ -35,11 +35,17 @@ export function matchCounts(entries: { accountId: string | null }[]): boolean {
 }
 
 function emptyStats(): PlayerStats {
-  return { shooterWins: 0, shooterMatches: 0, shooterKills: 0, raceWins: 0, racePodiums: 0, raceMatches: 0, bestLapMs: null };
+  return { shooterWins: 0, shooterMatches: 0, shooterKills: 0, raceWins: 0, racePodiums: 0, raceMatches: 0, futWins: 0, futMatches: 0, futGoals: 0, futAssists: 0, bestLapMs: null };
 }
 
 function statsOf(data: RankingData, id: string): PlayerStats {
-  return (data.stats[id] ??= emptyStats());
+  const s = (data.stats[id] ??= emptyStats());
+  // arquivos antigos não têm os campos do futebol
+  s.futWins ??= 0;
+  s.futMatches ??= 0;
+  s.futGoals ??= 0;
+  s.futAssists ??= 0;
+  return s;
 }
 
 function addPoints(data: RankingData, now: number, id: string, points: number): void {
@@ -127,6 +133,30 @@ export function applyShooterResult(data: RankingData, rows: { accountId: string 
     if (settleChallenge(data, now, r.accountId, w)) completed.push(r.accountId);
   }
   return completed;
+}
+
+/** Pontos do mês no futebol: vitória, gol e assistência. Derrota não dá nem tira. */
+export const FUT_WIN_POINTS = 3;
+export const FUT_GOAL_POINTS = 1;
+export const FUT_ASSIST_POINTS = 1;
+
+/**
+ * Só pontua com 2 ou mais humanos na partida (`humans`, contados pelo servidor). Bots e visitantes (accountId null) não entram.
+ * Vitória decidida nos pênaltis vale como vitória (`won`); os gols da disputa não vêm em `goals`. Não há desafio da semana de futebol.
+ */
+export function applyFutebolResult(data: RankingData, rows: { accountId: string | null; won: boolean; goals: number; assists: number }[], humans: number, now: number): string[] {
+  if (humans < 2) return [];
+  const better = (a: { won: boolean; goals: number }, b: { won: boolean; goals: number }) => (a.won && !b.won) || (a.won === b.won && a.goals > b.goals);
+  for (const r of onePerAccount(rows, better)) {
+    const s = statsOf(data, r.accountId);
+    s.futMatches++;
+    s.futGoals += r.goals;
+    s.futAssists += r.assists;
+    if (r.won) s.futWins++;
+    pushHistory(data, r.accountId, { at: now, mode: "futebol", place: r.won ? 1 : 2 });
+    addPoints(data, now, r.accountId, (r.won ? FUT_WIN_POINTS : 0) + r.goals * FUT_GOAL_POINTS + r.assists * FUT_ASSIST_POINTS);
+  }
+  return [];
 }
 
 /**
@@ -226,6 +256,10 @@ export function rankingView(data: RankingData, now: number, viewerId?: string): 
     .filter(([, s]) => s.raceMatches > 0)
     .map(([id, s]) => ({ id, name: nameOf(id), wins: s.raceWins, podiums: s.racePodiums, matches: s.raceMatches }))
     .sort((a, b) => b.wins - a.wins || b.podiums - a.podiums || byId(a, b));
+  const futebol: Omit<FutRow, "rank">[] = stats
+    .filter(([, s]) => (s.futMatches ?? 0) > 0)
+    .map(([id, s]) => ({ id, name: nameOf(id), wins: s.futWins ?? 0, goals: s.futGoals ?? 0, assists: s.futAssists ?? 0, matches: s.futMatches ?? 0 }))
+    .sort((a, b) => b.wins - a.wins || b.goals - a.goals || b.assists - a.assists || byId(a, b));
   const voltasDe = (trackId: string) => buildTab<LapRow>(lapStandings(data, trackId).map(({ id, lap }) => ({ id, name: nameOf(id), ms: lap.ms })), viewerId);
 
   const prev = previousMonth(current);
@@ -250,6 +284,7 @@ export function rankingView(data: RankingData, now: number, viewerId?: string): 
     mes: buildTab<MonthRow>(monthRows(current), viewerId),
     tiroteio: buildTab<ShooterRow>(tiroteio, viewerId),
     rally: buildTab<RallyRow>(rally, viewerId),
+    futebol: buildTab<FutRow>(futebol, viewerId),
     voltas: voltasDe(MAIN_TRACK_ID),
     pistas: TRACK_IDS.map((id) => ({ id, name: TRACKS[id].name, voltas: voltasDe(id) })),
     desafio,
@@ -289,7 +324,7 @@ export function profileOf(data: RankingData, accountId: string, now: number): Om
     name,
     avatar: sanitizeAvatar({ ...DEFAULT_AVATAR, ...acc.avatar, name }),
     chair: sanitizeChair(acc.chair),
-    stats: { shooterWins: s.shooterWins, shooterMatches: s.shooterMatches, shooterKills: s.shooterKills, raceWins: s.raceWins, racePodiums: s.racePodiums, raceMatches: s.raceMatches },
+    stats: { shooterWins: s.shooterWins, shooterMatches: s.shooterMatches, shooterKills: s.shooterKills, raceWins: s.raceWins, racePodiums: s.racePodiums, raceMatches: s.raceMatches, futWins: s.futWins ?? 0, futMatches: s.futMatches ?? 0, futGoals: s.futGoals ?? 0, futAssists: s.futAssists ?? 0 },
     laps,
     month: { month, points: at < 0 ? 0 : ranked[at][1], position: at < 0 ? null : at + 1 },
     challenges: {

@@ -6,15 +6,19 @@ export const SHOOTER_ACTIONS = ["frente", "tras", "esquerda", "direita", "atirar
 /** Ações com tecla própria na corrida. As setas e o clique esquerdo (item) valem sempre como alternativa. */
 export const RACE_ACTIONS = ["acelerar", "frear", "esquerda", "direita", "derrapar", "item", "voltar", "placar", "mudo", "chat"] as const;
 
+/** Ações com tecla própria no Futebol da Firma. Fixos: Shift corre, Espaço chuta (segurado), passa (toque rápido) ou dá o carrinho (sem a bola); o mouse e as setas só movem a câmera. */
+export const FUT_ACTIONS = ["frente", "tras", "esquerda", "direita", "placar", "chat"] as const;
+
 export type ShooterAction = (typeof SHOOTER_ACTIONS)[number];
 export type RaceAction = (typeof RACE_ACTIONS)[number];
+export type FutAction = (typeof FUT_ACTIONS)[number];
 export type Quality = "alta" | "leve";
 
 export interface Settings {
   mouseSens: number;
   invertY: boolean;
   volume: { master: number; music: number; effects: number };
-  keys: { shooter: Record<ShooterAction, string>; race: Record<RaceAction, string> };
+  keys: { shooter: Record<ShooterAction, string>; race: Record<RaceAction, string>; futebol: Record<FutAction, string> };
   quality: Quality;
   /** Celular: segurar o botão de disparo atira sem parar (desligado, cada toque é um tiro). */
   touchAutoFire: boolean;
@@ -59,6 +63,14 @@ export const DEFAULT_SETTINGS: Settings = {
       mudo: "KeyM",
       chat: "KeyT",
     },
+    futebol: {
+      frente: "KeyW",
+      tras: "KeyS",
+      esquerda: "KeyA",
+      direita: "KeyD",
+      placar: "Tab",
+      chat: "KeyT",
+    },
   },
   quality: "alta",
   touchAutoFire: true,
@@ -92,6 +104,15 @@ export const RACE_LABELS: Record<RaceAction, string> = {
   voltar: "Voltar para a pista",
   placar: "Placar da corrida",
   mudo: "Silenciar tudo",
+  chat: "Chat rápido (abre as frases e emotes)",
+};
+
+export const FUT_LABELS: Record<FutAction, string> = {
+  frente: "Andar para frente (toque duplo corre)",
+  tras: "Andar para trás",
+  esquerda: "Andar para a esquerda",
+  direita: "Andar para a direita",
+  placar: "Placar da partida",
   chat: "Chat rápido (abre as frases e emotes)",
 };
 
@@ -159,6 +180,7 @@ export function sanitizeSettings(raw: unknown, touch = IS_TOUCH): Settings {
     keys: {
       shooter: sanitizeKeys(keys.shooter, d.keys.shooter),
       race: sanitizeKeys(keys.race, d.keys.race),
+      futebol: sanitizeKeys(keys.futebol, d.keys.futebol),
     },
     quality: src.quality === "leve" || src.quality === "alta" ? src.quality : defaultQuality(touch),
     touchAutoFire: typeof src.touchAutoFire === "boolean" ? src.touchAutoFire : d.touchAutoFire,

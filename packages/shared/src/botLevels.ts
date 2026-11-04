@@ -1,3 +1,4 @@
+import type { FutFormat, FutTeamConfig } from "./futebol/types";
 import { RACE } from "./race/balance";
 import { DEFAULT_TRACK_ID, type TrackId } from "./race/track";
 
@@ -20,9 +21,22 @@ export interface RoomOptions {
   botLevel: BotLevel;
   /** Pista do Rally e do Contra o relógio. */
   track: TrackId;
+  /** Futebol: jogadores de linha por time. */
+  futFormat: FutFormat;
+  /** Futebol: uniformes dos dois times. */
+  futTeams: [FutTeamConfig, FutTeamConfig];
+  /** Futebol: campeonato entre setores em mata-mata com esse número de times (0 = partida avulsa). */
+  futCup: 0 | 4 | 8;
 }
 
-export const DEFAULT_ROOM_OPTIONS: RoomOptions = { laps: RACE.laps, items: true, botLevel: DEFAULT_BOT_LEVEL, track: DEFAULT_TRACK_ID };
+export const DEFAULT_ROOM_OPTIONS: RoomOptions = { laps: RACE.laps, items: true, botLevel: DEFAULT_BOT_LEVEL, track: DEFAULT_TRACK_ID,
+  futFormat: 2,
+  futCup: 0,
+  futTeams: [
+    { name: "Financeiro", kit: 0, color: 2 },
+    { name: "TI", kit: 1, color: 3 },
+  ],
+};
 
 export interface ShooterBotParams {
   /** Intervalo entre "pensamentos" (troca de alvo e de lado): base + sorteio. Maior = reage mais devagar. */

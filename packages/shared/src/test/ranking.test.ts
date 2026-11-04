@@ -280,7 +280,7 @@ describe("rankingView", () => {
     d.months["2026-10"] = {};
     d.laps[TRACK] = {};
     ids.forEach((id, i) => {
-      d.stats[id] = { shooterWins: 0, shooterMatches: 1, shooterKills: 100 - i, raceWins: 0, racePodiums: 0, raceMatches: 0, bestLapMs: null };
+      d.stats[id] = { shooterWins: 0, shooterMatches: 1, shooterKills: 100 - i, raceWins: 0, racePodiums: 0, raceMatches: 0, futWins: 0, futMatches: 0, futGoals: 0, futAssists: 0, bestLapMs: null };
       d.months["2026-10"][id] = 1000 - i;
       d.laps[TRACK][id] = { ms: 50000 + i, at: 1, ghost: [] };
     });
