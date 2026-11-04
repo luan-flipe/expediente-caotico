@@ -13,7 +13,7 @@ import {
   disposeAvatar,
 } from "./avatarMesh";
 import { createGltfLoader } from "./gltfLoader";
-import { dressFace, preloadFaces } from "./rosto";
+import { dressFace } from "./rosto";
 import { BEARDS_3D, GLASSES_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
 
 export type CharacterAction = "throw" | "cafe" | "dash" | "tchau";
@@ -899,8 +899,6 @@ export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promi
     load(PANTS_3D),
     load(SHOES_3D),
     cheer,
-    // as texturas das expressões do rosto
-    preloadFaces(),
   ])
     .then(([gltf, hairs, beards, glasses, shirts, pants, shoes, party]) => {
       const scene = gltf.scene;
@@ -945,7 +943,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     const mesh = o as THREE.SkinnedMesh;
     if (!mesh.isMesh) return;
     mesh.castShadow = true;
-    // o corpo é a malha "boneco"; o short justo também tem pele, mas não serve de corpo
+    // o corpo é a malha "boneco" (as peças do GLB também são malhas com pele)
     if (mesh.isSkinnedMesh && (mesh.name === "boneco" || !body)) body = mesh;
   });
 
@@ -972,9 +970,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   // com saia, a camiseta vai para dentro do cós
   const pants = model.pants[dna.pants - 1];
   const skirt = PANTS_3D[dna.pants - 1]?.tuck && pants?.length ? pants : null;
-  // com calça, short ou saia, o short justo do boneco some por baixo dela
-  const short = inner.getObjectByName("short");
-  if (short && pants?.length) short.visible = false;
   const shirt = model.shirts[dna.shirt - 1];
   // roupa vem com o índice de CLOTH_COLORS (0 deixa a cor original da peça)
   const pieces: [THREE.SkinnedMesh[] | undefined, string | undefined, number?][] = [
@@ -1013,11 +1008,11 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   };
   tiltFeet();
 
-  // Acessórios procedurais no modelo GLB (gravata, crachá, boné)
+  // Acessórios procedurais no modelo GLB (gravata, boné). O crachá (acessório 4) saiu: as caixas ficavam
+  // dentro do corpo da nova proporção.
   const troncoNode = inner.getObjectByName("tronco");
   const cabecaNode = inner.getObjectByName("cabeca");
   let glbTiePivot: THREE.Group | undefined;
-  let glbBadgePivot: THREE.Group | undefined;
   let glbCapVisor: THREE.Mesh | undefined;
 
   if (troncoNode) {
@@ -1030,18 +1025,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       glbTiePivot.position.set(0, 0.22, 0.18);
       glbTiePivot.add(at(box(0.10, 0.42, 0.03, redMat, 0.02), 0, -0.23, 0));
       troncoNode.add(glbTiePivot);
-    } else if (dna.accessory === 4) {
-      const blueMat = new THREE.MeshStandardMaterial({ color: "#2f6fdf", roughness: 0.85, flatShading: true });
-      const whiteMat = new THREE.MeshStandardMaterial({ color: "#f7f5f0", roughness: 0.85, flatShading: true });
-      mats.push(blueMat, whiteMat);
-      troncoNode.add(at(box(0.02, 0.22, 0.02, blueMat), 0.06, 0.22, 0.175));
-      troncoNode.add(at(box(0.02, 0.22, 0.02, blueMat), 0.18, 0.22, 0.175));
-      glbBadgePivot = new THREE.Group();
-      glbBadgePivot.name = "Glb_Cracha_Pivo";
-      glbBadgePivot.position.set(0.12, 0.11, 0.18);
-      glbBadgePivot.add(at(box(0.16, 0.05, 0.022, blueMat), 0, 0, 0.002));
-      glbBadgePivot.add(at(box(0.16, 0.20, 0.02, whiteMat), 0, -0.07, 0));
-      troncoNode.add(glbBadgePivot);
     }
   }
   if (cabecaNode && dna.accessory === 2) {
@@ -1194,10 +1177,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
         glbTiePivot.rotation.x = wind.tieRotX;
         glbTiePivot.rotation.z = wind.tieRotZ;
       }
-      if (glbBadgePivot) {
-        glbBadgePivot.rotation.x = wind.badgeRotX;
-        glbBadgePivot.rotation.z = wind.badgeRotZ;
-      }
       if (glbCapVisor) {
         glbCapVisor.position.y = 0.20 + wind.capLift;
       }
@@ -1239,11 +1218,6 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       if (glbTiePivot) {
         glbTiePivot.rotation.x = wind.tieRotX;
         glbTiePivot.rotation.z = wind.tieRotZ;
-      }
-      if (glbBadgePivot) {
-        glbBadgePivot.rotation.x = wind.badgeRotX;
-        glbBadgePivot.rotation.z = wind.badgeRotZ;
-        glbBadgePivot.position.y = 0.11 + wind.badgeBounceY;
       }
       if (glbCapVisor) {
         glbCapVisor.position.y = 0.20 + wind.capLift;

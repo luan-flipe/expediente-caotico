@@ -1,82 +1,124 @@
 import * as THREE from "three";
 import { EYE_COLORS, SKINS, type AvatarDNA } from "@ec/shared";
-import { ROSTOS } from "./itens/pele-e-olhos";
+import { EXPRESSOES } from "./rosto/expressoes";
+import { LAYER_TEXELS, MAX_LAYERS, MAX_SEGMENTS, encode } from "./rosto/vetor";
 
 /**
- * Pele, olhos e rosto do crachá no boneco. Cada expressão é a textura do corpo inteira, com olhos,
- * sobrancelhas e boca pintados pelo designer (pasta assets/rostos): o rosto escolhido troca a textura
- * e fica parado como foi pintado. A cor da pele e da íris do crachá vem por shader, em cima da textura.
+ * Pele, olhos e rosto do crachá no boneco. O rosto não é imagem: cada expressão é uma lista de formas
+ * (rosto/expressoes.ts) que o shader do corpo desenha por cima da pele lisa da textura. As formas seguem
+ * as pinturas do designer e ficam paradas: o olho não pisca. A cor da pele e da íris vem do crachá.
  */
 
-// o glob do Vite só aceita caminho literal. A máscara da íris de cada rosto sai do
-// scripts/optimize-assets.mjs junto com a textura.
-const FACE_FILES = import.meta.glob<string>("../assets/rostos/*.jpg", { eager: true, query: "?url", import: "default" });
-const IRIS_FILES = import.meta.glob<string>("../assets/rostos/*_iris.png", { eager: true, query: "?url", import: "default" });
-
-/** "03_triste.jpg" e "03_triste_iris.png" viram "triste". */
-const faceIdOf = (path: string) =>
-  path
-    .split("/")
-    .pop()!
-    .replace(/(_iris)?\.(jpg|png)$/i, "")
-    .replace(/^\d+[_-]?/, "");
-
-/** Texturas das expressões e máscaras da íris pelo id do arquivo, depois de preloadFaces. */
-const faceTextures = new Map<string, THREE.Texture>();
-const irisMasks = new Map<string, THREE.Texture>();
-let facesLoading: Promise<void> | null = null;
-
-/** Carrega as texturas das expressões uma vez. Uma que falhar deixa o boneco com a textura dele. */
-export function preloadFaces(): Promise<void> {
-  const loader = new THREE.TextureLoader();
-  const load = (files: Record<string, string>, into: Map<string, THREE.Texture>, colorSpace: THREE.ColorSpace) =>
-    Object.entries(files).map(([path, url]) =>
-      loader
-        .loadAsync(url)
-        .then((tex) => {
-          // como as texturas do glTF: sem virar
-          tex.flipY = false;
-          tex.colorSpace = colorSpace;
-          into.set(faceIdOf(path), tex);
-        })
-        .catch((err) => console.warn(`${url}: rosto não carregou`, err)),
-    );
-  facesLoading ??= Promise.all([...load(FACE_FILES, faceTextures, THREE.SRGBColorSpace), ...load(IRIS_FILES, irisMasks, THREE.NoColorSpace)]).then(() => {});
-  return facesLoading;
-}
-
-/** Brilho linear (como o shader mede) de uma cor sRGB 0–255. */
-function lum(r: number, g: number, b: number): number {
-  const c = new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
-  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-}
-/** Cor média da íris na textura do boneco: a referência do tingimento dela. */
-const IRIS_REF = lum(117, 55, 39);
 /** Cor média da pele na textura do boneco (linear). */
 const SKIN_BASE = new THREE.Color().setRGB(235 / 255, 190 / 255, 175 / 255, THREE.SRGBColorSpace);
 
-const HSV_GLSL = /* glsl */ `
-vec3 rgb2hsv(vec3 c) {
-  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.y);
-  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)), d / (q.x + 1e-10), q.x);
+/** Pontos por curva quadrática ao medir distância e dentro/fora (o mesmo no gêmeo de conferência). */
+const SAMPLES = 8;
+
+/** Formas de cada expressão já codificadas para o shader, criadas na primeira vez que alguém usa. */
+const faceData = new Map<number, THREE.DataTexture>();
+function faceTexture(index: number): THREE.DataTexture {
+  const i = EXPRESSOES[index] ? index : 0;
+  let tex = faceData.get(i);
+  if (!tex) {
+    const data = encode(EXPRESSOES[i]);
+    tex = new THREE.DataTexture(data, data.length / 4, 1, THREE.RGBAFormat, THREE.FloatType);
+    tex.magFilter = tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    faceData.set(i, tex);
+  }
+  return tex;
+}
+
+/**
+ * Desenha as camadas do rosto (ver encode em rosto/vetor.ts) sobre col, no ponto p do rosto (vista de
+ * frente, metros). aa é o tamanho do pixel ali, para a borda suave.
+ */
+const FACE_GLSL = /* glsl */ `
+#define FACE_MAX_LAYERS ${MAX_LAYERS}
+#define FACE_MAX_SEGMENTS ${MAX_SEGMENTS}
+#define FACE_SAMPLES ${SAMPLES}
+#define FACE_LT ${LAYER_TEXELS}
+vec4 faceT(int i) { return texelFetch(uFace, ivec2(i, 0), 0); }
+vec3 drawFace(vec3 col, vec2 p, float aa) {
+  int n = int(faceT(0).x + 0.5);
+  float cov[FACE_MAX_LAYERS];
+  for (int i = 0; i < FACE_MAX_LAYERS; i++) {
+    if (i >= n) break;
+    cov[i] = 0.0;
+    int L = 1 + i * FACE_LT;
+    vec4 box = faceT(L + 4);
+    if (p.x < box.x - aa || p.y < box.y - aa || p.x > box.z + aa || p.y > box.w + aa) continue;
+    vec4 t0 = faceT(L), t6 = faceT(L + 6), el = faceT(L + 5);
+    int kind = int(t0.x + 0.5);
+    float aL = aa + t6.w;
+    float c = 0.0;
+    if (kind <= 1) {
+      int start = int(t0.y + 0.5), count = int(t0.z + 0.5);
+      int segs = kind == 0 ? count / 2 : (count - 1) / 2;
+      float d = 1e9, tb = 0.0;
+      bool inside = false;
+      for (int s = 0; s < FACE_MAX_SEGMENTS; s++) {
+        if (s >= segs) break;
+        int i0 = start + 2 * s;
+        vec2 a = faceT(i0).xy, cc = faceT(i0 + 1).xy, b = faceT(start + (2 * s + 2) % count).xy;
+        vec2 q = a;
+        for (int j = 1; j <= FACE_SAMPLES; j++) {
+          float t = float(j) / float(FACE_SAMPLES), u = 1.0 - t;
+          vec2 r = u * u * a + 2.0 * u * t * cc + t * t * b;
+          vec2 e = r - q, w = p - q;
+          float h = clamp(dot(w, e) / max(dot(e, e), 1e-12), 0.0, 1.0);
+          float dd = length(w - e * h);
+          if (dd < d) { d = dd; tb = (float(s) + (float(j - 1) + h) / float(FACE_SAMPLES)) / float(segs); }
+          if ((q.y > p.y) != (r.y > p.y) && p.x < e.x * (p.y - q.y) / e.y + q.x) inside = !inside;
+          q = r;
+        }
+      }
+      if (kind == 0) c = clamp(0.5 + (inside ? d : -d) / aL, 0.0, 1.0);
+      else {
+        vec4 t2 = faceT(L + 2);
+        float wd = tb < 0.5 ? mix(t2.y, t2.z, tb * 2.0) : mix(t2.z, t2.w, tb * 2.0 - 1.0);
+        c = clamp(0.5 + (wd * 0.5 - d) / aL, 0.0, 1.0);
+      }
+    } else if (kind <= 3) {
+      vec2 dv = p - el.xy;
+      vec2 q = vec2(t6.x * dv.x + t6.y * dv.y, -t6.y * dv.x + t6.x * dv.y);
+      float k0 = length(q / el.zw), k1 = length(q / (el.zw * el.zw));
+      float d = k1 > 0.0 ? k0 * (k0 - 1.0) / k1 : -min(el.z, el.w);
+      c = kind == 2 ? clamp(0.5 - d / aL, 0.0, 1.0) : clamp(0.5 + (t6.z * 0.5 - abs(d)) / aL, 0.0, 1.0);
+    } else {
+      // gota: círculo de raio r embaixo e ponta fina a h acima (sdUnevenCapsule)
+      float r1 = el.z, h = el.w, r2 = r1 * 0.06;
+      vec2 v = vec2(abs(p.x - el.x), p.y - el.y);
+      float b = (r1 - r2) / h, a = sqrt(1.0 - b * b), k = dot(v, vec2(-b, a));
+      float d = k < 0.0 ? length(v) - r1 : k > a * h ? length(v - vec2(0.0, h)) - r2 : dot(v, vec2(a, b)) - r1;
+      c = clamp(0.5 - d / aL, 0.0, 1.0);
+    }
+    int clip = int(floor(t0.w + 0.5));
+    if (clip >= 0) c *= cov[clip];
+    cov[i] = c;
+    vec4 t2 = faceT(L + 2), t3 = faceT(L + 3), t1 = faceT(L + 1);
+    float al = t2.x * c;
+    if (t3.z != 0.0 || t3.w != 0.0) al *= 1.0 - clamp(dot(p - t3.xy, t3.zw), 0.0, 1.0);
+    if (al <= 0.0) continue;
+    col = mix(col, t1.w > 0.5 ? uIris * t1.x : t1.rgb, al);
+  }
+  return col;
 }`;
 
 /**
- * Pele e olhos do crachá sobre a textura do boneco. A pele é a da textura em escala de cor (cor do
- * crachá sobre a cor média da pele pintada): o rosado das bochechas e a sombra continuam, no tom
- * escolhido. A íris pega a cor de olho pelo brilho dela. Ficam como vieram a fralda e os traços do
- * rosto: pupila, cílios, sobrancelha, o brilho do olho, a boca e a lágrima. A íris só é procurada na
- * faixa dos olhos, para a boca aberta (vermelha e saturada como a íris) não pegar a cor do olho.
+ * Pele e rosto do crachá. A pele é a da textura em escala de cor (cor do crachá sobre a cor média da
+ * pele pintada): o rosado das bochechas e a sombra continuam, no tom escolhido; a fralda fica como veio.
+ * Depois o rosto vetorial é desenhado na frente da cabeça, com a íris na cor de olho do crachá. Tudo é
+ * medido na pose de amarração do corpo antigo: lift é quanto o osso root subiu no corpo atual.
  */
-function tintBody(material: THREE.MeshStandardMaterial, skin: THREE.Color, iris: THREE.Color, eye: EyeUniforms): void {
+function tintBody(material: THREE.MeshStandardMaterial, skin: THREE.Color, iris: THREE.Color, face: THREE.DataTexture, lift: number): void {
   const uniforms = {
+    uLift: { value: lift },
     uSkinScale: { value: new THREE.Vector3(skin.r / SKIN_BASE.r, skin.g / SKIN_BASE.g, skin.b / SKIN_BASE.b) },
     uIris: { value: iris },
-    uIrisRef: { value: IRIS_REF },
-    ...eye,
+    uFace: { value: face },
   };
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -86,7 +128,7 @@ function tintBody(material: THREE.MeshStandardMaterial, skin: THREE.Color, iris:
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        `#include <common>\nuniform vec3 uSkinScale; uniform vec3 uIris; uniform float uIrisRef; uniform float uIrisOn; uniform float uHasMask; uniform sampler2D uIrisMask;\nvarying vec3 vBindPos;\n${HSV_GLSL}`,
+        `#include <common>\nuniform vec3 uSkinScale; uniform vec3 uIris; uniform float uLift; uniform highp sampler2D uFace;\nvarying vec3 vBindPos;\n${FACE_GLSL}`,
       )
       .replace(
         "#include <map_fragment>",
@@ -94,80 +136,50 @@ function tintBody(material: THREE.MeshStandardMaterial, skin: THREE.Color, iris:
 {
   vec3 lin = diffuseColor.rgb;
   vec3 srgb = pow(max(lin, 0.0), vec3(1.0 / 2.2));
-  vec3 hsv = rgb2hsv(srgb);
-  vec3 p = vBindPos;
-  float l = dot(lin, vec3(0.2126, 0.7152, 0.0722));
-  bool diaper = (srgb.b > srgb.r + 0.08 && srgb.b > srgb.g) || (p.y > 0.25 && p.y < 0.52 && hsv.y < 0.25 && hsv.z < 0.45);
-  bool face = p.y > 0.9 && p.y < 1.36 && p.z > 0.2 && abs(p.x) < 0.34;
-  bool eyes = face && p.y > 1.05 && abs(p.x) > 0.05;
-  // a íris vem da máscara do rosto (o traço grosso da pálpebra tem o mesmo marrom dela); sem máscara,
-  // laranja ou marrom forte que não seja o traço bem escuro
-  bool iris = uIrisOn > 0.5 && eyes
-    && (uHasMask > 0.5 ? texture2D(uIrisMask, vMapUv).r > 0.5 : hsv.y > 0.45 && hsv.x * 360.0 < 35.0 && hsv.z > 0.28);
-  // traço escuro, branco do olho e, abaixo dos olhos, as cores fortes (boca, língua) ficam como o
-  // designer pintou
-  bool feature = face && (hsv.z < 0.4 || (hsv.y < 0.15 && hsv.z > 0.7) || (p.y < 1.05 && hsv.y > 0.45));
-  if (iris) diffuseColor.rgb = uIris * (l / uIrisRef);
-  else if (!diaper && !feature) diffuseColor.rgb = lin * uSkinScale;
+  float mx = max(srgb.r, max(srgb.g, srgb.b)), sat = mx > 0.0 ? (mx - min(srgb.r, min(srgb.g, srgb.b))) / mx : 0.0;
+  vec3 p = vBindPos - vec3(0.0, uLift, 0.0);
+  bool diaper = (srgb.b > srgb.r + 0.08 && srgb.b > srgb.g) || (p.y > 0.25 && p.y < 0.52 && sat < 0.25 && mx < 0.45);
+  vec3 col = diaper ? lin : lin * uSkinScale;
+  // tamanho do pixel no rosto (fora do if: as derivadas pedem todos os pixels juntos)
+  float aa = length(fwidth(p.xy)) * 0.75;
+  if (p.y > 0.9 && p.y < 1.36 && p.z > 0.2 && abs(p.x) < 0.34) col = drawFace(col, p.xy, aa);
+  diffuseColor.rgb = col;
 }`,
       );
   };
-  material.customProgramCacheKey = () => "bebe-corpo";
+  material.customProgramCacheKey = () => "bebe-corpo-vetor";
 }
 
 /**
  * Grupos de peças que as animações ligam por cima do rosto: as pálpebras do piscar e a cara brava do
- * arremesso. O rosto do crachá fica como o designer pintou, então elas não aparecem.
+ * arremesso. O rosto do crachá fica parado, então elas não aparecem.
  */
 const FACE_OVERLAYS = ["piscar", "cara_brava"];
 
-/**
- * Íris do rosto no shader do corpo: uIrisOn é a íris à mostra (no olho fechado, o traço do olho fica
- * como veio) e uIrisMask a máscara dela, quando o rosto tem.
- */
-interface EyeUniforms {
-  uIrisOn: { value: number };
-  uHasMask: { value: number };
-  uIrisMask: { value: THREE.Texture | null };
-}
-
-/** Textura do rosto (ou a máscara da íris dele) no lugar da do corpo, com o mesmo jeito de amostrar. */
-function faceMap(tex: THREE.Texture | undefined, own: THREE.Texture | null): THREE.Texture | null {
-  if (!tex || !own) return tex ?? null;
-  if (tex.userData.sampled !== true) {
-    tex.wrapS = own.wrapS;
-    tex.wrapT = own.wrapT;
-    tex.magFilter = own.magFilter;
-    tex.minFilter = own.minFilter;
-    tex.anisotropy = own.anisotropy;
-    tex.userData.sampled = true;
-    tex.needsUpdate = true;
-  }
-  return tex;
+/** Altura do osso root na pose de amarração: 0 no corpo antigo, onde o rosto e as faixas foram medidos. */
+function rootLift(body: THREE.SkinnedMesh): number {
+  const bones = body.skeleton?.bones ?? [];
+  const i = bones.findIndex((b) => b.name === "root");
+  if (i < 0) return 0;
+  return new THREE.Vector3().setFromMatrixPosition(body.skeleton.boneInverses[i].clone().invert()).y;
 }
 
 /**
- * Veste pele, olhos e rosto do crachá no boneco (inner, já clonado): a textura da expressão escolhida,
- * tingida com a pele e o olho do crachá. O rosto não se mexe: as animações só mexem na escala das peças
- * do piscar e da cara brava, e elas ficam escondidas.
+ * Veste pele, olhos e rosto do crachá no boneco (inner, já clonado): a expressão escolhida desenhada
+ * no shader do corpo, com a pele e o olho do crachá.
  */
 export function dressFace(inner: THREE.Object3D, dna: AvatarDNA, mats: THREE.Material[]): void {
   for (const name of FACE_OVERLAYS) inner.getObjectByName(name)?.traverse((o) => (o.visible = false));
   const body = inner.getObjectByName("boneco") as THREE.SkinnedMesh | undefined;
   if (!body?.isMesh) return;
-  const face = ROSTOS[dna.face] ?? ROSTOS[0];
   const m = (body.material as THREE.MeshStandardMaterial).clone();
-  const own = m.map;
-  const mask = faceMap(irisMasks.get(face.texture), own);
-  m.map = faceMap(faceTextures.get(face.texture), own) ?? own;
-  tintBody(m, new THREE.Color(SKINS[dna.skin] ?? SKINS[0]), new THREE.Color(EYE_COLORS[dna.eyes] ?? EYE_COLORS[0]), {
-    uIrisOn: { value: face.iris ? 1 : 0 },
-    uHasMask: { value: mask ? 1 : 0 },
-    uIrisMask: { value: mask },
-  });
+  tintBody(
+    m,
+    new THREE.Color(SKINS[dna.skin] ?? SKINS[0]),
+    new THREE.Color(EYE_COLORS[dna.eyes] ?? EYE_COLORS[0]),
+    faceTexture(dna.face),
+    rootLift(body),
+  );
   body.material = m;
-  // o short justo é outra malha com o mesmo material do corpo: pega a mesma pele
-  const short = inner.getObjectByName("short") as THREE.Mesh | undefined;
-  if (short?.isMesh) short.material = m;
   mats.push(m);
 }
