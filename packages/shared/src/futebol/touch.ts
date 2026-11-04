@@ -1,7 +1,7 @@
 import { FUT } from "./balance";
-import { assistShot } from "./assist";
+import { assistShot, humanPass } from "./assist";
 import { kickBall } from "./ball";
-import type { Ball, Field, FutInput, FutPlayer } from "./types";
+import type { Ball, Field, FutInput, FutPlayer, RestartKind } from "./types";
 
 /** Resultado de um toque. Em "tackle" e "steal", victimId e ballFirst só vêm
  *  quando houve contato com um adversário (a falta é julgada em fouls.ts). */
@@ -34,6 +34,11 @@ const TACKLE_COOLDOWN_MS = 800;
 const TACKLE_DOWN_MS = 1200;
 const TACKLE_POKE = 7;
 
+/** Entrada de movimento acima disso (0..1) conta como direção escolhida. */
+const MOVE_INPUT_EPS = 0.1;
+/** Reinícios em que o chute do humano ainda vai ao gol (nos outros, lateral, escanteio, tiro de meta e saída, vale a mira). */
+const GOAL_RESTARTS: readonly (RestartKind | null)[] = [null, "falta", "penalti"];
+
 /** Folga além das linhas do campo, igual à de stepPlayer (m). */
 const MARGIN = 2;
 
@@ -56,9 +61,18 @@ function byId(a: FutPlayer, b: FutPlayer): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/** Direção (yaw) do carrinho: humano vai para onde anda (sem andar, para onde está virado); bot segue a mira. */
+function tackleYaw(p: FutPlayer, input: FutInput): number {
+  if (p.isBot) {
+    return input.aim;
+  }
+  return Math.hypot(input.mx, input.mz) > MOVE_INPUT_EPS ? Math.atan2(input.mx, input.mz) : p.facing;
+}
+
 function tackle(p: FutPlayer, input: FutInput, players: FutPlayer[], ball: Ball, field?: Field): TouchEvent {
-  const dx = Math.sin(input.aim);
-  const dz = Math.cos(input.aim);
+  const yaw = tackleYaw(p, input);
+  const dx = Math.sin(yaw);
+  const dz = Math.cos(yaw);
   /** Projeção (t) e distância lateral (d) de um ponto sobre o deslize. */
   const along = (x: number, z: number) => {
     const rx = x - p.x;
@@ -94,7 +108,7 @@ function tackle(p: FutPlayer, input: FutInput, players: FutPlayer[], ball: Ball,
   }
   p.vx = 0;
   p.vz = 0;
-  p.facing = input.aim;
+  p.facing = yaw;
   p.tackleMs = TACKLE_COOLDOWN_MS;
 
   if (ballFirst) {
@@ -140,7 +154,7 @@ export function resolveTouches(
   inputs: Map<string, FutInput>,
   dtMs: number,
   field?: Field,
-  assist?: { rng: () => number; freeKick: boolean },
+  assist?: { rng: () => number; freeKick: boolean; restart?: RestartKind | null },
 ): TouchEvent[] {
   const events: TouchEvent[] = [];
   const ordered = [...players].sort(byId);
@@ -200,8 +214,11 @@ export function resolveTouches(
       touch(ball, p);
       // chute de humano perto do gol: a sim leva a bola ao canto escolhido (a mira só diz o lado)
       // (na cobrança de falta a assistência vale também para o bot, que passa a barreira do mesmo jeito)
-      const help = assist && field && kind === "kick" && (!p.isBot || assist.freeKick) ? assistShot(p, input, power01, ball, field, players, assist.rng, assist.freeKick) : null;
-      kickBall(ball, help?.yaw ?? input.aim, power01, kind, help ? { vy: help.vy, speed: help.speed, curve: help.curve } : {});
+      const toGoal = !p.isBot && GOAL_RESTARTS.includes(assist?.restart ?? null);
+      const help = assist && field && kind === "kick" && (!p.isBot || assist.freeKick) ? assistShot(p, input, power01, ball, field, players, assist.rng, assist.freeKick, toGoal) : null;
+      // passe de humano: vai ao companheiro mais na frente de onde ele está virado (sem companheiro, vale a mira)
+      const mate = assist && kind === "pass" && !p.isBot ? humanPass(p, power01, players) : null;
+      kickBall(ball, help?.yaw ?? mate?.yaw ?? input.aim, mate?.power ?? power01, kind, help ? { vy: help.vy, speed: help.speed, curve: help.curve } : {});
       kicked.add(p.id);
       events.push({ t: kind, id: p.id, ok: true });
     } else if (charged && kind === "kick") {

@@ -91,7 +91,7 @@ export function stepWorld(m: FutMatch, dtMs: number, o: WorldOpts = {}): WorldSt
   // nas mãos, o motor recebe uma cópia fora de alcance.
   const holder = m.players.find((p) => p.role === "goleiro" && p.id === m.ball.ownerId) ?? null;
   const ball = holder ? { ...m.ball, y: 99, ownerId: null } : m.ball;
-  events.push(...resolveTouches(touchers.filter((p) => p.role === "linha"), ball, inputs, dtMs, m.field, { rng: m.rng, freeKick: m.restart?.kind === "falta" }));
+  events.push(...resolveTouches(touchers.filter((p) => p.role === "linha"), ball, inputs, dtMs, m.field, { rng: m.rng, freeKick: m.restart?.kind === "falta", restart: m.restart?.kind ?? null }));
   if (holder) {
     holdBall(m, holder);
   }

@@ -1,5 +1,5 @@
 import { FUT } from "./balance";
-import { attackDir } from "./bots";
+import { attackDir, passPowerFor } from "./bots";
 import type { Ball, Field, FutInput, FutPlayer } from "./types";
 
 /** Resultado do chute assistido: direção (yaw) e velocidade vertical (m/s) que levam ao canto escolhido. */
@@ -96,6 +96,73 @@ function planFreeKick(ball: Ball, field: Field, dir: number, side: number, targe
 /** Velocidade (m/s) máxima que o planejamento da falta considera (a carga não limita: o cobrador só escolhe o canto) (acima disso nada passa a barreira e cai sob o travessão). */
 const FREE_KICK_CAP = 22;
 
+/** Canto longe do goleiro adversário (sem goleiro fora do meio, sorteia). */
+function openCorner(p: FutPlayer, players: readonly FutPlayer[], rng: () => number): number {
+  const keeper = players.find((q) => q.side !== p.side && q.role === "goleiro");
+  return keeper && Math.abs(keeper.z) > 0.1 ? -Math.sign(keeper.z) : rng() < 0.5 ? -1 : 1;
+}
+
+/** Entrada lateral do movimento (eixo z do campo) que já conta como escolher um canto. */
+const LATERAL_PICK = 0.35;
+
+/** Canto do chute para o gol: o lado em que o jogador anda (z); parado, o poste longe de onde ele está; no meio, o canto livre do goleiro. */
+function goalSide(p: FutPlayer, input: FutInput, ball: Ball, field: Field, players: readonly FutPlayer[], rng: () => number): number {
+  if (Math.abs(input.mz) >= LATERAL_PICK) {
+    return Math.sign(input.mz);
+  }
+  if (Math.abs(ball.z) > field.goalHalfW * 0.5) {
+    return -Math.sign(ball.z);
+  }
+  return openCorner(p, players, rng);
+}
+
+/** Diferença de ângulo (rad, cerca de 1 grau) abaixo da qual dois companheiros empatam e vale o mais perto. */
+const TIE_RAD = 0.017;
+
+/**
+ * Companheiro para o passe do humano: o de linha ativo com menor desvio angular em relação ao facing do portador; quem está atrás
+ * (desvio de 90 graus ou mais) só vale se não houver ninguém à frente; empate de ângulo vai para o mais perto.
+ */
+export function passTarget(p: FutPlayer, players: readonly FutPlayer[]): FutPlayer | null {
+  let best: FutPlayer | null = null;
+  let bestDev = Infinity;
+  let bestD = Infinity;
+  let bestFront = false;
+  for (const q of players) {
+    if (q.id === p.id || q.side !== p.side || q.role !== "linha" || q.sentOff || q.downMs > 0) {
+      continue;
+    }
+    const dx = q.x - p.x;
+    const dz = q.z - p.z;
+    const d = Math.hypot(dx, dz);
+    const raw = Math.atan2(dx, dz) - p.facing;
+    const dev = Math.abs(Math.atan2(Math.sin(raw), Math.cos(raw)));
+    const front = dev < Math.PI / 2;
+    const better =
+      best === null ||
+      (front && !bestFront) ||
+      (front === bestFront && (dev < bestDev - TIE_RAD || (Math.abs(dev - bestDev) <= TIE_RAD && d < bestD)));
+    if (better) {
+      best = q;
+      bestDev = dev;
+      bestD = d;
+      bestFront = front;
+    }
+  }
+  return best;
+}
+
+/** Passe do humano: direção ao companheiro escolhido e força mínima para a bola chegar até ele. null = sem companheiro. */
+export function humanPass(p: FutPlayer, power01: number, players: readonly FutPlayer[]): { yaw: number; power: number } | null {
+  const mate = passTarget(p, players);
+  if (!mate) {
+    return null;
+  }
+  const dx = mate.x - p.x;
+  const dz = mate.z - p.z;
+  return { yaw: Math.atan2(dx, dz), power: Math.max(power01, passPowerFor(Math.hypot(dx, dz))) };
+}
+
 /** Velocidade (m/s) de um chute de força power01 (a mesma de kickBall). */
 const shotSpeed = (p: number): number => FUT.shotMin + (FUT.shotMax - FUT.shotMin) * p;
 
@@ -105,28 +172,35 @@ const shotSpeed = (p: number): number => FUT.shotMin + (FUT.shotMax - FUT.shotMi
  * e a subida são recalculadas para a bola chegar ao canto, com imprecisão que cresce com a força e com a marcação.
  * Devolve null fora do alcance ou com a mira longe do gol (o chute sai como o jogador apontou).
  */
-export function assistShot(p: FutPlayer, input: FutInput, power01: number, ball: Ball, field: Field, players: readonly FutPlayer[], rng: () => number, freeKick = false): ShotAssist | null {
+export function assistShot(p: FutPlayer, input: FutInput, power01: number, ball: Ball, field: Field, players: readonly FutPlayer[], rng: () => number, freeKick = false, toGoal = false): ShotAssist | null {
   const dir = attackDir(p.side);
   const gx = dir * field.halfL;
   const dx = gx - ball.x;
-  const ax = Math.sin(input.aim);
-  const az = Math.cos(input.aim);
-  const along = ax * dir;
-  // de costas para o gol, muito longe, ou já na linha de fundo: sem assistência
-  if (dx * dir < 1 || dx * dir > FUT.assistRange || along < 0.5) {
-    return null;
-  }
-  const t = dx / ax;
-  const zc = ball.z + az * t;
-  if (Math.abs(zc) > field.goalHalfW * FUT.assistReach) {
-    return null;
-  }
-
-  // lado: onde a mira cruza a linha; no meio do gol, o canto longe do goleiro adversário
-  let side = Math.sign(zc);
-  if (Math.abs(zc) < field.goalHalfW * 0.2) {
-    const keeper = players.find((q) => q.side !== p.side && q.role === "goleiro");
-    side = keeper && Math.abs(keeper.z) > 0.1 ? -Math.sign(keeper.z) : rng() < 0.5 ? -1 : 1;
+  let side: number;
+  if (toGoal) {
+    // humano: o chute vai sempre ao gol adversário, de qualquer lugar; a mira da câmera não conta
+    if (dx * dir < 0.5) {
+      return null;
+    }
+    side = goalSide(p, input, ball, field, players, rng);
+  } else {
+    const ax = Math.sin(input.aim);
+    const az = Math.cos(input.aim);
+    const along = ax * dir;
+    // de costas para o gol, muito longe, ou já na linha de fundo: sem assistência
+    if (dx * dir < 1 || dx * dir > FUT.assistRange || along < 0.5) {
+      return null;
+    }
+    const t = dx / ax;
+    const zc = ball.z + az * t;
+    if (Math.abs(zc) > field.goalHalfW * FUT.assistReach) {
+      return null;
+    }
+    // lado: onde a mira cruza a linha; no meio do gol, o canto longe do goleiro adversário
+    side = Math.sign(zc);
+    if (Math.abs(zc) < field.goalHalfW * 0.2) {
+      side = openCorner(p, players, rng);
+    }
   }
   const targetZ = side * field.goalHalfW * FUT.assistCorner;
 

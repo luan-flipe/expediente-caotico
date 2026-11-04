@@ -94,17 +94,17 @@ describe("goleiro lança para o atacante mais avançado e livre", () => {
 });
 
 describe("chute assistido", () => {
-  function shoot(power01: number, aim: number, seed: number, over: Partial<FutPlayer> = {}, others: FutPlayer[] = []): Ball {
+  function shoot(power01: number, aim: number, seed: number, over: Partial<FutPlayer> = {}, others: FutPlayer[] = [], mz = 0): Ball {
     const p = mk({ x: 18, z: 1, ...over });
     const b = ball({ x: p.x + 0.7, z: p.z, ownerId: "p1" });
     const rng = mulberry32(seed);
     const players = [p, ...others];
     const ms = power01 * FUT.chargeMaxMs;
-    const down = new Map([["p1", inp({ aim, kick: "charge" })]]);
+    const down = new Map([["p1", inp({ aim, mz, kick: "charge" })]]);
     for (let t = 0; t < ms; t += 16) {
       resolveTouches(players, b, down, 16, field, { rng, freeKick: false });
     }
-    resolveTouches(players, b, new Map([["p1", inp({ aim, kick: "release" })]]), 16, field, { rng, freeKick: false });
+    resolveTouches(players, b, new Map([["p1", inp({ aim, mz, kick: "release" })]]), 16, field, { rng, freeKick: false });
     return b;
   }
 
@@ -119,10 +119,9 @@ describe("chute assistido", () => {
     return { z: NaN, y: NaN, goal: false };
   }
 
-  it("mirar à direita ou à esquerda do gol escolhe o canto, mesmo sem acertar a trave", () => {
-    const px = 18;
-    const right = shoot(0.4, Math.atan2(field.halfL - px, 1.5 - 1), 1);
-    const left = shoot(0.4, Math.atan2(field.halfL - px, -1.5 - 1), 1);
+  it("andar para a direita ou para a esquerda escolhe o canto, e a mira da câmera não conta", () => {
+    const right = shoot(0.4, -Math.PI / 2, 1, {}, [], 1);
+    const left = shoot(0.4, -Math.PI / 2, 1, {}, [], -1);
     expect(cross(right).z).toBeGreaterThan(0.8);
     expect(cross(left).z).toBeLessThan(-0.8);
   });
@@ -160,11 +159,11 @@ describe("chute assistido", () => {
     expect(spread([marker])).toBeGreaterThan(spread([]));
   });
 
-  it("sem assistência: longe do gol, de costas, passe e bot saem como apontados", () => {
+  it("humano de longe ou de costas chuta para o gol; bot e a assistência por mira seguem a mira", () => {
     const far = shoot(0.6, 0.3, 1, { x: -5 });
-    expect(Math.atan2(far.vx, far.vz)).toBeCloseTo(0.3, 5);
+    expect(far.vx).toBeGreaterThan(5);
     const back = shoot(0.6, -Math.PI / 2, 1);
-    expect(Math.atan2(back.vx, back.vz)).toBeCloseTo(-Math.PI / 2, 5);
+    expect(back.vx).toBeGreaterThan(5);
     const bot = shoot(0.6, Math.atan2(field.halfL - 18, 2), 1, { isBot: true });
     expect(Math.atan2(bot.vx, bot.vz)).toBeCloseTo(Math.atan2(field.halfL - 18, 2), 5);
     const p = mk({ x: 18, z: 1 });
