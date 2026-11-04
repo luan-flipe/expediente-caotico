@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FUT, fieldFor, markCarry, stepPlayer, type FutInput, type FutPlayer } from "@ec/shared";
-import { reconcileDrawn, predictedPlayer } from "./reconcile";
+import { ackRecuou, reconcileDrawn, predictedPlayer } from "./reconcile";
 
 /** Posição desenhada: ponto anterior + (previsão - anterior) * k + desvio. */
 const draw = (prev: { x: number; z: number }, pred: { x: number; z: number }, vis: { x: number; z: number }, k: number) => ({
@@ -69,5 +69,15 @@ describe("predição com condução e recuperação", () => {
       stepPlayer(sem, input(i), field, DT);
     }
     expect(Math.hypot(com.x - sem.x, com.z - sem.z)).toBeGreaterThan(0.01);
+  });
+});
+
+describe("ackRecuou", () => {
+  it("só o ack que anda para trás (conexão nova depois da queda) descarta os comandos pendentes", () => {
+    expect(ackRecuou(500, 0)).toBe(true);
+    expect(ackRecuou(500, 499)).toBe(true);
+    expect(ackRecuou(500, 500)).toBe(false);
+    expect(ackRecuou(0, 0)).toBe(false);
+    expect(ackRecuou(3, 40)).toBe(false);
   });
 });

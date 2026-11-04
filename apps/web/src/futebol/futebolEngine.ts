@@ -29,7 +29,7 @@ import { getState, net, setState } from "../store";
 import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
 import ballUrl from "../assets/futebol/bola.glb?url";
 import pitchUrl from "../assets/futebol/ipatingao.glb?url";
-import { predictedPlayer, reconcileDrawn } from "./reconcile";
+import { ackRecuou, predictedPlayer, reconcileDrawn } from "./reconcile";
 import { TOUCH_KICK, TOUCH_PASS, cancelCharges, chargePower, hasBallReach, newButtons, newCharge, newControlState, pressButton, readFutInput, releaseButton, stepCharge, type FutKeys } from "./controls";
 import { Arena } from "./arena";
 import { campoDoMapa } from "./arenaLayout";
@@ -273,6 +273,7 @@ export class FutebolEngine {
   private prevX = 0;
   private prevZ = 0;
   private pending: { seq: number; input: FutInput }[] = [];
+  private lastAck = 0;
   private vis = { x: 0, z: 0 };
   private charge = newCharge();
   private myPos = new THREE.Vector3();
@@ -732,6 +733,12 @@ export class FutebolEngine {
       this.vis.z = 0;
       return;
     }
+    // sessão retomada depois de uma queda: o servidor recomeçou a contagem e o que ficou pendente nunca chegou
+    if (ackRecuou(this.lastAck, me.ackSeq)) {
+      this.pending = [];
+      this.pred = null;
+    }
+    this.lastAck = me.ackSeq;
     while (this.pending.length && this.pending[0].seq <= me.ackSeq) this.pending.shift();
     const next = predictedPlayer(p, me, this.snap?.ball.ownerId ?? null);
     const hold = this.restartHold();

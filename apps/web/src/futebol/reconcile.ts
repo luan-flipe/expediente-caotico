@@ -40,3 +40,8 @@ export function reconcileDrawn(drawn: XZ, next: XZ, maxErr = 3): { prev: XZ; vis
   if (Math.hypot(dx, dz) > maxErr) return { prev: { x: next.x, z: next.z }, vis: { x: 0, z: 0 } };
   return { prev: { x: next.x, z: next.z }, vis: { x: dx, z: dz } };
 }
+
+/** O último seq confirmado pelo servidor andou para trás: a sessão foi retomada depois de uma queda e o contador recomeçou. Os comandos pendentes nunca chegaram. */
+export function ackRecuou(prev: number, next: number): boolean {
+  return next < prev;
+}

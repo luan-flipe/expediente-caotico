@@ -153,13 +153,19 @@ export function dropFutPlayer(m: FutMatch, id: string): void {
   }
 }
 
-/** Humano que voltou (mesmo token): reassume o controle do seu jogador. */
+/** Humano que voltou (mesmo token): reassume o controle do seu jogador, no ponto em que o bot o deixou.
+ *  Zera a entrada, a carga e a contagem de entradas confirmadas: a conexão nova recomeça o seq do 1. */
 export function reviveFutPlayer(m: FutMatch, id: string): void {
-  m.connected.add(id);
   const p = m.players.find((q) => q.id === id);
-  if (p && p.role === "linha") {
-    p.isBot = false;
+  if (!p || p.role !== "linha" || !m.info.get(id)?.human) {
+    return;
   }
+  m.connected.add(id);
+  m.inputs.delete(id);
+  m.ack.delete(id);
+  p.isBot = false;
+  p.chargeMs = 0;
+  p.chargeKind = null;
 }
 
 /** Jogadores de volta à formação (metade própria) e bola no centro. */

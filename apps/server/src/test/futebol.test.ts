@@ -326,3 +326,58 @@ describe("campeonato entre setores", () => {
     b.close();
   }, 40000);
 });
+
+describe("queda de conexão no futebol", () => {
+  async function started() {
+    const t = await twoPlayers();
+    t.a.send({ t: "mode", mode: "futebol" });
+    t.b.send({ t: "ready", ready: true });
+    await t.a.waitFor("lobby", (m) => m.state.players.find((p) => p.id === t.wb.id)?.ready === true);
+    t.a.send({ t: "start" });
+    await t.a.waitFor("fsnap");
+    return t;
+  }
+  const idle = { mx: 0, mz: 0, aim: 0, sprint: false, kick: "none", pass: "none" };
+
+  it("ao voltar, a contagem de entradas recomeça e o servidor confirma a conexão nova", async () => {
+    const { a, b, wa, wb, room } = await started();
+    const token = room.members.get(wb.id)!.token;
+    b.send({ t: "futInput", ...idle, seq: 50 });
+    await b.waitFor("fsnap", (m) => m.me?.ackSeq === 50);
+    b.close();
+    await a.waitFor("fsnap", (m) => m.s.players.find((p) => p.id === wb.id)?.isBot === true);
+    const b2 = new Client();
+    await b2.open();
+    b2.send({ t: "resume", code: wa.code, token });
+    await b2.waitFor("welcome");
+    const back = await b2.waitFor("fsnap", (m) => m.s.players.find((p) => p.id === wb.id)?.isBot === false);
+    expect(back.me!.ackSeq).toBe(0);
+    b2.send({ t: "futInput", ...idle, seq: 1 });
+    await b2.waitFor("fsnap", (m) => m.me?.ackSeq === 1);
+    a.close();
+    b2.close();
+  }, 15000);
+
+  it("sala sem humanos segue só com bots, e quem volta retoma o boneco", async () => {
+    const { a, b, wa, wb, room } = await started();
+    const token = room.members.get(wb.id)!.token;
+    a.close();
+    b.close();
+    for (let t = 0; t < 100 && room.futebol!.connected.size > 0; t++) await new Promise((r) => setTimeout(r, 20));
+    const fut = room.futebol!;
+    expect(fut.connected.size).toBe(0);
+    expect(fut.players.filter((p) => p.role === "linha").every((p) => p.isBot)).toBe(true);
+    const e0 = fut.now;
+    await new Promise((r) => setTimeout(r, 400));
+    expect(fut.now).toBeGreaterThan(e0);
+    const b2 = new Client();
+    await b2.open();
+    b2.send({ t: "resume", code: wa.code, token });
+    await b2.waitFor("welcome");
+    const back = await b2.waitFor("fsnap", (m) => m.s.players.find((p) => p.id === wb.id)?.isBot === false);
+    expect(back.me).not.toBeNull();
+    // o outro continua bot até voltar
+    expect(back.s.players.find((p) => p.id === wa.id)!.isBot).toBe(true);
+    b2.close();
+  }, 15000);
+});
