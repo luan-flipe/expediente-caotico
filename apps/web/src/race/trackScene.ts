@@ -5,6 +5,18 @@ import { applyWaxedFloorSheen } from "./vfxJuice";
 import parqueUrl from "../assets/itens/parque-ipanema-3d.glb?url";
 import rampGlbUrl from "../assets/itens/ramp-jump.glb?url";
 import { createGltfLoader } from "../game/gltfLoader";
+import {
+  buildDesertBleachers,
+  buildDesertCanyonRampBody,
+  buildDesertHousesAndSkulls,
+  buildDesertMudPool,
+  buildDesertSky,
+  buildDesertTerrain,
+  buildDesertTunnelMountain,
+  buildDesertVegetationOfficial,
+  buildDesertWalls,
+  getDesertTexture,
+} from "./desertTrackBuilder";
 
 let parqueModel: THREE.Group | null = null;
 let parquePromise: Promise<THREE.Group | null> | null = null;
@@ -304,90 +316,84 @@ function curbTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
   return t;
 }
 
-/** Asfalto rústico avermelhado/arenoso com marcas de desgaste e poeira do deserto. */
+/** Asfalto com grão e linhas de neon (bordas rosa/ciano, tracejadas violeta e amarela) fiel a 3-pista-deserto/index.html. */
 function desertRoadTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
   return canvasTexture(
     512,
-    512,
+    256,
     (g) => {
-      g.fillStyle = "#4a3a32";
-      g.fillRect(0, 0, 512, 512);
+      g.fillStyle = "#4a4a4c";
+      g.fillRect(0, 0, 512, 256);
 
-      // Granulação de cascalho e areia
-      for (let i = 0; i < 2000; i++) {
-        const a = Math.random() * 0.12 + 0.03;
-        const roll = Math.random();
-        if (roll < 0.4) {
-          g.fillStyle = `rgba(217, 165, 102, ${a * 1.5})`;
-        } else if (roll < 0.7) {
-          g.fillStyle = `rgba(139, 87, 56, ${a * 1.8})`;
-        } else {
-          g.fillStyle = `rgba(20, 15, 12, ${a * 2})`;
-        }
-        g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+      // Granulado fino de asfalto
+      for (let i = 0; i < 4000; i++) {
+        const v = 60 + ((Math.random() * 40) | 0);
+        g.fillStyle = `rgb(${v},${v},${v + 2})`;
+        g.fillRect(Math.random() * 512, Math.random() * 256, 1.5, 1.5);
       }
 
-      // Faixas de borracha queimada no traçado
-      const rubber = g.createLinearGradient(0, 0, 0, 512);
-      for (const [at, a] of [
-        [0, 0],
-        [0.18, 0.22],
-        [0.35, 0.06],
-        [0.5, 0.14],
-        [0.65, 0.06],
-        [0.82, 0.22],
-        [1, 0],
-      ]) {
-        rubber.addColorStop(at, `rgba(25, 18, 14, ${a})`);
-      }
-      g.fillStyle = rubber;
-      g.fillRect(0, 0, 512, 512);
+      // Linhas em neon das pistas: bordas rosa e ciano (ao longo de x, nas extremidades y)
+      g.fillStyle = "#ff3fa4";
+      g.fillRect(0, 4, 512, 8);
+      g.fillStyle = "#2ef2ff";
+      g.fillRect(0, 244, 512, 8);
 
-      // Névoa e rastros suaves de areia varrida pelo vento
-      for (let y = 30; y < 512; y += 70) {
-        g.fillStyle = "rgba(226, 180, 122, 0.07)";
-        g.fillRect(0, y, 512, 14);
+      // Faixas tracejadas centrais (violeta e amarela)
+      for (const [y, c] of [
+        [61, "#b35cff"],
+        [124, "#ffe14d"],
+        [187, "#b35cff"],
+      ] as const) {
+        g.fillStyle = c;
+        g.fillRect(40, y, 190, 8);
+        g.fillRect(296, y, 190, 8);
       }
     },
     textures,
   );
 }
 
-/** Zebras de concreto desgastado pelo sol e areia do deserto. */
-function desertCurbTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
-  const t = canvasTexture(
+/** Textura emissiva para as linhas neon do asfalto */
+function desertRoadEmissiveTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    512,
     256,
-    64,
     (g) => {
-      // Concreto envelhecido
-      g.fillStyle = "#dfd5c4";
-      g.fillRect(0, 0, 256, 64);
-      // Blocos desgastados avermelhados pelo sol
-      g.fillStyle = "#a64938";
-      g.fillRect(0, 0, 128, 64);
+      g.fillStyle = "#000000";
+      g.fillRect(0, 0, 512, 256);
 
-      // Poeira e desgaste
-      for (const x of [0, 128]) {
-        g.fillStyle = "rgba(45, 30, 20, 0.35)";
-        g.fillRect(x, 0, 4, 64);
-        g.fillStyle = "rgba(255, 240, 220, 0.4)";
-        g.fillRect(x + 4, 0, 3, 64);
-      }
-      // Marcas de poeira e borracha na borda
-      g.fillStyle = "#634735";
-      g.fillRect(0, 56, 256, 8);
+      g.fillStyle = "#ff3fa4";
+      g.fillRect(0, 4, 512, 8);
+      g.fillStyle = "#2ef2ff";
+      g.fillRect(0, 244, 512, 8);
 
-      // Granulado de erosão
-      for (let i = 0; i < 400; i++) {
-        const a = Math.random() * 0.15 + 0.03;
-        g.fillStyle = `rgba(70, 45, 25, ${a})`;
-        g.fillRect(Math.random() * 256, Math.random() * 64, 2, 2);
+      for (const [y, c] of [
+        [61, "#b35cff"],
+        [124, "#ffe14d"],
+        [187, "#b35cff"],
+      ] as const) {
+        g.fillStyle = c;
+        g.fillRect(40, y, 190, 8);
+        g.fillRect(296, y, 190, 8);
       }
     },
     textures,
   );
-  t.wrapT = THREE.ClampToEdgeWrapping;
-  return t;
+}
+
+/** Zebras oficiais de 3-pista-deserto/index.html: blocos vermelhos e creme alternados ao longo da pista. */
+function desertCurbTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
+  return canvasTexture(
+    64,
+    16,
+    (g) => {
+      g.fillStyle = "#d23b2c";
+      g.fillRect(0, 0, 32, 16);
+      g.fillStyle = "#f5f2ec";
+      g.fillRect(32, 0, 32, 16);
+    },
+    textures,
+  );
 }
 
 /** Terreno arenoso em tons quentes de dunas (#d9a566 / #e2b47a com acabamento áspero). */
@@ -1340,123 +1346,6 @@ function buildBoostPad(track: Track, s: number, textures: THREE.Texture[], laneO
   return group;
 }
 
-/** Arco/abóbada de rochas escuras cobrindo a pista como uma caverna natural escavada no maciço rochoso. */
-function buildCaveTunnel(track: Track): THREE.Group {
-  const group = new THREE.Group();
-  const sStart = track.ctrlS[22] ?? 0;
-  const sEnd = track.ctrlS[26] ?? sStart + 40;
-  const step = 1.4;
-  const numSteps = Math.max(2, Math.ceil((sEnd - sStart) / step));
-
-  const rockMat = new THREE.MeshStandardMaterial({
-    color: "#3a2b22",
-    roughness: 0.95,
-    flatShading: true,
-    side: THREE.DoubleSide,
-  });
-
-  const numRadial = 10;
-  const positions: number[] = [];
-  const rings: THREE.Vector3[][] = [];
-
-  for (let i = 0; i <= numSteps; i++) {
-    const s = sStart + ((sEnd - sStart) * i) / numSteps;
-    const at = pointAt(track, s);
-    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-    const baseY = heightAt(track, s);
-    const hw = at.halfWidth + 0.8;
-    const ring: THREE.Vector3[] = [];
-
-    for (let j = 0; j <= numRadial; j++) {
-      const theta = (j / numRadial) * Math.PI;
-      const u = Math.cos(theta);
-      const v = Math.sin(theta);
-      const noise = Math.sin(s * 1.3 + j * 2.1) * 0.35 + Math.cos(s * 0.8 + j * 1.7) * 0.25;
-      const rx = hw + 0.4 + noise;
-      const ry = 6.2 + noise * 1.2;
-
-      const px = at.pos.x - nrm.x * u * rx;
-      const pz = at.pos.z - nrm.z * u * rx;
-      const py = baseY + Math.max(-0.2, v * ry);
-
-      ring.push(new THREE.Vector3(px, py, pz));
-    }
-    rings.push(ring);
-  }
-
-  for (let i = 0; i < numSteps; i++) {
-    const r0 = rings[i];
-    const r1 = rings[i + 1];
-    for (let j = 0; j < numRadial; j++) {
-      const p00 = r0[j];
-      const p01 = r0[j + 1];
-      const p10 = r1[j];
-      const p11 = r1[j + 1];
-
-      positions.push(
-        p00.x, p00.y, p00.z,
-        p10.x, p10.y, p10.z,
-        p11.x, p11.y, p11.z,
-
-        p00.x, p00.y, p00.z,
-        p11.x, p11.y, p11.z,
-        p01.x, p01.y, p01.z,
-      );
-    }
-  }
-
-  const caveGeo = new THREE.BufferGeometry();
-  caveGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  caveGeo.computeVertexNormals();
-  group.add(new THREE.Mesh(caveGeo, rockMat));
-
-  // Pilares rochosos nos portais da caverna
-  const boulderMat = new THREE.MeshStandardMaterial({ color: "#48362c", roughness: 0.95, flatShading: true });
-  for (const s of [sStart, sEnd]) {
-    const at = pointAt(track, s);
-    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-    const by = heightAt(track, s);
-    for (const side of [-1, 1]) {
-      const bx = at.pos.x + nrm.x * (at.halfWidth + 2.2) * side;
-      const bz = at.pos.z + nrm.z * (at.halfWidth + 2.2) * side;
-      const pillar = mesh(new THREE.DodecahedronGeometry(2.4, 1), boulderMat, bx, by + 2.2, bz);
-      pillar.scale.set(1.1, 2.0, 1.2);
-      group.add(pillar);
-    }
-    const topPillar = mesh(new THREE.DodecahedronGeometry(2.2, 1), boulderMat, at.pos.x, by + 6.8, at.pos.z);
-    topPillar.scale.set(at.halfWidth * 0.9, 0.8, 1.4);
-    group.add(topPillar);
-  }
-
-  // Estalactites e lanternas nas paredes
-  const stalactiteGeo = new THREE.ConeGeometry(0.4, 2.2, 6);
-  const lanternMat = new THREE.MeshStandardMaterial({
-    color: "#ffaa33",
-    emissive: "#ff8800",
-    emissiveIntensity: 1.8,
-  });
-  for (let s = sStart + 3; s < sEnd - 2; s += 6) {
-    const at = pointAt(track, s);
-    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-    const by = heightAt(track, s);
-
-    const stX = at.pos.x + ((s % 3) - 1) * 1.8;
-    const stZ = at.pos.z + ((s % 2) - 0.5) * 1.2;
-    const st = mesh(stalactiteGeo, rockMat, stX, by + 5.6, stZ);
-    st.rotation.x = Math.PI;
-    group.add(st);
-
-    for (const side of [-1, 1]) {
-      const lx = at.pos.x + nrm.x * (at.halfWidth + 0.4) * side;
-      const lz = at.pos.z + nrm.z * (at.halfWidth + 0.4) * side;
-      const torch = mesh(new THREE.CylinderGeometry(0.1, 0.08, 0.35, 6), lanternMat, lx, by + 2.2, lz);
-      group.add(torch);
-    }
-  }
-
-  return group;
-}
-
 /** Túnel monumental com tubo cilíndrico envolvente (TR = 14, TAX = 9.4), anéis de néon, luzes âmbar, portais de perigo e morro externo. */
 function buildDesertTunnel(track: Track, textures: THREE.Texture[]): THREE.Group {
   const group = new THREE.Group();
@@ -1645,325 +1534,6 @@ function buildDesertTunnel(track: Track, textures: THREE.Texture[]): THREE.Group
   return group;
 }
 
-function safeMerge(geos: THREE.BufferGeometry[]): THREE.BufferGeometry | null {
-  if (geos.length === 0) return null;
-  const prepared = geos.map((g) => {
-    const nonIdx = g.index ? g.toNonIndexed() : g.clone();
-    if (!nonIdx.getAttribute("normal")) nonIdx.computeVertexNormals();
-    if (!nonIdx.getAttribute("uv")) {
-      const posCount = nonIdx.getAttribute("position").count;
-      nonIdx.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(posCount * 2), 2));
-    }
-    return nonIdx;
-  });
-  const res = mergeGeometries(prepared, false);
-  prepared.forEach((g) => g.dispose());
-  return res;
-}
-
-/** Cactos Saguaro arredondados, cactos bola com flores desabrochadas, palmas (orelha-de-padre) e tufos de capim dourado. */
-function buildDesertVegetation(track: Track): THREE.Group {
-  const group = new THREE.Group();
-  const saguaroGeos: THREE.BufferGeometry[] = [];
-  const barrelGeos: THREE.BufferGeometry[] = [];
-  const pearGeos: THREE.BufferGeometry[] = [];
-  const flowerMagentaGeos: THREE.BufferGeometry[] = [];
-  const flowerGoldGeos: THREE.BufferGeometry[] = [];
-  const flowerOrangeGeos: THREE.BufferGeometry[] = [];
-  const grassGeos: THREE.BufferGeometry[] = [];
-
-  const free = (p: Vec2, r: number) => {
-    const pr = progressOf(track, p);
-    return pr.dist > pr.halfWidth + r + 0.6;
-  };
-
-  const sTunnelStart = track.ctrlS[14] ?? -1;
-  const sTunnelEnd = track.ctrlS[20] ?? -1;
-  const sCaveStart = track.ctrlS[22] ?? -1;
-  const sCaveEnd = track.ctrlS[26] ?? -1;
-  const mainGap = track.ramps.find((r) => r.path === -1 && r.gap)?.gap;
-
-  const inTunnelOrGap = (s: number) => {
-    if (sTunnelStart >= 0 && sTunnelEnd >= 0 && s >= sTunnelStart - 3 && s <= sTunnelEnd + 3) return true;
-    if (sCaveStart >= 0 && sCaveEnd >= 0 && s >= sCaveStart - 2 && s <= sCaveEnd + 2) return true;
-    if (mainGap && s >= mainGap.sFrom - 5 && s <= mainGap.sTo + 5) return true;
-    return false;
-  };
-
-  // Helper para adicionar cacto saguaro cilíndrico suave com domo semiesférico e braços orgânicos
-  const addSaguaro = (px: number, pz: number, baseY: number, heading: number, s: number, side: number) => {
-    const trunkH = 3.6 + ((s * 3.7) % 4) * 0.45;
-    const trunkGeo = new THREE.CylinderGeometry(0.38, 0.42, trunkH, 14);
-    trunkGeo.translate(px, baseY + trunkH / 2, pz);
-    saguaroGeos.push(trunkGeo);
-
-    // Topo arredondado com domo semiesférico
-    const capGeo = new THREE.SphereGeometry(0.38, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-    capGeo.translate(px, baseY + trunkH, pz);
-    saguaroGeos.push(capGeo);
-
-    const nrm = sideNormal(Math.sin(heading), Math.cos(heading));
-
-    // Braço primário curvo orgânico: cotovelo horizontal cilíndrico + segmento vertical + cúpula semiesférica no topo
-    const armH1 = trunkH * 0.52;
-    const elbowR1 = 0.22;
-    const elbowLen1 = 0.85;
-    const armHBar1 = new THREE.CylinderGeometry(elbowR1, elbowR1, elbowLen1, 14);
-    armHBar1.rotateZ(Math.PI / 2);
-    armHBar1.rotateY(heading);
-    armHBar1.translate(px + nrm.x * (elbowLen1 / 2 + 0.18) * side, baseY + armH1, pz + nrm.z * (elbowLen1 / 2 + 0.18) * side);
-    saguaroGeos.push(armHBar1);
-
-    const vertLen1 = 1.6 + ((s * 2) % 3) * 0.3;
-    const armX1 = px + nrm.x * (elbowLen1 + 0.18) * side;
-    const armZ1 = pz + nrm.z * (elbowLen1 + 0.18) * side;
-    const armVBar1 = new THREE.CylinderGeometry(elbowR1, elbowR1 * 1.05, vertLen1, 14);
-    armVBar1.translate(armX1, baseY + armH1 + vertLen1 / 2, armZ1);
-    saguaroGeos.push(armVBar1);
-
-    const armCap1 = new THREE.SphereGeometry(elbowR1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-    armCap1.translate(armX1, baseY + armH1 + vertLen1, armZ1);
-    saguaroGeos.push(armCap1);
-
-    // Segundo braço do lado oposto para cactos mais altos
-    if (trunkH > 4.0) {
-      const armH2 = trunkH * 0.38;
-      const elbowR2 = 0.20;
-      const elbowLen2 = 0.75;
-      const armHBar2 = new THREE.CylinderGeometry(elbowR2, elbowR2, elbowLen2, 14);
-      armHBar2.rotateZ(-Math.PI / 2);
-      armHBar2.rotateY(heading);
-      armHBar2.translate(px - nrm.x * (elbowLen2 / 2 + 0.18) * side, baseY + armH2, pz - nrm.z * (elbowLen2 / 2 + 0.18) * side);
-      saguaroGeos.push(armHBar2);
-
-      const vertLen2 = 1.3 + ((s * 5) % 2) * 0.3;
-      const armX2 = px - nrm.x * (elbowLen2 + 0.18) * side;
-      const armZ2 = pz - nrm.z * (elbowLen2 + 0.18) * side;
-      const armVBar2 = new THREE.CylinderGeometry(elbowR2, elbowR2 * 1.05, vertLen2, 14);
-      armVBar2.translate(armX2, baseY + armH2 + vertLen2 / 2, armZ2);
-      saguaroGeos.push(armVBar2);
-
-      const armCap2 = new THREE.SphereGeometry(elbowR2, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-      armCap2.translate(armX2, baseY + armH2 + vertLen2, armZ2);
-      saguaroGeos.push(armCap2);
-    }
-  };
-
-  // Helper para adicionar cacto-bola suave com flores desabrochadas coloridas no topo
-  const addBarrel = (px: number, pz: number, baseY: number, s: number) => {
-    const bRad = 0.65 + ((s * 2.3) % 4) * 0.12;
-    const barrelGeo = new THREE.SphereGeometry(bRad, 14, 12);
-    barrelGeo.scale(1, 1.15, 1);
-    barrelGeo.translate(px, baseY + bRad * 1.0, pz);
-    barrelGeos.push(barrelGeo);
-
-    // Flores desabrochadas coloridas no topo dos cactos-bola (5 pequenas pétalas semiesféricas)
-    const flowerColorChoice = Math.floor(s * 1.9) % 3;
-    const targetFlowerList = flowerColorChoice === 0 ? flowerMagentaGeos : flowerColorChoice === 1 ? flowerGoldGeos : flowerOrangeGeos;
-    const petalRad = 0.12;
-    const crownRad = bRad * 0.32;
-    const topY = baseY + bRad * 2.12;
-    for (let k = 0; k < 5; k++) {
-      const angle = (k * 2 * Math.PI) / 5;
-      const petalGeo = new THREE.SphereGeometry(petalRad, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-      petalGeo.translate(px + Math.cos(angle) * crownRad, topY, pz + Math.sin(angle) * crownRad);
-      targetFlowerList.push(petalGeo);
-    }
-  };
-
-  // Helper para adicionar Palmas / Cacto Orelha-de-padre (Prickly Pear) em leques angulados
-  const addPricklyPear = (px: number, pz: number, baseY: number, s: number) => {
-    const rot = (s * 3.1) % (Math.PI * 2);
-    const c = Math.cos(rot);
-    const sn = Math.sin(rot);
-    const trans = (geo: THREE.BufferGeometry, lx: number, ly: number, lz: number) => {
-      const rx = lx * c - lz * sn;
-      const rz = lx * sn + lz * c;
-      geo.translate(px + rx, baseY + ly, pz + rz);
-      pearGeos.push(geo);
-    };
-
-    // Palma base
-    const p1 = new THREE.SphereGeometry(0.5, 12, 10);
-    p1.scale(1, 1.2, 0.22);
-    trans(p1, 0, 0.55, 0);
-
-    // Palmas em leque angulado
-    const p2 = new THREE.SphereGeometry(0.42, 12, 10);
-    p2.scale(1, 1.15, 0.2);
-    p2.rotateZ(-0.45);
-    trans(p2, 0.38, 1.15, 0.05);
-
-    const p3 = new THREE.SphereGeometry(0.4, 12, 10);
-    p3.scale(1, 1.15, 0.2);
-    p3.rotateZ(0.4);
-    trans(p3, -0.35, 1.1, -0.05);
-
-    if ((s * 7) % 3 > 1) {
-      const p4 = new THREE.SphereGeometry(0.34, 12, 10);
-      p4.scale(1, 1.15, 0.2);
-      p4.rotateZ(-0.15);
-      trans(p4, 0.12, 1.65, 0.02);
-    }
-  };
-
-  // Helper para adicionar tufos de capim dourado do sertão
-  const addGoldenGrass = (px: number, pz: number, baseY: number, s: number) => {
-    const numStems = 7;
-    for (let g = 0; g < numStems; g++) {
-      const stemAngle = (g * 2 * Math.PI) / numStems + ((s * 2.7) % 1);
-      const stemH = 0.85 + ((g * 13) % 4) * 0.15;
-      const grassCone = new THREE.ConeGeometry(0.06, stemH, 6);
-      grassCone.translate(0, stemH / 2, 0);
-      grassCone.rotateZ(0.32 + ((g * 11) % 3) * 0.08);
-      grassCone.rotateY(stemAngle);
-      grassCone.translate(px, baseY, pz);
-      grassGeos.push(grassCone);
-    }
-  };
-
-  // 1. Distribuição regular e abundante ao longo das laterais da pista
-  for (let s = 6; s < track.length - 6; s += 4.5) {
-    if (inTunnelOrGap(s)) continue;
-    const at = pointAt(track, s);
-    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-    const baseY = heightAt(track, s);
-
-    for (const side of [-1, 1]) {
-      const distOff = at.halfWidth + 2.4 + ((s * 5.3 + (side > 0 ? 3 : 0)) % 6) * 1.1;
-      const px = at.pos.x + nrm.x * distOff * side;
-      const pz = at.pos.z + nrm.z * distOff * side;
-      if (!free({ x: px, z: pz }, 1.2)) continue;
-
-      const type = (Math.floor(s * 1.5) + (side > 0 ? 2 : 0)) % 5;
-      if (type === 0 || type === 3) {
-        addSaguaro(px, pz, baseY, at.heading, s, side);
-      } else if (type === 1) {
-        addBarrel(px, pz, baseY, s);
-      } else if (type === 2) {
-        addPricklyPear(px, pz, baseY, s);
-      } else {
-        addGoldenGrass(px, pz, baseY, s);
-      }
-    }
-  }
-
-  // 2. Distribuição orgânica adicional nas dunas e colinas ao redor
-  let seed = 42;
-  const pseudoRand = () => {
-    seed = (seed * 16807) % 2147483647;
-    return seed / 2147483647;
-  };
-  const xs = track.points.map((p) => p.x);
-  const zs = track.points.map((p) => p.z);
-  const minX = Math.min(...xs) - 30;
-  const maxX = Math.max(...xs) + 30;
-  const minZ = Math.min(...zs) - 30;
-  const maxZ = Math.max(...zs) + 30;
-
-  for (let i = 0; i < 90; i++) {
-    const rx = minX + pseudoRand() * (maxX - minX);
-    const rz = minZ + pseudoRand() * (maxZ - minZ);
-    const pr = progressOf(track, { x: rx, z: rz });
-    if (pr.dist < pr.halfWidth + 8) continue;
-    if (inTunnelOrGap(pr.s)) continue;
-
-    const baseY = heightAt(track, pr.s);
-    const t = Math.floor(pseudoRand() * 5);
-    if (t === 0 || t === 1) {
-      addSaguaro(rx, rz, baseY, 0, i * 7, 1);
-    } else if (t === 2) {
-      addBarrel(rx, rz, baseY, i * 7);
-    } else if (t === 3) {
-      addPricklyPear(rx, rz, baseY, i * 7);
-    } else {
-      addGoldenGrass(rx, rz, baseY, i * 7);
-    }
-  }
-
-  // Meshes combinados com materiais orgânicos (flatShading: false, alta suavidade)
-  if (saguaroGeos.length > 0) {
-    const mergedSaguaro = safeMerge(saguaroGeos);
-    if (mergedSaguaro) {
-      const saguaroMat = new THREE.MeshStandardMaterial({
-        color: "#2f6b36",
-        roughness: 0.85,
-        flatShading: false,
-      });
-      const saguaroMesh = new THREE.Mesh(mergedSaguaro, saguaroMat);
-      saguaroMesh.castShadow = true;
-      saguaroMesh.receiveShadow = true;
-      group.add(saguaroMesh);
-    }
-  }
-
-  if (barrelGeos.length > 0) {
-    const mergedBarrel = safeMerge(barrelGeos);
-    if (mergedBarrel) {
-      const barrelMat = new THREE.MeshStandardMaterial({
-        color: "#3d7a42",
-        roughness: 0.85,
-        flatShading: false,
-      });
-      const barrelMesh = new THREE.Mesh(mergedBarrel, barrelMat);
-      barrelMesh.castShadow = true;
-      barrelMesh.receiveShadow = true;
-      group.add(barrelMesh);
-    }
-  }
-
-  if (pearGeos.length > 0) {
-    const mergedPear = safeMerge(pearGeos);
-    if (mergedPear) {
-      const pearMat = new THREE.MeshStandardMaterial({
-        color: "#346e38",
-        roughness: 0.85,
-        flatShading: false,
-      });
-      const pearMesh = new THREE.Mesh(mergedPear, pearMat);
-      pearMesh.castShadow = true;
-      pearMesh.receiveShadow = true;
-      group.add(pearMesh);
-    }
-  }
-
-  // Flores coloridas nos cactos-bola
-  const addFlowerMesh = (geos: THREE.BufferGeometry[], hex: string) => {
-    if (geos.length === 0) return;
-    const merged = safeMerge(geos);
-    if (merged) {
-      const mat = new THREE.MeshStandardMaterial({
-        color: hex,
-        roughness: 0.6,
-        flatShading: false,
-      });
-      const m = new THREE.Mesh(merged, mat);
-      m.castShadow = false;
-      m.receiveShadow = true;
-      group.add(m);
-    }
-  };
-  addFlowerMesh(flowerMagentaGeos, "#f06aa0");
-  addFlowerMesh(flowerGoldGeos, "#f7c23a");
-  addFlowerMesh(flowerOrangeGeos, "#f0884a");
-
-  if (grassGeos.length > 0) {
-    const mergedGrass = safeMerge(grassGeos);
-    if (mergedGrass) {
-      const grassMat = new THREE.MeshStandardMaterial({
-        color: "#c9a866",
-        roughness: 0.95,
-        flatShading: false,
-      });
-      const grassMesh = new THREE.Mesh(mergedGrass, grassMat);
-      grassMesh.castShadow = false;
-      grassMesh.receiveShadow = true;
-      group.add(grassMesh);
-    }
-  }
-
-  return group;
-}
 
 /** Palmeiras e espelho d'água perto do Oásis do Sertão. */
 function buildOasis(track: Track): THREE.Group {
@@ -2031,167 +1601,36 @@ function buildOasis(track: Track): THREE.Group {
   return group;
 }
 
-/** Casinhas rústicas de adobe com vigas de madeira no setor "Vilarejo de Adobe". */
-function buildAdobeVillage(track: Track): THREE.Group {
-  const group = new THREE.Group();
-  const adobeMat = new THREE.MeshStandardMaterial({
-    color: "#ba7850",
-    roughness: 0.92,
-  });
-  const beamMat = new THREE.MeshStandardMaterial({
-    color: "#3e2716",
-    roughness: 0.85,
-  });
-  const darkDoorMat = new THREE.MeshStandardMaterial({
-    color: "#22140c",
-    roughness: 0.9,
-  });
-  const potMat = new THREE.MeshStandardMaterial({
-    color: "#9c4a2a",
-    roughness: 0.8,
-  });
+function decorateDeserto(scene: THREE.Scene, _stat: THREE.Group, track: Track, textures: THREE.Texture[]): void {
+  const desertTex = getDesertTexture();
 
-  const villageCtrls = [33, 34, 35, 36];
-  for (const ctrlIdx of villageCtrls) {
-    const s = track.ctrlS[ctrlIdx];
-    if (s === undefined) continue;
-    const at = pointAt(track, s);
-    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-    const baseY = heightAt(track, s);
+  // Maciço rochoso monumental sobre o túnel saca-rolhas
+  const mountain = buildDesertTunnelMountain(track, desertTex);
+  if (mountain) scene.add(mountain);
 
-    for (const side of [-1, 1]) {
-      const dist = at.halfWidth + 4.5 + ((ctrlIdx * 5) % 3);
-      const hx = at.pos.x + nrm.x * dist * side;
-      const hz = at.pos.z + nrm.z * dist * side;
+  // Muretas de concreto com faixas vermelhas e cinzas
+  scene.add(buildDesertWalls(track));
 
-      const house = new THREE.Group();
-      house.position.set(hx, baseY, hz);
-      house.rotation.y = at.heading + (side > 0 ? -Math.PI / 2 : Math.PI / 2);
+  // Cânion do salto: corpos das rampas e barreiras zebradas
+  scene.add(buildDesertCanyonRampBody(track));
 
-      const w = 4.4 + (ctrlIdx % 2) * 1.0;
-      const h = 3.2 + (ctrlIdx % 3) * 0.4;
-      const d = 4.2;
+  // Poço de lama viscosa borbulhante
+  scene.add(buildDesertMudPool(track));
 
-      const body = mesh(new THREE.BoxGeometry(w, h, d), adobeMat, 0, h / 2, 0);
-      house.add(body);
+  // Vilarejos de adobe com vigas e caveiras de boi
+  scene.add(buildDesertHousesAndSkulls(track));
 
-      // Vigas de madeira salientes no topo da parede
-      const numBeams = 5;
-      for (let b = 0; b < numBeams; b++) {
-        const bx = -w / 2 + 0.6 + (b * (w - 1.2)) / (numBeams - 1);
-        const beam = mesh(new THREE.CylinderGeometry(0.12, 0.12, d + 0.9, 8), beamMat, bx, h - 0.25, 0);
-        beam.rotation.x = Math.PI / 2;
-        house.add(beam);
-      }
-
-      // Porta rústica e janelas
-      const doorH = 2.0;
-      const doorW = 0.95;
-      const door = mesh(new THREE.BoxGeometry(doorW, doorH, 0.1), darkDoorMat, 0.4, doorH / 2, d / 2 + 0.02);
-      house.add(door);
-
-      for (const jx of [-1.2, 1.2]) {
-        const win = mesh(new THREE.BoxGeometry(0.65, 0.65, 0.1), darkDoorMat, jx, 1.9, d / 2 + 0.02);
-        house.add(win);
-      }
-
-      // Vasos de barro na frente
-      const pot1 = mesh(new THREE.CylinderGeometry(0.3, 0.18, 0.65, 8), potMat, -w / 2 - 0.4, 0.32, d / 2 + 0.3);
-      const pot2 = mesh(new THREE.CylinderGeometry(0.25, 0.15, 0.5, 8), potMat, -w / 2 - 0.9, 0.25, d / 2 + 0.2);
-      house.add(pot1);
-      house.add(pot2);
-
-      group.add(house);
-    }
-  }
-
-  return group;
-}
-
-/** Paredões rochosos do cânion e chapadas/dunas distantes no horizonte. */
-function buildDesertCliffsAndMesas(stat: THREE.Group, track: Track, _textures: THREE.Texture[]): void {
-  const rockMat = new THREE.MeshStandardMaterial({
-    color: "#8b5840",
-    roughness: 0.95,
-    flatShading: true,
-  });
-  const darkRockMat = new THREE.MeshStandardMaterial({
-    color: "#6b422e",
-    roughness: 0.95,
-    flatShading: true,
-  });
-
-  for (let s = 2; s < track.length; s += 8) {
-    const room = roomAt(track, s);
-    const isCanyonOrMacico = room === "Largada do Cânion" || room === "Maciço Rochoso" || room === "Salto do Abismo";
-    if (!isCanyonOrMacico) continue;
-
-    // Não colocar rochas soltas dentro do túnel cilíndrico do maciço rochoso
-    const sTunStart = track.ctrlS[14] ?? -1;
-    const sTunEnd = track.ctrlS[20] ?? -1;
-    if (sTunStart >= 0 && sTunEnd >= 0 && s >= sTunStart - 2 && s <= sTunEnd + 2) continue;
-
-    const at = pointAt(track, s);
-    const nrm = sideNormal(Math.sin(at.heading), Math.cos(at.heading));
-    const by = heightAt(track, s);
-
-    for (const side of [-1, 1]) {
-      const dist = at.halfWidth + 3.2 + ((s * 3) % 4);
-      const cx = at.pos.x + nrm.x * dist * side;
-      const cz = at.pos.z + nrm.z * dist * side;
-      const cliffH = 4.5 + ((s * 7) % 5) * 1.2;
-
-      const rock = mesh(new THREE.DodecahedronGeometry(2.6, 1), (s % 2 === 0 ? rockMat : darkRockMat), cx, by + cliffH / 2, cz);
-      rock.scale.set(1.4, cliffH / 2.6, 1.6);
-      stat.add(rock);
-    }
-  }
-
-  const xs = track.points.map((p) => p.x);
-  const zs = track.points.map((p) => p.z);
-  const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const midZ = (Math.min(...zs) + Math.max(...zs)) / 2;
-  const horizonR = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) / 2 + 55;
-
-  const mesaMat = new THREE.MeshStandardMaterial({
-    color: "#b07252",
-    roughness: 0.95,
-    flatShading: true,
-  });
-  const duneHorizonMat = new THREE.MeshStandardMaterial({
-    color: "#d9a566",
-    roughness: 0.95,
-  });
-
-  const count = 28;
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2;
-    const dist = horizonR + ((i % 5) * 12);
-    const mx = midX + Math.cos(angle) * dist;
-    const mz = midZ + Math.sin(angle) * dist;
-    const isMesa = i % 2 === 0;
-
-    if (isMesa) {
-      const mw = 28 + (i % 3) * 10;
-      const mh = 18 + (i % 4) * 8;
-      const mesa = mesh(new THREE.CylinderGeometry(mw * 0.75, mw, mh, 7), mesaMat, mx, mh / 2 - 2, mz, angle);
-      stat.add(mesa);
-    } else {
-      const dw = 35 + (i % 3) * 12;
-      const dh = 14 + (i % 4) * 6;
-      const dune = mesh(new THREE.ConeGeometry(dw, dh, 6), duneHorizonMat, mx, dh / 2 - 2, mz, angle);
-      stat.add(dune);
-    }
-  }
-}
-
-function decorateDeserto(scene: THREE.Scene, stat: THREE.Group, track: Track, textures: THREE.Texture[]): void {
-  scene.add(buildDesertVegetation(track));
+  // Oásis com palmeiras e espelho d'água
   scene.add(buildOasis(track));
-  scene.add(buildAdobeVillage(track));
+
+  // Vegetação oficial (saguaros orgânicos, cactos-bola com flores, palmas e capim)
+  scene.add(buildDesertVegetationOfficial(track));
+
+  // Túnel com tubo cilíndrico, anéis de néon, luzes âmbar e portais
   scene.add(buildDesertTunnel(track, textures));
-  scene.add(buildCaveTunnel(track));
-  buildDesertCliffsAndMesas(stat, track, textures);
+
+  // 12 setores de arquibancadas com torcedores viradas para o asfalto
+  buildDesertBleachers(track).then((b) => scene.add(b));
 }
 
 /**
@@ -2207,30 +1646,19 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const isParque = track.id === "parque";
   const isDeserto = track.id === "deserto";
 
-  // Iluminação e Névoa para o Deserto
+  // Iluminação, Céu e Névoa para o Deserto (fiel a 3-pista-deserto/index.html)
   if (isDeserto) {
-    scene.fog = new THREE.Fog("#e7cfa8", 50, 220);
+    scene.fog = new THREE.Fog(0xe7cfa8, 250, 650);
     if (scene.background instanceof THREE.Color) {
       scene.background.set("#e7cfa8");
     }
-    let hasDir = false;
-    scene.traverse((obj) => {
-      if (obj instanceof THREE.DirectionalLight) {
-        hasDir = true;
-        obj.color.set("#ffe2b8");
-      } else if (obj instanceof THREE.HemisphereLight) {
-        obj.color.set("#ffe2b8");
-        obj.groundColor.set("#d29b68");
-      }
-    });
-    if (!hasDir) {
-      const sun = new THREE.DirectionalLight("#ffe2b8", 1.8);
-      sun.position.set(45, 65, 30);
-      sun.castShadow = true;
-      scene.add(sun);
-      const hemi = new THREE.HemisphereLight("#ffe2b8", "#d29b68", 1.2);
-      scene.add(hemi);
-    }
+    scene.add(new THREE.HemisphereLight(0xfff1dc, 0x8a6a45, 0.75));
+    const sun = new THREE.DirectionalLight(0xffe2b8, 1.4);
+    sun.position.set(-175, 150, -135);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.bias = -0.0004;
+    scene.add(sun);
   }
 
   // chão em volta do traçado, com folga para a decoração
@@ -2273,7 +1701,11 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
     }
   }
   ground.castShadow = false;
-  if (!isParque) scene.add(ground);
+  if (!isParque && !isDeserto) scene.add(ground);
+  if (isDeserto) {
+    scene.add(buildDesertTerrain(track, getDesertTexture()));
+    buildDesertSky(scene, new THREE.Vector3(-175, 150, -135));
+  }
   if (parking) {
     const grid = new THREE.GridHelper(Math.max(gw, gd), Math.round(Math.max(gw, gd) / 2), "#000000", "#000000");
     grid.position.set(cx, 0, cz);
@@ -2307,14 +1739,22 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
       : parking
         ? null
         : trackTexture(textures);
+  const desertEmissive = isDeserto ? desertRoadEmissiveTexture(textures) : null;
   const floorMat = () => {
     if (tiles) {
       const mat = new THREE.MeshStandardMaterial({
         map: tiles,
-        vertexColors: true,
-        roughness: isDeserto ? 0.92 : isParque ? 0.65 : 0.28,
+        vertexColors: !isDeserto,
+        roughness: isDeserto ? 0.85 : isParque ? 0.65 : 0.28,
         metalness: 0.05,
         side: isDeserto ? THREE.DoubleSide : THREE.FrontSide,
+        ...(desertEmissive
+          ? {
+              emissiveMap: desertEmissive,
+              emissive: new THREE.Color(0xffffff),
+              emissiveIntensity: 1.2,
+            }
+          : {}),
       });
       if (!isParque && !isDeserto) applyWaxedFloorSheen(mat, { sheenIntensity: 0.85, neonColor: "#e0f2fe" });
       return mat;
