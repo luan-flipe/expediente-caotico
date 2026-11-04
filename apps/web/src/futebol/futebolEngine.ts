@@ -28,7 +28,6 @@ import { playWhistle } from "../sound";
 import { getState, net, setState } from "../store";
 import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
 import ballUrl from "../assets/futebol/bola.glb?url";
-import goalUrl from "../assets/futebol/gol.glb?url";
 import pitchUrl from "../assets/futebol/ipatingao.glb?url";
 import { predictedPlayer, reconcileDrawn } from "./reconcile";
 import { TOUCH_KICK, TOUCH_PASS, cancelCharges, chargePower, hasBallReach, newButtons, newCharge, newControlState, pressButton, readFutInput, releaseButton, stepCharge, type FutKeys } from "./controls";
@@ -37,6 +36,7 @@ import { campoDoMapa } from "./arenaLayout";
 import { Comemoracoes } from "./comemoracoes";
 import { EquipeFilmagem } from "./equipe";
 import { Juiz } from "./juiz";
+import { createGolMesh, disposeGolMesh } from "./golMesh";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
 import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
 import { Torcida } from "./torcida";
@@ -343,10 +343,10 @@ export class FutebolEngine {
           m.castShadow = cast;
         }
       });
-    const [pitch, ball, goal] = await Promise.allSettled([loader.loadAsync(pitchUrl), loader.loadAsync(ballUrl), loader.loadAsync(goalUrl)]);
+    const [pitch, ball] = await Promise.allSettled([loader.loadAsync(pitchUrl), loader.loadAsync(ballUrl)]);
     if (this.disposed) {
       // a tela saiu durante o carregamento: libera o que chegou
-      for (const r of [pitch, ball, goal]) if (r.status === "fulfilled") this.freeObject(r.value.scene);
+      for (const r of [pitch, ball]) if (r.status === "fulfilled") this.freeObject(r.value.scene);
       return;
     }
     if (pitch.status === "fulfilled") {
@@ -373,19 +373,6 @@ export class FutebolEngine {
     } else {
       console.warn("bola.glb não carregou", ball.reason);
     }
-    if (goal.status === "fulfilled") {
-      for (const s of [-1, 1]) {
-        const g = goal.value.scene.clone(true);
-        shadows(g, true);
-        // a boca do gol (+Z no arquivo) aponta para o centro do campo
-        g.rotation.y = s > 0 ? -Math.PI / 2 : Math.PI / 2;
-        this.goals.push(g);
-        this.scene.add(g);
-      }
-      this.placeGoals();
-    } else {
-      console.warn("gol.glb não carregou", goal.reason);
-    }
   }
 
   private freeObject(o: THREE.Object3D): void {
@@ -400,18 +387,21 @@ export class FutebolEngine {
   }
 
   private placeGoals(): void {
-    if (!this.field || this.goals.length < 2) return;
-    this.goals[0].position.set(-this.field.halfL, 0, 0);
-    this.goals[1].position.set(this.field.halfL, 0, 0);
-    // o modelo mede 4 x 2 m (largura x altura): gol maior só estica a boca, a altura e a profundidade da rede
-    const sx = this.field.goalHalfW / 2;
-    const sy = this.field.goalH / 2;
-    // o mapa do estádio já traz os gols (traves, travessão e rede): o modelo avulso ficaria dobrado por cima deles,
-    // com as traves em outro lugar. Nele a sim usa as medidas do gol do mapa (IPATINGAO)
-    const noMapa = campoDoMapa(this.field);
     for (const g of this.goals) {
-      g.visible = !noMapa;
-      g.scale.set(sx, sy, sx);
+      this.scene.remove(g);
+      disposeGolMesh(g);
+    }
+    this.goals = [];
+    const f = this.field;
+    // formato 5: o mapa do estádio já traz os gols (traves, travessão e rede), um avulso ficaria dobrado por cima
+    if (!f || campoDoMapa(f)) return;
+    for (const s of [-1, 1]) {
+      const g = createGolMesh(f.goalHalfW, f.goalH);
+      // a boca do gol (+Z no mesmo plano da linha de gol) aponta para o centro do campo
+      g.rotation.y = s > 0 ? -Math.PI / 2 : Math.PI / 2;
+      g.position.set(s * f.halfL, 0, 0);
+      this.goals.push(g);
+      this.scene.add(g);
     }
   }
 
