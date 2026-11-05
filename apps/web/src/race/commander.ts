@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { pointAt, RACE, type Track } from "@ec/shared";
 import { createGltfLoader } from "../game/gltfLoader";
+import { juntarMalhas } from "../game/juntarMalhas";
 
 /** Comandante: o narrador da corrida, sobrevoando a pista de helicóptero. */
 const MODEL_URL = "/assets/characters/comandante_helicoptero.glb";
@@ -127,6 +128,8 @@ export function createCommander(track: Track, listener?: THREE.AudioListener, ef
   }
   const heli = loaded.scene.clone(true);
   heli.traverse((o) => (o.castShadow = (o as THREE.Mesh).isMesh === true));
+  // uma malha por material; os rotores giram pela animação do GLB e ficam separados
+  const juntas = juntarMalhas(heli, ["rotor_principal", "rotor_cauda"].map((n) => heli.getObjectByName(n)).filter((o): o is THREE.Object3D => !!o));
   root.add(heli);
   const mixer = new THREE.AnimationMixer(heli);
   if (loaded.rotor) {
@@ -226,6 +229,7 @@ export function createCommander(track: Track, listener?: THREE.AudioListener, ef
       disposed = true;
       if (audio?.isPlaying) audio.stop();
       mixer.stopAllAction();
+      for (const g of juntas) g.dispose();
       for (const o of [...faces.map((f) => f.geo), bannerMat, tex, ropeGeo, ropeMat, tag.material, (tag.material as THREE.SpriteMaterial).map!]) o.dispose();
     },
   };

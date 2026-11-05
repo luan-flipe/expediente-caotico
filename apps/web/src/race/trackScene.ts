@@ -5,6 +5,7 @@ import { applyWaxedFloorSheen } from "./vfxJuice";
 import parqueUrl from "../assets/itens/parque-ipanema-3d.glb?url";
 import rampGlbUrl from "../assets/itens/ramp-jump.glb?url";
 import { createGltfLoader } from "../game/gltfLoader";
+import { juntarMalhas } from "../game/juntarMalhas";
 
 let parqueModel: THREE.Group | null = null;
 let parquePromise: Promise<THREE.Group | null> | null = null;
@@ -935,6 +936,8 @@ function buildRampGlb(track: Track, r: Ramp, template: THREE.Group): THREE.Group
       obj.receiveShadow = true;
     }
   });
+  // o GLB vem em 95 peças paradas: uma malha por material (a cena descarta as geometrias no fim da corrida)
+  juntarMalhas(clone);
 
   return clone;
 }

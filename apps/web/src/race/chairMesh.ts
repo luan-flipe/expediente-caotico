@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
 import { CHAIR_BASES, CHAIR_SEATS, SCOOTER, type AvatarDNA, type ChairDNA } from "@ec/shared";
 import { celebrationExtras, createCharacter, modelReady, type Character, type CharacterSeatedOptions } from "../game/character";
 import { createGltfLoader } from "../game/gltfLoader";
+import { juntarMalhas } from "../game/juntarMalhas";
 import { mountScooter } from "./scooterMesh";
 
 const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
@@ -249,6 +250,10 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
     head.position.set(0, padBox.max.y - 0.1, zc + 0.02);
     extras.push(head);
   }
+  // As 68 peças do GLB viram uma malha por material em cada nó que se mexe (pistão, haste, assento, encosto, rodas).
+  // Fica depois de fitArms e das âncoras, que procuram peças pelo nome.
+  const merged = juntarMalhas(inner, [pistaoNode, hasteCromada, assentoGiratorio, encostoNode, assentoMesh, ...wheelNodes].filter((o): o is THREE.Object3D => !!o));
+
   for (const e of extras) {
     e.castShadow = true;
     if (encostoNode) {
@@ -380,6 +385,7 @@ function glbChair(chair: ChairDNA, model: THREE.Group): ChairModel {
     },
     dispose() {
       for (const m of [...mats.values(), ...wheelMats.values()]) m.dispose();
+      for (const g of merged) g.dispose();
       for (const e of extras) {
         e.geometry.dispose();
         (e.material as THREE.Material).dispose();
