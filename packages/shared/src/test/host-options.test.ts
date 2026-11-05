@@ -12,7 +12,7 @@ const DT = 1000 / 30;
 
 function botRace(level: BotLevel | undefined, opts: { laps?: number; itemsOff?: boolean } = {}) {
   return createRace({
-    seed: 11,
+    seed: 12,
     laps: opts.laps,
     itemsOff: opts.itemsOff,
     botLevel: level,

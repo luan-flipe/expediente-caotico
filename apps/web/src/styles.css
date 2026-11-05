@@ -590,6 +590,74 @@ input {
   letter-spacing: 0.25em;
 }
 
+.mural-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.rh-mural {
+  flex: 1 1 320px;
+  background: var(--postit);
+  border: 2px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 10px 14px;
+}
+
+.rh-mural p:last-child {
+  margin: 4px 0 0;
+  font-style: italic;
+}
+
+.trash-basket {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  justify-content: center;
+}
+
+.trash-basket button {
+  position: relative;
+}
+
+.trash-basket .paper-ball {
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  animation: throw-arc 0.55s ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes throw-arc {
+  0% {
+    transform: translate(-50%, 0) rotate(0deg);
+    opacity: 1;
+  }
+  60% {
+    transform: translate(40px, -36px) rotate(180deg);
+  }
+  100% {
+    transform: translate(80px, 10px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.trash-basket .throw-result {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trash-basket .throw-result.hit {
+  color: var(--green);
+}
+
+.trash-basket .throw-result.miss {
+  color: var(--ink-2);
+}
+
 .roster {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -602,6 +670,45 @@ input {
   box-shadow: 3px 3px 0 var(--ink);
   position: relative;
   min-height: 190px;
+}
+
+.roster .slot.clickable {
+  cursor: pointer;
+}
+
+.reaction-popover {
+  position: absolute;
+  z-index: 5;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: var(--shadow);
+  padding: 6px;
+}
+
+.reaction-popover button {
+  font-size: 12px;
+  text-align: left;
+  padding: 4px 6px;
+}
+
+.reaction-bubble {
+  position: absolute;
+  z-index: 4;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  padding: 3px 8px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .roster .slot.empty {
@@ -623,13 +730,26 @@ input {
 
 .roster .who {
   padding: 8px 10px;
+  border-top: 2px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.roster .who-row {
   font-weight: 700;
   font-size: 15px;
-  border-top: 2px solid var(--line);
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 6px;
+}
+
+.roster .who-status {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-2);
+  font-style: italic;
 }
 
 .tag {

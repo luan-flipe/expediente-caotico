@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { HAIR_COLORS, PANTS, SHIRTS, SKINS, type AvatarDNA } from "@ec/shared";
+import { addPatoleiro } from "./patoleiro";
 
 export interface AvatarRig {
   root: THREE.Group;
@@ -345,6 +346,9 @@ export function buildAvatar(dna: AvatarDNA): AvatarRig {
       torso.add(badgePivot);
       break;
     }
+    case 5:
+      addPatoleiro(head, 0, 0.55, 0.02, 1.05);
+      break;
     default:
       break;
   }

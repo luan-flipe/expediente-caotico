@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
-import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, FUT_COLORS, FUT_FORMATS, FUT_KITS, LAPS_MAX, LAPS_MIN, pistaDoDia, RACE, TRACK_IDS, TRACKS, type LobbyPlayer, type LobbyState, type TeamSide } from "@ec/shared";
+import { useEffect, useRef, useState } from "react";
+import { BALANCE, BOT_LEVELS, BOT_LEVEL_NAMES, DURATIONS_MS, FUT_COLORS, FUT_FORMATS, FUT_KITS, LAPS_MAX, LAPS_MIN, LOBBY_REACTIONS, LOBBY_STATUSES, pistaDoDia, RACE, TRACK_IDS, TRACKS, type LobbyPlayer, type LobbyState, type TeamSide } from "@ec/shared";
 import { CupBracket } from "../futebol/CupBracket";
 import { uniformDNA } from "../futebol/uniforme";
 import { AvatarPreview, type PreviewAction } from "../game/AvatarPreview";
 import { avatarThumbnail, type CharacterAction } from "../game/character";
 import { chairThumbnail } from "../race/chairMesh";
 import { canNativeShare, inviteText, whatsappUrl } from "../invite";
+import { recadoAleatorio } from "../recadosRh";
+import { playDingSound } from "../sound";
 import { MenuMusicControl } from "./MenuMusicControl";
+import { TrashBasket } from "./TrashBasket";
 import { leaveRoom, net, setState, useStore } from "../store";
 
 const ACTIONS: [CharacterAction, string][] = [
@@ -114,11 +117,32 @@ export function Lobby() {
   const [move, setMove] = useState<"walk" | "run">();
   const [spin, setSpin] = useState(true);
   const [action, setAction] = useState<PreviewAction>();
+  const [recado] = useState(recadoAleatorio);
+  const [reactingTo, setReactingTo] = useState<string | null>(null);
+  const reactions = useStore((s) => s.reactions);
   const play = (name: CharacterAction) => setAction((a) => ({ name, seq: (a?.seq ?? 0) + 1 }));
   const isHost = lobby.hostId === myId;
   const me = lobby.players.find((p) => p.id === myId);
   const bots = lobby.players.filter((p) => p.isBot).length;
   const full = lobby.players.length >= BALANCE.maxPlayers;
+
+  // campainha quando um colega entra na sala (ignora o primeiro retrato, que é a entrada da própria pessoa)
+  const seenIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = new Set(lobby.players.map((p) => p.id));
+    const prev = seenIds.current;
+    seenIds.current = ids;
+    if (prev && [...ids].some((id) => !prev.has(id))) playDingSound();
+  }, [lobby.players]);
+
+  // reações rápidas somem sozinhas: reavalia enquanto houver alguma recente
+  const [, tickReactions] = useState(0);
+  const hasReactions = reactions.length > 0;
+  useEffect(() => {
+    if (!hasReactions) return;
+    const id = setInterval(() => tickReactions((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, [hasReactions]);
   const trial = lobby.mode === "timetrial";
   const futebol = lobby.mode === "futebol";
   const race = lobby.mode === "race" || trial;
@@ -196,6 +220,16 @@ export function Lobby() {
           </div>
         </div>
 
+        <div className="mural-row">
+          <div className="rh-mural">
+            <p className="label" style={{ margin: 0 }}>
+              Mural da firma
+            </p>
+            <p>{recado}</p>
+          </div>
+          <TrashBasket />
+        </div>
+
         {error && <div className="error">{error}</div>}
         {!online && <div className="error">Reconectando ao servidor...</div>}
 
@@ -215,20 +249,42 @@ export function Lobby() {
             Participantes {lobby.players.length}/{BALANCE.maxPlayers}
           </p>
           <div className="roster">
-            {lobby.players.map((p) => (
-              <div className="slot" key={p.id}>
-                {p.id === lobby.hostId && <span className="tag host">ANFITRIÃO</span>}
-                {!p.isBot && <span className={`tag seal ${p.ranked ? "ranked" : ""}`}>{p.ranked ? "NO RANKING" : "VISITANTE"}</span>}
-                <img src={race ?chairThumbnail(p.avatar, p.chair) : avatarThumbnail(p.avatar)} alt={p.name} />
-                <div className="who">
-                  <span>
-                    {p.name}
-                    {p.id === myId ? " (você)" : ""}
-                  </span>
-                  {!p.connected ? <span className="tag off">CAIU</span> : p.isBot ? <span className="tag">BOT</span> : p.ready ? <span className="tag ok">PRONTO</span> : <span className="tag">...</span>}
+            {lobby.players.map((p) => {
+              const activeReaction = [...reactions].reverse().find((r) => r.to === p.id && performance.now() - r.at < 3000);
+              return (
+                <div className={`slot ${p.id === myId ? "" : "clickable"}`} key={p.id} onClick={p.id === myId ? undefined : () => setReactingTo((cur) => (cur === p.id ? null : p.id))}>
+                  {p.id === lobby.hostId && <span className="tag host">ANFITRIÃO</span>}
+                  {!p.isBot && <span className={`tag seal ${p.ranked ? "ranked" : ""}`}>{p.ranked ? "NO RANKING" : "VISITANTE"}</span>}
+                  <img src={race ?chairThumbnail(p.avatar, p.chair) : avatarThumbnail(p.avatar)} alt={p.name} />
+                  <div className="who">
+                    <div className="who-row">
+                      <span>
+                        {p.name}
+                        {p.id === myId ? " (você)" : ""}
+                      </span>
+                      {!p.connected ? <span className="tag off">CAIU</span> : p.isBot ? <span className="tag">BOT</span> : p.ready ? <span className="tag ok">PRONTO</span> : <span className="tag">...</span>}
+                    </div>
+                    {p.statusIndex != null && <div className="who-status">{LOBBY_STATUSES[p.statusIndex]}</div>}
+                  </div>
+                  {reactingTo === p.id && (
+                    <div className="reaction-popover" onClick={(e) => e.stopPropagation()}>
+                      {LOBBY_REACTIONS.map((label, i) => (
+                        <button
+                          key={label}
+                          onClick={() => {
+                            net.send({ t: "reaction", to: p.id, index: i }, false);
+                            setReactingTo(null);
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {activeReaction && <div className="reaction-bubble">{LOBBY_REACTIONS[activeReaction.index]}</div>}
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {Array.from({ length: BALANCE.maxPlayers - lobby.players.length }, (_, i) => (
               <div className="slot empty" key={`e${i}`}>
                 vaga livre
@@ -263,6 +319,19 @@ export function Lobby() {
                   {label}
                 </button>
               ))}
+            </div>
+            <div className="row">
+              <span className="muted">Status:</span>
+              <div className="seg">
+                <button className={me?.statusIndex == null ? "on" : ""} onClick={() => net.send({ t: "status", index: null })}>
+                  Nenhum
+                </button>
+                {LOBBY_STATUSES.map((label, i) => (
+                  <button key={label} className={me?.statusIndex === i ? "on" : ""} onClick={() => net.send({ t: "status", index: i })}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="row">
               {!isHost && (

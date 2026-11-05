@@ -7,6 +7,8 @@ import {
   nextRaceTrack,
   peekRaceTrack,
   playCountdownBeep,
+  playDingSound,
+  playQuackSound,
   preloadSounds,
   RACE_MUSIC_DUCK,
   RACE_MUSIC_FADE_IN,
@@ -62,6 +64,10 @@ describe("sound system", () => {
   it("startLobbyMusic e stopLobbyMusic tratam ambiente sem AudioContext sem quebrar", () => {
     expect(() => startLobbyMusic()).not.toThrow();
     expect(() => stopLobbyMusic()).not.toThrow();
+  });
+
+  it("playQuackSound não quebra sem AudioContext", () => {
+    expect(() => playQuackSound()).not.toThrow();
   });
 
   it("preloadSounds não lança exceção em ambiente de teste", () => {
@@ -199,5 +205,11 @@ describe("playCountdownBeep", () => {
   it("sem AudioContext não quebra", () => {
     expect(() => playCountdownBeep("tick")).not.toThrow();
     expect(() => playCountdownBeep("go")).not.toThrow();
+  });
+});
+
+describe("playDingSound", () => {
+  it("sem AudioContext não quebra", () => {
+    expect(() => playDingSound()).not.toThrow();
   });
 });

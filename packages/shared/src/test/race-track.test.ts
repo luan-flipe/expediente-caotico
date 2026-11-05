@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CHAIR, SCOOTER, randomChair, sanitizeChair } from "../race/chair";
+import { CHAIR_TRINKETS, DEFAULT_CHAIR, SCOOTER, randomChair, sanitizeChair } from "../race/chair";
 import { RACE } from "../race/balance";
 import { mulberry32 } from "../rng";
 import { boxSpots, branchPointAt, checkpoints, clampToTrack, deltaS, gridSlots, inCarpet, pointAt, progressOf, TRACK, TRACK_IDS, TRACKS } from "../race/track";
@@ -198,6 +198,8 @@ describe("cadeira", () => {
     expect(sanitizeChair(null)).toEqual(DEFAULT_CHAIR);
     expect(sanitizeChair({ seat: 99, base: -1, wheels: 1.5, back: "x", trinket: 2 })).toEqual({ ...DEFAULT_CHAIR, trinket: 2 });
     expect(sanitizeChair({ seat: 3, base: 2, wheels: 2, back: 0, trinket: 5 })).toEqual({ vehicle: 0, seat: 3, base: 2, wheels: 2, back: 0, trinket: 5 });
+    expect(CHAIR_TRINKETS).toContain("Patoleiro");
+    expect(sanitizeChair({ seat: 3, base: 2, wheels: 2, back: 0, trinket: 6 })).toEqual({ vehicle: 0, seat: 3, base: 2, wheels: 2, back: 0, trinket: 6 });
   });
 
   it("crachá salvo antes do patinete fica na cadeira, e veículo fora da lista também", () => {

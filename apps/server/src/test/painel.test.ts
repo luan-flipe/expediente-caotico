@@ -201,3 +201,46 @@ describe("ranking com opções fora do padrão", () => {
     for (const x of [a, b]) x.c.close();
   }, 90000);
 });
+
+describe("status e reações rápidas no lobby", () => {
+  it("status muda só o próprio jogador e some com índice null", async () => {
+    const a = await connect({ t: "create", name: "Ana", avatar: DEFAULT_AVATAR });
+    const b = await connect({ t: "join", code: a.w.code, name: "Beto", avatar: DEFAULT_AVATAR });
+    await a.c.waitFor("lobby", (m) => m.state.players.length === 2);
+
+    a.c.send({ t: "status", index: 1 });
+    await b.c.waitFor("lobby", (m) => m.state.players.find((p) => p.id === a.w.id)?.statusIndex === 1);
+    const lob = b.c.lobby();
+    expect(lob.players.find((p) => p.id === a.w.id)!.statusIndex).toBe(1);
+    expect(lob.players.find((p) => p.id === b.w.id)!.statusIndex).toBeNull();
+
+    a.c.send({ t: "status", index: null });
+    await b.c.waitFor("lobby", (m) => m.state.players.find((p) => p.id === a.w.id)?.statusIndex === null);
+    for (const x of [a, b]) x.c.close();
+  });
+
+  it("reação só chega para quem foi marcado, ignora alvo inválido/a si mesmo e respeita o intervalo do chat", async () => {
+    const a = await connect({ t: "create", name: "Ana", avatar: DEFAULT_AVATAR });
+    const b = await connect({ t: "join", code: a.w.code, name: "Beto", avatar: DEFAULT_AVATAR });
+    const c = await connect({ t: "join", code: a.w.code, name: "Caio", avatar: DEFAULT_AVATAR });
+    await a.c.waitFor("lobby", (m) => m.state.players.length === 3);
+
+    a.c.send({ t: "reaction", to: b.w.id, index: 0 });
+    const got = await b.c.waitFor("reaction");
+    expect(got).toEqual({ t: "reaction", from: a.w.id, to: b.w.id, index: 0 });
+    // o terceiro também recebe (é broadcast pra sala), mas não era o alvo marcado na mensagem
+    await c.c.waitFor("reaction", (m) => m.to === b.w.id);
+
+    a.c.send({ t: "reaction", to: a.w.id, index: 0 });
+    a.c.send({ t: "reaction", to: "sala-nao-existe", index: 0 });
+    await settle(a.c);
+    expect(b.c.msgs.filter((m) => m.t === "reaction")).toHaveLength(1);
+
+    // intervalo do chat ainda rodando: a próxima reação é descartada
+    a.c.send({ t: "reaction", to: b.w.id, index: 1 });
+    await settle(a.c);
+    expect(b.c.msgs.filter((m) => m.t === "reaction")).toHaveLength(1);
+
+    for (const x of [a, b, c]) x.c.close();
+  });
+});

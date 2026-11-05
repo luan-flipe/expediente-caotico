@@ -12,6 +12,7 @@ import {
   buildAvatar,
   disposeAvatar,
 } from "./avatarMesh";
+import { addPatoleiro } from "./patoleiro";
 import { createGltfLoader } from "./gltfLoader";
 import { dressFace } from "./rosto";
 import { BEARDS_3D, GLASSES_3D, HAIRS, PANTS_3D, SHIRTS_3D, SHOES_3D, type Wearable } from "./wearables";
@@ -801,6 +802,10 @@ const HEEL_TILT = 0.35;
  */
 const HEEL_LIFT = 0.044;
 
+/** Patoleiro como chapéu, no espaço do osso `cabeca`: escala do pato e quanto ele afunda no cabelo. */
+const PATOLEIRO_HAT_SCALE = 2.6;
+const PATOLEIRO_SINK = 0.03;
+
 /** Altura do cós medida a partir do topo da saia. */
 const TUCK_BAND = 0.03;
 /** Folga entre a camiseta apertada e o lado de dentro da saia. */
@@ -1008,7 +1013,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   };
   tiltFeet();
 
-  // Acessórios procedurais no modelo GLB (gravata, boné). O crachá (acessório 4) saiu: as caixas ficavam
+// Acessórios procedurais no modelo GLB (gravata, boné). O crachá (acessório 4) saiu: as caixas ficavam
   // dentro do corpo da nova proporção.
   const troncoNode = inner.getObjectByName("tronco");
   const cabecaNode = inner.getObjectByName("cabeca");
@@ -1033,6 +1038,22 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     cabecaNode.add(at(box(0.48, 0.15, 0.48, capMat, 0.05), 0, 0.25, -0.01));
     glbCapVisor = at(box(0.44, 0.04, 0.22, capMat, 0.02), 0, 0.20, 0.28);
     cabecaNode.add(glbCapVisor);
+  }
+  if (cabecaNode && dna.accessory === 5) {
+    // o topo varia com o cabelo: um raio de cima para baixo no eixo da cabeça acha onde o pato senta
+    inner.updateMatrixWorld(true);
+    const down = new THREE.Vector3(0, -1, 0).transformDirection(cabecaNode.matrixWorld);
+    const from = cabecaNode.localToWorld(new THREE.Vector3(0, 3, 0));
+    const hit = new THREE.Raycaster(from, down).intersectObjects(body ? [body, ...attachedHairMeshes] : attachedHairMeshes)[0];
+    const top = hit ? cabecaNode.worldToLocal(hit.point.clone()) : new THREE.Vector3(0, 1, 0);
+    const duck = addPatoleiro(cabecaNode, top.x, top.y - PATOLEIRO_SINK, top.z, PATOLEIRO_HAT_SCALE);
+    duck.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        if (Array.isArray(m.material)) mats.push(...m.material);
+        else mats.push(m.material);
+      }
+    });
   }
 
   // Peças de expressão facial do GLB e suas transformações base
@@ -1081,6 +1102,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const emotion = new CharacterEmotionManager();
   const inertia = new CharacterPhysicsInertia();
   const wind = new CharacterWindPhysics();
+
 
   const mixer = new THREE.AnimationMixer(inner);
   let activeItemGesture: { item: ItemId; timer: number; duration: number } | null = null;

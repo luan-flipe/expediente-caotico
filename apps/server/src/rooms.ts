@@ -131,6 +131,8 @@ interface Member {
   leftAt: number | null;
   /** Hora do último chat rápido (limite de 1 a cada CHAT_COOLDOWN_MS). */
   lastChatAt: number;
+  /** Índice em LOBBY_STATUSES escolhido no lobby, ou null. */
+  statusIndex: number | null;
 }
 
 function send(conn: Conn | null, msg: ServerMsg | string): void {
@@ -210,6 +212,7 @@ export class Room {
         connected: m.isBot || m.conn !== null,
         ranked: m.accountId !== null,
         ...(m.side !== undefined ? { side: m.side } : {}),
+        statusIndex: m.statusIndex,
       })),
     };
   }
@@ -296,7 +299,7 @@ export class Room {
 
   addMember(name: string, avatar: AvatarDNA, conn: Conn | null, isBot = false, chair: ChairDNA = DEFAULT_CHAIR, accountId: string | null = null): Member {
     const id = isBot ? `bot-${++this.nextBot}` : randomBytes(6).toString("hex");
-    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, sessionLaps: {}, conn, leftAt: null, lastChatAt: 0 };
+    const m: Member = { id, token: randomBytes(18).toString("base64url"), name, avatar, chair, ready: false, isBot, accountId, sessionLaps: {}, conn, leftAt: null, lastChatAt: 0, statusIndex: null };
     this.members.set(id, m);
     if (!this.hostId && !isBot) this.hostId = id;
     if (!isBot && this.mode === "futebol") m.side = this.lighterSide();
@@ -754,6 +757,17 @@ export class Room {
         if (now - member.lastChatAt < CHAT_COOLDOWN_MS) return;
         member.lastChatAt = now;
         return this.broadcast({ t: "chat", from: member.id, kind: msg.t === "chat" ? "phrase" : "emote", index: msg.index });
+      }
+      case "status":
+        if (this.phase !== "lobby") return;
+        member.statusIndex = msg.index;
+        return this.broadcastLobby();
+      case "reaction": {
+        if (this.phase !== "lobby" || msg.to === member.id || !this.members.has(msg.to)) return;
+        const now = Date.now();
+        if (now - member.lastChatAt < CHAT_COOLDOWN_MS) return;
+        member.lastChatAt = now;
+        return this.broadcast({ t: "reaction", from: member.id, to: msg.to, index: msg.index });
       }
       case "lobby":
         if (!isHost || this.phase !== "results") return;

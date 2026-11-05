@@ -61,7 +61,7 @@ export function sphere(m, c, r, seg = 12, rings = 8) {
   }
 }
 
-const normalsOf = ({ positions, tri }) => {
+export const normalsOf = ({ positions, tri }) => {
   const normals = positions.map(() => [0, 0, 0]);
   for (let t = 0; t < tri.length; t += 3) {
     const [a, b, c] = [tri[t], tri[t + 1], tri[t + 2]];

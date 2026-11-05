@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ABILITIES, ABILITY_IDS } from "../data/abilities";
-import { CLOTH_COLORS, HAIR_ORDER, HAIR_STYLES, MAX_WEARABLES, PRESETS, randomAvatar, sanitizeAvatar } from "../data/avatar";
+import { ACCESSORIES, CLOTH_COLORS, HAIR_ORDER, HAIR_STYLES, MAX_WEARABLES, PRESETS, randomAvatar, sanitizeAvatar } from "../data/avatar";
 import { OFFICE_MAP } from "../data/map";
 import { SYNERGIES } from "../data/synergies";
 import { BALANCE } from "../data/balance";
@@ -34,6 +34,10 @@ describe("avatar", () => {
     expect(sanitizeAvatar({}).shoes).toBe(0);
     expect(sanitizeAvatar({ shoes: 6 }).shoes).toBe(6);
     expect(sanitizeAvatar({ shoes: MAX_WEARABLES }).shoes).toBe(0);
+    // acessório Patoleiro (índice 5) e validação
+    expect(ACCESSORIES).toContain("Patoleiro");
+    expect(sanitizeAvatar({ accessory: 5 }).accessory).toBe(5);
+    expect(sanitizeAvatar({ accessory: 99 }).accessory).toBe(4);
   });
 
   it("crachá salvo antes dos rostos fica com o rosto feliz; barba indexa a pasta", () => {

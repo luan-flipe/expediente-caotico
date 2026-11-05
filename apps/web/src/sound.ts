@@ -818,3 +818,53 @@ export function playCrowd(kind: CrowdKind): void {
   src.start(t);
   src.stop(t + spec.end + 0.05);
 }
+
+/** Campainha de dois tons quando alguém entra na sala. Sem AudioContext (testes) não faz nada. */
+export function playDingSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+  if (ctx.state === "suspended") void ctx.resume();
+  const t = ctx.currentTime;
+  [{ freq: 880, at: 0 }, { freq: 660, at: 0.14 }].forEach(({ freq, at }) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, t + at);
+    gain.gain.exponentialRampToValueAtTime(0.25, t + at + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.3);
+    osc.connect(gain);
+    gain.connect(effectsGain!);
+    osc.start(t + at);
+    osc.stop(t + at + 0.32);
+  });
+}
+
+/** Som de patinho de borracha (quack / squeak agudo). Sem AudioContext (testes) não faz nada. */
+export function playQuackSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const s = getSettings();
+  if (s.volume.master <= 0 || s.volume.effects <= 0) return;
+  if (ctx.state === "suspended") void ctx.resume();
+  const t = ctx.currentTime;
+
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "triangle";
+
+  osc.frequency.setValueAtTime(800, t);
+  osc.frequency.exponentialRampToValueAtTime(1400, t + 0.04);
+  osc.frequency.exponentialRampToValueAtTime(750, t + 0.15);
+
+  gain.gain.setValueAtTime(0.001, t);
+  gain.gain.linearRampToValueAtTime(0.25, t + 0.03);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+
+  osc.connect(gain);
+  gain.connect(effectsGain);
+  osc.start(t);
+  osc.stop(t + 0.17);
+}

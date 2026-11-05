@@ -21,6 +21,10 @@ export const CHAT_EMOTES = ["😂", "😡", "👏", "☕", "💀", "🔥"] as co
 export const CHAT_COOLDOWN_MS = 2000;
 /** Quanto tempo o balão fica visível. */
 export const CHAT_BUBBLE_MS = 3000;
+/** Status do crachá no lobby, por índice (mesma política do chat rápido: nada de texto livre). */
+export const LOBBY_STATUSES = ["Em reunião (não incomode)", "Fingindo que estou na planilha", "Movido a café extra forte", "Procurando o anexo do e-mail"] as const;
+/** Reação rápida ao clicar no crachá de um colega no lobby. */
+export const LOBBY_REACTIONS = ["☕ Paga um café", "📄 Segura essa planilha", "👏 Palmas pro estagiário"] as const;
 
 const num = z.number().finite();
 const avatar = z.unknown();
@@ -95,6 +99,10 @@ export const ClientMsg = z.discriminatedUnion("t", [
   /** Chat rápido: índice da frase ou do emote (ver CHAT_PHRASES e CHAT_EMOTES). */
   z.object({ t: z.literal("chat"), index: z.number().int().min(0).max(CHAT_PHRASES.length - 1) }),
   z.object({ t: z.literal("emote"), index: z.number().int().min(0).max(CHAT_EMOTES.length - 1) }),
+  /** Status do crachá no lobby; null limpa. */
+  z.object({ t: z.literal("status"), index: z.number().int().min(0).max(LOBBY_STATUSES.length - 1).nullable() }),
+  /** Reação rápida dirigida a um colega no lobby (ver LOBBY_REACTIONS). */
+  z.object({ t: z.literal("reaction"), to: z.string().max(64), index: z.number().int().min(0).max(LOBBY_REACTIONS.length - 1) }),
   z.object({ t: z.literal("leave") }),
   z.object({ t: z.literal("lobby") }),
   z.object({ t: z.literal("ping"), c: num }),
@@ -113,6 +121,8 @@ export interface LobbyPlayer {
   ranked: boolean;
   /** Futebol: time do jogador (bots da sala não têm). */
   side?: TeamSide;
+  /** Índice em LOBBY_STATUSES, ou null sem status escolhido. */
+  statusIndex: number | null;
 }
 
 export interface LobbyState {
@@ -147,6 +157,8 @@ export type ServerMsg =
   | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null; rival?: (GhostLap & { name: string }) | null }
   /** Chat rápido de alguém da sala (inclusive de quem mandou). */
   | { t: "chat"; from: string; kind: "phrase" | "emote"; index: number }
+  /** Reação rápida dirigida a alguém da sala (ver LOBBY_REACTIONS). */
+  | { t: "reaction"; from: string; to: string; index: number }
   /** Cumpriu o desafio da semana: o cliente mostra um aviso na hora. */
   | { t: "challenge"; text: string; points: number }
   | { t: "error"; msg: string }

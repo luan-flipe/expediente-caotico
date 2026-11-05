@@ -19,7 +19,7 @@ export const CHAIR_SEATS = [
 export const CHAIR_BASES = ["#1e1e1e", "#9aa3ad", "#d4af37", "#ffffff", "#b33939", "#3867d6"];
 export const CHAIR_WHEELS = ["Comuns", "Neon", "Patinete"];
 export const CHAIR_BACKS = ["Baixo", "Alto", "Gamer"];
-export const CHAIR_TRINKETS = ["Nenhum", "Bandeirinha", "Buzina", "Caneca", "Plantinha", "Adesivos"];
+export const CHAIR_TRINKETS = ["Nenhum", "Bandeirinha", "Buzina", "Caneca", "Plantinha", "Adesivos", "Patoleiro"];
 /** Rótulos de `wheels` no patinete: o mesmo índice da cadeira. */
 export const SCOOTER_WHEELS = ["Comuns", "Neon", "Off-road"];
 
