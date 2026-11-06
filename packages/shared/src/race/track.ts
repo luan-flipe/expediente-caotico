@@ -229,6 +229,8 @@ interface RampDef {
 const CORPORATIVO_RAMP: RampDef = { path: -1, at: 0.4, len: 6, height: 1.6 };
 /** Estacionamento: rampa da garagem no atalho, pulando o fosso do subsolo. */
 const ESTACIONAMENTO_RAMP: RampDef = { path: 0, at: 0.15, len: 6, height: 2.2, gap: [0.36, 0.47] };
+/** Copa: no balcão, na reta da largada, antes da primeira curva e da fileira de caixas. Sem vão. */
+const COPA_RAMP: RampDef = { path: -1, at: 0.45, len: 6, height: 1.4 };
 /** Parque Ipanema: rampa panorâmica na reta dos ipês, saltando em direção ao mirante. */
 const PARQUE_RAMP: RampDef = { path: -1, at: 11.8, len: 7, height: 1.8 };
 
@@ -794,7 +796,7 @@ export const DEFAULT_TRACK_ID: TrackId = "corporativo";
 export const TRACKS: Record<TrackId, Track> = {
   corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES, cups: CORPORATIVO_CUPS, branch: CORPORATIVO_BRANCH, ramp: CORPORATIVO_RAMP }),
   estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS, branch: ESTACIONAMENTO_BRANCH, ramp: ESTACIONAMENTO_RAMP }),
-  copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS, branch: COPA_BRANCH }),
+  copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS, branch: COPA_BRANCH, ramp: COPA_RAMP }),
   parque: buildTrack({ id: "parque", name: "Parque Ipanema", ctrl: PARQUE, rooms: PARQUE_ROOMS, carpet: PARQUE_CARPET, boxes: PARQUE_BOXES, cups: PARQUE_CUPS, ramp: PARQUE_RAMP }),
 };
 

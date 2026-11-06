@@ -82,8 +82,25 @@ export const OFFICE_MAP: GameMap = {
     // Escada para o Mirante Sul (subindo pelo norte em direção a z=11)
     { id: "stair-sul", name: "Escada Mirante Sul", x: -18, z: 6.5, w: 4.0, d: 2.0, axis: "z", direction: 1, h0: 0, h1: 1.1, steps: 5 },
   ],
-  // Campo 100% aberto: todos os objetos e paredes foram removidos
-  boxes: [],
+  // Cobertura esparsa: muretes e arbustos soltos em volta das colinas e dos objetivos.
+  // Sem cantos fechados (cada caixa é um segmento reto isolado), com folga larga entre elas
+  // e fora das escadas, dos spawns e dos pontos de objetivo. Altura baixa: protege, não fecha o campo.
+  boxes: [
+    // Colina Central: muretes nas diagonais e arbustos ao norte e ao sul
+    { x: -8, z: -6.5, w: 3.0, d: 0.8, h: 1.3, kind: "wall" },
+    { x: 8, z: 6.5, w: 3.0, d: 0.8, h: 1.3, kind: "wall" },
+    { x: 0, z: -8, w: 0.9, d: 3.0, h: 1.2, kind: "plant" },
+    { x: 0, z: 8, w: 0.9, d: 3.0, h: 1.2, kind: "plant" },
+    // Mirante Norte: um de cada lado da colina
+    { x: 12, z: -12, w: 0.9, d: 2.6, h: 1.2, kind: "plant" },
+    { x: 24.5, z: -9, w: 0.9, d: 2.6, h: 1.2, kind: "plant" },
+    // Mirante Sul
+    { x: -12, z: 12, w: 0.9, d: 2.6, h: 1.2, kind: "plant" },
+    { x: -24.5, z: 9, w: 0.9, d: 2.6, h: 1.2, kind: "plant" },
+    // Objetivos de canto
+    { x: -20, z: -7, w: 2.4, d: 0.8, h: 1.3, kind: "wall" },
+    { x: 20, z: 7, w: 2.4, d: 0.8, h: 1.3, kind: "wall" },
+  ],
   spawns: [
     { x: -26, z: -14 },
     { x: 26, z: -14 },

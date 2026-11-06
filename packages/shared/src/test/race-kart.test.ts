@@ -216,7 +216,9 @@ describe("rampas e voo", () => {
     expect(TRACKS.corporativo.ramps[0].gap).toBeUndefined();
     expect(TRACKS.estacionamento.ramps[0].path).toBe(0);
     expect(TRACKS.estacionamento.ramps[0].gap).toBeDefined();
-    expect(TRACKS.copa.ramps).toHaveLength(0);
+    expect(TRACKS.copa.ramps).toHaveLength(1);
+    expect(TRACKS.copa.ramps[0].path).toBe(-1);
+    expect(TRACKS.copa.ramps[0].gap).toBeUndefined();
     expect(TRACKS.parque.ramps).toHaveLength(1);
     expect(TRACKS.parque.ramps[0].path).toBe(-1);
     expect(TRACKS.parque.ramps[0].gap).toBeUndefined();
@@ -228,6 +230,21 @@ describe("rampas e voo", () => {
     const mid = pointAt(T, (r.sFrom + r.sTo) / 2);
     expect(groundAt(T, progressOf(T, mid.pos)).y).toBeCloseTo(r.height / 2, 1);
     expect(groundAt(T, progressOf(T, pointAt(T, r.sTo + 3).pos)).y).toBe(0);
+  });
+
+  it("rampa da Copa fica na reta da largada, antes da primeira fileira de caixas, e o chão sobe nela", () => {
+    const T = TRACKS.copa;
+    const r = T.ramps[0];
+    expect(r.sFrom).toBeGreaterThan(0);
+    expect(r.sTo).toBeLessThan(T.boxRows[0]);
+    const mid = pointAt(T, (r.sFrom + r.sTo) / 2);
+    expect(groundAt(T, progressOf(T, mid.pos)).y).toBeCloseTo(r.height / 2, 1);
+    expect(groundAt(T, progressOf(T, pointAt(T, r.sTo + 3).pos)).y).toBe(0);
+  });
+
+  it("decola na Copa só acima da velocidade mínima", () => {
+    expect(rampRun(TRACKS.copa, 20).some((s) => s.state.air)).toBe(true);
+    expect(rampRun(TRACKS.copa, 6).some((s) => s.state.air)).toBe(false);
   });
 
   it("decola acima da velocidade mínima", () => {
