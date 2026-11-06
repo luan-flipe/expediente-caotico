@@ -1,11 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildSuspeitoPrivate,
-  buildSuspeitoSnapshot,
   createSuspeitoMatch,
+  DEFAULT_AVATAR,
   DEFAULT_ROOM_OPTIONS,
   queueSuspeitoEmergency,
-  queueSuspeitoFixSabotage,
   queueSuspeitoKill,
   queueSuspeitoMeetingChat,
   queueSuspeitoReport,
@@ -17,14 +16,18 @@ import {
 } from "../index";
 
 const mockPlayers: SuspeitoPlayerInfo[] = [
-  { id: "p1", name: "Ana", avatar: {} as any, isBot: false },
-  { id: "p2", name: "Beto", avatar: {} as any, isBot: false },
-  { id: "p3", name: "Carlos", avatar: {} as any, isBot: false },
-  { id: "p4", name: "Duda", avatar: {} as any, isBot: false },
-  { id: "p5", name: "Edu", avatar: {} as any, isBot: false },
+  { id: "p1", name: "Ana", avatar: DEFAULT_AVATAR, isBot: false },
+  { id: "p2", name: "Beto", avatar: DEFAULT_AVATAR, isBot: false },
+  { id: "p3", name: "Carlos", avatar: DEFAULT_AVATAR, isBot: false },
+  { id: "p4", name: "Duda", avatar: DEFAULT_AVATAR, isBot: false },
+  { id: "p5", name: "Edu", avatar: DEFAULT_AVATAR, isBot: false },
 ];
 
 describe("Partida de Expediente Suspeito", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("cria partida com funções secretas e tarefas distribuídas", () => {
     const match = createSuspeitoMatch(mockPlayers, DEFAULT_ROOM_OPTIONS, 12345);
     expect(match.players.size).toBe(5);
@@ -88,7 +91,7 @@ describe("Partida de Expediente Suspeito", () => {
       id: "body_test",
       victimId: "p5",
       victimName: "Edu",
-      avatar: {} as any,
+      avatar: DEFAULT_AVATAR,
       pos: { x: 6, z: 15 },
       sector: "copa",
       reported: false,
@@ -112,11 +115,11 @@ describe("Partida de Expediente Suspeito", () => {
 
   it("permite chat de depoimentos, testemunho de bots e abertura imediata da votação", () => {
     const playersWithBot: SuspeitoPlayerInfo[] = [
-      { id: "p1", name: "Ana", avatar: {} as any, isBot: false },
-      { id: "p2", name: "Beto", avatar: {} as any, isBot: true },
-      { id: "p3", name: "Carlos", avatar: {} as any, isBot: true },
-      { id: "p4", name: "Duda", avatar: {} as any, isBot: false },
-      { id: "p5", name: "Edu", avatar: {} as any, isBot: false },
+      { id: "p1", name: "Ana", avatar: DEFAULT_AVATAR, isBot: false },
+      { id: "p2", name: "Beto", avatar: DEFAULT_AVATAR, isBot: true },
+      { id: "p3", name: "Carlos", avatar: DEFAULT_AVATAR, isBot: true },
+      { id: "p4", name: "Duda", avatar: DEFAULT_AVATAR, isBot: false },
+      { id: "p5", name: "Edu", avatar: DEFAULT_AVATAR, isBot: false },
     ];
     const match = createSuspeitoMatch(playersWithBot, DEFAULT_ROOM_OPTIONS, 12345);
     match.phase = "working";
@@ -124,6 +127,8 @@ describe("Partida de Expediente Suspeito", () => {
     const p1 = match.players.get("p1")!;
     p1.pos = { x: -4, z: 0 };
     match.emergencyCooldownMs = 0;
+    // Bot pode ficar calado ou demorar por sorteio: sem sorte aqui, os dois falam logo no início da reunião
+    vi.spyOn(Math, "random").mockReturnValue(0);
     queueSuspeitoEmergency(match, "p1");
     expect(match.phase).toBe("meeting");
 
@@ -264,7 +269,7 @@ describe("Partida de Expediente Suspeito", () => {
       id: "body_behind_wall",
       victimId: "p5",
       victimName: "Edu",
-      avatar: {} as any,
+      avatar: DEFAULT_AVATAR,
       pos: { x: -8, z: 6.5 },
       sector: "rh",
       reported: false,
