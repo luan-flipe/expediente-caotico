@@ -90,6 +90,7 @@ export class SuspeitoEngine {
   applySnapshot(snap: SuspeitoSnapshot, me: SuspeitoPrivate | null): void {
     this.sceneMgr.updateBodies(snap.bodies, me?.visibleBodyIds);
     this.sceneMgr.updateLighting(snap);
+    this.sceneMgr.updateTaskBeacons(me?.tasks, me?.nearbyInteractable?.id, snap);
 
     const activeIds = new Set(snap.players.map((p) => p.id));
     const isMeeting = snap.phase === "meeting" || snap.phase === "voting" || snap.phase === "vote_result";
@@ -149,9 +150,9 @@ export class SuspeitoEngine {
     const dt = Math.min(0.1, (now - this.lastTime) / 1000);
     this.lastTime = now;
 
-    // Medição e atualização do FPS a cada ~500ms
+    // Medição e atualização do FPS em tempo real a cada ~100ms
     this.fpsFrames++;
-    if (now - this.fpsLastTime >= 500) {
+    if (now - this.fpsLastTime >= 100) {
       const fps = Math.round((this.fpsFrames * 1000) / (now - this.fpsLastTime));
       this.fpsFrames = 0;
       this.fpsLastTime = now;
@@ -188,6 +189,9 @@ export class SuspeitoEngine {
     for (const item of this.characters.values()) {
       item.char.update(dt, 1);
     }
+
+    // Animação de pulso/bobbing dos marcadores (!)
+    this.sceneMgr.updateAnimation(dt);
 
     this.renderer.render(this.scene, this.camera);
     this.reqId = requestAnimationFrame(this.loop);

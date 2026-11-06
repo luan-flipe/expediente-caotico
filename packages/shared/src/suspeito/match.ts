@@ -92,8 +92,8 @@ export interface SuspeitoMatch {
 
 const PLAYER_SPEED = 5.2; // m/s
 const KILL_RANGE = 2.0;   // m
-const INTERACT_RANGE = 2.0; // m
-const INITIAL_PROTECTION_MS = 6000;
+const INTERACT_RANGE = 3.2; // m (alcance generoso e confortável para interação)
+const INITIAL_PROTECTION_MS = 10000; // 10s cooldown inicial de eliminação (autêntico Among Us)
 const DEFAULT_KILL_COOLDOWN_MS = 25000;
 
 export function createSuspeitoMatch(
@@ -178,7 +178,7 @@ export function createSuspeitoMatch(
     activeChallenges: new Map(),
     bodies: [],
     sabotage: null,
-    sabotageGlobalCooldownMs: INITIAL_PROTECTION_MS,
+    sabotageGlobalCooldownMs: 25000,
     emergencyCooldownMs: 15000,
     meeting: null,
     winner: null,
@@ -294,7 +294,7 @@ function triggerMeeting(
   reportedVictimName?: string
 ): void {
   const caller = match.players.get(callerId);
-  const discussionMs = (match.options.suspeitoDiscussionSec ?? 20) * 1000;
+  const discussionMs = (match.options.suspeitoDiscussionSec ?? 15) * 1000;
   const votingMs = (match.options.suspeitoVotingSec ?? 25) * 1000;
 
   match.meeting = createMeeting({
@@ -580,9 +580,15 @@ export function stepSuspeitoMatch(match: SuspeitoMatch, dtSec: number): void {
       match.phase = "working";
       match.meeting = null;
       match.emergencyCooldownMs = 15000;
+      match.sabotageGlobalCooldownMs = 15000;
+      const postMeetingKillCd = (match.options.suspeitoKillCooldownSec ?? 25) * 1000;
       for (const p of match.players.values()) {
         p.voted = false;
         p.voteTarget = null;
+        if (p.role === "sabotador") {
+          p.killCooldownMs = postMeetingKillCd;
+          p.sabotageCooldownMs = 15000;
+        }
       }
     }
     return;

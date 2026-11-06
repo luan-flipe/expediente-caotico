@@ -14,6 +14,7 @@ interface SuspeitoHudProps {
   me: SuspeitoPrivate | null;
   onOpenSabotage: () => void;
   onOpenTask: (taskId: string) => void;
+  onToggleMap: () => void;
 }
 
 export function SuspeitoHud({
@@ -22,8 +23,10 @@ export function SuspeitoHud({
   me,
   onOpenSabotage,
   onOpenTask,
+  onToggleMap,
 }: SuspeitoHudProps) {
   const [tasksOpen, setTasksOpen] = useState(true);
+  const [taskHint, setTaskHint] = useState<string | null>(null);
 
   if (!me) return null;
 
@@ -65,14 +68,17 @@ export function SuspeitoHud({
     net.send({ t: "suspeitoReport", bodyId: me.reportTargetBodyId });
   };
 
-  // Suporte a atalhos de teclado (E/Espaço = Usar, Q = Eliminar, R = Reportar, F = Sabotar)
+  // Suporte a atalhos de teclado (E/Espaço = Usar, Q = Eliminar, R = Reportar, F = Sabotar, TAB/M = Mapa)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (tag === "input" || tag === "textarea") return;
 
       const k = e.key.toLowerCase();
-      if (k === "e" || e.code === "Space") {
+      if (e.key === "Tab" || k === "m") {
+        e.preventDefault();
+        onToggleMap();
+      } else if (k === "e" || e.code === "Space") {
         if (me.nearbyInteractable) {
           e.preventDefault();
           handleInteract();
@@ -90,7 +96,7 @@ export function SuspeitoHud({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [me, isSabotador]);
+  }, [me, isSabotador, onToggleMap]);
 
   return (
     <div className="suspeito-hud-layer">
@@ -136,7 +142,32 @@ export function SuspeitoHud({
             </span>
           )}
         </div>
+
+        <button
+          className="suspeito-map-btn-top"
+          onClick={onToggleMap}
+          title="Abrir mapa do escritório com setores e tarefas (TAB ou M)"
+        >
+          <span className="btn-icon">🗺️</span>
+          <span>Mapa [TAB]</span>
+        </button>
       </div>
+
+      {/* Aviso de orientação para tarefas */}
+      {taskHint && (
+        <div className="suspeito-task-hint-toast" onClick={onToggleMap}>
+          <span>{taskHint}</span>
+          <button
+            className="toast-map-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMap();
+            }}
+          >
+            Ver no Mapa
+          </button>
+        </div>
+      )}
 
       {/* Alerta de sabotagem ativa */}
       {snap.sabotage?.active && (
@@ -203,10 +234,15 @@ export function SuspeitoHud({
                     if (isHere) {
                       handleInteract();
                     } else if (!t.completed) {
-                      onOpenTask(t.id);
+                      setTaskHint(`Vá até o setor [${SECTORS[t.sector]?.name}] para realizar: ${t.name}`);
+                      setTimeout(() => setTaskHint(null), 4500);
                     }
                   }}
-                  title={isHere ? "Você está nesta estação! Clique para abrir" : "Clique para abrir esta tarefa"}
+                  title={
+                    isHere
+                      ? "Você está nesta estação! Clique para abrir (ou pressione E)"
+                      : `Vá até o setor ${SECTORS[t.sector]?.name} para realizar esta tarefa`
+                  }
                 >
                   <span className="task-check">{t.completed ? "✓" : isHere ? "👉" : "○"}</span>
                   <div className="task-item-info">
@@ -225,6 +261,17 @@ export function SuspeitoHud({
 
       {/* Barra de Ações Inferior com Botões Grandes e Intuitivos */}
       <div className="suspeito-action-bar">
+        {/* Botão de Mapa */}
+        <button
+          className="suspeito-action-btn map"
+          onClick={onToggleMap}
+          title="Abrir planta do escritório e setores (TAB ou M)"
+        >
+          <div className="btn-icon">🗺️</div>
+          <span className="btn-label">Mapa</span>
+          <span className="btn-shortcut">[TAB]</span>
+        </button>
+
         {/* Botão de Reportar */}
         <button
           className={`suspeito-action-btn report ${me.canReport ? "ready pulse" : ""}`}
