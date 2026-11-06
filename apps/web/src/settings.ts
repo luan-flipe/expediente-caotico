@@ -6,7 +6,7 @@ export const SHOOTER_ACTIONS = ["frente", "tras", "esquerda", "direita", "atirar
 /** Ações com tecla própria na corrida. As setas e o clique esquerdo (item) valem sempre como alternativa. */
 export const RACE_ACTIONS = ["acelerar", "frear", "esquerda", "direita", "derrapar", "item", "voltar", "placar", "mudo", "chat"] as const;
 
-/** Ações com tecla própria no Futebol da Firma. Fixos: Shift corre, Espaço chuta (segurado), passa (toque rápido) ou dá o carrinho (sem a bola); o mouse e as setas só movem a câmera. */
+/** Ações com tecla própria no Futebol da Firma. Fixos: Shift corre, Espaço chuta (segurado), passa (toque rápido) ou dá o carrinho (sem a bola); o mouse e as setas só movem a câmera quando você está com a bola. */
 export const FUT_ACTIONS = ["frente", "tras", "esquerda", "direita", "placar", "chat"] as const;
 
 export type ShooterAction = (typeof SHOOTER_ACTIONS)[number];
