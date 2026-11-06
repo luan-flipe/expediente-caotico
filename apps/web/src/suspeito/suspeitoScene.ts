@@ -24,6 +24,90 @@ function mesh(
   return m;
 }
 
+/** Cria textura de placa de identificação de setor legível no chão */
+function createSectorLabelTexture(text: string, color: string): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+
+  // Fundo com bordas arredondadas e contraste escuro
+  ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+  ctx.beginPath();
+  ctx.roundRect(8, 8, 496, 112, 20);
+  ctx.fill();
+
+  // Borda colorida característica do setor
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+
+  // Texto em caixa alta
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 32px 'Segoe UI', Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text.toUpperCase(), 256, 64);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  return tex;
+}
+
+/** Textura de exclamação amarela (!) flutuante para estações com tarefas ativas */
+function createExclamationTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+
+  // Círculo amarelo brilhante
+  ctx.fillStyle = "#facc15";
+  ctx.beginPath();
+  ctx.arc(64, 64, 54, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "#ffffff";
+  ctx.stroke();
+
+  // Exclamação preta nítida
+  ctx.fillStyle = "#0f172a";
+  ctx.font = "bold 78px 'Arial Black', sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("!", 64, 68);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  return tex;
+}
+
+/** Textura de alerta de sabotagem (⚠️) */
+function createSabotageAlertTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+
+  ctx.fillStyle = "#ef4444";
+  ctx.beginPath();
+  ctx.arc(64, 64, 54, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "#ffffff";
+  ctx.stroke();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 64px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("⚠️", 64, 70);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  return tex;
+}
+
 export class SuspeitoSceneManager {
   scene: THREE.Scene;
   bodyMeshes = new Map<string, { grp: THREE.Group; char: Character }>();
@@ -44,6 +128,8 @@ export class SuspeitoSceneManager {
     transparent: true,
     opacity: 0.6,
   });
+  private exclamationTex = createExclamationTexture();
+  private alertTex = createSabotageAlertTexture();
   private redMarkMat = new THREE.MeshStandardMaterial({ color: "#c62828", roughness: 0.5 });
   private fixMat = new THREE.MeshStandardMaterial({
     color: "#ff1744",
@@ -78,17 +164,19 @@ export class SuspeitoSceneManager {
 
     this.buildOfficeLayout();
     this.scene.add(this.taskBeaconGroup);
-    this.fixBeacon = this.makeBeacon(this.fixMat, 1.0, 2.2);
+    this.fixBeacon = this.makeBeacon(this.fixMat, this.alertTex, 1.0, 2.2);
     this.fixBeacon.visible = false;
     this.scene.add(this.fixBeacon);
   }
 
-  private makeBeacon(mat: THREE.Material, radius = 0.7, height = 1.2): THREE.Group {
+  private makeBeacon(mat: THREE.Material, tex: THREE.Texture, radius = 0.7, height = 1.2): THREE.Group {
     const g = new THREE.Group();
     g.add(mesh(new THREE.CylinderGeometry(radius, radius, 0.05, 20), mat, 0, 0.03, 0, false));
     g.add(mesh(new THREE.CylinderGeometry(0.08, 0.08, height, 8), mat, 0, height / 2, 0, false));
-    const tip = mesh(new THREE.OctahedronGeometry(0.22), mat, 0, height + 0.25, 0, false);
+    const tip = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
     tip.name = "tip";
+    tip.position.y = height + 0.45;
+    tip.scale.set(1.1, 1.1, 1);
     g.add(tip);
     return g;
   }
@@ -103,7 +191,7 @@ export class SuspeitoSceneManager {
     baseFloor.rotation.x = -Math.PI / 2;
     this.scene.add(baseFloor);
 
-    // 2. Setores individuais com piso e rodapé temáticos
+    // 2. Setores individuais com piso, rodapé e placa no piso
     const borderMat = new THREE.MeshStandardMaterial({ color: "#78909c", roughness: 0.7 });
     for (const sector of Object.values(SECTORS)) {
       const sectorFloorMat = new THREE.MeshStandardMaterial({
@@ -118,12 +206,22 @@ export class SuspeitoSceneManager {
       const border = mesh(new THREE.BoxGeometry(sector.w, 0.04, sector.d), borderMat, sector.x, 0.02, sector.z, false);
       this.scene.add(border);
 
+      // Placa de identificação do setor impressa no chão para navegação imediata
+      const signTex = createSectorLabelTexture(sector.name, sector.color);
+      const signMat = new THREE.MeshBasicMaterial({
+        map: signTex,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const signPlane = mesh(new THREE.PlaneGeometry(4.2, 1.1), signMat, sector.x, 0.055, sector.z - sector.d / 2 + 1.2, false);
+      signPlane.rotation.x = -Math.PI / 2;
+      this.scene.add(signPlane);
+
       this.buildSectorProps(sector);
     }
 
     // 3. Mesa de conferência central e Botão de Emergência
     const tableMat = new THREE.MeshStandardMaterial({ color: "#4e342e", roughness: 0.5 });
-    // Mesa central: x in [-7.5, -0.5], z in [-1.8, 1.8]
     const tableW = 7.0;
     const tableD = 3.6;
     const tableX = -4.0;
@@ -149,7 +247,6 @@ export class SuspeitoSceneManager {
     const wallH = 1.9;
 
     for (const wall of SUSPEITO_WALLS) {
-      // Ignora o colisor da mesa pois a mesa já possui geometria própria customizada
       if (wall.minX === -7.5 && wall.maxX === -0.5 && wall.minZ === -1.8 && wall.maxZ === 1.8) {
         continue;
       }
@@ -159,38 +256,18 @@ export class SuspeitoSceneManager {
       const cx = (wall.minX + wall.maxX) / 2;
       const cz = (wall.minZ + wall.maxZ) / 2;
 
-      // Corpo da parede
       const wallMesh = mesh(new THREE.BoxGeometry(w, wallH, d), wallMat, cx, wallH / 2, cz);
       this.scene.add(wallMesh);
 
-      // Moldura superior (rodapé de teto para contraste visual nítido)
       const trimMesh = mesh(new THREE.BoxGeometry(w + 0.05, 0.1, d + 0.05), wallTrimMat, cx, wallH + 0.05, cz, false);
       this.scene.add(trimMesh);
     }
   }
 
   private buildSectorProps(sector: typeof SECTORS[keyof typeof SECTORS]): void {
-    const deskMat = new THREE.MeshStandardMaterial({ color: "#cfd8dc", roughness: 0.6 });
     const pcMat = new THREE.MeshStandardMaterial({ color: "#263238", roughness: 0.4 });
-    const screenMat = new THREE.MeshStandardMaterial({
-      color: "#00e676",
-      emissive: "#00b0ff",
-      emissiveIntensity: 0.5,
-    });
 
-    if (sector.id === "desenvolvimento" || sector.id === "suporte" || sector.id === "financeiro") {
-      // Mesas com computadores
-      const d1 = mesh(new THREE.BoxGeometry(2.4, 0.7, 1.2), deskMat, sector.x - 2, 0.35, sector.z);
-      const d2 = mesh(new THREE.BoxGeometry(2.4, 0.7, 1.2), deskMat, sector.x + 2, 0.35, sector.z);
-      this.scene.add(d1);
-      this.scene.add(d2);
-
-      const mon1 = mesh(new THREE.BoxGeometry(0.8, 0.5, 0.1), screenMat, sector.x - 2, 0.95, sector.z - 0.3);
-      const mon2 = mesh(new THREE.BoxGeometry(0.8, 0.5, 0.1), screenMat, sector.x + 2, 0.95, sector.z - 0.3);
-      this.scene.add(mon1);
-      this.scene.add(mon2);
-    } else if (sector.id === "servidores") {
-      // Racks de servidores com luzes
+    if (sector.id === "servidores") {
       const rackMat = new THREE.MeshStandardMaterial({ color: "#1c2833", roughness: 0.4 });
       const ledMat = new THREE.MeshStandardMaterial({ color: "#00e676", emissive: "#00e676", emissiveIntensity: 0.9 });
       for (let i = -3; i <= 3; i += 3) {
@@ -200,14 +277,12 @@ export class SuspeitoSceneManager {
         this.scene.add(led);
       }
     } else if (sector.id === "copa") {
-      // Balcão de café e bebedouro
       const counterMat = new THREE.MeshStandardMaterial({ color: "#8d6e63", roughness: 0.5 });
       const counter = mesh(new THREE.BoxGeometry(4, 0.8, 1.2), counterMat, sector.x, 0.4, sector.z);
       const coffeeMachine = mesh(new THREE.BoxGeometry(0.7, 0.6, 0.6), pcMat, sector.x, 0.95, sector.z);
       this.scene.add(counter);
       this.scene.add(coffeeMachine);
     } else if (sector.id === "impressao") {
-      // Impressora grande de escritório
       const printerMat = new THREE.MeshStandardMaterial({ color: "#f5f5f5", roughness: 0.5 });
       const printer = mesh(new THREE.BoxGeometry(1.6, 1.1, 1.4), printerMat, sector.x, 0.55, sector.z);
       this.scene.add(printer);
@@ -236,7 +311,7 @@ export class SuspeitoSceneManager {
     for (const [id, w] of wanted) {
       let g = this.beacons.get(id);
       if (!g) {
-        g = this.makeBeacon(this.beaconMat);
+        g = this.makeBeacon(this.beaconMat, this.exclamationTex);
         g.position.set(w.x, 0, w.z);
         this.taskBeaconGroup.add(g);
         this.beacons.set(id, g);
@@ -244,6 +319,7 @@ export class SuspeitoSceneManager {
       const mat = w.blocked ? this.blockedBeaconMat : this.beaconMat;
       g.traverse((o) => {
         if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = mat;
+        if ((o as THREE.Sprite).isSprite) ((o as THREE.Sprite).material as THREE.SpriteMaterial).color.set(w.blocked ? "#9e9e9e" : "#ffffff");
       });
     }
 
@@ -256,15 +332,13 @@ export class SuspeitoSceneManager {
     const bob = Math.sin(now / 300) * 0.12;
     for (const g of this.beacons.values()) {
       const tip = g.getObjectByName("tip");
-      if (tip) {
-        tip.position.y = 1.45 + bob;
-        tip.rotation.y = now / 600;
-      }
+      if (tip) tip.position.y = 1.65 + bob;
     }
     const tip = this.fixBeacon.getObjectByName("tip");
     if (tip) {
-      tip.position.y = 2.45 + bob * 1.5;
-      tip.rotation.y = now / 300;
+      tip.position.y = 2.65 + bob * 1.5;
+      const sc = 1.4 + Math.sin(now / 125) * 0.2;
+      tip.scale.set(sc, sc, 1);
     }
     this.fixMat.emissiveIntensity = 0.6 + Math.abs(Math.sin(now / 250)) * 0.8;
   }
@@ -333,5 +407,7 @@ export class SuspeitoSceneManager {
     this.bodyMeshes.clear();
     this.scene.remove(this.taskBeaconGroup);
     this.scene.remove(this.fixBeacon);
+    this.exclamationTex.dispose();
+    this.alertTex.dispose();
   }
 }

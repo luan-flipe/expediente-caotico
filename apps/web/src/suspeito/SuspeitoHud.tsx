@@ -10,6 +10,7 @@ interface SuspeitoHudProps {
   onOpenSabotage: () => void;
   onOpenTask: (taskId: string) => void;
   inputLocked: boolean;
+  onToggleMap: () => void;
 }
 
 export function SuspeitoHud({
@@ -19,11 +20,13 @@ export function SuspeitoHud({
   onOpenSabotage,
   onOpenTask,
   inputLocked,
+  onToggleMap,
 }: SuspeitoHudProps) {
   const [tasksOpen, setTasksOpen] = useState(true);
+  const [taskHint, setTaskHint] = useState<string | null>(null);
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
 
-  // Suporte a atalhos de teclado (E/Espaço = Usar, Q = Eliminar, R = Reportar, F = Sabotar)
+  // Suporte a atalhos de teclado (E/Espaço = Usar, Q = Eliminar, R = Reportar, F = Sabotar, TAB/M = Mapa)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => keyHandler.current(e);
     window.addEventListener("keydown", onKey);
@@ -81,7 +84,10 @@ export function SuspeitoHud({
     if (tag === "input" || tag === "textarea") return;
 
     const k = e.key.toLowerCase();
-    if (k === "e" || e.code === "Space") {
+    if (e.key === "Tab" || k === "m") {
+      e.preventDefault();
+      onToggleMap();
+    } else if (k === "e" || e.code === "Space") {
       if (me.nearbyInteractable) {
         e.preventDefault();
         handleInteract();
@@ -142,6 +148,15 @@ export function SuspeitoHud({
             </span>
           )}
         </div>
+
+        <button
+          className="suspeito-map-btn-top"
+          onClick={onToggleMap}
+          title="Abrir mapa do escritório com setores e tarefas (TAB ou M)"
+        >
+          <span className="btn-icon">🗺️</span>
+          <span>Mapa [TAB]</span>
+        </button>
       </div>
 
       {isGhost && working && (
@@ -150,6 +165,22 @@ export function SuspeitoHud({
           {isSabotador
             ? "Ainda pode sabotar o escritório, mas não pode eliminar ninguém."
             : "Atravesse paredes e termine suas tarefas para ajudar a equipe!"}
+        </div>
+      )}
+
+      {/* Aviso de orientação para tarefas */}
+      {taskHint && (
+        <div className="suspeito-task-hint-toast" onClick={onToggleMap}>
+          <span>{taskHint}</span>
+          <button
+            className="toast-map-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMap();
+            }}
+          >
+            Ver no Mapa
+          </button>
         </div>
       )}
 
@@ -221,9 +252,18 @@ export function SuspeitoHud({
                   key={t.id}
                   className={`task-drawer-item ${t.completed ? "done" : ""} ${isHere ? "here" : ""}`}
                   onClick={() => {
-                    if (isHere) handleInteract();
+                    if (isHere) {
+                      handleInteract();
+                    } else if (!t.completed) {
+                      setTaskHint(`Vá até o setor [${SECTORS[t.sector]?.name}] para realizar: ${t.name}`);
+                      setTimeout(() => setTaskHint(null), 4500);
+                    }
                   }}
-                  title={isHere ? "Você está nesta estação! Clique para abrir" : "Vá até o marcador amarelo deste setor"}
+                  title={
+                    isHere
+                      ? "Você está nesta estação! Clique para abrir (ou pressione E)"
+                      : `Vá até o setor ${SECTORS[t.sector]?.name} para realizar esta tarefa`
+                  }
                 >
                   <span className="task-check">{t.completed ? "✓" : isHere ? "👉" : "○"}</span>
                   <div className="task-item-info">
@@ -242,6 +282,17 @@ export function SuspeitoHud({
 
       {/* Barra de Ações Inferior com Botões Grandes e Intuitivos */}
       <div className="suspeito-action-bar">
+        {/* Botão de Mapa */}
+        <button
+          className="suspeito-action-btn map"
+          onClick={onToggleMap}
+          title="Abrir planta do escritório e setores (TAB ou M)"
+        >
+          <div className="btn-icon">🗺️</div>
+          <span className="btn-label">Mapa</span>
+          <span className="btn-shortcut">[TAB]</span>
+        </button>
+
         {/* Botão de Reportar */}
         {!isGhost && (
         <button

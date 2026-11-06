@@ -7,9 +7,11 @@ interface FpsCounterProps {
 export function FpsCounter({ fps }: FpsCounterProps) {
   const [enabled, setEnabled] = useState(() => {
     try {
-      return localStorage.getItem("expediente_show_fps") === "true";
+      const stored = localStorage.getItem("expediente_show_fps");
+      // Padrão ativado (true) para exibir FPS em tempo real no canto superior
+      return stored === null ? true : stored === "true";
     } catch {
-      return false;
+      return true;
     }
   });
 

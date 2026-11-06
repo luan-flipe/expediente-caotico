@@ -241,8 +241,9 @@ export class SuspeitoEngine {
     const dt = Math.min(0.1, (now - this.lastTime) / 1000);
     this.lastTime = now;
 
+    // Medição e atualização do FPS em tempo real a cada ~100ms
     this.fpsFrames++;
-    if (now - this.fpsLastTime >= 500) {
+    if (now - this.fpsLastTime >= 100) {
       const fps = Math.round((this.fpsFrames * 1000) / (now - this.fpsLastTime));
       this.fpsFrames = 0;
       this.fpsLastTime = now;

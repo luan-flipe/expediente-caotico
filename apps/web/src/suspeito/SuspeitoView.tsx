@@ -10,6 +10,7 @@ import { ContextoModal } from "./modals/ContextoModal";
 import { QuickTaskModal } from "./modals/QuickTaskModal";
 import { QteModal } from "./modals/QteModal";
 import { SabotageModal } from "./modals/SabotageModal";
+import { SuspeitoMapModal } from "./modals/SuspeitoMapModal";
 
 export function SuspeitoView({ myId }: { myId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -22,6 +23,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
 
   const [fps, setFps] = useState(60);
   const [sabotageOpen, setSabotageOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
   const [activeTaskModalId, setActiveTaskModalId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -48,11 +50,12 @@ export function SuspeitoView({ myId }: { myId: string }) {
     if (ssnap) engineRef.current?.applySnapshot(ssnap, sme);
   }, [ssnap, sme]);
 
-  // Se entrar em reunião, fecha modais de tarefas e sabotagem
+  // Se entrar em reunião, fecha modais de tarefas, mapa e sabotagem
   useEffect(() => {
     if (ssnap?.phase === "meeting" || ssnap?.phase === "voting" || ssnap?.phase === "vote_result") {
       setActiveTaskModalId(null);
       setSabotageOpen(false);
+      setMapOpen(false);
     }
   }, [ssnap?.phase]);
 
@@ -81,6 +84,8 @@ export function SuspeitoView({ myId }: { myId: string }) {
 
   const closeTask = useCallback(() => setActiveTaskModalId(null), []);
   const closeSabotage = useCallback(() => setSabotageOpen(false), []);
+  const toggleMap = useCallback(() => setMapOpen((p) => !p), []);
+  const closeMap = useCallback(() => setMapOpen(false), []);
 
   const taskModalOpen = !!activeTaskModalId && serverTaskId === activeTaskModalId && !!sme?.activeTaskState;
   const isMeetingPhase = ssnap?.phase === "meeting" || ssnap?.phase === "voting" || ssnap?.phase === "vote_result";
@@ -119,6 +124,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
           onOpenSabotage={() => setSabotageOpen(true)}
           onOpenTask={handleOpenTask}
           inputLocked={inputLocked}
+          onToggleMap={toggleMap}
         />
       )}
 
@@ -136,6 +142,16 @@ export function SuspeitoView({ myId }: { myId: string }) {
             phaseRemainingMs={ssnap.phaseRemainingMs}
           />
         )}
+
+      {/* Modal do Mapa de Setores e Tarefas */}
+      {mapOpen && ssnap && sme && (
+        <SuspeitoMapModal
+          myId={myId}
+          snap={ssnap}
+          myTasks={sme.tasks}
+          onClose={closeMap}
+        />
+      )}
 
       {/* Painel do Sabotador */}
       {sabotageOpen && sme && (
