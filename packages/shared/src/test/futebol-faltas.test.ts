@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FUT, activeOutfield, applyCard, fieldFor, isPenaltyFoul, judgeTackle } from "../index";
+import { FUT, activeOutfield, applyCard, fieldFor, isLastMan, isPenaltyFoul, judgeTackle } from "../index";
 import type { Ball, FutPlayer } from "../index";
 
 function mk(over: Partial<FutPlayer> = {}): FutPlayer {
@@ -33,16 +33,46 @@ describe("faltas e cartões", () => {
     expect(judgeTackle(tackler, victimFront, ball({ x: 0.5 }), "carrinho", false, false).foul).toBe(true);
   });
 
-  it("carrinho por trás é vermelho direto", () => {
-    expect(judgeTackle(tackler, victimBack, farBall, "carrinho", false)).toEqual({ foul: true, card: "red" });
+  it("carrinho que pega o jogador de frente ou de lado é falta sem cartão, mesmo em corrida", () => {
+    expect(judgeTackle(tackler, victimFront, farBall, "carrinho", true)).toEqual({ foul: true, card: "none" });
+  });
+
+  it("carrinho por trás é amarelo, não vermelho", () => {
+    expect(judgeTackle(tackler, victimBack, farBall, "carrinho", false)).toEqual({ foul: true, card: "yellow" });
+    // em corrida, mas sem ser o último homem, continua amarelo
+    expect(judgeTackle(tackler, victimBack, farBall, "carrinho", true)).toEqual({ foul: true, card: "yellow" });
     // fronteira de 60 graus entre os facings
     const d = (deg: number) => mk({ id: "b", side: 1, z: 1, facing: (deg * Math.PI) / 180 });
-    expect(judgeTackle(tackler, d(59), farBall, "carrinho", false).card).toBe("red");
+    expect(judgeTackle(tackler, d(59), farBall, "carrinho", false).card).toBe("yellow");
     expect(judgeTackle(tackler, d(61), farBall, "carrinho", false).card).toBe("none");
   });
 
-  it("carrinho em corrida é amarelo", () => {
-    expect(judgeTackle(tackler, victimFront, farBall, "carrinho", true)).toEqual({ foul: true, card: "yellow" });
+  it("vermelho só por trás, em corrida e no último homem (raro)", () => {
+    expect(judgeTackle(tackler, victimBack, farBall, "carrinho", true, undefined, true)).toEqual({ foul: true, card: "red" });
+    // último homem sem corrida, ou de frente, não expulsa
+    expect(judgeTackle(tackler, victimBack, farBall, "carrinho", false, undefined, true).card).toBe("yellow");
+    expect(judgeTackle(tackler, victimFront, farBall, "carrinho", true, undefined, true).card).toBe("none");
+    // bola primeiro continua limpo
+    expect(judgeTackle(tackler, victimBack, farBall, "carrinho", true, true, true)).toEqual({ foul: false, card: "none" });
+  });
+
+  it("último homem: dono da bola no campo de ataque sem outro defensor entre ele e o gol", () => {
+    const f = fieldFor(2);
+    const victim = mk({ id: "v", side: 0, x: f.halfL - 20, z: 0 });
+    const tk = mk({ id: "t", side: 1, x: f.halfL - 22, z: 0 });
+    const gk = mk({ id: "gk", side: 1, role: "goleiro", x: f.halfL - 1, z: 0 });
+    const withBall = ball({ ownerId: "v" });
+    expect(isLastMan(victim, tk, [victim, tk, gk], withBall)).toBe(true);
+    // o carrinheiro, mesmo à frente da vítima depois do deslize, não conta
+    const slid = mk({ id: "t", side: 1, x: victim.x + 0.2, z: 0 });
+    expect(isLastMan(victim, slid, [victim, slid, gk], withBall)).toBe(true);
+    // outro defensor entre ele e o gol: não é último homem
+    const cover = mk({ id: "c", side: 1, x: f.halfL - 10, z: 3 });
+    expect(isLastMan(victim, tk, [victim, tk, gk, cover], withBall)).toBe(false);
+    // sem a bola, ou longe do gol, não é
+    expect(isLastMan(victim, tk, [victim, tk, gk], ball({ ownerId: null }))).toBe(false);
+    const far = mk({ id: "v", side: 0, x: -5, z: 0 });
+    expect(isLastMan(far, tk, [far, tk, gk], withBall)).toBe(false);
   });
 
   it("disputa em pé é só falta", () => {
