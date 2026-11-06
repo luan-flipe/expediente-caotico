@@ -30,7 +30,13 @@ export function SuspeitoHud({
   const currentSectorInfo = SECTORS[snap.players.find((p) => p.id === myId)?.sector ?? "reuniao"];
   const isSabotador = me.role === "sabotador";
   const killCooldownSec = Math.ceil(me.killCooldownMs / 1000);
+  const sabotageCooldownSec = Math.ceil(me.sabotageCooldownMs / 1000);
   const taskProgressPercent = Math.round(snap.taskProgress * 100);
+
+  const targetPlayer = me.killTargetId ? snap.players.find((p) => p.id === me.killTargetId) : null;
+  const allies = me.sabotadorTeammates
+    ? snap.players.filter((p) => me.sabotadorTeammates?.includes(p.id))
+    : [];
 
   // Ação primária de interação
   const handleInteract = () => {
@@ -123,7 +129,12 @@ export function SuspeitoHud({
         </div>
 
         <div className={`suspeito-role-pill ${isSabotador ? "sabotador" : "colaborador"}`}>
-          {isSabotador ? "SABOTADOR" : "COLABORADOR"}
+          {isSabotador ? "🔪 SABOTADOR" : "💼 COLABORADOR"}
+          {allies.length > 0 && (
+            <span className="ally-tag" title={`Parceiro: ${allies.map((a) => a.name).join(", ")}`}>
+              (Aliado: {allies[0].name})
+            </span>
+          )}
         </div>
       </div>
 
@@ -145,77 +156,139 @@ export function SuspeitoHud({
         </div>
       )}
 
-      {/* Lista de tarefas lateral */}
-      <div className={`suspeito-task-drawer ${tasksOpen ? "open" : "collapsed"}`}>
-        <div className="task-drawer-header" onClick={() => setTasksOpen(!tasksOpen)}>
-          <span>📋 Minhas Tarefas ({me.tasks.filter((t) => t.completed).length}/{me.tasks.length})</span>
-          <button className="toggle-btn">{tasksOpen ? "▼" : "▲"}</button>
-        </div>
-        {tasksOpen && (
-          <div className="task-drawer-content">
-            {me.tasks.map((t) => (
-              <div
-                key={t.id}
-                className={`task-drawer-item ${t.completed ? "done" : ""}`}
-                onClick={() => !t.completed && onOpenTask(t.id)}
-              >
-                <span className="task-check">{t.completed ? "✓" : "○"}</span>
-                <div className="task-item-info">
-                  <span className="task-item-name">{t.name}</span>
-                  <span className="task-item-sector">{SECTORS[t.sector]?.name}</span>
-                </div>
-              </div>
-            ))}
+      {/* Prompts Flutuantes Centrais (Ação Imediata na Mira) */}
+      <div className="suspeito-floating-prompts-container">
+        {isSabotador && me.canKill && targetPlayer && (
+          <div className="suspeito-floating-prompt kill-prompt" onClick={handleKill}>
+            <span className="prompt-badge">Q</span>
+            <span className="prompt-text">
+              🔪 Eliminar <strong>{targetPlayer.name}</strong> ao alcance!
+            </span>
+          </div>
+        )}
+
+        {me.nearbyInteractable && (
+          <div className="suspeito-floating-prompt interact-prompt" onClick={handleInteract}>
+            <span className="prompt-badge">E</span>
+            <span className="prompt-text">
+              ✋ <strong>{me.nearbyInteractable.label}</strong> (Toque ou Espaço)
+            </span>
           </div>
         )}
       </div>
 
-      {/* Botões de Ação na parte inferior */}
+      {/* Lista de tarefas lateral */}
+      <div className={`suspeito-task-drawer ${tasksOpen ? "open" : "collapsed"}`}>
+        <div className="task-drawer-header" onClick={() => setTasksOpen(!tasksOpen)}>
+          <div className="task-drawer-title-wrap">
+            <span>
+              {isSabotador
+                ? `🎭 Tarefas Falsas (${me.tasks.filter((t) => t.completed).length}/${me.tasks.length})`
+                : `📋 Minhas Tarefas (${me.tasks.filter((t) => t.completed).length}/${me.tasks.length})`}
+            </span>
+            {isSabotador && <small className="fake-task-hint">Finja trabalhar para despistar</small>}
+          </div>
+          <button className="toggle-btn">{tasksOpen ? "▼" : "▲"}</button>
+        </div>
+
+        {tasksOpen && (
+          <div className="task-drawer-content">
+            {me.tasks.map((t) => {
+              const isHere = me.nearbyInteractable?.id === t.id;
+              return (
+                <div
+                  key={t.id}
+                  className={`task-drawer-item ${t.completed ? "done" : ""} ${isHere ? "here" : ""}`}
+                  onClick={() => {
+                    if (isHere) {
+                      handleInteract();
+                    } else if (!t.completed) {
+                      onOpenTask(t.id);
+                    }
+                  }}
+                  title={isHere ? "Você está nesta estação! Clique para abrir" : "Clique para abrir esta tarefa"}
+                >
+                  <span className="task-check">{t.completed ? "✓" : isHere ? "👉" : "○"}</span>
+                  <div className="task-item-info">
+                    <span className="task-item-name">{t.name}</span>
+                    <span className="task-item-sector">
+                      {SECTORS[t.sector]?.name}
+                      {isHere && <strong className="here-tag"> (VOCÊ ESTÁ AQUI)</strong>}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Barra de Ações Inferior com Botões Grandes e Intuitivos */}
       <div className="suspeito-action-bar">
         {/* Botão de Reportar */}
         <button
-          className="suspeito-action-btn report"
+          className={`suspeito-action-btn report ${me.canReport ? "ready pulse" : ""}`}
           disabled={!me.canReport}
           onClick={handleReport}
-          title="Reportar ocorrência (R)"
+          title="Reportar ocorrência de corpo (R)"
         >
           <div className="btn-icon">🚨</div>
-          <span>Reportar</span>
+          <span className="btn-label">Reportar</span>
+          <span className="btn-shortcut">[R]</span>
         </button>
 
         {/* Botões específicos do Sabotador */}
         {isSabotador && (
           <>
             <button
-              className="suspeito-action-btn sabotage"
+              className={`suspeito-action-btn sabotage ${sabotageCooldownSec <= 0 ? "ready" : ""}`}
               onClick={onOpenSabotage}
               title="Abrir painel de sabotagem (F)"
             >
               <div className="btn-icon">⚡</div>
-              <span>Sabotar</span>
+              <span className="btn-label">
+                {sabotageCooldownSec > 0 ? `${sabotageCooldownSec}s` : "Sabotar"}
+              </span>
+              <span className="btn-shortcut">[F]</span>
             </button>
 
             <button
-              className="suspeito-action-btn kill"
+              className={`suspeito-action-btn kill ${me.canKill ? "ready pulse-kill" : ""}`}
               disabled={!me.canKill}
               onClick={handleKill}
-              title="Eliminar colaborador próximo (Q)"
+              title={
+                targetPlayer
+                  ? `Eliminar ${targetPlayer.name} (Q)`
+                  : killCooldownSec > 0
+                  ? `Recarga: ${killCooldownSec}s`
+                  : "Aproxime-se de um colaborador para eliminar (Q)"
+              }
             >
               <div className="btn-icon">🔪</div>
-              <span>{killCooldownSec > 0 ? `${killCooldownSec}s` : "Eliminar"}</span>
+              <span className="btn-label">
+                {killCooldownSec > 0
+                  ? `${killCooldownSec}s`
+                  : targetPlayer
+                  ? targetPlayer.name.slice(0, 8)
+                  : "Eliminar"}
+              </span>
+              <span className="btn-shortcut">[Q]</span>
             </button>
           </>
         )}
 
         {/* Botão de Interação Contextual (tarefas, conserto, botão de reunião) */}
         <button
-          className={`suspeito-action-btn interact ${me.nearbyInteractable ? "active" : ""}`}
+          className={`suspeito-action-btn interact ${me.nearbyInteractable ? "active pulse-gold" : ""}`}
           disabled={!me.nearbyInteractable}
           onClick={handleInteract}
           title="Interagir com estação (E ou Espaço)"
         >
-          <div className="btn-icon">✋</div>
-          <span>{me.nearbyInteractable ? me.nearbyInteractable.label : "Usar"}</span>
+          <div className="btn-icon">{me.nearbyInteractable ? "⚙️" : "✋"}</div>
+          <span className="btn-label">
+            {me.nearbyInteractable ? me.nearbyInteractable.label.slice(0, 16) : "Usar"}
+          </span>
+          <span className="btn-shortcut">[E]</span>
         </button>
       </div>
     </div>
