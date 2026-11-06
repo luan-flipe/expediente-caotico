@@ -29,8 +29,10 @@ const AWAY_EPS = 0.5;
 const REST_OFFSET = 0.45;
 /** Constante de tempo (ms) com que a bola conduzida acompanha o ponto à frente do pé (suaviza curvas e arrancadas). */
 const CARRY_FOLLOW_MS = 70;
-/** A bola conduzida nunca chega mais perto que isso (m) do centro do boneco, nem ao inverter o sentido. */
+/** A bola conduzida fica sempre pelo menos isso (m) à frente de onde o boneco olha, nem ao virar nem ao inverter o sentido. */
 const CARRY_MIN = 0.35;
+/** E nunca mais para o lado que isso (lateral / distância à frente = tangente de 45 graus). */
+const CARRY_SIDE = 1;
 /** Carrinho: comprimento do deslize (m), raio de contato (m), recarga e tempo no chão da vítima (ms), toque na bola (m/s). */
 const TACKLE_LEN = 2;
 const TACKLE_REACH = 0.8;
@@ -286,21 +288,22 @@ export function resolveTouches(
       const run = Math.min(1, Math.max(0, (speed - FUT.walkSpeed) / (FUT.sprintSpeed - FUT.walkSpeed)));
       const d = FUT.dribbleTouch + (FUT.sprintTouch - FUT.dribbleTouch) * run;
       const k = sprint ? SPRINT_BALL_SPEED : 1;
-      const tx = (owner.vx / speed) * d;
-      const tz = (owner.vz / speed) * d;
-      // a bola acompanha o ponto alvo suave: curva ou arrancada não a estica, e ela nunca atravessa o boneco
+      // o ponto alvo fica à frente de onde o boneco olha (a velocidade demora a seguir a curva, o corpo não)
+      const fx = Math.sin(owner.facing);
+      const fz = Math.cos(owner.facing);
+      // a bola acompanha o ponto alvo suave: curva ou arrancada não a estica
       let rx = ball.x - owner.x;
       let rz = ball.z - owner.z;
       const f = 1 - Math.exp(-dtMs / CARRY_FOLLOW_MS);
-      rx += (tx - rx) * f;
-      rz += (tz - rz) * f;
+      rx += (fx * d - rx) * f;
+      rz += (fz * d - rz) * f;
+      // e nunca atravessa o boneco nem vai para o lado ou para trás dele: sempre à frente do pé
+      const fwd = Math.max(CARRY_MIN, rx * fx + rz * fz);
+      const lat = Math.max(-fwd * CARRY_SIDE, Math.min(fwd * CARRY_SIDE, rx * fz - rz * fx));
+      rx = fwd * fx + lat * fz;
+      rz = fwd * fz - lat * fx;
       const len = Math.hypot(rx, rz);
-      if (len < CARRY_MIN) {
-        const ux = len > 1e-6 ? rx / len : tx / d;
-        const uz = len > 1e-6 ? rz / len : tz / d;
-        rx = ux * CARRY_MIN;
-        rz = uz * CARRY_MIN;
-      } else if (len > d + 0.05) {
+      if (len > d + 0.05) {
         rx *= (d + 0.05) / len;
         rz *= (d + 0.05) / len;
       }
