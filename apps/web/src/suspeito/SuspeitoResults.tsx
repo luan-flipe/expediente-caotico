@@ -1,5 +1,4 @@
 import { Awards } from "../screens/Awards";
-import { avatarThumbnail } from "../game/character";
 import { net, useStore } from "../store";
 
 export function SuspeitoResults() {
