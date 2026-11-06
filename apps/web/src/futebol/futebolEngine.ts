@@ -24,7 +24,7 @@ import { createDynamicSky, type DynamicSky } from "../game/sky";
 import { inputBlocked } from "../pause";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
-import { playCrowd, playKick, playNet, playWhistle } from "../sound";
+import { playCrowd, playKick, playNet, playWhistle, setCrowdAmbience, startCrowdAmbience, stopCrowdAmbience } from "../sound";
 import { getState, net, setState } from "../store";
 import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
 import ballUrl from "../assets/futebol/bola.glb?url";
@@ -40,6 +40,7 @@ import { DIVE_LIFT, DIVE_MS, DIVE_REACH, DIVE_ROLL, SLUMP, diveAmount, diveSide 
 import { penaltyAttackSide, penaltyRole, pickedSide, tagScale } from "./penaltyUi";
 import { createGolMesh, disposeGolMesh } from "./golMesh";
 import { carryWeight, localBallPos } from "./bolaLocal";
+import { crowdLevel } from "./torcidaSom";
 import { approachYaw, cameraYawTarget, yawToward } from "./cameraBola";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
 import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
@@ -962,8 +963,20 @@ export class FutebolEngine {
     return { t: rt, x: a.x + (c.x - a.x) * k, y: a.y + (c.y - a.y) * k, z: a.z + (c.z - a.z) * k, f: angleLerp(a.f, c.f, k) };
   }
 
+  /** Torcida de fundo: liga com a partida em andamento, sobe com a bola perto do gol, cala no menu de pausa e no fim. */
+  private updateAmbience(): void {
+    const s = this.snap;
+    if (!s || !this.field || s.phase === "over") {
+      stopCrowdAmbience();
+      return;
+    }
+    startCrowdAmbience();
+    setCrowdAmbience(getState().pauseOpen ? null : s.phase === "goal" ? 0.7 : crowdLevel(s.ball, this.field.halfL));
+  }
+
   private step(dt: number, now: number): void {
     this.chat.update(now, (id) => this.views.get(id)?.char.root);
+    this.updateAmbience();
     if (this.autoYaw()) {
       // a câmera gira sozinha: com a bola, para o gol adversário; sem ela, para a bola. O mesmo yaw vale para o WASD e para o input enviado
       const mine = this.snap?.players.find((p) => p.id === this.myId);
@@ -1405,6 +1418,7 @@ export class FutebolEngine {
 
   dispose(): void {
     this.disposed = true;
+    stopCrowdAmbience();
     cancelAnimationFrame(this.raf);
     for (const c of this.cleanup) c();
     resetTouchInput();
