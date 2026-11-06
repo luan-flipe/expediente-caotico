@@ -39,7 +39,7 @@ import { Juiz } from "./juiz";
 import { DIVE_LIFT, DIVE_MS, DIVE_REACH, DIVE_ROLL, SLUMP, diveAmount, diveSide } from "./reacoes";
 import { penaltyAttackSide, penaltyRole, pickedSide, tagScale } from "./penaltyUi";
 import { createGolMesh, disposeGolMesh } from "./golMesh";
-import { approachYaw, yawToward } from "./cameraBola";
+import { approachYaw, cameraYawTarget, yawToward } from "./cameraBola";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
 import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
 import { Torcida } from "./torcida";
@@ -484,7 +484,7 @@ export class FutebolEngine {
       this.cleanup.push(() => target.removeEventListener(t, fn as EventListener));
     };
     const canvas = this.canvas;
-    // o mouse só move a câmera: o clique prende o mouse (pointer lock) e mais nada
+    // o mouse só gira a câmera de quem cobra uma reposição: o clique prende o mouse (pointer lock) e mais nada
     const grab = (e: MouseEvent) => {
       // quem só assiste não prende o mouse: precisa dele para os botões de câmera
       if (this.locked || IS_TOUCH || e.button !== 0 || inputBlocked(getState()) || this.isSpectating()) return;
@@ -962,8 +962,11 @@ export class FutebolEngine {
   private step(dt: number, now: number): void {
     this.chat.update(now, (id) => this.views.get(id)?.char.root);
     if (this.autoYaw()) {
-      // sem a bola a câmera gira sozinha até a bola; o mesmo yaw vale para o WASD e para o input enviado
-      this.yaw = approachYaw(this.yaw, yawToward(this.myPos, this.ball.position, this.yaw), dt);
+      // a câmera gira sozinha: com a bola, para o gol adversário; sem ela, para a bola. O mesmo yaw vale para o WASD e para o input enviado
+      const mine = this.snap?.players.find((p) => p.id === this.myId);
+      const goal = { x: (mine?.side === 1 ? -1 : 1) * (this.field?.halfL ?? 0), z: 0 };
+      const hasBall = this.snap?.ball.ownerId === this.myId;
+      this.yaw = approachYaw(this.yaw, cameraYawTarget(this.myPos, this.ball.position, goal, hasBall, this.yaw), dt);
     } else if (!this.fixedYaw) {
       if (this.keys.has("ArrowLeft")) this.yaw += dt * 2.2;
       if (this.keys.has("ArrowRight")) this.yaw -= dt * 2.2;
@@ -1340,20 +1343,19 @@ export class FutebolEngine {
   }
 
   /**
-   * Sem a bola o yaw gira sozinho para ela; com a bola (ou cobrando uma reposição) é do jogador.
-   * Fora da partida normal (pênaltis, comemoração, replay, espectador) nada muda.
+   * Na partida normal o yaw é automático (com a bola, para o gol adversário; sem ela, para a bola) e mouse e setas não giram.
+   * Quem cobra uma reposição mantém o yaw livre. Fora da partida normal (pênaltis, comemoração, replay, espectador) nada muda.
    */
   private autoYaw(): boolean {
     const s = this.snap;
     if (!s || !this.field || !this.yawReady || this.replay || this.isSpectating()) return false;
     if (s.phase === "penalties" || s.phase === "over" || (s.phase === "goal" && this.fx.active)) return false;
-    if (s.ball.ownerId === this.myId) return false;
     return !(s.restart && s.restart.takerId === this.myId);
   }
 
   /** Meu boneco parado e sem a bola olha para ela; andando, vale a direção do movimento. */
   private faceBall(f: number, speed: number, down: boolean, dt: number): number {
-    const target = this.autoYaw() && speed < 0.5 && !down ? yawToward(this.myPos, this.ball.position, f) : f;
+    const target = this.autoYaw() && this.snap?.ball.ownerId !== this.myId && speed < 0.5 && !down ? yawToward(this.myPos, this.ball.position, f) : f;
     this.meFace = approachYaw(this.meFace ?? f, target, dt, 10, 8);
     return this.meFace;
   }

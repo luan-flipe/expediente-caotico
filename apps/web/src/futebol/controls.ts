@@ -10,7 +10,7 @@ export interface FutKeys {
   stick: { x: number; y: number };
 }
 
-/** Botões de ação: Espaço do teclado (chute e passe) e Chute/Passe da tela. O mouse não faz parte: ele só move a câmera.
+/** Botões de ação: Espaço do teclado (chute e passe) e Chute/Passe da tela. O mouse não faz parte: ele só gira a câmera de quem cobra uma reposição.
  *  Cada um: segurado agora; xHit = apertou desde a última leitura, mesmo que já tenha soltado. */
 export interface FutButtons {
   space: boolean;

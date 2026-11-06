@@ -34,3 +34,8 @@ export function approachYaw(cur: number, target: number, dt: number, rate = YAW_
   const step = Math.max(-cap, Math.min(cap, d * k));
   return cur + step;
 }
+
+/** Alvo do yaw da câmera na partida normal: com a bola, o gol adversário; sem ela, a bola. */
+export function cameraYawTarget(from: Pt, ball: Pt, goal: Pt, hasBall: boolean, current: number): number {
+  return yawToward(from, hasBall ? goal : ball, current);
+}

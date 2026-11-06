@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { YAW_MAX_SPEED, YAW_MIN_DIST, approachYaw, wrapAngle, yawToward } from "./cameraBola";
+import { YAW_MAX_SPEED, YAW_MIN_DIST, approachYaw, cameraYawTarget, wrapAngle, yawToward } from "./cameraBola";
 
 describe("yaw até a bola", () => {
   it("aponta para a bola (yaw 0 olha para +z)", () => {
@@ -41,5 +41,21 @@ describe("giro suave", () => {
     const a = approachYaw(0, Math.PI, dt);
     expect(Math.abs(a)).toBeLessThanOrEqual(YAW_MAX_SPEED * dt + 1e-9);
     expect(Math.abs(a)).toBeGreaterThan(0);
+  });
+});
+
+describe("alvo da câmera na partida", () => {
+  const goal = { x: 20, z: 0 };
+  it("com a bola olha o gol adversário, mesmo com a bola em outra direção", () => {
+    expect(cameraYawTarget({ x: 0, z: 0 }, { x: 0, z: 5 }, goal, true, 0)).toBeCloseTo(Math.PI / 2);
+    expect(cameraYawTarget({ x: 5, z: 8 }, { x: 5, z: 8.5 }, goal, true, 0)).toBeCloseTo(Math.atan2(15, -8));
+  });
+
+  it("sem a bola continua olhando a bola", () => {
+    expect(cameraYawTarget({ x: 0, z: 0 }, { x: 0, z: 5 }, goal, false, 1)).toBeCloseTo(0);
+  });
+
+  it("colado no gol mantém o último yaw", () => {
+    expect(cameraYawTarget({ x: 19.5, z: 0 }, { x: 0, z: 0 }, goal, true, 0.4)).toBe(0.4);
   });
 });
