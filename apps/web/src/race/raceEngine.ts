@@ -40,6 +40,7 @@ import { buildTrack, preloadParque, preloadRamp } from "./trackScene";
 import { buildParachute, parachuteFor } from "./parachute";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
 import { applyFresnelRimToHierarchy, applyStylizedToonToHierarchy, calculateDynamicFov, CasterBlobShadows, RaceVfxManager, type DriftLevel } from "./vfxJuice";
+import { criarItem } from "./itemMeshes";
 import { TrackInteractiveManager, type KartInteractiveInfo } from "./trackInteractive";
 
 /** Limite de cada etapa do preparo (modelos, shaders): passou disso a corrida segue com o que tiver. */
@@ -81,6 +82,7 @@ interface ItemFxParticle {
   vy: number;
   vz: number;
   rotSpeed: { x: number; y: number; z: number };
+  floorY: number;
 }
 
 interface KartView {
@@ -139,6 +141,8 @@ interface HazardView {
   vz: number;
   at: number;
   bornAt: number;
+  /** Altura do chão sob o item. */
+  chao: number;
   impacted?: boolean;
 }
 
@@ -348,6 +352,7 @@ export class RaceEngine {
           vy: 0,
           vz: 0,
           rotSpeed: { x: 0, y: 0, z: 0 },
+          floorY: 0.04,
         });
       }
     };
@@ -557,13 +562,15 @@ export class RaceEngine {
     const rx = Math.cos(h);
     const rz = -Math.sin(h);
 
+    const chao = this.chaoEm(p.x, p.z);
     const spawn = (geo: THREE.BufferGeometry, count: number, makeP: (idx: number) => { x: number; y: number; z: number; vx: number; vy: number; vz: number; maxLife: number; rx: number; ry: number; rz: number }) => {
       if (this.quality === "leve") return;
       let found = 0;
       for (const pt of this.itemParticles) {
         if (pt.mesh.geometry === geo && !pt.mesh.visible) {
           const cfg = makeP(found);
-          pt.mesh.position.set(cfg.x, cfg.y, cfg.z);
+          pt.mesh.position.set(cfg.x, chao + cfg.y, cfg.z);
+          pt.floorY = chao + 0.04;
           pt.mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
           pt.mesh.visible = true;
           pt.life = 0;
@@ -671,15 +678,21 @@ export class RaceEngine {
     }
   }
 
-  private spawnPaperImpact(x: number, z: number): void {
-    this.vfx?.spawnImpactShockwave(x, z, 0.02, "paper");
+  /** Altura do chão da simulação: no parque a pista sobe e desce, nas outras é quase sempre zero. */
+  private chaoEm(x: number, z: number): number {
+    return groundAt(this.track, progressOf(this.track, { x, z })).y;
+  }
+
+  private spawnPaperImpact(x: number, z: number, chao: number): void {
+    this.vfx?.spawnImpactShockwave(x, z, chao + 0.02, "paper");
     if (this.quality === "leve") return;
     let count = 0;
     for (const pt of this.itemParticles) {
       if (pt.mesh.geometry === this.itemGeoPaper && !pt.mesh.visible) {
         const ang = Math.random() * Math.PI * 2;
         const spd = 0.9 + Math.random() * 1.3;
-        pt.mesh.position.set(x + Math.cos(ang) * 0.15, 0.06, z + Math.sin(ang) * 0.15);
+        pt.mesh.position.set(x + Math.cos(ang) * 0.15, chao + 0.06, z + Math.sin(ang) * 0.15);
+        pt.floorY = chao + 0.04;
         pt.mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
         pt.mesh.visible = true;
         pt.life = 0;
@@ -792,7 +805,7 @@ export class RaceEngine {
       live.add(h.id);
       let hv = this.hazards.get(h.id);
       if (!hv) {
-        const obj = this.hazardMesh(h.kind);
+        const obj = criarItem(h.kind, this.materialDoItem);
         if (h.kind === "resma") {
           obj.rotation.y = (h.id * 1.37) % (Math.PI * 2);
         }
@@ -805,6 +818,7 @@ export class RaceEngine {
           vz: h.vz,
           at: now,
           bornAt: now,
+          chao: this.chaoEm(h.x, h.z),
         };
         this.scene.add(hv.obj);
         this.hazards.set(h.id, hv);
@@ -1124,44 +1138,11 @@ export class RaceEngine {
     return g;
   }
 
-  private hazardMesh(kind: HazardKind): THREE.Object3D {
-    const mat = (key: string, make: () => THREE.Material) => {
-      let m = this.hazardMats.get(key);
-      if (!m) this.hazardMats.set(key, (m = make()));
-      return m;
-    };
-    if (kind === "poca") {
-      const m = new THREE.Mesh(new THREE.CircleGeometry(1.3, 24), mat("poca", () => new THREE.MeshStandardMaterial({ color: "#5a3420", roughness: 0.15, transparent: true, opacity: 0.85 })));
-      m.rotation.x = -Math.PI / 2;
-      m.position.y = 0.035;
-      return m;
-    }
-    if (kind === "resma") {
-      const g = new THREE.Group();
-      const paper = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.65), mat("papel", () => new THREE.MeshStandardMaterial({ color: "#fbfaf5", roughness: 0.8 })));
-      paper.castShadow = true;
-      paper.receiveShadow = true;
-      g.add(paper);
-      const band = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.2, 0.67), mat("faixa", () => new THREE.MeshStandardMaterial({ color: "#2e86de", roughness: 0.5 })));
-      band.castShadow = true;
-      band.receiveShadow = true;
-      g.add(band);
-      g.children.forEach((c) => (c.position.y = 0.28));
-      return g;
-    }
-    if (kind === "grampo") {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.45), mat("grampo", () => new THREE.MeshStandardMaterial({ color: "#c7ccd3", metalness: 0.8, roughness: 0.25 })));
-      m.position.y = 0.6;
-      return m;
-    }
-    const shape = new THREE.Shape([new THREE.Vector2(0, 0.6), new THREE.Vector2(0.45, -0.35), new THREE.Vector2(0, -0.2), new THREE.Vector2(-0.45, -0.35)]);
-    const m = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat("aviao", () => new THREE.MeshStandardMaterial({ color: "#ffffff", side: THREE.DoubleSide })));
-    m.rotation.x = -Math.PI / 2;
-    const g = new THREE.Group();
-    g.add(m);
-    g.position.y = 1.2;
-    return g;
-  }
+  private materialDoItem = (key: string, make: () => THREE.Material): THREE.Material => {
+    let m = this.hazardMats.get(key);
+    if (!m) this.hazardMats.set(key, (m = make()));
+    return m;
+  };
 
   /** Balão de chat rápido sobre a cadeira de quem falou. */
   showChat(id: string, kind: "phrase" | "emote", index: number): void {
@@ -1313,8 +1294,8 @@ export class RaceEngine {
         p.vy -= 4.2 * dt;
         p.vx *= 0.96;
         p.vz *= 0.96;
-        if (p.mesh.position.y < 0.04) {
-          p.mesh.position.y = 0.04;
+        if (p.mesh.position.y < p.floorY) {
+          p.mesh.position.y = p.floorY;
           p.vy = 0;
         }
         p.mesh.rotation.x += p.rotSpeed.x * dt;
@@ -1329,6 +1310,8 @@ export class RaceEngine {
       h.obj.position.x = h.x + h.vx * ageSinceSnap;
       h.obj.position.z = h.z + h.vz * ageSinceSnap;
       if (h.vx || h.vz) h.obj.rotation.y = Math.atan2(h.vx, h.vz);
+      // o que voa acompanha o relevo, sem degrau ao passar pelo fim de uma rampa
+      if (h.vx || h.vz) h.chao += (this.chaoEm(h.obj.position.x, h.obj.position.z) - h.chao) * Math.min(1, dt * 10);
 
       const age = (now - h.bornAt) / 1000;
 
@@ -1336,7 +1319,7 @@ export class RaceEngine {
         case "aviao":
           // Aviãozinho de papel: ondulação de voo e rolamento nas curvas
           h.obj.rotation.z = Math.sin(age * 12) * 0.16;
-          h.obj.position.y = 1.2 + Math.sin(age * 8) * 0.1;
+          h.obj.position.y = h.chao + 1.2 + Math.sin(age * 8) * 0.1;
           break;
 
         case "resma": {
@@ -1362,7 +1345,7 @@ export class RaceEngine {
             // No exato momento do impacto no piso, solta um estilhaço de folhas
             if (!h.impacted) {
               h.impacted = true;
-              this.spawnPaperImpact(h.obj.position.x, h.obj.position.z);
+              this.spawnPaperImpact(h.obj.position.x, h.obj.position.z, h.chao);
             }
           } else if (age < 0.56) {
             // 3. Segundo quique (pequeno ressalto de acomodação de ~2.2cm)
@@ -1373,7 +1356,7 @@ export class RaceEngine {
             rz = 0.012 * sine;
           }
 
-          h.obj.position.y = y;
+          h.obj.position.y = h.chao + y;
           h.obj.rotation.x = rx;
           h.obj.rotation.z = rz;
           break;
@@ -1382,17 +1365,19 @@ export class RaceEngine {
         case "poca": {
           if (!h.impacted) {
             h.impacted = true;
-            this.vfx?.spawnImpactShockwave(h.obj.position.x, h.obj.position.z, 0.02, "coffee");
+            this.vfx?.spawnImpactShockwave(h.obj.position.x, h.obj.position.z, h.chao + 0.02, "coffee");
           }
           // Poça de café: expande do centro ao se formar no piso
           const expand = Math.min(1, age / 0.18);
           h.obj.scale.set(expand, 1, expand);
-          h.obj.position.y = 0.035;
+          h.obj.position.y = h.chao + 0.03;
           break;
         }
 
         case "grampo":
-          h.obj.position.y = 0.6;
+          // gira em torno do eixo do voo, para o brilho piscar e chamar a atenção
+          h.obj.position.y = h.chao + 0.7;
+          h.obj.rotation.z = age * 12;
           break;
       }
     }
@@ -1745,8 +1730,9 @@ export class RaceEngine {
       if (v.heldItemKind !== holdKind) {
         v.heldItemKind = holdKind;
         this.clearHeld(v);
-        const mini = this.hazardMesh(holdKind === "poca" ? "poca" : holdKind === "grampeador" ? "grampo" : "resma");
-        mini.scale.setScalar(0.7);
+        const miniKind = holdKind === "poca" ? "poca" : holdKind === "grampeador" ? "grampo" : "resma";
+        const mini = criarItem(miniKind, this.materialDoItem);
+        mini.scale.setScalar(miniKind === "poca" ? 0.3 : miniKind === "resma" ? 0.55 : 0.8);
         v.heldItem.add(mini);
       }
       v.heldItem.visible = true;
@@ -1837,7 +1823,7 @@ export class RaceEngine {
       const rightX = Math.cos(heading);
       const rightZ = -Math.sin(heading);
       for (const side of [-0.34, 0.34]) {
-        this.dummyObj.position.set(x - fwdX * 0.42 + rightX * side, 0.022, z - fwdZ * 0.42 + rightZ * side);
+        this.dummyObj.position.set(x - fwdX * 0.42 + rightX * side, y + 0.022, z - fwdZ * 0.42 + rightZ * side);
         this.dummyObj.rotation.set(0, heading + v.slideYaw * 0.5, 0);
         this.dummyObj.updateMatrix();
         this.skidMesh.setMatrixAt(this.skidIdx, this.dummyObj.matrix);

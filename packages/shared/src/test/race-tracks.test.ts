@@ -17,6 +17,10 @@ const LIMITS: Record<string, { min: number; max: number; raceMs: number }> = {
 };
 
 describe("registro de pistas", () => {
+  it("o parque não tem faixa lenta: o cenário dele não desenha zebra nem grama, ela seria invisível", () => {
+    expect(TRACKS.parque.carpet).toEqual([]);
+  });
+
   it("quatro pistas com nome, e o Circuito Corporativo continua sendo o padrão", () => {
     expect(TRACK_IDS).toEqual(["corporativo", "estacionamento", "copa", "parque"]);
     expect(TRACKS.corporativo).toBe(TRACK);

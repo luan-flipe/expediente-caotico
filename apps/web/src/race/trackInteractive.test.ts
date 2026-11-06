@@ -4,6 +4,22 @@ import { getTrack } from "@ec/shared";
 import { TrackInteractiveManager } from "./trackInteractive";
 
 describe("TrackInteractiveManager", () => {
+  it("obstáculos desligados no construtor não nascem na pista (o parque não tem nenhum)", () => {
+    const manager = new TrackInteractiveManager({
+      track: getTrack("parque"),
+      enableCoffeeCalcinha: false,
+      enableRoombas: false,
+      enableAutomaticDoors: false,
+      enableAirVents: false,
+    });
+    manager.init(new THREE.Scene());
+    expect(manager.coffeeCalcinhas).toHaveLength(0);
+    expect(manager.roombas).toHaveLength(0);
+    expect(manager.automaticDoors).toHaveLength(0);
+    expect(manager.airVents).toHaveLength(0);
+    manager.dispose();
+  });
+
   it("inicializa InstancedMeshes para papéis, post-its e vapor cartoon na cena", () => {
     const scene = new THREE.Scene();
     const manager = new TrackInteractiveManager();
