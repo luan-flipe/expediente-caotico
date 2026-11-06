@@ -1170,6 +1170,11 @@ input {
   text-align: center;
 }
 
+/* cobre a pista enquanto os shaders compilam: a cena ainda não foi desenhada */
+.race-preparo {
+  background: var(--ink);
+}
+
 .big-count {
   font-size: 140px;
   font-weight: 800;

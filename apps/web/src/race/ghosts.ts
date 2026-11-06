@@ -43,6 +43,11 @@ export function fadeMaterials(root: THREE.Object3D, opts: { opacity: number; col
   const copies: THREE.Material[] = [];
   const fade = (m: THREE.Material) => {
     const c = m.clone();
+    // clone() não leva o shader: sem isso o boneco translúcido perderia o rosto (os tingidos de cor são silhuetas)
+    if (m.userData.rostoNoShader && opts.color === undefined) {
+      c.onBeforeCompile = m.onBeforeCompile;
+      c.customProgramCacheKey = m.customProgramCacheKey;
+    }
     c.transparent = true;
     c.opacity = opts.opacity;
     c.depthWrite = opts.depthWrite ?? true;

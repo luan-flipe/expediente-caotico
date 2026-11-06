@@ -5,6 +5,7 @@ import { celebrationExtras, createCharacter, modelReady, type Character, type Ch
 import { createGltfLoader } from "../game/gltfLoader";
 import { juntarMalhas } from "../game/juntarMalhas";
 import { addPatoleiro } from "../game/patoleiro";
+import { criarConfete } from "./confete";
 import { mountScooter } from "./scooterMesh";
 
 const MODEL_URL = "/assets/chairs/cadeira_escritorio.glb";
@@ -846,14 +847,13 @@ export function buildRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
   const mixer = new THREE.AnimationMixer(root);
   const once = (clip: THREE.AnimationClip) => mixer.clipAction(clip).setLoop(THREE.LoopOnce, 1);
   const actions = party?.seat && pivot ? [once(party.seat)] : [];
-  const confetti = party?.confetti ? party.confetti.scene.clone() : null;
+  const confetti = party?.confetti ? criarConfete(party.confetti.scene) : null;
   if (confetti && party?.confetti) {
-    confetti.visible = false;
-    root.add(confetti);
+    root.add(confetti.root);
     const fall = once(party.confetti.clip);
     actions.push(fall);
     mixer.addEventListener("finished", (e) => {
-      if (e.action === fall) confetti.visible = false;
+      if (e.action === fall) confetti.root.visible = false;
     });
   }
 
@@ -875,15 +875,16 @@ export function buildRacer(avatar: AvatarDNA, chair: ChairDNA): Racer3D {
       char.updateSeated?.(dt, speed, steer, driftDir, boosting, rivalDir, options);
       char.update(dt, 0);
       mixer.update(dt);
+      confetti?.atualizar();
     },
     celebrate() {
       char.celebrate();
       for (const x of actions) x.reset().play();
-      if (confetti) confetti.visible = true;
+      if (confetti) confetti.root.visible = true;
     },
     dispose() {
-      // malhas e materiais do confete são compartilhados entre clones
       mixer.stopAllAction();
+      confetti?.dispose();
       char.dispose();
       seat.dispose();
     },

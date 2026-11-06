@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { RACE } from "@ec/shared";
 import { startServer } from "./app";
 import { Store } from "./store";
 
@@ -11,7 +12,7 @@ if (!secret) {
   console.warn("SESSION_SECRET não definido: usando um segredo aleatório deste processo. As sessões caem a cada reinício.");
 }
 if (!clientId) console.log("GOOGLE_CLIENT_ID não definido: só entra visitante, sem login.");
-startServer(port, { store, auth: { clientId, secret } }).then((s) => {
+startServer(port, { store, auth: { clientId, secret }, race: { esperaMs: RACE.preparoMaxMs } }).then((s) => {
   console.log(`Expediente Caótico no ar: http://localhost:${s.port}  (WebSocket em /ws)`);
 });
 

@@ -853,8 +853,10 @@ export class TrackInteractiveManager {
 
   // Recursos para descarte
   private disposables: { dispose: () => void }[] = [];
+  private options?: TrackInteractiveOptions;
 
   constructor(options?: TrackInteractiveOptions) {
+    this.options = options;
     this.track = options?.track ?? null;
     this.paperPerDesk = options?.paperPerDesk ?? 10;
     this.postitPerDesk = options?.postitPerDesk ?? 18;
@@ -874,7 +876,7 @@ export class TrackInteractiveManager {
    * Descobre mesas, configura InstancedMeshes para papéis, vapor, café e grelhas,
    * e posiciona o Café Coado na Calcinha, Roombas, Portas e Vents.
    */
-  public init(scene: THREE.Scene, options?: TrackInteractiveOptions): void {
+  public init(scene: THREE.Scene, options: TrackInteractiveOptions | undefined = this.options): void {
     this.scene = scene;
     if (options?.track) this.track = options.track;
     if (options?.paperPerDesk) this.paperPerDesk = options.paperPerDesk;

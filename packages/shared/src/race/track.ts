@@ -180,12 +180,7 @@ const PARQUE_ROOMS: TrackRoom[] = [
   { name: "Arquibancadas", ctrl: 33 },
 ];
 
-const PARQUE_CARPET: [number, number][] = [
-  [2.5, 4.5],
-  [15.5, 18.0],
-  [29.5, 31.0],
-];
-
+// sem faixa lenta (carpet): o modelo 3D do parque não tem zebra nem grama na pista e ela freava sem nada à vista
 const PARQUE_BOXES = [1.0, 7.0, 13.0, 19.5, 25.5, 33.0];
 const PARQUE_CUPS = [4.0, 10.0, 16.5, 22.5, 28.5, 34.5];
 
@@ -797,7 +792,7 @@ export const TRACKS: Record<TrackId, Track> = {
   corporativo: buildTrack({ id: "corporativo", name: "Circuito Corporativo", ctrl: CORPORATIVO, rooms: CORPORATIVO_ROOMS, carpet: CORPORATIVO_CARPET, boxes: CORPORATIVO_BOXES, cups: CORPORATIVO_CUPS, branch: CORPORATIVO_BRANCH, ramp: CORPORATIVO_RAMP }),
   estacionamento: buildTrack({ id: "estacionamento", name: "Estacionamento", ctrl: ESTACIONAMENTO, rooms: ESTACIONAMENTO_ROOMS, carpet: ESTACIONAMENTO_CARPET, boxes: ESTACIONAMENTO_BOXES, cups: ESTACIONAMENTO_CUPS, branch: ESTACIONAMENTO_BRANCH, ramp: ESTACIONAMENTO_RAMP }),
   copa: buildTrack({ id: "copa", name: "Copa", ctrl: COPA, rooms: COPA_ROOMS, carpet: COPA_CARPET, boxes: COPA_BOXES, cups: COPA_CUPS, branch: COPA_BRANCH, ramp: COPA_RAMP }),
-  parque: buildTrack({ id: "parque", name: "Parque Ipanema", ctrl: PARQUE, rooms: PARQUE_ROOMS, carpet: PARQUE_CARPET, boxes: PARQUE_BOXES, cups: PARQUE_CUPS, ramp: PARQUE_RAMP }),
+  parque: buildTrack({ id: "parque", name: "Parque Ipanema", ctrl: PARQUE, rooms: PARQUE_ROOMS, carpet: [], boxes: PARQUE_BOXES, cups: PARQUE_CUPS, ramp: PARQUE_RAMP }),
 };
 
 export const isTrackId = (v: unknown): v is TrackId => typeof v === "string" && (TRACK_IDS as readonly string[]).includes(v);
