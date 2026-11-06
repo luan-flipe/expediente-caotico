@@ -88,13 +88,13 @@ describe("Partida de Expediente Suspeito", () => {
       victimId: "p5",
       victimName: "Edu",
       avatar: {} as any,
-      pos: { x: 5, z: 5 },
+      pos: { x: 6, z: 15 },
       sector: "copa",
       reported: false,
     });
 
     const p3 = match.players.get("p3")!;
-    p3.pos = { x: 5.5, z: 5 }; // Perto do corpo
+    p3.pos = { x: 6.5, z: 15 }; // Perto do corpo na copa
 
     const reported = queueSuspeitoReport(match, "p3", "body_test");
     expect(reported).toBe(true);
@@ -176,5 +176,66 @@ describe("Partida de Expediente Suspeito", () => {
     expect(match.phase).toBe("over");
     expect(match.winner).toBe("sabotador");
     expect(match.winReason).toBe("sabotage_critical");
+  });
+
+  it("VIS-01 e COL-01: paredes bloqueiam visão, colisão e eliminação", () => {
+    const match = createSuspeitoMatch(mockPlayers, DEFAULT_ROOM_OPTIONS, 12345);
+    match.phase = "working";
+
+    const p1 = match.players.get("p1")!;
+    const p2 = match.players.get("p2")!;
+    p1.role = "sabotador";
+    p1.killCooldownMs = 0;
+    p2.role = "colaborador";
+    p2.alive = true;
+
+    // Coloca p1 dentro da Sala de Reuniões (x: -4, z: 5.5)
+    // E p2 no corredor Sul logo do outro lado da parede sul de Reunião (x: -4, z: 6.5)
+    // Distância euclidiana: apenas 1.0m (dentro do raio de 2m de kill!), mas separados pela parede em z = 6.0
+    p1.pos = { x: -8, z: 5.5 };
+    p2.pos = { x: -8, z: 6.5 };
+
+    // 1. Tentar eliminar através da parede DEVE ser rejeitado
+    const killed = queueSuspeitoKill(match, "p1", "p2");
+    expect(killed).toBe(false);
+    expect(p2.alive).toBe(true);
+
+    // 2. Visibilidade: P2 NÃO deve constar em visiblePlayerIds de P1
+    const privP1 = buildSuspeitoPrivate(match, "p1")!;
+    expect(privP1.visiblePlayerIds).not.toContain("p2");
+    expect(privP1.canKill).toBe(false);
+
+    // 3. Colisão física: mover P1 em direção à parede (mz: 1) não deve atravessá-la
+    setSuspeitoInput(match, "p1", { mx: 0, mz: 1, yaw: 0 });
+    stepSuspeitoMatch(match, 0.5);
+    // Parede está em z = 6.0, com raio 0.45 p1.pos.z deve ficar antes de 6.0
+    expect(p1.pos.z).toBeLessThan(6.0);
+  });
+
+  it("VIS-03: corpo atrás de parede não aparece em visibleBodyIds e não pode ser reportado", () => {
+    const match = createSuspeitoMatch(mockPlayers, DEFAULT_ROOM_OPTIONS, 12345);
+    match.phase = "working";
+
+    // P1 dentro da sala (x: -8, z: 5.5)
+    const p1 = match.players.get("p1")!;
+    p1.pos = { x: -8, z: 5.5 };
+
+    // Corpo no corredor logo atrás da parede opaca (x: -8, z: 6.5)
+    match.bodies.push({
+      id: "body_behind_wall",
+      victimId: "p5",
+      victimName: "Edu",
+      avatar: {} as any,
+      pos: { x: -8, z: 6.5 },
+      sector: "rh",
+      reported: false,
+    });
+
+    const priv = buildSuspeitoPrivate(match, "p1")!;
+    expect(priv.visibleBodyIds).not.toContain("body_behind_wall");
+    expect(priv.canReport).toBe(false);
+
+    const reported = queueSuspeitoReport(match, "p1", "body_behind_wall");
+    expect(reported).toBe(false);
   });
 });

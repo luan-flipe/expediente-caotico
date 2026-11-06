@@ -53,6 +53,7 @@ export * from "./suspeito/tasks/termo";
 export * from "./suspeito/tasks/conexo";
 export * from "./suspeito/tasks/contexto";
 export * from "./suspeito/tasks/quickTasks";
+export * from "./suspeito/tasks/qte";
 export * from "./suspeito/sabotage";
 export * from "./suspeito/meeting";
 export * from "./suspeito/bot";

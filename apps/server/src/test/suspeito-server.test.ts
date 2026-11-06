@@ -83,6 +83,8 @@ describe("modo Expediente Suspeito no servidor", () => {
     expect(snapA.s.players).toHaveLength(2);
     expect(snapA.me).toBeDefined();
     expect(snapA.me?.tasks).toBeDefined();
+    expect(snapA.me?.visiblePlayerIds).toBeDefined();
+    expect(snapA.me?.visionRadius).toBeGreaterThan(0);
 
     expect(snapB.s.phase).toBe("intro");
     expect(snapB.me).toBeDefined();

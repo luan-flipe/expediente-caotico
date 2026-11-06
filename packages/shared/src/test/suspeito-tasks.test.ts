@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  advanceQuickTask,
   applyContextoGuess,
+  applyQteAction,
   applyTermoGuess,
   createConexoChallenge,
   createContextoChallenge,
+  createQteChallenge,
   createQuickTaskChallenge,
   createTermoChallenge,
   evaluateTermoGuess,
-  advanceQuickTask,
   validateConexoSelection,
 } from "../index";
 
@@ -104,6 +106,68 @@ describe("Tarefas do Expediente Suspeito", () => {
       advanceQuickTask(challenge);
       expect(challenge.state.step).toBe(3);
       expect(challenge.state.completed).toBe(true);
+    });
+  });
+
+  describe("QTE (Quick Time Events)", () => {
+    it("valida calibração de timing dentro da zona verde", () => {
+      const challenge = createQteChallenge("qte_reacao");
+      if (challenge.state.kind === "timing") {
+        const midTarget = (challenge.state.targetMin + challenge.state.targetMax) / 2;
+        const res = applyQteAction(challenge, {
+          kind: "timing",
+          timingValue: midTarget,
+        });
+        expect(res.valid).toBe(true);
+        expect(res.completed).toBe(true);
+        expect(challenge.state.completed).toBe(true);
+      }
+    });
+
+    it("rejeita calibração de timing fora da zona verde", () => {
+      const challenge = createQteChallenge("qte_reacao");
+      const res = applyQteAction(challenge, {
+        kind: "timing",
+        timingValue: 0.05, // fora
+      });
+      expect(res.completed).toBe(false);
+      expect(challenge.state.completed).toBe(false);
+      expect(res.error).toBeDefined();
+    });
+
+    it("valida sequência de teclas passo a passo", () => {
+      const challenge = createQteChallenge("qte_sequencia");
+      if (challenge.state.kind === "sequence") {
+        const seq = [...challenge.state.sequence];
+        for (let i = 0; i < seq.length - 1; i++) {
+          const res = applyQteAction(challenge, { kind: "sequence", key: seq[i] });
+          expect(res.completed).toBe(false);
+        }
+        const last = applyQteAction(challenge, { kind: "sequence", key: seq[seq.length - 1] });
+        expect(last.completed).toBe(true);
+        expect(challenge.state.completed).toBe(true);
+      }
+    });
+
+    it("valida conexão de cabos de rede", () => {
+      const challenge = createQteChallenge("qte_cabos");
+      if (challenge.state.kind === "wires") {
+        for (const color of challenge.state.colors) {
+          applyQteAction(challenge, { kind: "wire", color });
+        }
+        expect(challenge.state.completed).toBe(true);
+      }
+    });
+
+    it("valida passos de desatolamento da impressora", () => {
+      const challenge = createQteChallenge("qte_impressora");
+      if (challenge.state.kind === "printer") {
+        applyQteAction(challenge, { kind: "printer", printerStep: 0 });
+        applyQteAction(challenge, { kind: "printer", printerStep: 1 });
+        const res = applyQteAction(challenge, { kind: "printer", printerStep: 2 });
+        expect(res.completed).toBe(true);
+        expect(challenge.state.completed).toBe(true);
+      }
     });
   });
 });

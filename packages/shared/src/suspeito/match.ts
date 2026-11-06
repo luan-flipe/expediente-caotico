@@ -2,11 +2,21 @@ import type { RoomOptions } from "../botLevels";
 import { mulberry32 } from "../rng";
 import type { Vec2 } from "../types";
 import { createBotBrain, stepSuspeitoBot, type SuspeitoBotBrain } from "./bot";
-import { MAP_BOUNDS, sectorAt, SUSPEITO_SPAWNS, TASK_STATIONS } from "./map";
+import {
+  hasLineOfSight,
+  MAP_BOUNDS,
+  resolveWallCollision,
+  sectorAt,
+  SUSPEITO_NORMAL_VISION_RADIUS,
+  SUSPEITO_SABOTAGE_VISION_RADIUS,
+  SUSPEITO_SPAWNS,
+  TASK_STATIONS,
+} from "./map";
 import { createMeeting, registerVote, tallyVotes } from "./meeting";
 import { startSabotage, stepSabotage } from "./sabotage";
 import { createConexoChallenge, validateConexoSelection, type ConexoChallenge } from "./tasks/conexo";
 import { applyContextoGuess, createContextoChallenge, type ContextoChallenge } from "./tasks/contexto";
+import { applyQteAction, createQteChallenge, type QteChallenge } from "./tasks/qte";
 import { advanceQuickTask, createQuickTaskChallenge, type QuickTaskChallenge } from "./tasks/quickTasks";
 import { applyTermoGuess, createTermoChallenge, type TermoChallenge } from "./tasks/termo";
 import type {
@@ -59,7 +69,8 @@ export type ActiveChallenge =
   | { type: "termo"; challenge: TermoChallenge }
   | { type: "conexo"; challenge: ConexoChallenge }
   | { type: "contexto"; challenge: ContextoChallenge }
-  | { type: "quick"; challenge: QuickTaskChallenge };
+  | { type: "quick"; challenge: QuickTaskChallenge }
+  | { type: "qte"; challenge: QteChallenge };
 
 export interface SuspeitoMatch {
   seed: number;
@@ -212,6 +223,7 @@ export function queueSuspeitoKill(
   const dx = target.pos.x - killer.pos.x;
   const dz = target.pos.z - killer.pos.z;
   if (dx * dx + dz * dz > KILL_RANGE * KILL_RANGE) return false;
+  if (!hasLineOfSight(killer.pos, target.pos)) return false;
 
   // Executa eliminação
   target.alive = false;
@@ -252,6 +264,7 @@ export function queueSuspeitoReport(
   const dx = body.pos.x - reporter.pos.x;
   const dz = body.pos.z - reporter.pos.z;
   if (dx * dx + dz * dz > INTERACT_RANGE * INTERACT_RANGE * 1.5) return false;
+  if (!hasLineOfSight(reporter.pos, body.pos)) return false;
 
   body.reported = true;
   triggerMeeting(match, reporterId, "body", body.victimName);
@@ -394,6 +407,13 @@ export function queueSuspeitoStartTask(
     challenge = { type: "conexo", challenge: createConexoChallenge() };
   } else if (task.type === "contexto") {
     challenge = { type: "contexto", challenge: createContextoChallenge() };
+  } else if (
+    task.type === "qte_reacao" ||
+    task.type === "qte_sequencia" ||
+    task.type === "qte_cabos" ||
+    task.type === "qte_impressora"
+  ) {
+    challenge = { type: "qte", challenge: createQteChallenge(task.type) };
   } else {
     challenge = { type: "quick", challenge: createQuickTaskChallenge() };
   }
@@ -410,6 +430,13 @@ export function queueSuspeitoTaskAction(
     conexoWords?: string[];
     contextoGuess?: string;
     quickAdvance?: boolean;
+    qteAction?: {
+      kind: "timing" | "sequence" | "wire" | "printer";
+      timingValue?: number;
+      key?: string;
+      color?: string;
+      printerStep?: number;
+    };
   }
 ): { success: boolean; completed: boolean; state?: SuspeitoTaskState } {
   const active = match.activeChallenges.get(playerId);
@@ -432,14 +459,19 @@ export function queueSuspeitoTaskAction(
   } else if (active.challenge.type === "quick" && action.quickAdvance) {
     const res = advanceQuickTask(active.challenge.challenge);
     if (res.completed) completed = true;
+  } else if (active.challenge.type === "qte" && action.qteAction) {
+    const res = applyQteAction(active.challenge.challenge, action.qteAction);
+    if (res.completed) completed = true;
   }
 
   if (completed) {
     const task = player.tasks.find((t) => t.id === active.taskId);
-    if (task) task.completed = true;
-    player.stats.tasksDone++;
+    if (task && !task.completed) {
+      task.completed = true;
+      player.stats.tasksDone++;
+      checkVictoryConditions(match);
+    }
     match.activeChallenges.delete(playerId);
-    checkVictoryConditions(match);
   }
 
   return { success: true, completed };
@@ -626,8 +658,22 @@ export function stepSuspeitoMatch(match: SuspeitoMatch, dtSec: number): void {
     p.moving = moving;
 
     if (moving) {
-      p.pos.x = Math.max(MAP_BOUNDS.minX, Math.min(MAP_BOUNDS.maxX, p.pos.x + mx * PLAYER_SPEED * dtSec));
-      p.pos.z = Math.max(MAP_BOUNDS.minZ, Math.min(MAP_BOUNDS.maxZ, p.pos.z + mz * PLAYER_SPEED * dtSec));
+      // Movimentação com sub-passos para prevenir tunneling através de paredes finas
+      const totalDx = mx * PLAYER_SPEED * dtSec;
+      const totalDz = mz * PLAYER_SPEED * dtSec;
+      const totalDist = Math.hypot(totalDx, totalDz);
+      const maxStep = 0.15; // no máximo 15cm por passo de colisão
+      const steps = Math.max(1, Math.ceil(totalDist / maxStep));
+      const stepDx = totalDx / steps;
+      const stepDz = totalDz / steps;
+
+      for (let s = 0; s < steps; s++) {
+        const desiredX = p.pos.x + stepDx;
+        const desiredZ = p.pos.z + stepDz;
+        const resolved = resolveWallCollision({ x: desiredX, z: desiredZ });
+        p.pos.x = resolved.x;
+        p.pos.z = resolved.z;
+      }
       p.yaw = p.input.yaw;
       p.sector = sectorAt(p.pos);
     }
@@ -736,7 +782,7 @@ export function buildSuspeitoPrivate(
       if (!other.alive || other.id === playerId) continue;
       const dx = other.pos.x - p.pos.x;
       const dz = other.pos.z - p.pos.z;
-      if (dx * dx + dz * dz <= KILL_RANGE * KILL_RANGE) {
+      if (dx * dx + dz * dz <= KILL_RANGE * KILL_RANGE && hasLineOfSight(p.pos, other.pos)) {
         canKill = true;
         killTargetId = other.id;
         break;
@@ -752,11 +798,45 @@ export function buildSuspeitoPrivate(
       if (b.reported) continue;
       const dx = b.pos.x - p.pos.x;
       const dz = b.pos.z - p.pos.z;
-      if (dx * dx + dz * dz <= INTERACT_RANGE * INTERACT_RANGE * 1.5) {
+      if (dx * dx + dz * dz <= INTERACT_RANGE * INTERACT_RANGE * 1.5 && hasLineOfSight(p.pos, b.pos)) {
         canReport = true;
         reportTargetBodyId = b.id;
         break;
       }
+    }
+  }
+
+  // Determina participantes e corpos visíveis com base no alcance e linha de visão (sem atravessar paredes)
+  const isMeeting = match.phase === "meeting" || match.phase === "voting" || match.phase === "vote_result";
+  const visionRadius = (match.sabotage?.active && match.sabotage.type === "falha_energia")
+    ? SUSPEITO_SABOTAGE_VISION_RADIUS
+    : SUSPEITO_NORMAL_VISION_RADIUS;
+
+  const visiblePlayerIds: string[] = [];
+  for (const other of match.players.values()) {
+    if (other.id === playerId) {
+      visiblePlayerIds.push(other.id);
+      continue;
+    }
+    if (!other.alive) continue;
+    if (isMeeting) {
+      visiblePlayerIds.push(other.id);
+      continue;
+    }
+    const dx = other.pos.x - p.pos.x;
+    const dz = other.pos.z - p.pos.z;
+    if (dx * dx + dz * dz <= visionRadius * visionRadius && hasLineOfSight(p.pos, other.pos)) {
+      visiblePlayerIds.push(other.id);
+    }
+  }
+
+  const visibleBodyIds: string[] = [];
+  for (const b of match.bodies) {
+    if (isMeeting) continue;
+    const dx = b.pos.x - p.pos.x;
+    const dz = b.pos.z - p.pos.z;
+    if (dx * dx + dz * dz <= visionRadius * visionRadius && hasLineOfSight(p.pos, b.pos)) {
+      visibleBodyIds.push(b.id);
     }
   }
 
@@ -809,6 +889,8 @@ export function buildSuspeitoPrivate(
       activeTaskState = { type: "conexo", state: activeChallenge.challenge.challenge.state };
     } else if (activeChallenge.challenge.type === "contexto") {
       activeTaskState = { type: "contexto", state: activeChallenge.challenge.challenge.state };
+    } else if (activeChallenge.challenge.type === "qte") {
+      activeTaskState = { type: "qte", state: activeChallenge.challenge.challenge.state };
     } else {
       activeTaskState = { type: "quick", state: activeChallenge.challenge.challenge.state };
     }
@@ -829,6 +911,9 @@ export function buildSuspeitoPrivate(
     killTargetId,
     nearbyInteractable,
     myVote: p.voteTarget,
+    visiblePlayerIds,
+    visibleBodyIds,
+    visionRadius,
   };
 }
 

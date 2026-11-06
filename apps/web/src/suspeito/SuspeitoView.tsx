@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { net, useStore } from "../store";
 import { SuspeitoEngine } from "./suspeitoEngine";
 import { SuspeitoHud } from "./SuspeitoHud";
+import { FpsCounter } from "./FpsCounter";
 import { MeetingOverlay } from "./modals/MeetingOverlay";
 import { TermoModal } from "./modals/TermoModal";
 import { ConexoModal } from "./modals/ConexoModal";
 import { ContextoModal } from "./modals/ContextoModal";
 import { QuickTaskModal } from "./modals/QuickTaskModal";
+import { QteModal } from "./modals/QteModal";
 import { SabotageModal } from "./modals/SabotageModal";
 
 export function SuspeitoView({ myId }: { myId: string }) {
@@ -17,12 +19,14 @@ export function SuspeitoView({ myId }: { myId: string }) {
   const ssnap = useStore((s) => s.ssnap);
   const sme = useStore((s) => s.sme);
 
+  const [fps, setFps] = useState(60);
   const [sabotageOpen, setSabotageOpen] = useState(false);
   const [activeTaskModalId, setActiveTaskModalId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!canvasRef.current) return;
     const engine = new SuspeitoEngine(canvasRef.current, myId);
+    engine.onFpsUpdate = (val) => setFps(val);
     engineRef.current = engine;
 
     if (players) engine.setAvatars(players);
@@ -60,6 +64,9 @@ export function SuspeitoView({ myId }: { myId: string }) {
   return (
     <div className="suspeito-game-view">
       <canvas ref={canvasRef} className="suspeito-canvas" />
+
+      {/* Contador Discreto de FPS no canto superior direito */}
+      <FpsCounter fps={fps} />
 
       {ssnap && (
         <SuspeitoHud
@@ -123,6 +130,14 @@ export function SuspeitoView({ myId }: { myId: string }) {
             <QuickTaskModal
               title={currentTask.name}
               description={currentTask.description}
+              state={sme.activeTaskState.state}
+              onClose={() => setActiveTaskModalId(null)}
+            />
+          )}
+
+          {sme.activeTaskState.type === "qte" && currentTask && (
+            <QteModal
+              title={currentTask.name}
               state={sme.activeTaskState.state}
               onClose={() => setActiveTaskModalId(null)}
             />

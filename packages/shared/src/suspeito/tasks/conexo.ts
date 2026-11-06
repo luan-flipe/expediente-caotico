@@ -62,6 +62,118 @@ export const CONEXO_PUZZLES: ConexoPuzzleData[] = [
       },
     ],
   },
+  {
+    groups: [
+      {
+        id: "g1",
+        title: "Gestão e Metodologias Ágeis",
+        words: ["SPRINT", "BACKLOG", "KANBAN", "SCRUM"],
+        solved: false,
+      },
+      {
+        id: "g2",
+        title: "Mobiliário Corporativo",
+        words: ["CADEIRA", "MESA", "GAVETEIRO", "ARQUIVO"],
+        solved: false,
+      },
+      {
+        id: "g3",
+        title: "Benefícios do Empregado",
+        words: ["VALE-REFEIÇÃO", "CONVÊNIO", "SEGURO", "BÔNUS"],
+        solved: false,
+      },
+      {
+        id: "g4",
+        title: "Segurança da Informação",
+        words: ["SENHA", "FIREWALL", "BACKUP", "TOKEN"],
+        solved: false,
+      },
+    ],
+  },
+  {
+    groups: [
+      {
+        id: "g1",
+        title: "Finanças e Contabilidade",
+        words: ["FATURAMENTO", "RECEITA", "DESPESA", "IMPOSTO"],
+        solved: false,
+      },
+      {
+        id: "g2",
+        title: "Cargos de Liderança",
+        words: ["DIRETOR", "GERENTE", "COORDENADOR", "SUPERVISOR"],
+        solved: false,
+      },
+      {
+        id: "g3",
+        title: "Impressão e Gráfica",
+        words: ["TONER", "CARTUCHO", "RESMA", "BANDEJA"],
+        solved: false,
+      },
+      {
+        id: "g4",
+        title: "Conectividade de Redes",
+        words: ["SWITCH", "FIBRA", "CABO", "MODEM"],
+        solved: false,
+      },
+    ],
+  },
+  {
+    groups: [
+      {
+        id: "g1",
+        title: "Reuniões e Eventos",
+        words: ["ALINHAMENTO", "RETROSPECTIVA", "WORKSHOP", "PALESTRA"],
+        solved: false,
+      },
+      {
+        id: "g2",
+        title: "Espaços Comuns",
+        words: ["RECEPÇÃO", "CORREDOR", "ELEVADOR", "ESTACIONAMENTO"],
+        solved: false,
+      },
+      {
+        id: "g3",
+        title: "Métricas de Negócio",
+        words: ["CONVERSÃO", "CHURN", "ENGAJAMENTO", "RETENÇÃO"],
+        solved: false,
+      },
+      {
+        id: "g4",
+        title: "Formas de Armazenamento",
+        words: ["NUVEM", "PENDRAIVE", "HD", "SERVIDOR"],
+        solved: false,
+      },
+    ],
+  },
+  {
+    groups: [
+      {
+        id: "g1",
+        title: "Logística e Suprimentos",
+        words: ["ESTOQUE", "REMESSA", "FRETE", "RASTREAMENTO"],
+        solved: false,
+      },
+      {
+        id: "g2",
+        title: "Tipos de Vínculo de Trabalho",
+        words: ["ESTÁGIO", "CLT", "TERCEIRIZADO", "TEMPORÁRIO"],
+        solved: false,
+      },
+      {
+        id: "g3",
+        title: "Periféricos de Áudio e Vídeo",
+        words: ["WEBCAM", "HEADSET", "MICROFONE", "CAIXA DE SOM"],
+        solved: false,
+      },
+      {
+        id: "g4",
+        title: "Ações de Marketing",
+        words: ["CAMPANHA", "ANÚNCIO", "NEWSLETTER", "BRANDING"],
+        solved: false,
+      },
+    ],
+  },
 ];
 
 export interface ConexoChallenge {
@@ -69,14 +181,17 @@ export interface ConexoChallenge {
   state: ConexoTaskState;
 }
 
-export function createConexoChallenge(puzzleIndex?: number): ConexoChallenge {
-  const puzzle = CONEXO_PUZZLES[puzzleIndex ?? Math.floor(Math.random() * CONEXO_PUZZLES.length)];
+export function createConexoChallenge(puzzleIndex?: number, rng = Math.random): ConexoChallenge {
+  const idx = puzzleIndex !== undefined
+    ? Math.abs(puzzleIndex) % CONEXO_PUZZLES.length
+    : Math.floor(rng() * CONEXO_PUZZLES.length);
+  const puzzle = CONEXO_PUZZLES[idx];
   const groups: ConexoGroup[] = puzzle.groups.map((g) => ({ ...g, words: [...g.words] as [string, string, string, string] }));
 
   // Junta todas as 16 palavras e embaralha
   const allWords = groups.flatMap((g) => g.words);
   for (let i = allWords.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [allWords[i], allWords[j]] = [allWords[j], allWords[i]];
   }
 
@@ -132,6 +247,7 @@ export function validateConexoSelection(
       if (challenge.state.solvedGroups.length === 4) {
         challenge.state.solved = true;
       }
+      challenge.state.oneAway = false;
 
       return {
         valid: true,
@@ -154,6 +270,7 @@ export function validateConexoSelection(
     }
   }
 
+  challenge.state.oneAway = oneAway;
   challenge.state.mistakesRemaining = Math.max(0, challenge.state.mistakesRemaining - 1);
   if (challenge.state.mistakesRemaining === 0) {
     challenge.state.failed = true;

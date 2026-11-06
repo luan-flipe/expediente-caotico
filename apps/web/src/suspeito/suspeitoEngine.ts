@@ -26,6 +26,10 @@ export class SuspeitoEngine {
   private lastInputSend = 0;
   private currentYaw = 0;
 
+  private fpsFrames = 0;
+  private fpsLastTime = performance.now();
+  public onFpsUpdate?: (fps: number) => void;
+
   constructor(canvas: HTMLCanvasElement, myId: string) {
     this.myId = myId;
     this.scene = new THREE.Scene();
@@ -83,11 +87,12 @@ export class SuspeitoEngine {
     if (k === "d" || k === "arrowright") this.keys.right = false;
   };
 
-  applySnapshot(snap: SuspeitoSnapshot, _me: SuspeitoPrivate | null): void {
-    this.sceneMgr.updateBodies(snap.bodies);
+  applySnapshot(snap: SuspeitoSnapshot, me: SuspeitoPrivate | null): void {
+    this.sceneMgr.updateBodies(snap.bodies, me?.visibleBodyIds);
     this.sceneMgr.updateLighting(snap);
 
     const activeIds = new Set(snap.players.map((p) => p.id));
+    const isMeeting = snap.phase === "meeting" || snap.phase === "voting" || snap.phase === "vote_result";
 
     // Remove bonecos que saíram
     for (const [id, item] of this.characters.entries()) {
@@ -110,13 +115,18 @@ export class SuspeitoEngine {
         this.characters.set(p.id, item);
       }
 
-      // Se o jogador estiver vivo, exibe na posição do servidor
-      if (p.alive) {
+      // Visibilidade estrita: só exibe quem estiver no campo de visão e sem paredes bloqueando
+      const isVisible =
+        p.id === this.myId ||
+        isMeeting ||
+        (me?.visiblePlayerIds ? me.visiblePlayerIds.includes(p.id) : true);
+
+      if (p.alive && isVisible) {
         item.group.visible = true;
         item.group.position.set(p.pos.x, 0, p.pos.z);
         item.char.root.rotation.y = p.yaw;
       } else {
-        // Se foi eliminado, esconde o modelo do jogador vivo (já tem o corpo no chão)
+        // Se foi eliminado ou está atrás de parede, esconde modelo
         item.group.visible = false;
       }
     }
@@ -138,6 +148,15 @@ export class SuspeitoEngine {
     const now = performance.now();
     const dt = Math.min(0.1, (now - this.lastTime) / 1000);
     this.lastTime = now;
+
+    // Medição e atualização do FPS a cada ~500ms
+    this.fpsFrames++;
+    if (now - this.fpsLastTime >= 500) {
+      const fps = Math.round((this.fpsFrames * 1000) / (now - this.fpsLastTime));
+      this.fpsFrames = 0;
+      this.fpsLastTime = now;
+      this.onFpsUpdate?.(fps);
+    }
 
     // Processa input local
     let mx = 0;

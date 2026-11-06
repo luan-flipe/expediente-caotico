@@ -120,6 +120,13 @@ export const ClientMsg = z.discriminatedUnion("t", [
     conexoWords: z.array(z.string().max(32)).optional(),
     contextoGuess: z.string().max(32).optional(),
     quickAdvance: z.boolean().optional(),
+    qteAction: z.object({
+      kind: z.enum(["timing", "sequence", "wire", "printer"]),
+      timingValue: z.number().optional(),
+      key: z.string().max(16).optional(),
+      color: z.string().max(16).optional(),
+      printerStep: z.number().int().optional(),
+    }).optional(),
   }),
   /** Chat rápido: índice da frase ou do emote (ver CHAT_PHRASES e CHAT_EMOTES). */
   z.object({ t: z.literal("chat"), index: z.number().int().min(0).max(CHAT_PHRASES.length - 1) }),

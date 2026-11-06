@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   EMERGENCY_BUTTON_POS,
   SECTORS,
+  SUSPEITO_WALLS,
   TASK_STATIONS,
   type SuspeitoBody,
   type SuspeitoSnapshot,
@@ -32,18 +33,18 @@ export class SuspeitoSceneManager {
   constructor(scene: THREE.Scene) {
     this.scene = scene;
 
-    // Iluminação
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+    // Iluminação balanceada
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     scene.add(this.ambientLight);
 
-    this.dirLight = new THREE.DirectionalLight(0xfff7e6, 1.2);
-    this.dirLight.position.set(20, 35, 25);
+    this.dirLight = new THREE.DirectionalLight(0xfff7e6, 1.1);
+    this.dirLight.position.set(15, 30, 20);
     this.dirLight.castShadow = true;
     this.dirLight.shadow.mapSize.width = 2048;
     this.dirLight.shadow.mapSize.height = 2048;
     this.dirLight.shadow.camera.near = 0.5;
     this.dirLight.shadow.camera.far = 100;
-    const d = 40;
+    const d = 36;
     this.dirLight.shadow.camera.left = -d;
     this.dirLight.shadow.camera.right = d;
     this.dirLight.shadow.camera.top = d;
@@ -57,7 +58,7 @@ export class SuspeitoSceneManager {
   private buildOfficeLayout(): void {
     // 1. Chão geral do escritório (corredores e base)
     const baseFloorMat = new THREE.MeshStandardMaterial({
-      color: "#e0e0e0",
+      color: "#d7d2cc",
       roughness: 0.8,
     });
     const baseFloor = mesh(new THREE.PlaneGeometry(70, 55), baseFloorMat, 0, -0.01, 0, false);
@@ -76,16 +77,20 @@ export class SuspeitoSceneManager {
       this.scene.add(floor);
 
       // Linha de borda do setor
-      const border = mesh(new THREE.BoxGeometry(sector.w, 0.05, sector.d), borderMat, sector.x, 0.02, sector.z, false);
+      const border = mesh(new THREE.BoxGeometry(sector.w, 0.04, sector.d), borderMat, sector.x, 0.02, sector.z, false);
       this.scene.add(border);
 
-      // Placa / Letreiro simples de identificação do setor na entrada
       this.buildSectorProps(sector);
     }
 
     // 3. Mesa de conferência central e Botão de Emergência
-    const tableMat = new THREE.MeshStandardMaterial({ color: "#5d4037", roughness: 0.5 });
-    const table = mesh(new THREE.BoxGeometry(9, 0.7, 4.5), tableMat, -4, 0.35, 0);
+    const tableMat = new THREE.MeshStandardMaterial({ color: "#4e342e", roughness: 0.5 });
+    // Mesa central: x in [-7.5, -0.5], z in [-1.8, 1.8]
+    const tableW = 7.0;
+    const tableD = 3.6;
+    const tableX = -4.0;
+    const tableZ = 0;
+    const table = mesh(new THREE.BoxGeometry(tableW, 0.75, tableD), tableMat, tableX, 0.375, tableZ);
     this.scene.add(table);
 
     // Botão de emergência vermelho no centro da mesa
@@ -100,15 +105,30 @@ export class SuspeitoSceneManager {
     this.scene.add(btnBase);
     this.scene.add(btnCap);
 
-    // 4. Paredes perimetrais do escritório
-    const wallMat = new THREE.MeshStandardMaterial({ color: "#90a4ae", roughness: 0.8 });
-    const wallH = 1.4; // Altura estilizada que não obstrui visão aérea
+    // 4. Paredes físicas e visuais construídas diretamente a partir de SUSPEITO_WALLS
+    const wallMat = new THREE.MeshStandardMaterial({ color: "#90a4ae", roughness: 0.85 });
+    const wallTrimMat = new THREE.MeshStandardMaterial({ color: "#455a64", roughness: 0.7 });
+    const wallH = 1.9;
 
-    // Parede Norte, Sul, Leste, Oeste
-    this.scene.add(mesh(new THREE.BoxGeometry(66, wallH, 0.5), wallMat, 0, wallH / 2, -23));
-    this.scene.add(mesh(new THREE.BoxGeometry(66, wallH, 0.5), wallMat, 0, wallH / 2, 23));
-    this.scene.add(mesh(new THREE.BoxGeometry(0.5, wallH, 46.5), wallMat, -31, wallH / 2, 0));
-    this.scene.add(mesh(new THREE.BoxGeometry(0.5, wallH, 46.5), wallMat, 31, wallH / 2, 0));
+    for (const wall of SUSPEITO_WALLS) {
+      // Ignora o colisor da mesa pois a mesa já possui geometria própria customizada
+      if (wall.minX === -7.5 && wall.maxX === -0.5 && wall.minZ === -1.8 && wall.maxZ === 1.8) {
+        continue;
+      }
+
+      const w = Math.max(0.2, wall.maxX - wall.minX);
+      const d = Math.max(0.2, wall.maxZ - wall.minZ);
+      const cx = (wall.minX + wall.maxX) / 2;
+      const cz = (wall.minZ + wall.maxZ) / 2;
+
+      // Corpo da parede
+      const wallMesh = mesh(new THREE.BoxGeometry(w, wallH, d), wallMat, cx, wallH / 2, cz);
+      this.scene.add(wallMesh);
+
+      // Moldura superior (rodapé de teto para contraste visual nítido)
+      const trimMesh = mesh(new THREE.BoxGeometry(w + 0.05, 0.1, d + 0.05), wallTrimMat, cx, wallH + 0.05, cz, false);
+      this.scene.add(trimMesh);
+    }
   }
 
   private buildSectorProps(sector: typeof SECTORS[keyof typeof SECTORS]): void {
@@ -174,7 +194,7 @@ export class SuspeitoSceneManager {
     this.scene.add(this.taskBeaconGroup);
   }
 
-  updateBodies(bodies: SuspeitoBody[]): void {
+  updateBodies(bodies: SuspeitoBody[], visibleBodyIds?: string[]): void {
     const activeIds = new Set(bodies.map((b) => b.id));
 
     // Remove corpos que sumiram
@@ -203,6 +223,12 @@ export class SuspeitoSceneManager {
 
         this.scene.add(grp);
         this.bodyMeshes.set(b.id, grp);
+      }
+
+      // Visibilidade estrita: só exibe corpos desobstruídos no campo de visão
+      const grp = this.bodyMeshes.get(b.id);
+      if (grp) {
+        grp.visible = visibleBodyIds ? visibleBodyIds.includes(b.id) : true;
       }
     }
   }

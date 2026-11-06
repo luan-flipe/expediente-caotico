@@ -35,6 +35,13 @@ export function ConexoModal({ state, onClose }: ConexoModalProps) {
 
   const deselectAll = () => setSelectedWords([]);
 
+  // Dica de "Por um triz"
+  useEffect(() => {
+    if (state.oneAway) {
+      setFeedback("Por um triz! Faltou apenas 1 palavra correta!");
+    }
+  }, [state.oneAway, state.mistakesRemaining]);
+
   // Auto-close on solve
   useEffect(() => {
     if (state.solved) {

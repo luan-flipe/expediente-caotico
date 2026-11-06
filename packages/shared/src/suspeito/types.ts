@@ -67,7 +67,11 @@ export type SuspeitoTaskType =
   | "contexto"
   | "cabeamento"
   | "organizar_arquivos"
-  | "reiniciar_servidor";
+  | "reiniciar_servidor"
+  | "qte_reacao"
+  | "qte_sequencia"
+  | "qte_cabos"
+  | "qte_impressora";
 
 export interface TermoEvaluation {
   letter: string;
@@ -100,6 +104,7 @@ export interface ConexoTaskState {
   mistakesRemaining: number;
   solved: boolean;
   failed: boolean;
+  oneAway?: boolean;
 }
 
 export interface ContextoGuess {
@@ -123,11 +128,45 @@ export interface QuickTaskState {
   completed: boolean;
 }
 
+export interface QteTimingState {
+  kind: "timing";
+  targetMin: number; // 0 a 1 (ex: 0.45)
+  targetMax: number; // 0 a 1 (ex: 0.65)
+  durationSec: number;
+  completed: boolean;
+  failed: boolean;
+}
+
+export interface QteSequenceState {
+  kind: "sequence";
+  sequence: string[];
+  currentIndex: number;
+  completed: boolean;
+  failed: boolean;
+}
+
+export interface QteWiresState {
+  kind: "wires";
+  colors: string[]; // ex: ["red", "blue", "yellow", "green"]
+  connected: string[];
+  completed: boolean;
+}
+
+export interface QtePrinterState {
+  kind: "printer";
+  step: number;
+  stepLabels: string[];
+  completed: boolean;
+}
+
+export type QteTaskState = QteTimingState | QteSequenceState | QteWiresState | QtePrinterState;
+
 export type SuspeitoTaskState =
   | { type: "termo"; state: TermoTaskState }
   | { type: "conexo"; state: ConexoTaskState }
   | { type: "contexto"; state: ContextoTaskState }
-  | { type: "quick"; state: QuickTaskState };
+  | { type: "quick"; state: QuickTaskState }
+  | { type: "qte"; state: QteTaskState };
 
 export interface SuspeitoTask {
   id: string;
@@ -211,6 +250,9 @@ export interface SuspeitoPrivate {
     label: string;
   } | null;
   myVote: string | null;
+  visiblePlayerIds: string[];
+  visibleBodyIds: string[];
+  visionRadius: number;
 }
 
 export interface SuspeitoResultRow {
