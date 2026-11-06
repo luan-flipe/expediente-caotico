@@ -1,6 +1,6 @@
 import type { Vec2 } from "../types";
 import { ITEM_FX, RACE } from "./balance";
-import { pointAt, progressOf, sideNormal } from "./track";
+import { groundAt, pointAt, progressOf, sideNormal } from "./track";
 import type { Hazard, ItemId, RaceMatch, Racer } from "./types";
 
 export const ITEM_IDS: ItemId[] = ["expresso", "triplo", "grampeador", "poca", "resma", "aviao", "pasta", "postit"];
@@ -203,7 +203,7 @@ export function stepHazards(race: RaceMatch, dtMs: number): void {
       if (h.kind === "aviao" && h.targetId && r.id !== h.targetId) continue;
       if (Math.hypot(r.kart.pos.x - h.pos.x, r.kart.pos.z - h.pos.z) >= RADIUS[h.kind] + RACE.kartRadius) continue;
       // poça e resma ficam no chão: quem voa passa por cima
-      if ((h.kind === "poca" || h.kind === "resma") && (r.kart.y ?? 0) > RACE.airHitHeight) continue;
+      if ((h.kind === "poca" || h.kind === "resma") && (r.kart.y ?? 0) - groundAt(race.track, progressOf(race.track, r.kart.pos)).y > RACE.airHitHeight) continue;
       // Escudo protetor traseiro: segurar item na traseira absorve projéteis que vêm de trás
       if (r.holdingItem && r.item && HOLDABLE_ITEMS.has(r.item)) {
         const fx = Math.sin(r.kart.heading);

@@ -165,6 +165,8 @@ export interface RaceSnapshot {
   t: number;
   phase: Phase;
   countdownMs: number;
+  /** Contagem parada: o servidor ainda espera algum jogador terminar de preparar a corrida. */
+  aguardando?: boolean;
   elapsedMs: number;
   graceMs: number | null;
   laps: number;

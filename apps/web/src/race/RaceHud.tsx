@@ -95,6 +95,7 @@ export function RaceHud({ myId }: { myId: string }) {
   const [finalLapBanner, setFinalLapBanner] = useState(false);
   const [confetti, setConfetti] = useState<Array<{ id: number; x: number; r: number; color: string; scale: number; dur: number; delay: number }>>([]);
   const finalLapSeenRef = useRef(false);
+  const racePronta = useStore((s) => s.racePronta);
 
   useEffect(() => {
     if (!snap) return;
@@ -155,6 +156,13 @@ export function RaceHud({ myId }: { myId: string }) {
 
 
   if (!snap) return <div className="hud center-msg">Ajustando a cadeira...</div>;
+  if (!racePronta || snap.aguardando) {
+    return (
+      <div className="hud center-msg race-preparo">
+        <div className="panel">Preparando a corrida...</div>
+      </div>
+    );
+  }
   const now = performance.now();
   const order = [...snap.karts].sort((a, b) => a.place - b.place);
   const frozen = snap.karts.find((k) => k.id === myId)?.flags.includes("frozen");

@@ -83,7 +83,10 @@ export function applyFresnelRimLight(
   };
 
   material.userData.rimUniforms = uniforms;
-  material.customProgramCacheKey = () => `fresnelRim_${material.uuid}`;
+  // A chave descreve o shader, não o material: quem tem o mesmo código divide o programa e cada um mantém os próprios
+  // uniforms. Encadeia a chave anterior porque o material pode já ter outro shader (o rosto no corpo do boneco).
+  const prevCustomKey = material.customProgramCacheKey();
+  material.customProgramCacheKey = () => `fresnelRim|${prevCustomKey}`;
 
   const prevOnBeforeCompile = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
@@ -140,6 +143,14 @@ export function applyFresnelRimLight(
 }
 
 /**
+ * A pele com o rosto pintado no shader fica fora dos efeitos da corrida: o toon deixava o queixo escuro como uma
+ * máscara e o rim fazia um halo branco em volta da cabeça, sobretudo nos tons de pele escuros.
+ */
+function aceitaEfeito(mat: THREE.Material): mat is THREE.MeshStandardMaterial {
+  return mat instanceof THREE.MeshStandardMaterial && !mat.userData.rostoNoShader;
+}
+
+/**
  * Traverses a 3D hierarchy and applies Fresnel rim lighting to all standard materials found.
  */
 export function applyFresnelRimToHierarchy(
@@ -152,11 +163,11 @@ export function applyFresnelRimToHierarchy(
     if (obj instanceof THREE.Mesh && obj.material) {
       if (Array.isArray(obj.material)) {
         for (const mat of obj.material) {
-          if (mat instanceof THREE.MeshStandardMaterial) {
+          if (aceitaEfeito(mat)) {
             applyFresnelRimLight(mat, rimColor, intensity, power);
           }
         }
-      } else if (obj.material instanceof THREE.MeshStandardMaterial) {
+      } else if (aceitaEfeito(obj.material)) {
         applyFresnelRimLight(obj.material, rimColor, intensity, power);
       }
     }
@@ -272,7 +283,7 @@ export function applyStylizedToonShading(
 
   material.userData.toonUniforms = uniforms;
   const prevCustomKey = material.customProgramCacheKey ? material.customProgramCacheKey() : "";
-  material.customProgramCacheKey = () => `toonShade_${material.uuid}_${prevCustomKey}`;
+  material.customProgramCacheKey = () => `toonShade|${prevCustomKey}`;
 
   const prevOnBeforeCompile = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
@@ -342,11 +353,11 @@ export function applyStylizedToonToHierarchy(
     if (obj instanceof THREE.Mesh && obj.material) {
       if (Array.isArray(obj.material)) {
         for (const mat of obj.material) {
-          if (mat instanceof THREE.MeshStandardMaterial) {
+          if (aceitaEfeito(mat)) {
             applyStylizedToonShading(mat, options);
           }
         }
-      } else if (obj.material instanceof THREE.MeshStandardMaterial) {
+      } else if (aceitaEfeito(obj.material)) {
         applyStylizedToonShading(obj.material, options);
       }
     }
@@ -397,7 +408,7 @@ export function applyWaxedFloorSheen(
 
   material.userData.floorUniforms = uniforms;
   const prevCustomKey = material.customProgramCacheKey ? material.customProgramCacheKey() : "";
-  material.customProgramCacheKey = () => `waxedFloor_${material.uuid}_${prevCustomKey}`;
+  material.customProgramCacheKey = () => `waxedFloor|${prevCustomKey}`;
 
   const prevOnBeforeCompile = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {

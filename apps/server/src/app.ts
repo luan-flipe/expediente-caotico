@@ -83,7 +83,8 @@ export interface ServerOptions {
   /** Conexão sem nenhuma mensagem por esse tempo é derrubada (o cliente faz ping a cada 2 s). */
   idleMs?: number;
   /** Voltas e tolerância da corrida (só para testes). */
-  race?: { laps?: number; graceMs?: number };
+  /** esperaMs: quanto a corrida espera os jogadores prepararem antes da contagem (sem isso, não espera). */
+  race?: { laps?: number; graceMs?: number; esperaMs?: number };
   /** Arquivo de dados do ranking. Sem ele o servidor só tem visitantes e não pontua. */
   store?: Store;
   /** Login: `clientId` null desliga o login do Google; `secret` assina as sessões do jogo. */

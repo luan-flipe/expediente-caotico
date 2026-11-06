@@ -6,7 +6,7 @@ import { DEFAULT_CHAIR } from "../race/chair";
 import { giveItem, ITEM_IDS, ITEM_WEIGHTS, pickBoxes, rollItem, stepHazards, useItem } from "../race/items";
 import { newKart } from "../race/kart";
 import { createRace, stepRace } from "../race/match";
-import { pointAt, sideNormal, TRACK } from "../race/track";
+import { getTrack, groundAt, heightAt, pointAt, progressOf, sideNormal, TRACK } from "../race/track";
 import type { RaceMatch, Racer } from "../race/types";
 
 const DT = 1000 / 30;
@@ -259,11 +259,31 @@ describe("itens e altura", () => {
     for (const kind of ["poca", "resma", "grampo", "aviao"] as const) {
       const { race, rs } = setup(2);
       const t = rs[1];
-      t.kart = { ...t.kart, y: RACE.airHitHeight + 0.5, air: true, speed: 10 };
+      // o segundo colocado do setup larga em cima da rampa: a altura conta a partir do chão dela
+      const chao = groundAt(race.track, progressOf(race.track, t.kart.pos)).y;
+      t.kart = { ...t.kart, y: chao + RACE.airHitHeight + 0.5, air: true, speed: 10 };
       race.hazards = [{ id: 99, kind, pos: { ...t.kart.pos }, vel: { x: 0, z: 0 }, owner: rs[0].id, until: race.now + 5000, bornAt: 0, targetId: kind === "aviao" ? t.id : undefined }];
       tick(race, DT);
       const hit = race.events.some((e) => e.type === "hit" && e.id === t.id);
       expect(hit, kind).toBe(kind === "grampo" || kind === "aviao");
+    }
+  });
+
+  it("no relevo do parque, a altura conta a partir do chão: quem está no chão pega poça e resma", () => {
+    const parque = getTrack("parque");
+    const at = pointAt(parque, 112);
+    const chao = heightAt(parque, 112);
+    expect(chao).toBeGreaterThan(RACE.airHitHeight);
+    for (const kind of ["poca", "resma"] as const) {
+      for (const [y, pega] of [[chao, true], [chao + RACE.airHitHeight + 0.5, false]] as const) {
+        const { race, rs } = setup(2);
+        race.track = parque;
+        const t = rs[1];
+        t.kart = { ...t.kart, pos: { ...at.pos }, heading: at.heading, y, air: !pega, speed: 10 };
+        race.hazards = [{ id: 99, kind, pos: { ...at.pos }, vel: { x: 0, z: 0 }, owner: rs[0].id, until: race.now + 5000, bornAt: 0 }];
+        stepHazards(race, DT);
+        expect(race.events.some((e) => e.type === "hit" && e.id === t.id), `${kind} y=${y}`).toBe(pega);
+      }
     }
   });
 });

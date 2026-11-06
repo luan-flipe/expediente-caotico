@@ -894,6 +894,7 @@ export function modelReady(): boolean {
 
 /** Carrega o GLB e as peças uma vez. Resolve false se o boneco falhar (o jogo segue com o procedural). */
 export function preloadCharacter(onProgress?: (e: ProgressEvent) => void): Promise<boolean> {
+  if (loading) return loading;
   const loader = createGltfLoader();
   const load = (list: Wearable[]) => Promise.all(list.map((w) => loadWearable(loader, w.url)));
   const cheer = loader.loadAsync(CELEBRATE_URL).catch((err) => {

@@ -48,6 +48,8 @@ export const RACE = {
   laps: 3,
   /** Tempo antes da largada: cena de abertura do Comandante (introMs) e depois 3, 2, 1. */
   countdownMs: 8000,
+  /** Quanto o servidor espera os jogadores prepararem a corrida antes de começar a contagem mesmo assim. */
+  preparoMaxMs: 20000,
   introMs: 5000,
   finishGraceMs: 30000,
   maxRaceMs: 6 * 60000,

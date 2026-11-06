@@ -194,6 +194,8 @@ export class Room {
   private roomRecords: Partial<Record<TrackId, GhostLap & { name: string }>> = {};
   private timer: NodeJS.Timeout | null = null;
   private tickCount = 0;
+  /** Quem ainda prepara a corrida (modelos e shaders) e até quando esperar: a contagem só anda depois disso. */
+  private esperaCorrida: { faltam: Set<string>; ate: number } | null = null;
   private lastTickAt = 0;
   private pendingMs = 0;
   private nextBot = 0;
@@ -202,7 +204,7 @@ export class Room {
   /** raceOpts encurta a corrida nos testes. Com store, o fim da partida registra o ranking. */
   constructor(
     readonly code: string,
-    private readonly raceOpts: { laps?: number; graceMs?: number } = {},
+    private readonly raceOpts: { laps?: number; graceMs?: number; esperaMs?: number } = {},
     private readonly store?: Store,
   ) {
     this.options = { ...DEFAULT_ROOM_OPTIONS, laps: raceOpts.laps ?? DEFAULT_ROOM_OPTIONS.laps, futTeams: DEFAULT_ROOM_OPTIONS.futTeams.map((t) => ({ ...t })) as RoomOptions["futTeams"] };
@@ -397,7 +399,7 @@ export class Room {
       });
     } else if (this.mode === "suspeito") {
       this.suspeito = createSuspeitoMatch(players, this.options, seed);
-    } else if (this.mode !== "shooter") this.race = createRace({ seed, players, ...this.raceOpts, laps, itemsOff: !items, botLevel, timeTrial: trial, track });
+    } else if (this.mode !== "shooter") this.race = createRace({ seed, players, graceMs: this.raceOpts.graceMs, laps, itemsOff: !items, botLevel, timeTrial: trial, track });
     else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel, submode: this.shooterSubmode });
     this.phase = "match";
     this.results = null;
@@ -407,6 +409,9 @@ export class Room {
     this.futStats = null;
     this.suspeitoResults = null;
     this.tickCount = 0;
+    const faltam = new Set(this.humans().filter((h) => h.conn).map((h) => h.id));
+    const esperaMs = this.raceOpts.esperaMs ?? 0;
+    this.esperaCorrida = this.race && esperaMs > 0 && faltam.size > 0 ? { faltam, ate: performance.now() + esperaMs } : null;
     this.broadcastLobby();
     if (this.race) for (const m of this.members.values()) this.sendGhosts(m);
     this.lastTickAt = performance.now();
@@ -568,7 +573,27 @@ export class Room {
     for (const m of recordChanged ? this.members.values() : notify) this.sendGhosts(m);
   }
 
+  /** Termina quando todos os conectados avisam, no limite de tempo ou se a partida acabar antes (quem sai não segura). */
+  private aguardandoPreparo(r: RaceMatch): boolean {
+    const espera = this.esperaCorrida;
+    if (!espera) return false;
+    const falta = [...espera.faltam].some((id) => this.members.get(id)?.conn);
+    if (falta && performance.now() < espera.ate && r.phase !== "finished") return true;
+    this.esperaCorrida = null;
+    return false;
+  }
+
   private stepRace(r: RaceMatch): void {
+    if (this.aguardandoPreparo(r)) {
+      // nada anda; o snapshot é o que cria os karts no cliente e o preparo depende deles
+      if (this.tickCount++ % BALANCE.tickHz === 0) {
+        const s = JSON.stringify({ ...buildRaceSnapshot(r), aguardando: true });
+        for (const mem of this.members.values()) {
+          if (mem.conn) send(mem.conn, `{"t":"rsnap","s":${s},"me":${JSON.stringify(buildRacePrivate(r, mem.id))}}`);
+        }
+      }
+      return;
+    }
     stepRace(r, TICK_MS);
     this.consumeLaps(r);
     this.tickCount++;
@@ -885,6 +910,9 @@ export class Room {
       case "kitem":
         if (this.race) queueItemUse(this.race, member.id);
         return;
+      case "kpronto":
+        this.esperaCorrida?.faltam.delete(member.id);
+        return;
       case "krespawn":
         if (this.race) respawnRequest(this.race, member.id);
         return;
@@ -940,7 +968,7 @@ export class RoomManager {
 
   constructor(
     private readonly idleMs: number,
-    private readonly raceOpts: { laps?: number; graceMs?: number } = {},
+    private readonly raceOpts: { laps?: number; graceMs?: number; esperaMs?: number } = {},
     private readonly ranking?: { store: Store; secret: string },
   ) {
     this.sweeper = setInterval(() => this.sweep(), 500);
