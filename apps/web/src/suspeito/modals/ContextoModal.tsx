@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ContextoTaskState } from "@ec/shared";
 import { net } from "../../store";
+import { playTaskCompleteSound, playTaskErrorSound, playTaskStepSound } from "../suspeitoSound";
 
 interface ContextoModalProps {
   state: ContextoTaskState;
@@ -18,17 +19,20 @@ export function ContextoModal({ state, onClose }: ContextoModalProps) {
     if (!word) return;
 
     if (state.guesses.some((g) => g.word === word)) {
+      playTaskErrorSound();
       setFeedback("Você já tentou essa palavra!");
       return;
     }
 
     setFeedback(null);
+    playTaskStepSound(state.guesses.length % 3);
     net.send({ t: "suspeitoTaskAction", contextoGuess: word });
     setGuessInput("");
   };
 
   useEffect(() => {
     if (state.solved) {
+      playTaskCompleteSound();
       const timer = setTimeout(() => onClose(), 1400);
       return () => clearTimeout(timer);
     }

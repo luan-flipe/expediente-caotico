@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   moveSuspeitoPlayer,
   SUSPEITO_PLAYER_SPEED,
+  SUSPEITO_WALLS,
   type LobbyPlayer,
   type SuspeitoPrivate,
   type SuspeitoSnapshot,
@@ -25,6 +26,8 @@ const CAM_BACK = 11;
 interface PlayerView {
   char: Character;
   group: THREE.Group;
+  nameSprite: THREE.Sprite;
+  nameKey: string;
   buf: { t: number; x: number; z: number; yaw: number }[];
   ghost: boolean;
 }
@@ -54,6 +57,121 @@ function setGhostLook(root: THREE.Object3D, ghost: boolean): void {
   });
 }
 
+function drawNameTagTexture(
+  canvas: HTMLCanvasElement,
+  name: string,
+  isSabotadorTag: boolean,
+  isMe: boolean,
+  isGhost: boolean,
+): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const label = isSabotadorTag ? `🔪 ${name}` : isMe ? `${name} (Você)` : name;
+  ctx.font = "800 22px system-ui, -apple-system, sans-serif";
+  const textW = Math.min(w - 28, ctx.measureText(label).width);
+  const pillW = Math.max(96, textW + 28);
+  const pillH = 38;
+  const px = (w - pillW) / 2;
+  const py = (h - pillH) / 2;
+
+  ctx.fillStyle = isSabotadorTag
+    ? "rgba(69, 10, 10, 0.9)"
+    : isGhost
+    ? "rgba(30, 41, 59, 0.65)"
+    : "rgba(15, 23, 42, 0.88)";
+  ctx.strokeStyle = isSabotadorTag
+    ? "#ef4444"
+    : isMe
+    ? "#38bdf8"
+    : "rgba(226, 232, 240, 0.7)";
+  ctx.lineWidth = 3;
+
+  ctx.beginPath();
+  ctx.roundRect(px, py, pillW, pillH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = isSabotadorTag ? "#fca5a5" : isMe ? "#bae6fd" : "#f8fafc";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, w / 2, h / 2 + 1, pillW - 16);
+}
+
+function createNameTagSprite(): { sprite: THREE.Sprite; canvas: HTMLCanvasElement; tex: THREE.CanvasTexture } {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    transparent: true,
+    depthTest: false,
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(2.3, 0.58, 1);
+  sprite.position.set(0, 2.15, 0);
+  sprite.renderOrder = 10;
+  sprite.userData = { canvas, tex };
+  return { sprite, canvas, tex };
+}
+
+/** Calcula a distância até a parede mais próxima ao longo de um raio 2D (origem ox,oz e direção dx,dz unitária). */
+function raycastWallsDistance(ox: number, oz: number, dx: number, dz: number, maxDist: number): number {
+  let closest = maxDist;
+  for (let i = 0; i < SUSPEITO_WALLS.length; i++) {
+    const w = SUSPEITO_WALLS[i];
+    const minX = w.minX;
+    const maxX = w.maxX;
+    const minZ = w.minZ;
+    const maxZ = w.maxZ;
+
+    let tmin = 0;
+    let tmax = closest;
+
+    if (Math.abs(dx) < 1e-6) {
+      if (ox < minX || ox > maxX) continue;
+    } else {
+      const invX = 1 / dx;
+      let t1 = (minX - ox) * invX;
+      let t2 = (maxX - ox) * invX;
+      if (t1 > t2) {
+        const tmp = t1;
+        t1 = t2;
+        t2 = tmp;
+      }
+      if (t1 > tmin) tmin = t1;
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) continue;
+    }
+
+    if (Math.abs(dz) < 1e-6) {
+      if (oz < minZ || oz > maxZ) continue;
+    } else {
+      const invZ = 1 / dz;
+      let t1 = (minZ - oz) * invZ;
+      let t2 = (maxZ - oz) * invZ;
+      if (t1 > t2) {
+        const tmp = t1;
+        t1 = t2;
+        t2 = tmp;
+      }
+      if (t1 > tmin) tmin = t1;
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) continue;
+    }
+
+    if (tmin >= 0 && tmin < closest) {
+      closest = tmin;
+    }
+  }
+  return closest;
+}
+
 export class SuspeitoEngine {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
@@ -64,6 +182,7 @@ export class SuspeitoEngine {
   private views = new Map<string, PlayerView>();
   private avatars = new Map<string, LobbyPlayer>();
   private keys: SuspeitoKeyControls = { up: false, down: false, left: false, right: false };
+  private touchMove = { mx: 0, mz: 0 };
   private reqId: number | null = null;
   private lastTime = performance.now();
   private lastInputSend = 0;
@@ -78,6 +197,7 @@ export class SuspeitoEngine {
   private camTarget = new THREE.Vector3();
   private camReady = false;
   private visionEl: HTMLElement | null = null;
+  private tmpVec = new THREE.Vector3();
 
   private fpsFrames = 0;
   private fpsLastTime = performance.now();
@@ -127,8 +247,15 @@ export class SuspeitoEngine {
     this.inputLocked = locked;
   }
 
+  /** Controle analógico virtual (toque / mobile). */
+  setTouchMove(mx: number, mz: number): void {
+    this.touchMove.mx = mx;
+    this.touchMove.mz = mz;
+  }
+
   private clearKeys = () => {
     this.keys = { up: false, down: false, left: false, right: false };
+    this.touchMove = { mx: 0, mz: 0 };
   };
 
   private onResize = () => {
@@ -160,8 +287,10 @@ export class SuspeitoEngine {
       const char = createCharacter(this.avatars.get(id)?.avatar ?? fallbackAvatar);
       const group = new THREE.Group();
       group.add(char.root);
+      const { sprite } = createNameTagSprite();
+      group.add(sprite);
       this.scene.add(group);
-      v = { char, group, buf: [], ghost: false };
+      v = { char, group, nameSprite: sprite, nameKey: "", buf: [], ghost: false };
       this.views.set(id, v);
     }
     return v;
@@ -182,6 +311,8 @@ export class SuspeitoEngine {
       if (!activeIds.has(id)) {
         this.scene.remove(v.group);
         v.char.dispose();
+        (v.nameSprite.material as THREE.SpriteMaterial).map?.dispose();
+        v.nameSprite.material.dispose();
         this.views.delete(id);
       }
     }
@@ -200,10 +331,27 @@ export class SuspeitoEngine {
         v.ghost = ghost;
       }
 
-      const visible = p.id === this.myId || (me?.visiblePlayerIds ? me.visiblePlayerIds.includes(p.id) : p.alive);
-      v.group.visible = visible && (p.alive || !(this.mePublic()?.alive ?? true) || p.id === this.myId);
+      const isMe = p.id === this.myId;
+      const isSabotadorTag =
+        (isMe && me?.role === "sabotador") ||
+        (!!me?.sabotadorTeammates && me.sabotadorTeammates.includes(p.id));
+      const nextNameKey = `${p.name}|${isSabotadorTag ? 1 : 0}|${isMe ? 1 : 0}|${ghost ? 1 : 0}`;
+      if (v.nameKey !== nextNameKey) {
+        v.nameKey = nextNameKey;
+        const { canvas, tex } = v.nameSprite.userData as {
+          canvas: HTMLCanvasElement;
+          tex: THREE.CanvasTexture;
+        };
+        if (canvas && tex) {
+          drawNameTagTexture(canvas, p.name, isSabotadorTag, isMe, ghost);
+          tex.needsUpdate = true;
+        }
+      }
 
-      if (p.id === this.myId) this.reconcile(p.pos, now, teleported);
+      const visible = isMe || (me?.visiblePlayerIds ? me.visiblePlayerIds.includes(p.id) : p.alive);
+      v.group.visible = visible && (p.alive || !(this.mePublic()?.alive ?? true) || isMe);
+
+      if (isMe) this.reconcile(p.pos, now, teleported);
     }
   }
 
@@ -257,6 +405,10 @@ export class SuspeitoEngine {
       if (this.keys.down) mz += 1;
       if (this.keys.left) mx -= 1;
       if (this.keys.right) mx += 1;
+      if (mx === 0 && mz === 0 && (this.touchMove.mx !== 0 || this.touchMove.mz !== 0)) {
+        mx = this.touchMove.mx;
+        mz = this.touchMove.mz;
+      }
     }
 
     const len = Math.hypot(mx, mz);
@@ -317,7 +469,7 @@ export class SuspeitoEngine {
     }
 
     this.updateCamera(dt);
-    this.updateVision();
+    this.updateVision(now);
     this.sceneMgr.animate(now);
 
     this.renderer.render(this.scene, this.camera);
@@ -338,7 +490,7 @@ export class SuspeitoEngine {
     this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z);
   }
 
-  private updateVision(): void {
+  private updateVision(now: number): void {
     const el = this.visionEl;
     if (!el) return;
     const meeting = this.snap?.phase !== "working";
@@ -349,16 +501,94 @@ export class SuspeitoEngine {
     }
     const v = this.views.get(this.myId);
     if (!v) return;
-    const center = v.group.position.clone().project(this.camera);
-    const edge = v.group.position.clone().add(new THREE.Vector3(this.me.visionRadius, 0, 0)).project(this.camera);
-    const canvas = this.renderer.domElement;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
+
+    const px = v.group.position.x;
+    const pz = v.group.position.z;
+    const radiusWorld = this.me.visionRadius;
+
+    const center = this.tmpVec.set(px, 0.2, pz).project(this.camera);
+    const edge = new THREE.Vector3(px + radiusWorld, 0.2, pz).project(this.camera);
+    const domCanvas = this.renderer.domElement;
+    const w = domCanvas.clientWidth || window.innerWidth;
+    const h = domCanvas.clientHeight || window.innerHeight;
     const cx = ((center.x + 1) / 2) * w;
     const cy = ((1 - center.y) / 2) * h;
-    const r = Math.abs(edge.x - center.x) / 2 * w;
+    const r = (Math.abs(edge.x - center.x) / 2) * w;
+
     el.style.opacity = "1";
-    el.style.background = `radial-gradient(circle at ${cx}px ${cy}px, transparent ${r * 0.82}px, rgba(8, 12, 20, 0.78) ${r * 1.08}px)`;
+
+    if (el instanceof HTMLCanvasElement) {
+      if (el.width !== w || el.height !== h) {
+        el.width = w;
+        el.height = h;
+      }
+      const ctx = el.getContext("2d");
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Cor da névoa de guerra (mais escura no blecaute, avermelhada em sabotagem crítica)
+      const isPowerOut = this.snap?.sabotage?.active && this.snap.sabotage.type === "falha_energia";
+      const isCritical = this.snap?.sabotage?.active && this.snap.sabotage.critical;
+      if (isCritical) {
+        const pulse = 0.8 + Math.sin(now * 0.008) * 0.06;
+        ctx.fillStyle = `rgba(22, 8, 12, ${pulse.toFixed(2)})`;
+      } else if (isPowerOut) {
+        ctx.fillStyle = "rgba(4, 7, 14, 0.92)";
+      } else {
+        ctx.fillStyle = "rgba(8, 12, 22, 0.83)";
+      }
+      ctx.fillRect(0, 0, w, h);
+
+      // Raycast 2D contra SUSPEITO_WALLS para projetar sombras reais das paredes
+      const RAY_COUNT = 96;
+      const maxRayDist = radiusWorld + 1.4;
+      ctx.save();
+      ctx.globalCompositeOperation = "destination-out";
+
+      ctx.beginPath();
+      for (let i = 0; i < RAY_COUNT; i++) {
+        const angle = (i / RAY_COUNT) * Math.PI * 2;
+        const dx = Math.cos(angle);
+        const dz = Math.sin(angle);
+        const hitDist = raycastWallsDistance(px, pz, dx, dz, maxRayDist);
+        // Penetra levemente na parede (+0.45m) para iluminar a face da parede mas sombrear atrás dela
+        const finalDist = Math.min(maxRayDist, hitDist + 0.45);
+        const wx = px + dx * finalDist;
+        const wz = pz + dz * finalDist;
+        this.tmpVec.set(wx, 0.2, wz).project(this.camera);
+        const sx = ((this.tmpVec.x + 1) / 2) * w;
+        const sy = ((1 - this.tmpVec.y) / 2) * h;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      }
+      ctx.closePath();
+      ctx.clip();
+
+      const grad = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r * 1.12);
+      grad.addColorStop(0, "rgba(0, 0, 0, 1)");
+      grad.addColorStop(0.75, "rgba(0, 0, 0, 0.96)");
+      grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 1.15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Halo suave imediato ao redor do próprio personagem para nunca esconder o boneco em quinas
+      ctx.save();
+      ctx.globalCompositeOperation = "destination-out";
+      const selfGrad = ctx.createRadialGradient(cx, cy, r * 0.04, cx, cy, r * 0.26);
+      selfGrad.addColorStop(0, "rgba(0, 0, 0, 0.95)");
+      selfGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = selfGrad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.26, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else {
+      el.style.background = `radial-gradient(circle at ${cx}px ${cy}px, transparent ${r * 0.82}px, rgba(8, 12, 20, 0.78) ${r * 1.08}px)`;
+    }
   }
 
   dispose(): void {
@@ -367,7 +597,11 @@ export class SuspeitoEngine {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.clearKeys);
-    for (const v of this.views.values()) v.char.dispose();
+    for (const v of this.views.values()) {
+      v.char.dispose();
+      (v.nameSprite.material as THREE.SpriteMaterial).map?.dispose();
+      v.nameSprite.material.dispose();
+    }
     this.views.clear();
     this.sceneMgr.dispose();
     this.renderer.dispose();

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ConexoTaskState } from "@ec/shared";
 import { net } from "../../store";
+import { playTaskCompleteSound, playTaskErrorSound, playTaskStepSound } from "../suspeitoSound";
 
 interface ConexoModalProps {
   state: ConexoTaskState;
@@ -26,9 +27,11 @@ export function ConexoModal({ state, onClose }: ConexoModalProps) {
 
   const submitGroup = () => {
     if (selectedWords.length !== 4) {
+      playTaskErrorSound();
       setFeedback("Selecione exatamente 4 palavras!");
       return;
     }
+    playTaskStepSound(state.solvedGroups.length);
     net.send({ t: "suspeitoTaskAction", conexoWords: selectedWords });
     setSelectedWords([]);
   };
@@ -45,10 +48,14 @@ export function ConexoModal({ state, onClose }: ConexoModalProps) {
   // Auto-close on solve
   useEffect(() => {
     if (state.solved) {
+      playTaskCompleteSound();
       const timer = setTimeout(() => onClose(), 1400);
       return () => clearTimeout(timer);
     }
-  }, [state.solved, onClose]);
+    if (state.failed) {
+      playTaskErrorSound();
+    }
+  }, [state.solved, state.failed, onClose]);
 
   return (
     <div className="suspeito-modal-backdrop">

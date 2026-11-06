@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { TermoTaskState } from "@ec/shared";
 import { net } from "../../store";
+import { playTaskCompleteSound, playTaskErrorSound, playTaskStepSound } from "../suspeitoSound";
 
 interface TermoModalProps {
   state: TermoTaskState;
@@ -38,9 +39,11 @@ export function TermoModal({ state, onClose }: TermoModalProps) {
 
     if (key === "ENTER") {
       if (currentGuess.length !== state.wordLength) {
+        playTaskErrorSound();
         setErrorMsg(`A palavra precisa de ${state.wordLength} letras`);
         return;
       }
+      playTaskStepSound(state.guesses.length);
       net.send({ t: "suspeitoTaskAction", termoGuess: currentGuess });
       setCurrentGuess("");
     } else if (key === "BACKSPACE" || key === "⌫") {
@@ -61,13 +64,17 @@ export function TermoModal({ state, onClose }: TermoModalProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [currentGuess, state.solved, state.failed]);
 
-  // Se o desafio for resolvido, fecha automaticamente após 1.5s
+  // Se o desafio for resolvido, fecha automaticamente após 1.4s
   useEffect(() => {
     if (state.solved) {
+      playTaskCompleteSound();
       const timer = setTimeout(() => onClose(), 1400);
       return () => clearTimeout(timer);
     }
-  }, [state.solved, onClose]);
+    if (state.failed) {
+      playTaskErrorSound();
+    }
+  }, [state.solved, state.failed, onClose]);
 
   const rows = [];
   for (let r = 0; r < state.maxGuesses; r++) {

@@ -7,6 +7,7 @@ import {
   queueSuspeitoEmergency,
   queueSuspeitoFixSabotage,
   queueSuspeitoKill,
+  queueSuspeitoMeetingChat,
   queueSuspeitoReport,
   queueSuspeitoSabotage,
   queueSuspeitoVote,
@@ -78,7 +79,7 @@ describe("Partida de Expediente Suspeito", () => {
     expect(match.bodies[0].victimId).toBe("p2");
   });
 
-  it("reportar corpo inicia reunião emergencial com teletransporte", () => {
+  it("reportar corpo inicia reunião emergencial com teletransporte e setor registrado", () => {
     const match = createSuspeitoMatch(mockPlayers, DEFAULT_ROOM_OPTIONS, 12345);
     match.phase = "working";
 
@@ -101,9 +102,47 @@ describe("Partida de Expediente Suspeito", () => {
     expect(match.phase).toBe("meeting");
     expect(match.meeting?.reason).toBe("body");
     expect(match.meeting?.reportedVictimName).toBe("Edu");
+    expect(match.meeting?.reportedBodySector).toBe("copa");
+    expect(match.meeting?.messages?.length).toBeGreaterThanOrEqual(1);
+    expect(match.meeting?.messages?.[0].kind).toBe("report");
 
     // Jogadores vivos foram levados à Sala de Reunião
     expect(p3.sector).toBe("reuniao");
+  });
+
+  it("permite chat de depoimentos, testemunho de bots e abertura imediata da votação", () => {
+    const playersWithBot: SuspeitoPlayerInfo[] = [
+      { id: "p1", name: "Ana", avatar: {} as any, isBot: false },
+      { id: "p2", name: "Beto", avatar: {} as any, isBot: true },
+      { id: "p3", name: "Carlos", avatar: {} as any, isBot: true },
+      { id: "p4", name: "Duda", avatar: {} as any, isBot: false },
+      { id: "p5", name: "Edu", avatar: {} as any, isBot: false },
+    ];
+    const match = createSuspeitoMatch(playersWithBot, DEFAULT_ROOM_OPTIONS, 12345);
+    match.phase = "working";
+
+    const p1 = match.players.get("p1")!;
+    p1.pos = { x: -4, z: 0 };
+    match.emergencyCooldownMs = 0;
+    queueSuspeitoEmergency(match, "p1");
+    expect(match.phase).toBe("meeting");
+
+    // Avança 5s para que os bots postem seus depoimentos na ata
+    stepSuspeitoMatch(match, 5.0);
+    expect((match.meeting?.messages?.length ?? 0)).toBeGreaterThan(1);
+
+    // P1 acusa P4 e pede abertura imediata da votação
+    const sent = queueSuspeitoMeetingChat(
+      match,
+      "p1",
+      "Vi Duda saindo da sala do crime!",
+      "accuse",
+      "p4",
+      true,
+    );
+    expect(sent).toBe(true);
+    expect(match.phase).toBe("voting");
+    expect(match.meeting?.phase).toBe("voting");
   });
 
   it("votação ejeta o participante mais votado e revela função", () => {

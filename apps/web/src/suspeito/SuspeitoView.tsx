@@ -11,10 +11,15 @@ import { QuickTaskModal } from "./modals/QuickTaskModal";
 import { QteModal } from "./modals/QteModal";
 import { SabotageModal } from "./modals/SabotageModal";
 import { SuspeitoMapModal } from "./modals/SuspeitoMapModal";
+import {
+  playReportAlarmSound,
+  playRoleRevealSound,
+  playSabotageBeepSound,
+} from "./suspeitoSound";
 
 export function SuspeitoView({ myId }: { myId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const visionRef = useRef<HTMLDivElement>(null);
+  const visionRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<SuspeitoEngine | null>(null);
 
   const players = useStore((s) => s.lobby?.players);
@@ -25,6 +30,10 @@ export function SuspeitoView({ myId }: { myId: string }) {
   const [sabotageOpen, setSabotageOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [activeTaskModalId, setActiveTaskModalId] = useState<string | null>(null);
+
+  const prevPhaseRef = useRef<string | null>(null);
+  const prevSabotageRef = useRef<boolean>(false);
+  const playedIntroRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -49,6 +58,25 @@ export function SuspeitoView({ myId }: { myId: string }) {
   useEffect(() => {
     if (ssnap) engineRef.current?.applySnapshot(ssnap, sme);
   }, [ssnap, sme]);
+
+  // Efeitos sonoros de transição de fase e sabotagem
+  useEffect(() => {
+    if (!ssnap) return;
+    if (ssnap.phase === "intro" && sme && !playedIntroRef.current) {
+      playedIntroRef.current = true;
+      playRoleRevealSound(sme.role === "sabotador");
+    }
+    if (ssnap.phase === "meeting" && prevPhaseRef.current !== "meeting") {
+      playReportAlarmSound();
+    }
+    prevPhaseRef.current = ssnap.phase;
+
+    const sabActive = !!ssnap.sabotage?.active;
+    if (sabActive && !prevSabotageRef.current) {
+      playSabotageBeepSound();
+    }
+    prevSabotageRef.current = sabActive;
+  }, [ssnap?.phase, ssnap?.sabotage?.active, sme?.role]);
 
   // Se entrar em reunião, fecha modais de tarefas, mapa e sabotagem
   useEffect(() => {
@@ -86,6 +114,9 @@ export function SuspeitoView({ myId }: { myId: string }) {
   const closeSabotage = useCallback(() => setSabotageOpen(false), []);
   const toggleMap = useCallback(() => setMapOpen((p) => !p), []);
   const closeMap = useCallback(() => setMapOpen(false), []);
+  const handleTouchMove = useCallback((mx: number, mz: number) => {
+    engineRef.current?.setTouchMove(mx, mz);
+  }, []);
 
   const taskModalOpen = !!activeTaskModalId && serverTaskId === activeTaskModalId && !!sme?.activeTaskState;
   const isMeetingPhase = ssnap?.phase === "meeting" || ssnap?.phase === "voting" || ssnap?.phase === "vote_result";
@@ -111,7 +142,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
   return (
     <div className="suspeito-game-view">
       <canvas ref={canvasRef} className="suspeito-canvas" />
-      <div ref={visionRef} className="suspeito-vision-mask" />
+      <canvas ref={visionRef} className="suspeito-vision-mask" />
 
       {/* Contador Discreto de FPS no canto superior direito */}
       <FpsCounter fps={fps} />
@@ -125,6 +156,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
           onOpenTask={handleOpenTask}
           inputLocked={inputLocked}
           onToggleMap={toggleMap}
+          onTouchMove={handleTouchMove}
         />
       )}
 

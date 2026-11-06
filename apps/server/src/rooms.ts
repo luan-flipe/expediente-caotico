@@ -67,6 +67,7 @@ import {
   queueSuspeitoEmergency,
   queueSuspeitoFixSabotage,
   queueSuspeitoKill,
+  queueSuspeitoMeetingChat,
   queueSuspeitoReport,
   queueSuspeitoSabotage,
   queueSuspeitoStartTask,
@@ -817,6 +818,18 @@ export class Room {
         return;
       case "suspeitoVote":
         if (this.suspeito) queueSuspeitoVote(this.suspeito, member.id, msg.targetIdOrSkip);
+        return;
+      case "suspeitoChat":
+        if (this.suspeito) {
+          queueSuspeitoMeetingChat(
+            this.suspeito,
+            member.id,
+            msg.text,
+            msg.kind ?? "chat",
+            msg.targetId,
+            msg.skipDiscussion
+          );
+        }
         return;
       case "suspeitoSabotage":
         if (this.suspeito) queueSuspeitoSabotage(this.suspeito, member.id, msg.sabotageType);

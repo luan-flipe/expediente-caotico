@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { QteTaskState } from "@ec/shared";
 import { net } from "../../store";
+import { playTaskCompleteSound, playTaskErrorSound, playTaskStepSound } from "../suspeitoSound";
 
 export function QteModal({
   title,
@@ -16,6 +17,7 @@ export function QteModal({
   // Fecha automaticamente ao resolver com breve feedback de sucesso
   useEffect(() => {
     if (state.completed) {
+      playTaskCompleteSound();
       const t = setTimeout(onClose, 800);
       return () => clearTimeout(t);
     }
@@ -101,11 +103,13 @@ function TimingGame({
   const handleHit = () => {
     if (cursorPos >= state.targetMin && cursorPos <= state.targetMax) {
       onError("");
+      playTaskStepSound(2);
       net.send({
         t: "suspeitoTaskAction",
         qteAction: { kind: "timing", timingValue: cursorPos },
       });
     } else {
+      playTaskErrorSound();
       onError("Fora da área verde! Tente novamente.");
     }
   };
@@ -156,12 +160,16 @@ function TimingGame({
 
 function SequenceGame({
   state,
-  onError,
 }: {
   state: Extract<QteTaskState, { kind: "sequence" }>;
   onError: (err: string) => void;
 }) {
   const handleKeyInput = (key: string) => {
+    if (key === state.sequence[state.currentIndex]) {
+      playTaskStepSound(state.currentIndex);
+    } else {
+      playTaskErrorSound();
+    }
     net.send({
       t: "suspeitoTaskAction",
       qteAction: { kind: "sequence", key },
@@ -177,7 +185,7 @@ function SequenceGame({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [state.currentIndex, state.sequence]);
 
   return (
     <div className="qte-sequence-container">
@@ -221,6 +229,7 @@ function WiresGame({
   state: Extract<QteTaskState, { kind: "wires" }>;
 }) {
   const handleConnectWire = (color: string) => {
+    playTaskStepSound(state.connected.length);
     net.send({
       t: "suspeitoTaskAction",
       qteAction: { kind: "wire", color },
@@ -259,6 +268,7 @@ function PrinterGame({
   state: Extract<QteTaskState, { kind: "printer" }>;
 }) {
   const handleNextStep = () => {
+    playTaskStepSound(state.step);
     net.send({
       t: "suspeitoTaskAction",
       qteAction: { kind: "printer", printerStep: state.step },
