@@ -39,6 +39,7 @@ import { Juiz } from "./juiz";
 import { DIVE_LIFT, DIVE_MS, DIVE_REACH, DIVE_ROLL, SLUMP, diveAmount, diveSide } from "./reacoes";
 import { penaltyAttackSide, penaltyRole, pickedSide, tagScale } from "./penaltyUi";
 import { createGolMesh, disposeGolMesh } from "./golMesh";
+import { carryWeight, localBallPos } from "./bolaLocal";
 import { approachYaw, cameraYawTarget, yawToward } from "./cameraBola";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
 import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
@@ -278,6 +279,8 @@ export class FutebolEngine {
   private vis = { x: 0, z: 0 };
   private charge = newCharge();
   private myPos = new THREE.Vector3();
+  /** Quanto a bola desenhada segue meu boneco predito (0 a 1; ver bolaLocal.ts). */
+  private carryW = 0;
   /** Direção em que meu boneco aparece olhando quando está parado sem a bola (vira para a bola). */
   private meFace: number | null = null;
   // temporários do quadro (nada de new por frame)
@@ -1061,6 +1064,15 @@ export class FutebolEngine {
 
     // bola
     const bs = rs ? { t: rt, x: rs.ball.x, y: rs.ball.y, z: rs.ball.z, f: 0 } : this.sampleAt(this.ballBuf, rt);
+    if (bs && !rs) {
+      // dono da bola: ela acompanha meu boneco predito (sem atraso) em vez de ficar 120 ms para trás, debaixo do pé
+      const meBuf = this.pred ? this.views.get(this.myId)?.buf : undefined;
+      this.carryW = carryWeight(this.carryW, !!meBuf && this.snap?.ball.ownerId === this.myId, dt);
+      const at = this.carryW > 0 && meBuf ? this.sampleAt(meBuf, rt) : null;
+      const p = localBallPos(bs, at, this.myPos, this.carryW);
+      bs.x = p.x;
+      bs.z = p.z;
+    }
     if (bs) {
       this.ball.position.set(bs.x, bs.y, bs.z);
       this.ballShadow.position.set(bs.x, 0.06, bs.z);
