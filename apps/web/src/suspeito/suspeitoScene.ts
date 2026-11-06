@@ -3,10 +3,11 @@ import {
   EMERGENCY_BUTTON_POS,
   SECTORS,
   SUSPEITO_WALLS,
-  TASK_STATIONS,
   type SuspeitoBody,
+  type SuspeitoPrivate,
   type SuspeitoSnapshot,
 } from "@ec/shared";
+import { createCharacter, type Character } from "../game/character";
 
 function mesh(
   geo: THREE.BufferGeometry,
@@ -25,8 +26,32 @@ function mesh(
 
 export class SuspeitoSceneManager {
   scene: THREE.Scene;
-  bodyMeshes = new Map<string, THREE.Group>();
+  bodyMeshes = new Map<string, { grp: THREE.Group; char: Character }>();
   taskBeaconGroup = new THREE.Group();
+  private beacons = new Map<string, THREE.Group>();
+  private fixBeacon: THREE.Group;
+  private beaconMat = new THREE.MeshStandardMaterial({
+    color: "#ffeb3b",
+    emissive: "#fbc02d",
+    emissiveIntensity: 0.6,
+    transparent: true,
+    opacity: 0.75,
+  });
+  private blockedBeaconMat = new THREE.MeshStandardMaterial({
+    color: "#9e9e9e",
+    emissive: "#424242",
+    emissiveIntensity: 0.3,
+    transparent: true,
+    opacity: 0.6,
+  });
+  private redMarkMat = new THREE.MeshStandardMaterial({ color: "#c62828", roughness: 0.5 });
+  private fixMat = new THREE.MeshStandardMaterial({
+    color: "#ff1744",
+    emissive: "#d50000",
+    emissiveIntensity: 0.9,
+    transparent: true,
+    opacity: 0.8,
+  });
   dirLight: THREE.DirectionalLight;
   ambientLight: THREE.AmbientLight;
 
@@ -52,7 +77,20 @@ export class SuspeitoSceneManager {
     scene.add(this.dirLight);
 
     this.buildOfficeLayout();
-    this.buildTaskBeacons();
+    this.scene.add(this.taskBeaconGroup);
+    this.fixBeacon = this.makeBeacon(this.fixMat, 1.0, 2.2);
+    this.fixBeacon.visible = false;
+    this.scene.add(this.fixBeacon);
+  }
+
+  private makeBeacon(mat: THREE.Material, radius = 0.7, height = 1.2): THREE.Group {
+    const g = new THREE.Group();
+    g.add(mesh(new THREE.CylinderGeometry(radius, radius, 0.05, 20), mat, 0, 0.03, 0, false));
+    g.add(mesh(new THREE.CylinderGeometry(0.08, 0.08, height, 8), mat, 0, height / 2, 0, false));
+    const tip = mesh(new THREE.OctahedronGeometry(0.22), mat, 0, height + 0.25, 0, false);
+    tip.name = "tip";
+    g.add(tip);
+    return g;
   }
 
   private buildOfficeLayout(): void {
@@ -72,7 +110,7 @@ export class SuspeitoSceneManager {
         color: sector.floorColor,
         roughness: 0.6,
       });
-      const floor = mesh(new THREE.PlaneGeometry(sector.w - 0.2, sector.d - 0.2), sectorFloorMat, sector.x, 0.01, sector.z, false);
+      const floor = mesh(new THREE.PlaneGeometry(sector.w - 0.2, sector.d - 0.2), sectorFloorMat, sector.x, 0.045, sector.z, false);
       floor.rotation.x = -Math.PI / 2;
       this.scene.add(floor);
 
@@ -176,68 +214,111 @@ export class SuspeitoSceneManager {
     }
   }
 
-  private buildTaskBeacons(): void {
-    const beaconMat = new THREE.MeshStandardMaterial({
-      color: "#ffeb3b",
-      emissive: "#fbc02d",
-      emissiveIntensity: 0.6,
-      transparent: true,
-      opacity: 0.7,
-    });
-
-    for (const station of TASK_STATIONS) {
-      const ring = mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.05, 16), beaconMat, station.pos.x, 0.03, station.pos.z, false);
-      const pillar = mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 8), beaconMat, station.pos.x, 0.6, station.pos.z, false);
-      this.taskBeaconGroup.add(ring);
-      this.taskBeaconGroup.add(pillar);
+  /** Só as estações do próprio jogador que ainda faltam; cinza quando a sabotagem bloqueia. */
+  updateTaskBeacons(me: SuspeitoPrivate | null, snap: SuspeitoSnapshot): void {
+    const wanted = new Map<string, { x: number; z: number; blocked: boolean }>();
+    if (me && snap.phase === "working") {
+      for (const t of me.tasks) {
+        if (t.completed) continue;
+        const blocked =
+          !!snap.sabotage?.active &&
+          ((snap.sabotage.type === "queda_rede" && (t.type === "termo" || t.type === "conexo" || t.type === "contexto")) ||
+            (snap.sabotage.type === "impressora_travada" && t.sector === "impressao"));
+        wanted.set(t.id, { x: t.pos.x, z: t.pos.z, blocked });
+      }
     }
-    this.scene.add(this.taskBeaconGroup);
+    for (const [id, g] of this.beacons) {
+      if (!wanted.has(id)) {
+        this.taskBeaconGroup.remove(g);
+        this.beacons.delete(id);
+      }
+    }
+    for (const [id, w] of wanted) {
+      let g = this.beacons.get(id);
+      if (!g) {
+        g = this.makeBeacon(this.beaconMat);
+        g.position.set(w.x, 0, w.z);
+        this.taskBeaconGroup.add(g);
+        this.beacons.set(id, g);
+      }
+      const mat = w.blocked ? this.blockedBeaconMat : this.beaconMat;
+      g.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = mat;
+      });
+    }
+
+    const sab = snap.sabotage;
+    this.fixBeacon.visible = !!sab?.active && snap.phase === "working";
+    if (sab?.active) this.fixBeacon.position.set(sab.fixPos.x, 0, sab.fixPos.z);
+  }
+
+  animate(now: number): void {
+    const bob = Math.sin(now / 300) * 0.12;
+    for (const g of this.beacons.values()) {
+      const tip = g.getObjectByName("tip");
+      if (tip) {
+        tip.position.y = 1.45 + bob;
+        tip.rotation.y = now / 600;
+      }
+    }
+    const tip = this.fixBeacon.getObjectByName("tip");
+    if (tip) {
+      tip.position.y = 2.45 + bob * 1.5;
+      tip.rotation.y = now / 300;
+    }
+    this.fixMat.emissiveIntensity = 0.6 + Math.abs(Math.sin(now / 250)) * 0.8;
   }
 
   updateBodies(bodies: SuspeitoBody[], visibleBodyIds?: string[]): void {
     const activeIds = new Set(bodies.map((b) => b.id));
 
     // Remove corpos que sumiram
-    for (const [id, grp] of this.bodyMeshes.entries()) {
+    for (const [id, item] of this.bodyMeshes.entries()) {
       if (!activeIds.has(id)) {
-        this.scene.remove(grp);
+        this.scene.remove(item.grp);
+        item.char.dispose();
         this.bodyMeshes.delete(id);
       }
     }
 
     // Adiciona novos corpos caídos no chão
-    const bodyMat = new THREE.MeshStandardMaterial({ color: "#78909c", roughness: 0.8 });
-    const redMarkMat = new THREE.MeshStandardMaterial({ color: "#c62828", roughness: 0.5 });
-
     for (const b of bodies) {
-      if (!this.bodyMeshes.has(b.id)) {
+      let item = this.bodyMeshes.get(b.id);
+      if (!item) {
         const grp = new THREE.Group();
-        grp.position.set(b.pos.x, 0.1, b.pos.z);
+        grp.position.set(b.pos.x, 0, b.pos.z);
 
-        // Corpo deitado
-        const torso = mesh(new THREE.BoxGeometry(0.8, 0.25, 0.4), bodyMat, 0, 0.12, 0);
-        torso.rotation.y = Math.random() * Math.PI;
-        const mark = mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.02, 12), redMarkMat, 0, 0.01, 0, false);
-        grp.add(torso);
+        // Boneco da vítima deitado de costas, para dar para reconhecer quem caiu
+        const char = createCharacter(b.avatar);
+        char.root.rotation.set(-Math.PI / 2, 0, 0);
+        char.root.position.y = 0.18;
+        const holder = new THREE.Group();
+        holder.rotation.y = (b.pos.x * 7.3 + b.pos.z * 3.1) % (Math.PI * 2);
+        holder.add(char.root);
+        grp.add(holder);
+
+        const mark = mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.02, 20), this.redMarkMat, 0, 0.015, 0, false);
         grp.add(mark);
 
         this.scene.add(grp);
-        this.bodyMeshes.set(b.id, grp);
+        item = { grp, char };
+        this.bodyMeshes.set(b.id, item);
       }
 
       // Visibilidade estrita: só exibe corpos desobstruídos no campo de visão
-      const grp = this.bodyMeshes.get(b.id);
-      if (grp) {
-        grp.visible = visibleBodyIds ? visibleBodyIds.includes(b.id) : true;
-      }
+      item.grp.visible = visibleBodyIds ? visibleBodyIds.includes(b.id) : true;
     }
   }
 
-  updateLighting(snap: SuspeitoSnapshot): void {
-    // Se há sabotagem de falha de energia, reduz iluminação
-    if (snap.sabotage?.active && snap.sabotage.type === "falha_energia") {
+  updateLighting(snap: SuspeitoSnapshot, me: SuspeitoPrivate | null): void {
+    // Se há sabotagem de falha de energia, reduz iluminação (sabotador enxerga no escuro)
+    const lightsOut = snap.sabotage?.active && snap.sabotage.type === "falha_energia";
+    if (lightsOut && me?.role !== "sabotador") {
       this.ambientLight.intensity = 0.2;
       this.dirLight.intensity = 0.3;
+    } else if (lightsOut) {
+      this.ambientLight.intensity = 0.45;
+      this.dirLight.intensity = 0.7;
     } else {
       this.ambientLight.intensity = 0.75;
       this.dirLight.intensity = 1.2;
@@ -245,10 +326,12 @@ export class SuspeitoSceneManager {
   }
 
   dispose(): void {
-    for (const grp of this.bodyMeshes.values()) {
-      this.scene.remove(grp);
+    for (const item of this.bodyMeshes.values()) {
+      this.scene.remove(item.grp);
+      item.char.dispose();
     }
     this.bodyMeshes.clear();
     this.scene.remove(this.taskBeaconGroup);
+    this.scene.remove(this.fixBeacon);
   }
 }

@@ -248,6 +248,7 @@ export interface SuspeitoPrivate {
     kind: "task" | "body" | "emergency" | "sabotage";
     id: string;
     label: string;
+    blocked?: boolean;
   } | null;
   myVote: string | null;
   visiblePlayerIds: string[];

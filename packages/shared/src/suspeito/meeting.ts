@@ -1,4 +1,4 @@
-import type { SuspeitoMeetingState, SuspeitoRole } from "./types";
+import type { SuspeitoMeetingState } from "./types";
 
 export function createMeeting(params: {
   callerId: string;

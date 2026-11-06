@@ -72,6 +72,7 @@ import {
   queueSuspeitoStartTask,
   queueSuspeitoTaskAction,
   queueSuspeitoVote,
+  removeSuspeitoPlayer,
   setSuspeitoInput,
   stepSuspeitoMatch,
   type SuspeitoMatch,
@@ -347,6 +348,7 @@ export class Room {
 
   removeMember(id: string): void {
     this.members.delete(id);
+    if (this.suspeito) removeSuspeitoPlayer(this.suspeito, id);
     if (this.hostId === id) {
       const next = this.humans().find((h) => h.conn) ?? this.humans()[0];
       this.hostId = next?.id ?? "";

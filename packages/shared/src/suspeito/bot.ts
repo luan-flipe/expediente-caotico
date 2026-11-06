@@ -1,143 +1,308 @@
 import type { Vec2 } from "../types";
-import type { SuspeitoBody, SuspeitoRole, SuspeitoTask } from "./types";
-import { TASK_STATIONS } from "./map";
+import { hasLineOfSight, TASK_STATIONS } from "./map";
+import { findSuspeitoPath } from "./nav";
+import type { SuspeitoMatch, SuspeitoPlayerSim } from "./match";
+import type { SuspeitoSabotageType, SuspeitoTask } from "./types";
 
 export interface SuspeitoBotBrain {
-  targetPos: Vec2 | null;
-  targetTaskId: string | null;
+  goal: Vec2 | null;
+  goalKind: "task" | "fake" | "wander" | "fix" | "body" | "hunt" | null;
+  goalId: string | null;
+  path: Vec2[];
+  repathMs: number;
   taskTimerMs: number;
-  wanderCooldownMs: number;
-  voteCooldownMs: number;
+  taskDurationMs: number;
+  stuckMs: number;
+  lastPos: Vec2 | null;
+  voteDelayMs: number;
+  sabotageThinkMs: number;
+  huntDelayMs: number;
+  suspicion: Record<string, number>;
 }
 
 export function createBotBrain(): SuspeitoBotBrain {
   return {
-    targetPos: null,
-    targetTaskId: null,
+    goal: null,
+    goalKind: null,
+    goalId: null,
+    path: [],
+    repathMs: 0,
     taskTimerMs: 0,
-    wanderCooldownMs: 0,
-    voteCooldownMs: 0,
+    taskDurationMs: 0,
+    stuckMs: 0,
+    lastPos: null,
+    voteDelayMs: 0,
+    sabotageThinkMs: 4000 + Math.random() * 6000,
+    huntDelayMs: 4000 + Math.random() * 10000,
+    suspicion: {},
   };
 }
 
-export function stepSuspeitoBot(params: {
-  botId: string;
-  pos: Vec2;
-  role: SuspeitoRole;
-  brain: SuspeitoBotBrain;
-  tasks: SuspeitoTask[];
-  bodies: SuspeitoBody[];
-  otherPlayers: { id: string; pos: Vec2; alive: boolean }[];
-  canKill: boolean;
-  killCooldownMs: number;
-  phase: string;
-  dtMs: number;
-}): {
-  input: { mx: number; mz: number; yaw: number };
-  action?: "kill" | "report" | "task" | "vote";
-  targetId?: string;
-  sabotage?: boolean;
-} {
-  const { pos, role, brain, tasks, bodies, otherPlayers, canKill, phase, dtMs } = params;
+export function resetBotForMeeting(brain: SuspeitoBotBrain, votingDelayMs: number): void {
+  brain.goal = null;
+  brain.goalKind = null;
+  brain.goalId = null;
+  brain.path = [];
+  brain.taskTimerMs = 0;
+  brain.lastPos = null;
+  brain.voteDelayMs = votingDelayMs;
+  brain.huntDelayMs = 4000 + Math.random() * 10000;
+}
 
-  if (phase !== "working") {
-    // Durante reunião, o bot decide um voto após um breve tempo de reflexão
-    if (phase === "voting" && brain.voteCooldownMs <= 0) {
-      brain.voteCooldownMs = 3000 + Math.random() * 5000;
-      const aliveOthers = otherPlayers.filter((p) => p.alive);
-      if (aliveOthers.length > 0 && Math.random() < 0.75) {
-        const picked = aliveOthers[Math.floor(Math.random() * aliveOthers.length)];
-        return { input: { mx: 0, mz: 0, yaw: 0 }, action: "vote", targetId: picked.id };
+export function canSeeFrom(a: Vec2, b: Vec2, radius: number): boolean {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  return dx * dx + dz * dz <= radius * radius && hasLineOfSight(a, b);
+}
+
+export type SuspeitoBotAction =
+  | { kind: "kill"; targetId: string }
+  | { kind: "report"; bodyId: string }
+  | { kind: "task"; taskId: string }
+  | { kind: "fix" }
+  | { kind: "sabotage"; type: SuspeitoSabotageType };
+
+export interface SuspeitoBotContext {
+  visionRadius: number;
+  killRange: number;
+  reportRange: number;
+  fixRange: number;
+  isTaskBlocked: (t: SuspeitoTask) => boolean;
+}
+
+function setGoal(brain: SuspeitoBotBrain, kind: SuspeitoBotBrain["goalKind"], pos: Vec2, id: string | null = null): void {
+  const same =
+    brain.goalKind === kind &&
+    brain.goalId === id &&
+    brain.goal !== null &&
+    Math.hypot(brain.goal.x - pos.x, brain.goal.z - pos.z) < 0.75;
+  if (same) return;
+  brain.goalKind = kind;
+  brain.goalId = id;
+  brain.goal = { ...pos };
+  brain.path = [];
+  brain.repathMs = 0;
+  brain.taskTimerMs = 0;
+}
+
+function steer(bot: SuspeitoPlayerSim, dtMs: number, ghost: boolean): { mx: number; mz: number; yaw: number } {
+  const brain = bot.brain!;
+  if (!brain.goal) return { mx: 0, mz: 0, yaw: bot.yaw };
+
+  brain.repathMs -= dtMs;
+  if (!ghost && (brain.path.length === 0 || brain.repathMs <= 0)) {
+    brain.path = findSuspeitoPath(bot.pos, brain.goal);
+    brain.repathMs = 2500 + Math.random() * 1000;
+  }
+  if (ghost) brain.path = [brain.goal];
+
+  while (brain.path.length > 1 && Math.hypot(brain.path[0].x - bot.pos.x, brain.path[0].z - bot.pos.z) < 0.5) {
+    brain.path.shift();
+  }
+  const next = brain.path[0] ?? brain.goal;
+  const dx = next.x - bot.pos.x;
+  const dz = next.z - bot.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.2) return { mx: 0, mz: 0, yaw: bot.yaw };
+
+  if (brain.lastPos) {
+    const moved = Math.hypot(bot.pos.x - brain.lastPos.x, bot.pos.z - brain.lastPos.z);
+    brain.stuckMs = moved < 0.02 ? brain.stuckMs + dtMs : 0;
+    if (brain.stuckMs > 700) {
+      brain.stuckMs = 0;
+      brain.repathMs = 0;
+      brain.path = [];
+    }
+  }
+  brain.lastPos = { ...bot.pos };
+
+  return { mx: dx / d, mz: dz / d, yaw: Math.atan2(dx, dz) };
+}
+
+function distSq(a: Vec2, b: Vec2): number {
+  return (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
+}
+
+function pickTask(bot: SuspeitoPlayerSim, ctx: SuspeitoBotContext): SuspeitoTask | null {
+  const open = bot.tasks.filter((t) => !t.completed && !ctx.isTaskBlocked(t));
+  if (!open.length) return null;
+  open.sort((a, b) => distSq(a.pos, bot.pos) - distSq(b.pos, bot.pos));
+  return Math.random() < 0.7 ? open[0] : open[Math.floor(Math.random() * open.length)];
+}
+
+function wander(bot: SuspeitoPlayerSim): void {
+  const st = TASK_STATIONS[Math.floor(Math.random() * TASK_STATIONS.length)];
+  setGoal(bot.brain!, "wander", st.pos, st.id);
+}
+
+export function stepSuspeitoBot(
+  match: SuspeitoMatch,
+  bot: SuspeitoPlayerSim,
+  dtMs: number,
+  ctx: SuspeitoBotContext
+): { input: { mx: number; mz: number; yaw: number }; action?: SuspeitoBotAction } {
+  const brain = bot.brain!;
+  const ghost = !bot.alive;
+  const others = [...match.players.values()].filter((o) => o.id !== bot.id && !o.left);
+  const isSab = bot.role === "sabotador";
+  let action: SuspeitoBotAction | undefined;
+
+  if (isSab && match.sabotage?.active !== true && bot.sabotageCooldownMs <= 0 && match.sabotageGlobalCooldownMs <= 0) {
+    brain.sabotageThinkMs -= dtMs;
+    if (brain.sabotageThinkMs <= 0) {
+      brain.sabotageThinkMs = 8000 + Math.random() * 12000;
+      if (Math.random() < 0.5) {
+        const types: SuspeitoSabotageType[] = ["vazamento_dados", "falha_energia", "falha_energia", "queda_rede", "impressora_travada"];
+        return { input: steer(bot, dtMs, ghost), action: { kind: "sabotage", type: types[Math.floor(Math.random() * types.length)] } };
       }
-      return { input: { mx: 0, mz: 0, yaw: 0 }, action: "vote", targetId: "skip" };
     }
-    if (phase === "voting") {
-      brain.voteCooldownMs -= dtMs;
-    }
-    return { input: { mx: 0, mz: 0, yaw: 0 } };
   }
 
-  // 1. Verificar se vê algum corpo no chão para reportar
-  for (const b of bodies) {
-    if (b.reported) continue;
-    const dx = b.pos.x - pos.x;
-    const dz = b.pos.z - pos.z;
-    const dSq = dx * dx + dz * dz;
-    if (dSq <= 6.0 * 6.0) {
-      if (dSq <= 2.0 * 2.0) {
-        return { input: { mx: 0, mz: 0, yaw: 0 }, action: "report", targetId: b.id };
+  if (ghost) {
+    if (!isSab) {
+      const t = brain.goalKind === "task" ? bot.tasks.find((x) => x.id === brain.goalId && !x.completed) : null;
+      const task = t ?? pickTask(bot, ctx);
+      if (task) {
+        setGoal(brain, "task", task.pos, task.id);
+        if (distSq(task.pos, bot.pos) < 1.2 * 1.2) {
+          if (!brain.taskDurationMs) brain.taskDurationMs = 5000 + Math.random() * 5000;
+          brain.taskTimerMs += dtMs;
+          if (brain.taskTimerMs >= brain.taskDurationMs) {
+            brain.taskTimerMs = 0;
+            brain.taskDurationMs = 0;
+            brain.goal = null;
+            return { input: { mx: 0, mz: 0, yaw: bot.yaw }, action: { kind: "task", taskId: task.id } };
+          }
+          return { input: { mx: 0, mz: 0, yaw: bot.yaw } };
+        }
+      } else if (!brain.goal || distSq(brain.goal, bot.pos) < 1) {
+        wander(bot);
       }
-      // Corre em direção ao corpo
-      const d = Math.sqrt(dSq);
-      return { input: { mx: dx / d, mz: dz / d, yaw: Math.atan2(dx, dz) } };
+    } else if (!brain.goal || distSq(brain.goal, bot.pos) < 1) {
+      wander(bot);
+    }
+    return { input: steer(bot, dtMs, true) };
+  }
+
+  const visibleOthers = others.filter((o) => o.alive && canSeeFrom(bot.pos, o.pos, ctx.visionRadius));
+
+  // corpo à vista: colaborador vai reportar e desconfia de quem estava por perto
+  if (!isSab) {
+    const body = match.bodies.find((b) => !b.reported && canSeeFrom(bot.pos, b.pos, ctx.visionRadius));
+    if (body) {
+      for (const o of visibleOthers) {
+        if (distSq(o.pos, body.pos) < 4 * 4) brain.suspicion[o.id] = (brain.suspicion[o.id] ?? 0) + 2;
+      }
+      if (distSq(body.pos, bot.pos) <= ctx.reportRange * ctx.reportRange) {
+        return { input: { mx: 0, mz: 0, yaw: bot.yaw }, action: { kind: "report", bodyId: body.id } };
+      }
+      setGoal(brain, "body", body.pos, body.id);
+      return { input: steer(bot, dtMs, false) };
     }
   }
 
-  // 2. Comportamento do Sabotador: caçar vítimas isoladas
-  if (role === "sabotador" && canKill) {
-    for (const p of otherPlayers) {
-      if (!p.alive) continue;
-      const dx = p.pos.x - pos.x;
-      const dz = p.pos.z - pos.z;
-      const dSq = dx * dx + dz * dz;
-
-      // Se estiver no alcance de eliminação (<= 1.8m)
-      if (dSq <= 2.0 * 2.0) {
-        return { input: { mx: 0, mz: 0, yaw: 0 }, action: "kill", targetId: p.id };
+  const sab = match.sabotage;
+  if (!isSab && sab?.active) {
+    const crew = others.filter((o) => o.alive && o.role === "colaborador");
+    const myD = distSq(bot.pos, sab.fixPos);
+    const closer = crew.filter((o) => distSq(o.pos, sab.fixPos) < myD).length;
+    if (sab.critical ? closer < 3 : closer === 0) {
+      if (myD <= ctx.fixRange * ctx.fixRange * 0.8) {
+        return { input: { mx: 0, mz: 0, yaw: bot.yaw }, action: { kind: "fix" } };
       }
-
-      // Se a vítima estiver a uma distância razoável (<= 10m)
-      if (dSq <= 10.0 * 10.0) {
-        const d = Math.sqrt(dSq);
-        return { input: { mx: dx / d, mz: dz / d, yaw: Math.atan2(dx, dz) } };
-      }
+      setGoal(brain, "fix", sab.fixPos, sab.type);
+      return { input: steer(bot, dtMs, false) };
     }
   }
 
-  // 3. Comportamento normal: ir até estações de tarefas
-  if (!brain.targetPos || brain.wanderCooldownMs <= 0) {
-    const incompleteTasks = tasks.filter((t) => !t.completed);
-    if (incompleteTasks.length > 0 && Math.random() < 0.8) {
-      const task = incompleteTasks[Math.floor(Math.random() * incompleteTasks.length)];
-      brain.targetPos = { ...task.pos };
-      brain.targetTaskId = task.id;
-    } else {
-      // Pega uma estação qualquer para circular
-      const st = TASK_STATIONS[Math.floor(Math.random() * TASK_STATIONS.length)];
-      brain.targetPos = { ...st.pos };
-      brain.targetTaskId = null;
-    }
-    brain.wanderCooldownMs = 10000 + Math.random() * 5000;
-  } else {
-    brain.wanderCooldownMs -= dtMs;
-  }
-
-  const dx = brain.targetPos.x - pos.x;
-  const dz = brain.targetPos.z - pos.z;
-  const distSq = dx * dx + dz * dz;
-
-  // Chegou na estação
-  if (distSq <= 1.5 * 1.5) {
-    if (brain.targetTaskId) {
-      brain.taskTimerMs += dtMs;
-      // Simula tempo executando tarefa (~3.5 segundos)
-      if (brain.taskTimerMs >= 3500) {
-        brain.taskTimerMs = 0;
-        const taskToComplete = brain.targetTaskId;
-        brain.targetTaskId = null;
-        brain.targetPos = null;
-        return { input: { mx: 0, mz: 0, yaw: 0 }, action: "task", targetId: taskToComplete };
+  if (isSab && bot.killCooldownMs <= 0 && brain.huntDelayMs > 0) brain.huntDelayMs -= dtMs;
+  if (isSab && bot.killCooldownMs <= 0 && brain.huntDelayMs <= 0) {
+    const victims = visibleOthers.filter((o) => o.role !== "sabotador");
+    const witnessesOf = (victimId: string) =>
+      others.filter(
+        (o) => o.alive && o.id !== victimId && o.role !== "sabotador" && canSeeFrom(o.pos, bot.pos, ctx.visionRadius)
+      ).length;
+    victims.sort((a, b) => distSq(a.pos, bot.pos) - distSq(b.pos, bot.pos));
+    for (const v of victims) {
+      if (witnessesOf(v.id) > 0) continue;
+      if (distSq(v.pos, bot.pos) <= ctx.killRange * ctx.killRange * 0.8) {
+        action = { kind: "kill", targetId: v.id };
+        brain.huntDelayMs = 4000 + Math.random() * 10000;
+        brain.goal = null;
+        wander(bot);
+        return { input: steer(bot, dtMs, false), action };
       }
-    } else {
-      brain.targetPos = null;
+      setGoal(brain, "hunt", v.pos, v.id);
+      return { input: steer(bot, dtMs, false) };
     }
-    return { input: { mx: 0, mz: 0, yaw: 0 } };
+    if (brain.goalKind === "hunt") brain.goal = null;
   }
 
-  const dist = Math.sqrt(distSq);
-  const mx = dx / dist;
-  const mz = dz / dist;
-  const yaw = Math.atan2(dx, dz);
+  // tarefas (reais para colaborador, encenadas para sabotador)
+  if (brain.goalKind !== "task" && brain.goalKind !== "fake" && brain.goalKind !== "wander") brain.goal = null;
+  if (!brain.goal) {
+    const task = pickTask(bot, ctx);
+    if (task) setGoal(brain, isSab ? "fake" : "task", task.pos, task.id);
+    else wander(bot);
+  }
+  const goal = brain.goal!;
+  if (distSq(goal, bot.pos) < 1.1 * 1.1) {
+    if (brain.goalKind === "wander") {
+      brain.goal = null;
+      return { input: { mx: 0, mz: 0, yaw: bot.yaw } };
+    }
+    if (!brain.taskDurationMs) brain.taskDurationMs = 5000 + Math.random() * 5000;
+    brain.taskTimerMs += dtMs;
+    if (brain.taskTimerMs >= brain.taskDurationMs) {
+      const id = brain.goalId;
+      const kind = brain.goalKind;
+      brain.taskTimerMs = 0;
+      brain.taskDurationMs = 0;
+      brain.goal = null;
+      if (kind === "fake") {
+        const t = bot.tasks.find((x) => x.id === id);
+        if (t) t.completed = true;
+        if (bot.tasks.every((x) => x.completed)) for (const x of bot.tasks) x.completed = false;
+      } else if (id) {
+        return { input: { mx: 0, mz: 0, yaw: bot.yaw }, action: { kind: "task", taskId: id } };
+      }
+    }
+    return { input: { mx: 0, mz: 0, yaw: bot.yaw } };
+  }
+  return { input: steer(bot, dtMs, false) };
+}
 
-  return { input: { mx, mz, yaw } };
+/** Decide o voto do bot; null = ainda pensando. */
+export function decideSuspeitoBotVote(match: SuspeitoMatch, bot: SuspeitoPlayerSim, dtMs: number): string | null {
+  const brain = bot.brain!;
+  brain.voteDelayMs -= dtMs;
+  if (brain.voteDelayMs > 0) return null;
+
+  const candidates = [...match.players.values()].filter((o) => o.alive && o.id !== bot.id);
+  const votes = match.meeting?.votes ?? {};
+  const tally: Record<string, number> = {};
+  for (const t of Object.values(votes)) if (t !== "skip") tally[t] = (tally[t] ?? 0) + 1;
+
+  if (bot.role === "sabotador") {
+    const crew = candidates.filter((c) => c.role !== "sabotador");
+    const lead = crew.sort((a, b) => (tally[b.id] ?? 0) - (tally[a.id] ?? 0))[0];
+    if (lead && (tally[lead.id] ?? 0) > 0) return lead.id;
+    if (crew.length && Math.random() < 0.25) return crew[Math.floor(Math.random() * crew.length)].id;
+    return "skip";
+  }
+
+  let best: SuspeitoPlayerSim | null = null;
+  let bestScore = 0;
+  for (const c of candidates) {
+    const s = brain.suspicion[c.id] ?? 0;
+    if (s > bestScore) {
+      bestScore = s;
+      best = c;
+    }
+  }
+  if (best && bestScore >= 2) return best.id;
+
+  const lead = candidates.sort((a, b) => (tally[b.id] ?? 0) - (tally[a.id] ?? 0))[0];
+  if (lead && (tally[lead.id] ?? 0) >= 2 && Math.random() < 0.6) return lead.id;
+  return "skip";
 }

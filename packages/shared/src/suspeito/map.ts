@@ -441,6 +441,26 @@ export function resolveWallCollision(pos: Vec2, radius = 0.45): Vec2 {
   return { x: px, z: pz };
 }
 
+export const SUSPEITO_PLAYER_SPEED = 5.2;
+
+/** Mesmo passo usado pelo servidor e pela previsão local do cliente; fantasmas atravessam paredes. */
+export function moveSuspeitoPlayer(pos: Vec2, mx: number, mz: number, dtSec: number, ghost = false): Vec2 {
+  const totalDx = mx * SUSPEITO_PLAYER_SPEED * dtSec;
+  const totalDz = mz * SUSPEITO_PLAYER_SPEED * dtSec;
+  if (ghost) {
+    return {
+      x: Math.max(MAP_BOUNDS.minX, Math.min(MAP_BOUNDS.maxX, pos.x + totalDx)),
+      z: Math.max(MAP_BOUNDS.minZ, Math.min(MAP_BOUNDS.maxZ, pos.z + totalDz)),
+    };
+  }
+  const steps = Math.max(1, Math.ceil(Math.hypot(totalDx, totalDz) / 0.15));
+  let p = { x: pos.x, z: pos.z };
+  for (let s = 0; s < steps; s++) {
+    p = resolveWallCollision({ x: p.x + totalDx / steps, z: p.z + totalDz / steps });
+  }
+  return p;
+}
+
 /** Limites gerais do mapa */
 export const MAP_BOUNDS = {
   minX: -29.5,

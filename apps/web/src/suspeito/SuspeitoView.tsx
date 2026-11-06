@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { net, useStore } from "../store";
 import { SuspeitoEngine } from "./suspeitoEngine";
 import { SuspeitoHud } from "./SuspeitoHud";
@@ -13,6 +13,7 @@ import { SabotageModal } from "./modals/SabotageModal";
 
 export function SuspeitoView({ myId }: { myId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const visionRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<SuspeitoEngine | null>(null);
 
   const players = useStore((s) => s.lobby?.players);
@@ -27,6 +28,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
     if (!canvasRef.current) return;
     const engine = new SuspeitoEngine(canvasRef.current, myId);
     engine.onFpsUpdate = (val) => setFps(val);
+    engine.setVisionElement(visionRef.current);
     engineRef.current = engine;
 
     if (players) engine.setAvatars(players);
@@ -54,16 +56,57 @@ export function SuspeitoView({ myId }: { myId: string }) {
     }
   }, [ssnap?.phase]);
 
+  // O modal só existe enquanto o servidor mantém o desafio dessa tarefa; se recusar ou encerrar, fecha
+  const serverTaskId = sme?.activeTaskId ?? null;
+  const seenOnServer = useRef(false);
+  useEffect(() => {
+    if (!activeTaskModalId) return;
+    if (serverTaskId === activeTaskModalId) {
+      seenOnServer.current = true;
+      return;
+    }
+    if (seenOnServer.current) {
+      setActiveTaskModalId(null);
+      return;
+    }
+    const t = setTimeout(() => setActiveTaskModalId(null), 1000);
+    return () => clearTimeout(t);
+  }, [activeTaskModalId, serverTaskId]);
+
   const handleOpenTask = (taskId: string) => {
+    seenOnServer.current = false;
     setActiveTaskModalId(taskId);
     net.send({ t: "suspeitoStartTask", taskId });
   };
+
+  const closeTask = useCallback(() => setActiveTaskModalId(null), []);
+  const closeSabotage = useCallback(() => setSabotageOpen(false), []);
+
+  const taskModalOpen = !!activeTaskModalId && serverTaskId === activeTaskModalId && !!sme?.activeTaskState;
+  const isMeetingPhase = ssnap?.phase === "meeting" || ssnap?.phase === "voting" || ssnap?.phase === "vote_result";
+  const inputLocked = taskModalOpen || sabotageOpen || isMeetingPhase;
+
+  useEffect(() => {
+    engineRef.current?.setInputLocked(inputLocked);
+  }, [inputLocked]);
+
+  useEffect(() => {
+    if (!taskModalOpen && !sabotageOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setActiveTaskModalId(null);
+      setSabotageOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [taskModalOpen, sabotageOpen]);
 
   const currentTask = sme?.tasks.find((t) => t.id === (activeTaskModalId ?? sme.activeTaskId));
 
   return (
     <div className="suspeito-game-view">
       <canvas ref={canvasRef} className="suspeito-canvas" />
+      <div ref={visionRef} className="suspeito-vision-mask" />
 
       {/* Contador Discreto de FPS no canto superior direito */}
       <FpsCounter fps={fps} />
@@ -75,6 +118,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
           me={sme}
           onOpenSabotage={() => setSabotageOpen(true)}
           onOpenTask={handleOpenTask}
+          inputLocked={inputLocked}
         />
       )}
 
@@ -98,31 +142,31 @@ export function SuspeitoView({ myId }: { myId: string }) {
         <SabotageModal
           cooldownMs={sme.sabotageCooldownMs}
           activeSabotage={!!ssnap?.sabotage?.active}
-          onClose={() => setSabotageOpen(false)}
+          onClose={closeSabotage}
         />
       )}
 
       {/* Modais de Tarefas e Minijogos */}
-      {activeTaskModalId && sme?.activeTaskState && (
+      {taskModalOpen && sme?.activeTaskState && (
         <>
           {sme.activeTaskState.type === "termo" && (
             <TermoModal
               state={sme.activeTaskState.state}
-              onClose={() => setActiveTaskModalId(null)}
+              onClose={closeTask}
             />
           )}
 
           {sme.activeTaskState.type === "conexo" && (
             <ConexoModal
               state={sme.activeTaskState.state}
-              onClose={() => setActiveTaskModalId(null)}
+              onClose={closeTask}
             />
           )}
 
           {sme.activeTaskState.type === "contexto" && (
             <ContextoModal
               state={sme.activeTaskState.state}
-              onClose={() => setActiveTaskModalId(null)}
+              onClose={closeTask}
             />
           )}
 
@@ -131,7 +175,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
               title={currentTask.name}
               description={currentTask.description}
               state={sme.activeTaskState.state}
-              onClose={() => setActiveTaskModalId(null)}
+              onClose={closeTask}
             />
           )}
 
@@ -139,7 +183,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
             <QteModal
               title={currentTask.name}
               state={sme.activeTaskState.state}
-              onClose={() => setActiveTaskModalId(null)}
+              onClose={closeTask}
             />
           )}
         </>

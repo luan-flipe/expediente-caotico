@@ -1,10 +1,5 @@
-import { useEffect, useState } from "react";
-import type {
-  SuspeitoPrivate,
-  SuspeitoRole,
-  SuspeitoSabotageState,
-  SuspeitoSnapshot,
-} from "@ec/shared";
+import { useEffect, useRef, useState } from "react";
+import type { SuspeitoPrivate, SuspeitoSnapshot } from "@ec/shared";
 import { SECTORS } from "@ec/shared";
 import { net } from "../store";
 
@@ -14,6 +9,7 @@ interface SuspeitoHudProps {
   me: SuspeitoPrivate | null;
   onOpenSabotage: () => void;
   onOpenTask: (taskId: string) => void;
+  inputLocked: boolean;
 }
 
 export function SuspeitoHud({
@@ -22,13 +18,28 @@ export function SuspeitoHud({
   me,
   onOpenSabotage,
   onOpenTask,
+  inputLocked,
 }: SuspeitoHudProps) {
   const [tasksOpen, setTasksOpen] = useState(true);
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
 
-  if (!me) return null;
+  // Suporte a atalhos de teclado (E/Espaço = Usar, Q = Eliminar, R = Reportar, F = Sabotar)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyHandler.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
-  const currentSectorInfo = SECTORS[snap.players.find((p) => p.id === myId)?.sector ?? "reuniao"];
+  if (!me) {
+    keyHandler.current = () => {};
+    return null;
+  }
+
+  const mePublic = snap.players.find((p) => p.id === myId);
+  const currentSectorInfo = SECTORS[mePublic?.sector ?? "reuniao"];
   const isSabotador = me.role === "sabotador";
+  const isGhost = mePublic ? !mePublic.alive : false;
+  const working = snap.phase === "working";
   const killCooldownSec = Math.ceil(me.killCooldownMs / 1000);
   const sabotageCooldownSec = Math.ceil(me.sabotageCooldownMs / 1000);
   const taskProgressPercent = Math.round(snap.taskProgress * 100);
@@ -40,11 +51,10 @@ export function SuspeitoHud({
 
   // Ação primária de interação
   const handleInteract = () => {
-    if (!me.nearbyInteractable) return;
+    if (!me.nearbyInteractable || me.nearbyInteractable.blocked) return;
     const { kind, id } = me.nearbyInteractable;
 
     if (kind === "task") {
-      net.send({ t: "suspeitoStartTask", taskId: id });
       onOpenTask(id);
     } else if (kind === "emergency") {
       net.send({ t: "suspeitoEmergency" });
@@ -65,32 +75,28 @@ export function SuspeitoHud({
     net.send({ t: "suspeitoReport", bodyId: me.reportTargetBodyId });
   };
 
-  // Suporte a atalhos de teclado (E/Espaço = Usar, Q = Eliminar, R = Reportar, F = Sabotar)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === "input" || tag === "textarea") return;
+  keyHandler.current = (e: KeyboardEvent) => {
+    if (e.repeat || inputLocked || !working) return;
+    const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+    if (tag === "input" || tag === "textarea") return;
 
-      const k = e.key.toLowerCase();
-      if (k === "e" || e.code === "Space") {
-        if (me.nearbyInteractable) {
-          e.preventDefault();
-          handleInteract();
-        }
-      } else if (k === "q" && isSabotador && me.canKill) {
+    const k = e.key.toLowerCase();
+    if (k === "e" || e.code === "Space") {
+      if (me.nearbyInteractable) {
         e.preventDefault();
-        handleKill();
-      } else if (k === "r" && me.canReport) {
-        e.preventDefault();
-        handleReport();
-      } else if (k === "f" && isSabotador) {
-        e.preventDefault();
-        onOpenSabotage();
+        handleInteract();
       }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [me, isSabotador]);
+    } else if (k === "q" && isSabotador && me.canKill) {
+      e.preventDefault();
+      handleKill();
+    } else if (k === "r" && me.canReport) {
+      e.preventDefault();
+      handleReport();
+    } else if (k === "f" && isSabotador) {
+      e.preventDefault();
+      onOpenSabotage();
+    }
+  };
 
   return (
     <div className="suspeito-hud-layer">
@@ -138,6 +144,15 @@ export function SuspeitoHud({
         </div>
       </div>
 
+      {isGhost && working && (
+        <div className="suspeito-ghost-banner">
+          👻 Você foi eliminado.{" "}
+          {isSabotador
+            ? "Ainda pode sabotar o escritório, mas não pode eliminar ninguém."
+            : "Atravesse paredes e termine suas tarefas para ajudar a equipe!"}
+        </div>
+      )}
+
       {/* Alerta de sabotagem ativa */}
       {snap.sabotage?.active && (
         <div className={`suspeito-sabotage-banner ${snap.sabotage.critical ? "critical" : ""}`}>
@@ -145,7 +160,8 @@ export function SuspeitoHud({
           <div className="sabotage-alert-text">
             <strong>{snap.sabotage.title}</strong>
             <p>
-              Conserte no setor <strong>{SECTORS[snap.sabotage.fixSector]?.name}</strong>!
+              {snap.sabotage.description} Siga o marcador vermelho até{" "}
+              <strong>{SECTORS[snap.sabotage.fixSector]?.name}</strong>!
               {snap.sabotage.critical && (
                 <span className="sabotage-timer">
                   Tempo restante: {Math.ceil(snap.sabotage.remainingMs / 1000)}s
@@ -167,11 +183,16 @@ export function SuspeitoHud({
           </div>
         )}
 
-        {me.nearbyInteractable && (
-          <div className="suspeito-floating-prompt interact-prompt" onClick={handleInteract}>
-            <span className="prompt-badge">E</span>
+        {me.nearbyInteractable && !inputLocked && (
+          <div
+            className={`suspeito-floating-prompt interact-prompt ${me.nearbyInteractable.blocked ? "blocked" : ""}`}
+            onClick={handleInteract}
+          >
+            <span className="prompt-badge">{me.nearbyInteractable.blocked ? "⛔" : "E"}</span>
             <span className="prompt-text">
-              ✋ <strong>{me.nearbyInteractable.label}</strong> (Toque ou Espaço)
+              {me.nearbyInteractable.blocked ? "" : "✋ "}
+              <strong>{me.nearbyInteractable.label}</strong>
+              {me.nearbyInteractable.blocked ? "" : " (Toque ou Espaço)"}
             </span>
           </div>
         )}
@@ -200,13 +221,9 @@ export function SuspeitoHud({
                   key={t.id}
                   className={`task-drawer-item ${t.completed ? "done" : ""} ${isHere ? "here" : ""}`}
                   onClick={() => {
-                    if (isHere) {
-                      handleInteract();
-                    } else if (!t.completed) {
-                      onOpenTask(t.id);
-                    }
+                    if (isHere) handleInteract();
                   }}
-                  title={isHere ? "Você está nesta estação! Clique para abrir" : "Clique para abrir esta tarefa"}
+                  title={isHere ? "Você está nesta estação! Clique para abrir" : "Vá até o marcador amarelo deste setor"}
                 >
                   <span className="task-check">{t.completed ? "✓" : isHere ? "👉" : "○"}</span>
                   <div className="task-item-info">
@@ -226,6 +243,7 @@ export function SuspeitoHud({
       {/* Barra de Ações Inferior com Botões Grandes e Intuitivos */}
       <div className="suspeito-action-bar">
         {/* Botão de Reportar */}
+        {!isGhost && (
         <button
           className={`suspeito-action-btn report ${me.canReport ? "ready pulse" : ""}`}
           disabled={!me.canReport}
@@ -236,6 +254,7 @@ export function SuspeitoHud({
           <span className="btn-label">Reportar</span>
           <span className="btn-shortcut">[R]</span>
         </button>
+        )}
 
         {/* Botões específicos do Sabotador */}
         {isSabotador && (
@@ -252,6 +271,7 @@ export function SuspeitoHud({
               <span className="btn-shortcut">[F]</span>
             </button>
 
+            {!isGhost && (
             <button
               className={`suspeito-action-btn kill ${me.canKill ? "ready pulse-kill" : ""}`}
               disabled={!me.canKill}
@@ -274,13 +294,14 @@ export function SuspeitoHud({
               </span>
               <span className="btn-shortcut">[Q]</span>
             </button>
+            )}
           </>
         )}
 
         {/* Botão de Interação Contextual (tarefas, conserto, botão de reunião) */}
         <button
-          className={`suspeito-action-btn interact ${me.nearbyInteractable ? "active pulse-gold" : ""}`}
-          disabled={!me.nearbyInteractable}
+          className={`suspeito-action-btn interact ${me.nearbyInteractable && !me.nearbyInteractable.blocked ? "active pulse-gold" : ""}`}
+          disabled={!me.nearbyInteractable || me.nearbyInteractable.blocked}
           onClick={handleInteract}
           title="Interagir com estação (E ou Espaço)"
         >

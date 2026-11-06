@@ -57,4 +57,5 @@ export * from "./suspeito/tasks/qte";
 export * from "./suspeito/sabotage";
 export * from "./suspeito/meeting";
 export * from "./suspeito/bot";
+export * from "./suspeito/nav";
 export * from "./suspeito/match";
