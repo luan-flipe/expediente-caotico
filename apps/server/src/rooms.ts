@@ -863,7 +863,7 @@ export class Room {
         return this.broadcast({ t: "reaction", from: member.id, to: msg.to, index: msg.index });
       }
       case "lobby":
-        if (!isHost || this.phase !== "results") return;
+        if ((!isHost && !this.suspeitoResults) || this.phase !== "results") return;
         // campeonato terminado: o próximo começa uma chave nova
         if (this.cup?.champion != null) this.cup = null;
         this.phase = "lobby";
@@ -994,6 +994,7 @@ export class RoomManager {
     send(conn, { t: "welcome", id: member.id, token: member.token, code: room.code });
     if (room.results && room.phase === "results") send(conn, { t: "results", rows: room.results, awards: room.awards });
     if (room.raceResults && room.phase === "results") send(conn, { t: "rresults", rows: room.raceResults, awards: room.awards });
+    if (room.suspeitoResults && room.phase === "results") send(conn, { t: "sresults", results: room.suspeitoResults });
     const fmsg = room.phase === "results" ? room.futResultsMsg() : null;
     if (fmsg) send(conn, fmsg);
     if (room.race && room.phase === "match") room.sendGhosts(member);

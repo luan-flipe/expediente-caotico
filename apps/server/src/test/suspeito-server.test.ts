@@ -95,4 +95,40 @@ describe("modo Expediente Suspeito no servidor", () => {
     a.close();
     b.close();
   });
+
+  it("no fim, quem não é anfitrião também volta ao lobby e quem reconecta recebe o resultado", async () => {
+    const a = new Client();
+    await a.open();
+    a.send({ t: "create", name: "Host Ana", avatar: DEFAULT_AVATAR });
+    const wa = await a.waitFor("welcome");
+
+    const b = new Client();
+    await b.open();
+    b.send({ t: "join", code: wa.code, name: "Colab Beto", avatar: DEFAULT_AVATAR });
+    const wb = await b.waitFor("welcome");
+
+    a.send({ t: "mode", mode: "suspeito" });
+    await a.waitFor("lobby", (m) => m.state.mode === "suspeito" && m.state.players.length === 2);
+    b.send({ t: "ready", ready: true });
+    await a.waitFor("lobby", (m) => m.state.players.every((p) => p.ready));
+    a.send({ t: "start" });
+    await a.waitFor("ssnap");
+
+    srv.manager.rooms.get(wa.code)!.suspeito!.phase = "over";
+    const res = await b.waitFor("sresults");
+    expect(res.results.rows).toHaveLength(2);
+    await b.waitFor("lobby", (m) => m.state.phase === "results");
+
+    b.close();
+    const b2 = new Client();
+    await b2.open();
+    b2.send({ t: "resume", code: wa.code, token: wb.token });
+    await b2.waitFor("sresults");
+
+    b2.send({ t: "lobby" });
+    await a.waitFor("lobby", (m) => m.state.phase === "lobby");
+
+    a.close();
+    b2.close();
+  });
 });

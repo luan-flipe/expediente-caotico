@@ -260,7 +260,7 @@ export function leaveRoom(): void {
   net.send({ t: "leave" }, false);
   net.close();
   history.replaceState(null, "", location.pathname);
-  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, fsnap: null, fme: null, futResults: null, feed: [], ghosts: null, chat: [], chatOpen: false, reactions: [], pauseOpen: false, settingsOpen: false });
+  setState({ lobby: null, results: null, raceResults: null, awards: [], code: null, myId: null, snap: null, me: null, rsnap: null, rme: null, fsnap: null, fme: null, futResults: null, suspeitoResults: null, ssnap: null, sme: null, feed: [], ghosts: null, chat: [], chatOpen: false, reactions: [], pauseOpen: false, settingsOpen: false });
 }
 
 let feedId = 0;
@@ -307,7 +307,7 @@ function onMessage(msg: ServerMsg): void {
       setState({ myId: msg.id, code: msg.code, error: null });
       return;
     case "lobby":
-      setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null, futResults: null, fsnap: null, fme: null } : {}) });
+      setState({ lobby: msg.state, ...(msg.state.phase === "match" ? { results: null, raceResults: null, futResults: null, suspeitoResults: null, fsnap: null, fme: null } : {}) });
       return;
     case "results":
       setState({ results: msg.rows, awards: msg.awards, raceResults: null, futResults: null, snap: null, me: null, feed: [] });

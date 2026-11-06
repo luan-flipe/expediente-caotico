@@ -9,6 +9,7 @@ import {
   type Vec2,
 } from "@ec/shared";
 import { createCharacter, type Character } from "../game/character";
+import { setupSceneEnvironment } from "../quality";
 import { net } from "../store";
 import { SuspeitoSceneManager } from "./suspeitoScene";
 
@@ -206,7 +207,8 @@ export class SuspeitoEngine {
   constructor(canvas: HTMLCanvasElement, myId: string) {
     this.myId = myId;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color("#eceff1");
+    this.scene.background = new THREE.Color("#0f172a");
+    this.scene.fog = new THREE.FogExp2("#0f172a", 0.0055);
 
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
@@ -220,6 +222,10 @@ export class SuspeitoEngine {
     this.renderer.setSize(w, h, false);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.08;
+
+    setupSceneEnvironment(this.renderer, this.scene, 0.55);
 
     this.sceneMgr = new SuspeitoSceneManager(this.scene);
 
@@ -328,6 +334,15 @@ export class SuspeitoEngine {
       const ghost = !p.alive;
       if (ghost !== v.ghost) {
         setGhostLook(v.char.root, ghost);
+        if (ghost && snap.phase === "working") {
+          for (const other of snap.players) {
+            if (!other.alive || other.id === p.id) continue;
+            if (Math.hypot(other.pos.x - p.pos.x, other.pos.z - p.pos.z) <= 2.6) {
+              this.views.get(other.id)?.char.play("throw");
+              break;
+            }
+          }
+        }
         v.ghost = ghost;
       }
 

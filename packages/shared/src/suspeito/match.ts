@@ -70,6 +70,7 @@ export interface SuspeitoPlayerSim {
   voteTarget: string | null;
   input: { mx: number; mz: number; yaw: number };
   brain?: SuspeitoBotBrain;
+  killedBy?: { id: string; name: string; avatar: AvatarDNA };
   stats: {
     tasksDone: number;
     kills: number;
@@ -289,6 +290,7 @@ export function queueSuspeitoKill(
   if (!hasLineOfSight(killer.pos, target.pos)) return false;
 
   // Executa eliminação
+  target.killedBy = { id: killer.id, name: killer.name, avatar: killer.avatar };
   target.alive = false;
   target.input = { mx: 0, mz: 0, yaw: target.yaw };
   killer.stats.kills++;
@@ -1045,6 +1047,7 @@ export function buildSuspeitoPrivate(
     visiblePlayerIds,
     visibleBodyIds,
     visionRadius,
+    killedBy: !p.alive ? p.killedBy : undefined,
   };
 }
 

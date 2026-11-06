@@ -264,6 +264,7 @@ export interface SuspeitoPrivate {
   visiblePlayerIds: string[];
   visibleBodyIds: string[];
   visionRadius: number;
+  killedBy?: { id: string; name: string; avatar: AvatarDNA };
 }
 
 export interface SuspeitoResultRow {

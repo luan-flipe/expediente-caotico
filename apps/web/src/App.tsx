@@ -59,7 +59,7 @@ export function App() {
   }, []);
 
   // a música da sala toca na tela inicial e na sala, sem recomeçar quando uma vira a outra
-  const showsLobby = !!lobby && !inMatch && !(lobby.phase === "results" && (raceResults || results || futResults || suspeitoResults));
+  const showsLobby = !!lobby && !inMatch && !suspeitoResults && !(lobby.phase === "results" && (raceResults || results || futResults));
   const menuMusic = assetsReady && !editing && !ranking && !perfil && (!lobby || showsLobby);
   useEffect(() => {
     if (!menuMusic) return;
@@ -87,7 +87,8 @@ export function App() {
     // o resultado do futebol chega junto do apito final: o campo fica uns segundos com a festa antes da tabela
     if (lobby.phase === "results" && futResults && holdFut && myId && fsnap?.phase === "over") return <FutebolView myId={myId} />;
     if (lobby.phase === "results" && futResults) return <FutebolResults />;
-    if (lobby.phase === "results" && suspeitoResults) return <SuspeitoResults />;
+    // fica até cada um sair dela, mesmo que outro jogador já tenha levado a sala de volta ao lobby
+    if (suspeitoResults) return <SuspeitoResults />;
     if (lobby.phase === "results" && results) return <Results />;
     return <Lobby />;
   };

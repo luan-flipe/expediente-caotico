@@ -6,6 +6,7 @@ import parqueUrl from "../assets/itens/parque-ipanema-3d.glb?url";
 import rampGlbUrl from "../assets/itens/ramp-jump.glb?url";
 import { createGltfLoader } from "../game/gltfLoader";
 import { juntarMalhas } from "../game/juntarMalhas";
+import { createFabricMaterial, createMonitorScreenMaterial, createWoodMaterial } from "../game/floorTextures";
 
 let parqueModel: THREE.Group | null = null;
 let parquePromise: Promise<THREE.Group | null> | null = null;
@@ -166,6 +167,7 @@ function checkerTexture(textures: THREE.Texture[]): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
   t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
   textures.push(t);
   return t;
 }
@@ -187,6 +189,7 @@ function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D)
   t.wrapS = THREE.RepeatWrapping;
   t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
   textures.push(t);
   return t;
 }
@@ -1057,7 +1060,7 @@ export function buildTrack(scene: THREE.Scene, track: Track): () => void {
   const tiles = isParque ? parkRoadTexture(textures) : parking ? null : trackTexture(textures);
   const floorMat = () => {
     if (tiles) {
-      const mat = new THREE.MeshStandardMaterial({ map: tiles, vertexColors: true, roughness: isParque ? 0.65 : 0.28, metalness: 0.05 });
+      const mat = new THREE.MeshStandardMaterial({ map: tiles, bumpMap: tiles, bumpScale: isParque ? 0.035 : 0.018, vertexColors: true, roughness: isParque ? 0.65 : 0.28, metalness: 0.05 });
       if (!isParque) applyWaxedFloorSheen(mat, { sheenIntensity: 0.85, neonColor: "#e0f2fe" });
       return mat;
     }
@@ -1431,10 +1434,10 @@ function skyline(stat: THREE.Group, cx: number, cz: number, r: number, textures:
 /** Móveis fora da pista, por ambiente. Só entram onde não encostam em nenhum trecho. */
 function decorate(scene: THREE.Group, track: Track, textures: THREE.Texture[]): void {
   if (track.id === "parque") return;
-  const wood = new THREE.MeshStandardMaterial({ color: "#d97736", roughness: 0.55, metalness: 0.05 });
+  const wood = createWoodMaterial("#d97736", 0.42, 2, 1);
   const white = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.55, metalness: 0.05 });
   const dark = new THREE.MeshStandardMaterial({ color: "#2d3748", roughness: 0.6, metalness: 0.2 });
-  const screen = new THREE.MeshStandardMaterial({ color: "#1a202c", emissive: "#3182ce", emissiveIntensity: 0.7 });
+  const screen = createMonitorScreenMaterial("code");
   const potWhite = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.35 });
   const potTerracotta = new THREE.MeshStandardMaterial({ color: "#c0392b", roughness: 0.65 });
   const soilMat = new THREE.MeshStandardMaterial({ color: "#2d1810", roughness: 0.95 });
@@ -1447,7 +1450,7 @@ function decorate(scene: THREE.Group, track: Track, textures: THREE.Texture[]): 
   const waterBlue = new THREE.MeshStandardMaterial({ color: "#00b4d8", transparent: true, opacity: 0.65, roughness: 0.12, metalness: 0.08 });
   const archiveBoxMat = new THREE.MeshStandardMaterial({ map: archiveBoxTexture(textures), roughness: 0.85 });
   const led = new THREE.MeshBasicMaterial({ color: "#5cff8a" });
-  const sofa = new THREE.MeshStandardMaterial({ color: "#0284c7", roughness: 0.7 });
+  const sofa = createFabricMaterial("#0284c7", 2, 2);
   const paper = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.85 });
   const concrete = new THREE.MeshStandardMaterial({ color: "#b7b4ad", roughness: 0.95, flatShading: true });
   const yellow = new THREE.MeshStandardMaterial({ color: "#f2c230", roughness: 0.6 });

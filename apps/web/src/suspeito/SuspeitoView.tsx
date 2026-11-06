@@ -4,6 +4,10 @@ import { SuspeitoEngine } from "./suspeitoEngine";
 import { SuspeitoHud } from "./SuspeitoHud";
 import { FpsCounter } from "./FpsCounter";
 import { MeetingOverlay } from "./modals/MeetingOverlay";
+import {
+  KillCutsceneOverlay,
+  type KillCutsceneData,
+} from "./modals/KillCutsceneOverlay";
 import { TermoModal } from "./modals/TermoModal";
 import { ConexoModal } from "./modals/ConexoModal";
 import { ContextoModal } from "./modals/ContextoModal";
@@ -12,6 +16,7 @@ import { QteModal } from "./modals/QteModal";
 import { SabotageModal } from "./modals/SabotageModal";
 import { SuspeitoMapModal } from "./modals/SuspeitoMapModal";
 import {
+  playEliminationCutsceneSound,
   playReportAlarmSound,
   playRoleRevealSound,
   playSabotageBeepSound,
@@ -30,10 +35,12 @@ export function SuspeitoView({ myId }: { myId: string }) {
   const [sabotageOpen, setSabotageOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [activeTaskModalId, setActiveTaskModalId] = useState<string | null>(null);
+  const [killCutscene, setKillCutscene] = useState<KillCutsceneData | null>(null);
 
   const prevPhaseRef = useRef<string | null>(null);
   const prevSabotageRef = useRef<boolean>(false);
   const playedIntroRef = useRef<boolean>(false);
+  const prevAliveRef = useRef<boolean>(true);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -59,6 +66,45 @@ export function SuspeitoView({ myId }: { myId: string }) {
     if (ssnap) engineRef.current?.applySnapshot(ssnap, sme);
   }, [ssnap, sme]);
 
+  // Detecta quando o jogador local é eliminado no expediente e dispara a animação estilo Among Us
+  useEffect(() => {
+    if (!ssnap) return;
+    const mePub = ssnap.players.find((p) => p.id === myId);
+    if (!mePub) return;
+
+    if (prevAliveRef.current && !mePub.alive && ssnap.phase === "working") {
+      // Identifica o Sabotador que executou a eliminação (vindo de sme.killedBy ou jogador mais próximo)
+      let killerName = sme?.killedBy?.name;
+      let killerAvatar = sme?.killedBy?.avatar;
+
+      if (!killerName || !killerAvatar) {
+        let bestDist = Infinity;
+        for (const other of ssnap.players) {
+          if (other.id === myId || !other.alive) continue;
+          const d = Math.hypot(other.pos.x - mePub.pos.x, other.pos.z - mePub.pos.z);
+          if (d < bestDist) {
+            bestDist = d;
+            killerName = other.name;
+            killerAvatar = other.avatar;
+          }
+        }
+      }
+
+      setActiveTaskModalId(null);
+      setSabotageOpen(false);
+      setMapOpen(false);
+      playEliminationCutsceneSound();
+      setKillCutscene({
+        killerName: killerName ?? "Sabotador Misterioso",
+        killerAvatar: killerAvatar ?? mePub.avatar,
+        victimName: mePub.name,
+        victimAvatar: mePub.avatar,
+      });
+    }
+
+    prevAliveRef.current = mePub.alive;
+  }, [ssnap, sme?.killedBy, myId]);
+
   // Efeitos sonoros de transição de fase e sabotagem
   useEffect(() => {
     if (!ssnap) return;
@@ -78,12 +124,18 @@ export function SuspeitoView({ myId }: { myId: string }) {
     prevSabotageRef.current = sabActive;
   }, [ssnap?.phase, ssnap?.sabotage?.active, sme?.role]);
 
-  // Se entrar em reunião, fecha modais de tarefas, mapa e sabotagem
+  // Se entrar em reunião, fecha modais de tarefas, mapa, sabotagem e cutscene
   useEffect(() => {
-    if (ssnap?.phase === "meeting" || ssnap?.phase === "voting" || ssnap?.phase === "vote_result") {
+    if (
+      ssnap?.phase === "meeting" ||
+      ssnap?.phase === "voting" ||
+      ssnap?.phase === "vote_result" ||
+      ssnap?.phase === "over"
+    ) {
       setActiveTaskModalId(null);
       setSabotageOpen(false);
       setMapOpen(false);
+      setKillCutscene(null);
     }
   }, [ssnap?.phase]);
 
@@ -114,13 +166,21 @@ export function SuspeitoView({ myId }: { myId: string }) {
   const closeSabotage = useCallback(() => setSabotageOpen(false), []);
   const toggleMap = useCallback(() => setMapOpen((p) => !p), []);
   const closeMap = useCallback(() => setMapOpen(false), []);
+  const closeKillCutscene = useCallback(() => setKillCutscene(null), []);
   const handleTouchMove = useCallback((mx: number, mz: number) => {
     engineRef.current?.setTouchMove(mx, mz);
   }, []);
 
-  const taskModalOpen = !!activeTaskModalId && serverTaskId === activeTaskModalId && !!sme?.activeTaskState;
-  const isMeetingPhase = ssnap?.phase === "meeting" || ssnap?.phase === "voting" || ssnap?.phase === "vote_result";
-  const inputLocked = taskModalOpen || sabotageOpen || isMeetingPhase;
+  const taskModalOpen =
+    !!activeTaskModalId &&
+    serverTaskId === activeTaskModalId &&
+    !!sme?.activeTaskState;
+  const isMeetingPhase =
+    ssnap?.phase === "meeting" ||
+    ssnap?.phase === "voting" ||
+    ssnap?.phase === "vote_result";
+  const inputLocked =
+    taskModalOpen || sabotageOpen || isMeetingPhase || !!killCutscene;
 
   useEffect(() => {
     engineRef.current?.setInputLocked(inputLocked);
@@ -137,7 +197,9 @@ export function SuspeitoView({ myId }: { myId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [taskModalOpen, sabotageOpen]);
 
-  const currentTask = sme?.tasks.find((t) => t.id === (activeTaskModalId ?? sme.activeTaskId));
+  const currentTask = sme?.tasks.find(
+    (t) => t.id === (activeTaskModalId ?? sme.activeTaskId),
+  );
 
   return (
     <div className="suspeito-game-view">
@@ -157,6 +219,14 @@ export function SuspeitoView({ myId }: { myId: string }) {
           inputLocked={inputLocked}
           onToggleMap={toggleMap}
           onTouchMove={handleTouchMove}
+        />
+      )}
+
+      {/* Cutscene de Eliminação Estilo Among Us quando você é eliminado */}
+      {killCutscene && (
+        <KillCutsceneOverlay
+          data={killCutscene}
+          onClose={closeKillCutscene}
         />
       )}
 
