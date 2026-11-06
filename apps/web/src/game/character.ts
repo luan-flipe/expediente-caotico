@@ -543,6 +543,11 @@ const CLIP_OF: Record<CharacterAction, string> = { throw: "jogar_bolinha", cafe:
 /** Trecho útil de cada clipe em segundos: o resto é a volta para a pose parada. */
 const CLIP_RANGE: Record<CharacterAction, [number, number]> = { throw: [0, 0.9], cafe: [0, 1.5], dash: [0, 1.1], tchau: [0, 3.2], carrinho: [0, 1.933] };
 const FPS = 30;
+/** Entrada e saída suaves das ações, em segundos. */
+const ACTION_FADE_IN = 0.08;
+const ACTION_FADE_OUT = 0.12;
+/** Rapidez com que os pesos de parado/andar/correr seguem o alvo (MathUtils.damp). */
+const LOCOMOTION_DAMP = 12;
 
 interface Loaded {
   scene: THREE.Group;
@@ -1117,6 +1122,11 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
   const walk = loop("andar");
   const run = loop("correr");
   const actions = new Map<CharacterAction, THREE.AnimationAction>();
+  /** Ações que já começaram o fade-out final nesta execução. */
+  const fadingOut = new Set<THREE.AnimationAction>();
+  let wIdle = 1;
+  let wWalk = 0;
+  let wRun = 0;
   for (const k of Object.keys(CLIP_OF) as CharacterAction[]) {
     const full = model.clips.get(CLIP_OF[k]);
     if (!full) continue;
@@ -1210,14 +1220,28 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
       for (const p of attachedBeardMeshes) {
         p.rotation.x = wind.beardRotX * 0.25;
       }
-      const busy = [...actions.values()].some((a) => a.isRunning());
+      // peso das ações em curso (com fade-in/out); a locomoção ocupa o que sobra
+      let actionW = 0;
+      for (const a of actions.values()) {
+        if (!a.isRunning()) continue;
+        // ação LoopOnce: começa a sumir um pouco antes do fim do clipe (timeScale já considerado)
+        const remaining = (a.getClip().duration - a.time) / a.timeScale;
+        if (remaining <= ACTION_FADE_OUT && !fadingOut.has(a)) {
+          fadingOut.add(a);
+          a.fadeOut(Math.max(remaining, 0.001));
+        }
+        actionW = Math.max(actionW, a.getEffectiveWeight());
+      }
       // até a metade da velocidade o boneco anda; dali em diante passa a correr
-      const s = busy ? 0 : speed01;
-      const r = run ? THREE.MathUtils.clamp(s * 2 - 1, 0, 1) : 0;
-      const w = Math.min(1, s * (run ? 2 : 1)) - r;
-      idle?.setEffectiveWeight(busy ? 0 : 1 - w - r);
-      walk?.setEffectiveWeight(w);
-      run?.setEffectiveWeight(r);
+      const r = run ? THREE.MathUtils.clamp(speed01 * 2 - 1, 0, 1) : 0;
+      const w = Math.min(1, speed01 * (run ? 2 : 1)) - r;
+      wIdle = THREE.MathUtils.damp(wIdle, 1 - w - r, LOCOMOTION_DAMP, dt);
+      wWalk = THREE.MathUtils.damp(wWalk, w, LOCOMOTION_DAMP, dt);
+      wRun = THREE.MathUtils.damp(wRun, r, LOCOMOTION_DAMP, dt);
+      const loco = 1 - actionW;
+      idle?.setEffectiveWeight(wIdle * loco);
+      walk?.setEffectiveWeight(wWalk * loco);
+      run?.setEffectiveWeight(wRun * loco);
       if (walk) walk.timeScale = 0.6 + speed01 * (run ? 1.6 : 0.8);
       mixer.update(dt);
       tiltFeet();
@@ -1481,7 +1505,8 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     play(action) {
       const a = actions.get(action);
       if (!a || (a.isRunning() && action !== "throw")) return;
-      a.reset().play();
+      fadingOut.delete(a);
+      a.reset().fadeIn(ACTION_FADE_IN).play();
     },
     sit() {
       riding = true;
@@ -1581,6 +1606,7 @@ function glbCharacter(dna: AvatarDNA, model: Loaded): Character {
     dispose() {
       // malha, materiais e texturas do GLB são compartilhados entre clones; os tingidos são deste boneco
       mixer.stopAllAction();
+      mixer.uncacheRoot(inner);
       for (const m of mats) m.dispose();
     },
   };
@@ -2038,6 +2064,7 @@ export function createZombieCharacter(): Character {
     celebrate() {},
     dispose() {
       mixer.stopAllAction();
+      mixer.uncacheRoot(inner);
       for (const m of mats) m.dispose();
     },
   };
