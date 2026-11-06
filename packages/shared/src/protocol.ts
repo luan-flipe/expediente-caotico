@@ -9,9 +9,10 @@ import type { ChairDNA } from "./race/chair";
 import { TRACK_IDS } from "./race/track";
 import type { RacePrivate, RaceResultRow, RaceSnapshot } from "./race/types";
 import type { GhostSample } from "./ranking/types";
+import type { SuspeitoPrivate, SuspeitoResults, SuspeitoSnapshot } from "./suspeito/types";
 import type { AvatarDNA, PrivateState, ResultRow, Snapshot } from "./types";
 
-export type GameMode = "shooter" | "race" | "timetrial" | "futebol";
+export type GameMode = "shooter" | "race" | "timetrial" | "futebol" | "suspeito";
 export type ShooterSubmode = "pvp" | "zombies";
 
 /** Chat rápido: só índices, nunca texto livre. Frases e emotes ficam aqui para cliente e servidor concordarem. */
@@ -41,7 +42,7 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("resume"), code, token: z.string().min(16).max(64), session }),
   z.object({ t: z.literal("ready"), ready: z.boolean() }),
   z.object({ t: z.literal("avatar"), avatar, chair }),
-  z.object({ t: z.literal("mode"), mode: z.enum(["shooter", "race", "timetrial", "futebol"]) }),
+  z.object({ t: z.literal("mode"), mode: z.enum(["shooter", "race", "timetrial", "futebol", "suspeito"]) }),
   z.object({ t: z.literal("shooterSubmode"), submode: z.enum(["pvp", "zombies"]) }),
   z.object({ t: z.literal("addBot") }),
   z.object({ t: z.literal("removeBot") }),
@@ -56,6 +57,11 @@ export const ClientMsg = z.discriminatedUnion("t", [
       track: z.enum(TRACK_IDS).optional(),
       futFormat: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]).optional(),
       futCup: z.union([z.literal(0), z.literal(4), z.literal(8)]).optional(),
+      suspeitoImpostors: z.number().int().min(1).max(3).optional(),
+      suspeitoDiscussionSec: z.number().int().min(10).max(60).optional(),
+      suspeitoVotingSec: z.number().int().min(10).max(60).optional(),
+      suspeitoKillCooldownSec: z.number().int().min(10).max(60).optional(),
+      suspeitoTasksPerPlayer: z.number().int().min(1).max(8).optional(),
     })
     .strict(),
   z.object({ t: z.literal("start") }),
@@ -96,6 +102,25 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("endTraining") }),
   /** Só fora de produção: pede um item específico para testar. */
   z.object({ t: z.literal("kdebug"), item: z.enum(["expresso", "triplo", "grampeador", "poca", "resma", "aviao", "pasta", "postit"]) }),
+  /** Expediente Suspeito: intenções de movimentação e ações */
+  z.object({ t: z.literal("suspeitoInput"), mx: unit, mz: unit, yaw: num.min(-100).max(100) }),
+  z.object({ t: z.literal("suspeitoKill"), targetId: z.string().max(64) }),
+  z.object({ t: z.literal("suspeitoReport"), bodyId: z.string().max(64) }),
+  z.object({ t: z.literal("suspeitoEmergency") }),
+  z.object({ t: z.literal("suspeitoVote"), targetIdOrSkip: z.string().max(64) }),
+  z.object({
+    t: z.literal("suspeitoSabotage"),
+    sabotageType: z.enum(["vazamento_dados", "falha_energia", "queda_rede", "impressora_travada"]),
+  }),
+  z.object({ t: z.literal("suspeitoFixSabotage") }),
+  z.object({ t: z.literal("suspeitoStartTask"), taskId: z.string().max(64) }),
+  z.object({
+    t: z.literal("suspeitoTaskAction"),
+    termoGuess: z.string().max(16).optional(),
+    conexoWords: z.array(z.string().max(32)).optional(),
+    contextoGuess: z.string().max(32).optional(),
+    quickAdvance: z.boolean().optional(),
+  }),
   /** Chat rápido: índice da frase ou do emote (ver CHAT_PHRASES e CHAT_EMOTES). */
   z.object({ t: z.literal("chat"), index: z.number().int().min(0).max(CHAT_PHRASES.length - 1) }),
   z.object({ t: z.literal("emote"), index: z.number().int().min(0).max(CHAT_EMOTES.length - 1) }),
@@ -153,6 +178,8 @@ export type ServerMsg =
   | { t: "rresults"; rows: RaceResultRow[]; awards: Award[] }
   | { t: "fsnap"; s: FutSnapshot; me: FutPrivate | null }
   | { t: "fresults"; rows: FutResultRow[]; score: { score: [number, number]; pens: [number, number] | null; winner: TeamSide | null }; awards: Award[]; stats?: FutMatchStats }
+  | { t: "ssnap"; s: SuspeitoSnapshot; me: SuspeitoPrivate | null }
+  | { t: "sresults"; results: SuspeitoResults }
   /** Fantasmas da pista: o do próprio jogador (conta ou sessão), o do recordista e o do rival (a volta logo à frente da sua). Reenviado quando algum muda. */
   | { t: "ghosts"; mine: GhostLap | null; record: (GhostLap & { name: string }) | null; rival?: (GhostLap & { name: string }) | null }
   /** Chat rápido de alguém da sala (inclusive de quem mandou). */

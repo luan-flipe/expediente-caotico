@@ -22,6 +22,8 @@ const FutebolView = lazy(() => import("./futebol/FutebolView").then((m) => ({ de
 const FutebolResults = lazy(() => import("./futebol/FutebolResults").then((m) => ({ default: m.FutebolResults })));
 const ReplayView = lazy(() => import("./race/ReplayView").then((m) => ({ default: m.ReplayView })));
 const RaceResults = lazy(() => import("./race/RaceResults").then((m) => ({ default: m.RaceResults })));
+const SuspeitoView = lazy(() => import("./suspeito/SuspeitoView").then((m) => ({ default: m.SuspeitoView })));
+const SuspeitoResults = lazy(() => import("./suspeito/SuspeitoResults").then((m) => ({ default: m.SuspeitoResults })));
 
 export function App() {
   const assetsReady = useStore((s) => s.assetsReady);
@@ -33,6 +35,7 @@ export function App() {
   const results = useStore((s) => s.results);
   const raceResults = useStore((s) => s.raceResults);
   const futResults = useStore((s) => s.futResults);
+  const suspeitoResults = useStore((s) => s.suspeitoResults);
   const fsnap = useStore((s) => s.fsnap);
   const holdFut = useFutHold(futResults);
   const myId = useStore((s) => s.myId);
@@ -56,7 +59,7 @@ export function App() {
   }, []);
 
   // a música da sala toca na tela inicial e na sala, sem recomeçar quando uma vira a outra
-  const showsLobby = !!lobby && !inMatch && !(lobby.phase === "results" && (raceResults || results || futResults));
+  const showsLobby = !!lobby && !inMatch && !(lobby.phase === "results" && (raceResults || results || futResults || suspeitoResults));
   const menuMusic = assetsReady && !editing && !ranking && !perfil && (!lobby || showsLobby);
   useEffect(() => {
     if (!menuMusic) return;
@@ -72,6 +75,7 @@ export function App() {
   const screen = () => {
     if (lobby?.phase === "match" && myId) {
       if (lobby.mode === "futebol") return <FutebolView myId={myId} />;
+      if (lobby.mode === "suspeito") return <SuspeitoView myId={myId} />;
       return lobby.mode === "shooter" ? <GameView myId={myId} /> : <RaceView myId={myId} />;
     }
     if (editing) return <Creator />;
@@ -83,6 +87,7 @@ export function App() {
     // o resultado do futebol chega junto do apito final: o campo fica uns segundos com a festa antes da tabela
     if (lobby.phase === "results" && futResults && holdFut && myId && fsnap?.phase === "over") return <FutebolView myId={myId} />;
     if (lobby.phase === "results" && futResults) return <FutebolResults />;
+    if (lobby.phase === "results" && suspeitoResults) return <SuspeitoResults />;
     if (lobby.phase === "results" && results) return <Results />;
     return <Lobby />;
   };

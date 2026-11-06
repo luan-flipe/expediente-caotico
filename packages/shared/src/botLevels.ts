@@ -27,6 +27,16 @@ export interface RoomOptions {
   futTeams: [FutTeamConfig, FutTeamConfig];
   /** Futebol: campeonato entre setores em mata-mata com esse número de times (0 = partida avulsa). */
   futCup: 0 | 4 | 8;
+  /** Expediente Suspeito: quantidade de sabotadores (opcional). */
+  suspeitoImpostors?: number;
+  /** Expediente Suspeito: tempo de discussão (segundos). */
+  suspeitoDiscussionSec?: number;
+  /** Expediente Suspeito: tempo de votação (segundos). */
+  suspeitoVotingSec?: number;
+  /** Expediente Suspeito: recarga de eliminação (segundos). */
+  suspeitoKillCooldownSec?: number;
+  /** Expediente Suspeito: tarefas por colaborador. */
+  suspeitoTasksPerPlayer?: number;
 }
 
 export const DEFAULT_ROOM_OPTIONS: RoomOptions = { laps: RACE.laps, items: true, botLevel: DEFAULT_BOT_LEVEL, track: DEFAULT_TRACK_ID,
@@ -36,6 +46,11 @@ export const DEFAULT_ROOM_OPTIONS: RoomOptions = { laps: RACE.laps, items: true,
     { name: "Financeiro", kit: 0, color: 2 },
     { name: "TI", kit: 1, color: 3 },
   ],
+  suspeitoImpostors: 1,
+  suspeitoDiscussionSec: 25,
+  suspeitoVotingSec: 25,
+  suspeitoKillCooldownSec: 25,
+  suspeitoTasksPerPlayer: 4,
 };
 
 export interface ShooterBotParams {
