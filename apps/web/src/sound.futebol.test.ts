@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let nodes = 0;
+let live = 0;
+let running = 0;
 class Param {
   value = 0;
   setValueAtTime() {
@@ -23,11 +25,26 @@ class Node {
   type = "";
   buffer: unknown = null;
   loop = false;
+  connected = true;
+  started = false;
+  constructor() {
+    live++;
+  }
   connect() {
     return this;
   }
-  start() {}
-  stop() {}
+  disconnect() {
+    if (this.connected) live--;
+    this.connected = false;
+  }
+  start() {
+    this.started = true;
+    running++;
+  }
+  stop() {
+    if (this.started) running--;
+    this.started = false;
+  }
 }
 class FakeCtx {
   state = "running";
@@ -65,6 +82,8 @@ async function load() {
 describe("sons do futebol", () => {
   beforeEach(() => {
     nodes = 0;
+    live = 0;
+    running = 0;
     vi.stubGlobal("window", { AudioContext: FakeCtx, addEventListener: vi.fn(), removeEventListener: vi.fn() });
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined, removeItem: () => undefined });
   });
@@ -102,5 +121,59 @@ describe("sons do futebol", () => {
       s.playNet();
       s.playCrowd("gol");
     }).not.toThrow();
+  });
+
+  describe("torcida de fundo", () => {
+    it("liga uma vez, segue o nível e ao parar solta todos os nós", async () => {
+      const s = await load();
+      // o contexto cria 3 ganhos fixos (mestre, música, efeitos) na primeira vez: ficam de base
+      s.startCrowdAmbience();
+      s.stopCrowdAmbience();
+      const base = live;
+      nodes = 0;
+      s.startCrowdAmbience();
+      const criados = nodes;
+      expect(criados).toBeGreaterThan(3);
+      expect(running).toBe(2);
+      s.startCrowdAmbience();
+      expect(nodes).toBe(criados);
+      s.setCrowdAmbience(0.9);
+      s.setCrowdAmbience(null);
+      s.stopCrowdAmbience();
+      expect(running).toBe(0);
+      expect(live).toBe(base);
+      expect(() => s.stopCrowdAmbience()).not.toThrow();
+    });
+
+    it("sai e entra várias vezes sem acumular nós", async () => {
+      const s = await load();
+      s.startCrowdAmbience();
+      s.stopCrowdAmbience();
+      const base = live;
+      for (let i = 0; i < 5; i++) {
+        s.startCrowdAmbience();
+        s.stopCrowdAmbience();
+      }
+      expect(running).toBe(0);
+      expect(live).toBe(base);
+    });
+
+    it("liga também com o volume em zero (o ganho dos efeitos cala; ao subir o volume ela toca)", async () => {
+      const s = await load();
+      s.saveSettings({ ...s.getSettings(), volume: { master: 1, music: 1, effects: 0 } });
+      s.startCrowdAmbience();
+      expect(running).toBe(2);
+      s.stopCrowdAmbience();
+    });
+
+    it("sem Web Audio não quebra", async () => {
+      vi.stubGlobal("window", { addEventListener: vi.fn() });
+      const s = await load();
+      expect(() => {
+        s.startCrowdAmbience();
+        s.setCrowdAmbience(0.5);
+        s.stopCrowdAmbience();
+      }).not.toThrow();
+    });
   });
 });

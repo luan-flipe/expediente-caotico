@@ -4,6 +4,7 @@ import type { AvatarDNA, Vec2 } from "../types";
 import {
   canSeeFrom,
   createBotBrain,
+  decideSuspeitoBotStatement,
   decideSuspeitoBotVote,
   resetBotForMeeting,
   stepSuspeitoBot,
@@ -14,12 +15,13 @@ import {
   hasLineOfSight,
   moveSuspeitoPlayer,
   sectorAt,
+  SECTORS,
   SUSPEITO_NORMAL_VISION_RADIUS,
   SUSPEITO_SABOTAGE_VISION_RADIUS,
   SUSPEITO_SPAWNS,
   TASK_STATIONS,
 } from "./map";
-import { createMeeting, registerVote, tallyVotes } from "./meeting";
+import { addMeetingMessage, createMeeting, registerVote, tallyVotes } from "./meeting";
 import { startSabotage, stepSabotage } from "./sabotage";
 import { createConexoChallenge, validateConexoSelection, type ConexoChallenge } from "./tasks/conexo";
 import { applyContextoGuess, createContextoChallenge, type ContextoChallenge } from "./tasks/contexto";
@@ -28,6 +30,7 @@ import { advanceQuickTask, createQuickTaskChallenge, type QuickTaskChallenge } f
 import { applyTermoGuess, createTermoChallenge, type TermoChallenge } from "./tasks/termo";
 import type {
   SuspeitoBody,
+  SuspeitoMeetingMessage,
   SuspeitoMeetingState,
   SuspeitoPhase,
   SuspeitoPlayerInfo,
@@ -331,7 +334,7 @@ export function queueSuspeitoReport(
   if (!hasLineOfSight(reporter.pos, body.pos)) return false;
 
   body.reported = true;
-  triggerMeeting(match, reporterId, "body", body.victimName);
+  triggerMeeting(match, reporterId, "body", body.victimName, body.sector);
   return true;
 }
 
@@ -353,19 +356,43 @@ function triggerMeeting(
   match: SuspeitoMatch,
   callerId: string,
   reason: "emergency" | "body",
-  reportedVictimName?: string
+  reportedVictimName?: string,
+  reportedBodySector?: SuspeitoSectorId
 ): void {
   const caller = match.players.get(callerId);
+  const callerName = caller?.name ?? "Alguém";
   const discussionMs = (match.options.suspeitoDiscussionSec ?? 20) * 1000;
   const votingMs = (match.options.suspeitoVotingSec ?? 25) * 1000;
+  const sectorLabel = reportedBodySector ? SECTORS[reportedBodySector]?.name : undefined;
+
+  const initialMessage: SuspeitoMeetingMessage =
+    reason === "body"
+      ? {
+          id: `m_1_${callerId}`,
+          senderId: callerId,
+          senderName: callerName,
+          text: sectorLabel
+            ? `🚨 Encontrei o corpo de ${reportedVictimName ?? "um colega"} no setor ${sectorLabel}!`
+            : `🚨 Encontrei o corpo de ${reportedVictimName ?? "um colega"}!`,
+          kind: "report",
+        }
+      : {
+          id: `m_1_${callerId}`,
+          senderId: callerId,
+          senderName: callerName,
+          text: `📢 Convoquei reunião de emergência na Sala de Reuniões! Quem viu algo suspeito?`,
+          kind: "report",
+        };
 
   match.meeting = createMeeting({
     callerId,
-    callerName: caller?.name ?? "Alguém",
+    callerName,
     reason,
     reportedVictimName,
+    reportedBodySector,
     discussionMs,
     votingMs,
+    initialMessage,
   });
 
   match.phase = "meeting";
@@ -380,6 +407,7 @@ function triggerMeeting(
   // Teleporta todos os vivos para a sala de reuniões ao redor da mesa
   let spawnIdx = 0;
   for (const p of match.players.values()) {
+    const prevSector = p.sector;
     p.input = { mx: 0, mz: 0, yaw: 0 };
     p.moving = false;
     p.voted = false;
@@ -389,8 +417,57 @@ function triggerMeeting(
       p.sector = "reuniao";
       spawnIdx++;
     }
-    if (p.brain) resetBotForMeeting(p.brain, 2500 + Math.random() * Math.min(9000, votingMs * 0.6));
+    if (p.brain) {
+      resetBotForMeeting(
+        p.brain,
+        2500 + Math.random() * Math.min(9000, votingMs * 0.6),
+        prevSector
+      );
+      // Se o próprio bot reportou, já tem a mensagem inicial de reporte
+      if (p.id === callerId && reason === "body") {
+        p.brain.speakDelayMs = 900 + Math.random() * 1500;
+      }
+    }
   }
+}
+
+export function queueSuspeitoMeetingChat(
+  match: SuspeitoMatch,
+  senderId: string,
+  text: string,
+  kind: SuspeitoMeetingMessage["kind"] = "chat",
+  targetId?: string,
+  skipDiscussion?: boolean
+): boolean {
+  if ((match.phase !== "meeting" && match.phase !== "voting") || !match.meeting) return false;
+  const sender = match.players.get(senderId);
+  if (!sender || !sender.alive || sender.left) return false;
+
+  if (skipDiscussion && match.phase === "meeting") {
+    match.phase = "voting";
+    match.meeting.phase = "voting";
+    match.phaseRemainingMs = match.meeting.totalVotingMs;
+  }
+
+  const clean = text.trim().slice(0, 140);
+  if (!clean) return skipDiscussion ?? false;
+
+  addMeetingMessage(match.meeting, {
+    senderId: sender.id,
+    senderName: sender.name,
+    text: clean,
+    kind,
+  });
+
+  // Se alguém acusa um alvo, bots colaboradores atentos aumentam levemente a atenção sobre esse alvo
+  if (kind === "accuse" && targetId) {
+    for (const p of match.players.values()) {
+      if (!p.brain || !p.alive || p.id === senderId || p.id === targetId || p.role === "sabotador") continue;
+      p.brain.suspicion[targetId] = (p.brain.suspicion[targetId] ?? 0) + 1.5;
+    }
+  }
+
+  return true;
 }
 
 export function queueSuspeitoVote(
@@ -636,6 +713,17 @@ function stepBot(match: SuspeitoMatch, p: SuspeitoPlayerSim, dtMs: number): void
   }
 }
 
+function stepBotMeetingStatements(match: SuspeitoMatch, dtMs: number): void {
+  if (!match.meeting) return;
+  for (const p of match.players.values()) {
+    if (!p.isBot || !p.alive || p.left || !p.brain) continue;
+    const stmt = decideSuspeitoBotStatement(match, p, dtMs);
+    if (stmt) {
+      queueSuspeitoMeetingChat(match, p.id, stmt.text, stmt.kind, stmt.targetId);
+    }
+  }
+}
+
 export function stepSuspeitoMatch(match: SuspeitoMatch, dtSec: number): void {
   if (match.phase === "over") return;
 
@@ -653,6 +741,7 @@ export function stepSuspeitoMatch(match: SuspeitoMatch, dtSec: number): void {
 
   if (match.phase === "meeting") {
     match.phaseRemainingMs -= dtMs;
+    stepBotMeetingStatements(match, dtMs);
     if (match.phaseRemainingMs <= 0) {
       match.phase = "voting";
       if (match.meeting) {
@@ -665,6 +754,7 @@ export function stepSuspeitoMatch(match: SuspeitoMatch, dtSec: number): void {
 
   if (match.phase === "voting") {
     match.phaseRemainingMs -= dtMs;
+    stepBotMeetingStatements(match, dtMs);
 
     for (const p of match.players.values()) {
       if (match.phase !== "voting") break;
@@ -810,7 +900,13 @@ export function buildSuspeitoSnapshot(match: SuspeitoMatch): SuspeitoSnapshot {
     bodies: match.bodies.map((b) => ({ ...b })),
     taskProgress,
     sabotage: match.sabotage ? { ...match.sabotage } : null,
-    meeting: match.meeting ? { ...match.meeting, votes: { ...match.meeting.votes } } : null,
+    meeting: match.meeting
+      ? {
+          ...match.meeting,
+          votes: { ...match.meeting.votes },
+          messages: match.meeting.messages ? [...match.meeting.messages] : [],
+        }
+      : null,
     emergencyButtonAvailable: match.emergencyCooldownMs <= 0 && !(match.sabotage?.active && match.sabotage.critical),
     emergencyCooldownMs: match.emergencyCooldownMs,
     winner: match.winner,

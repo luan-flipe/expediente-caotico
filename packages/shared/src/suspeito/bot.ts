@@ -1,8 +1,8 @@
 import type { Vec2 } from "../types";
-import { hasLineOfSight, TASK_STATIONS } from "./map";
+import { hasLineOfSight, SECTORS, TASK_STATIONS } from "./map";
 import { findSuspeitoPath } from "./nav";
 import type { SuspeitoMatch, SuspeitoPlayerSim } from "./match";
-import type { SuspeitoSabotageType, SuspeitoTask } from "./types";
+import type { SuspeitoMeetingMessage, SuspeitoSabotageType, SuspeitoSectorId, SuspeitoTask } from "./types";
 
 export interface SuspeitoBotBrain {
   goal: Vec2 | null;
@@ -18,6 +18,9 @@ export interface SuspeitoBotBrain {
   sabotageThinkMs: number;
   huntDelayMs: number;
   suspicion: Record<string, number>;
+  lastSectorBeforeMeeting?: SuspeitoSectorId;
+  spokenInMeeting?: boolean;
+  speakDelayMs?: number;
 }
 
 export function createBotBrain(): SuspeitoBotBrain {
@@ -35,10 +38,17 @@ export function createBotBrain(): SuspeitoBotBrain {
     sabotageThinkMs: 4000 + Math.random() * 6000,
     huntDelayMs: 4000 + Math.random() * 10000,
     suspicion: {},
+    lastSectorBeforeMeeting: "reuniao",
+    spokenInMeeting: false,
+    speakDelayMs: 0,
   };
 }
 
-export function resetBotForMeeting(brain: SuspeitoBotBrain, votingDelayMs: number): void {
+export function resetBotForMeeting(
+  brain: SuspeitoBotBrain,
+  votingDelayMs: number,
+  lastSector?: SuspeitoSectorId
+): void {
   brain.goal = null;
   brain.goalKind = null;
   brain.goalId = null;
@@ -47,6 +57,9 @@ export function resetBotForMeeting(brain: SuspeitoBotBrain, votingDelayMs: numbe
   brain.lastPos = null;
   brain.voteDelayMs = votingDelayMs;
   brain.huntDelayMs = 4000 + Math.random() * 10000;
+  if (lastSector) brain.lastSectorBeforeMeeting = lastSector;
+  brain.spokenInMeeting = false;
+  brain.speakDelayMs = 1400 + Math.random() * 6000;
 }
 
 export function canSeeFrom(a: Vec2, b: Vec2, radius: number): boolean {
@@ -146,6 +159,10 @@ export function stepSuspeitoBot(
   const others = [...match.players.values()].filter((o) => o.id !== bot.id && !o.left);
   const isSab = bot.role === "sabotador";
   let action: SuspeitoBotAction | undefined;
+
+  if (bot.alive) {
+    brain.lastSectorBeforeMeeting = bot.sector;
+  }
 
   if (isSab && match.sabotage?.active !== true && bot.sabotageCooldownMs <= 0 && match.sabotageGlobalCooldownMs <= 0) {
     brain.sabotageThinkMs -= dtMs;
@@ -270,6 +287,68 @@ export function stepSuspeitoBot(
     return { input: { mx: 0, mz: 0, yaw: bot.yaw } };
   }
   return { input: steer(bot, dtMs, false) };
+}
+
+/** Gera depoimento espontâneo do bot durante a reunião baseado no que ele presenciou ou onde estava. */
+export function decideSuspeitoBotStatement(
+  match: SuspeitoMatch,
+  bot: SuspeitoPlayerSim,
+  dtMs: number
+): { text: string; kind: SuspeitoMeetingMessage["kind"]; targetId?: string } | null {
+  const brain = bot.brain;
+  if (!brain || brain.spokenInMeeting || !bot.alive) return null;
+
+  brain.speakDelayMs = (brain.speakDelayMs ?? 2000) - dtMs;
+  if (brain.speakDelayMs > 0) return null;
+  brain.spokenInMeeting = true;
+
+  const candidates = [...match.players.values()].filter((o) => o.alive && o.id !== bot.id && !o.left);
+  const sectorId = brain.lastSectorBeforeMeeting ?? bot.tasks[0]?.sector ?? "reuniao";
+  const sectorName = SECTORS[sectorId]?.name ?? "Escritório";
+
+  if (bot.role === "colaborador") {
+    let best: SuspeitoPlayerSim | null = null;
+    let bestScore = 0;
+    for (const c of candidates) {
+      const s = brain.suspicion[c.id] ?? 0;
+      if (s > bestScore) {
+        bestScore = s;
+        best = c;
+      }
+    }
+    if (best && bestScore >= 80) {
+      return {
+        text: `👀 Eu vi ${best.name} cometendo o crime na minha frente! Votem nele(a)!`,
+        kind: "accuse",
+        targetId: best.id,
+      };
+    }
+    if (best && bestScore >= 2) {
+      return {
+        text: `⚠️ Desconfio de ${best.name}, estava muito perto da ocorrência!`,
+        kind: "accuse",
+        targetId: best.id,
+      };
+    }
+    if (Math.random() < 0.75) {
+      return {
+        text: `📋 Eu estava em ${sectorName} adiantando minhas tarefas.`,
+        kind: "alibi",
+      };
+    }
+  } else {
+    // Sabotador finge álibi convincente
+    const fakeTaskSector = bot.tasks[0]?.sector ?? sectorId;
+    const fakeSectorName = SECTORS[fakeTaskSector]?.name ?? sectorName;
+    if (Math.random() < 0.8) {
+      return {
+        text: `📋 Eu estava tranquilo lá em ${fakeSectorName} trabalhando, não vi nada.`,
+        kind: "alibi",
+      };
+    }
+  }
+
+  return null;
 }
 
 /** Decide o voto do bot; null = ainda pensando. */

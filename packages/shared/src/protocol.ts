@@ -109,6 +109,13 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("suspeitoEmergency") }),
   z.object({ t: z.literal("suspeitoVote"), targetIdOrSkip: z.string().max(64) }),
   z.object({
+    t: z.literal("suspeitoChat"),
+    text: z.string().max(140),
+    kind: z.enum(["report", "accuse", "alibi", "defense", "chat"]).optional(),
+    targetId: z.string().max(64).optional(),
+    skipDiscussion: z.boolean().optional(),
+  }),
+  z.object({
     t: z.literal("suspeitoSabotage"),
     sabotageType: z.enum(["vazamento_dados", "falha_energia", "queda_rede", "impressora_travada"]),
   }),

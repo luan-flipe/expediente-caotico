@@ -98,7 +98,9 @@ export function RaceHud({ myId }: { myId: string }) {
 
   useEffect(() => {
     if (!snap) return;
-    if (snap.phase === "countdown") {
+    // só reinicia se o aviso da última volta chegou a disparar: setState a cada snapshot, mesmo com o mesmo valor,
+    // agenda um render por mensagem e uma rajada de snapshots atrasados estoura o limite de atualizações do React
+    if (snap.phase === "countdown" && finalLapSeenRef.current) {
       finalLapSeenRef.current = false;
       setFinalLapBanner(false);
     }

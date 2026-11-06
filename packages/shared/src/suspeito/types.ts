@@ -189,12 +189,21 @@ export interface SuspeitoBody {
   reported: boolean;
 }
 
+export interface SuspeitoMeetingMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  kind: "report" | "accuse" | "alibi" | "defense" | "chat";
+}
+
 export interface SuspeitoMeetingState {
   phase: "discussion" | "voting" | "result";
   callerId: string;
   callerName: string;
   reason: "emergency" | "body";
   reportedVictimName?: string;
+  reportedBodySector?: SuspeitoSectorId;
   remainingMs: number;
   totalDiscussionMs: number;
   totalVotingMs: number;
@@ -202,6 +211,7 @@ export interface SuspeitoMeetingState {
   ejectedId: string | null;      // playerId | "skip" | "tie" | null
   ejectedName?: string;
   ejectedRole?: SuspeitoRole;
+  messages?: SuspeitoMeetingMessage[];
 }
 
 export interface SuspeitoPlayerPublic {

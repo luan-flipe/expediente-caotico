@@ -1,12 +1,14 @@
-import type { SuspeitoMeetingState } from "./types";
+import type { SuspeitoMeetingMessage, SuspeitoMeetingState, SuspeitoSectorId } from "./types";
 
 export function createMeeting(params: {
   callerId: string;
   callerName: string;
   reason: "emergency" | "body";
   reportedVictimName?: string;
+  reportedBodySector?: SuspeitoSectorId;
   discussionMs?: number;
   votingMs?: number;
+  initialMessage?: SuspeitoMeetingMessage;
 }): SuspeitoMeetingState {
   const discussionMs = params.discussionMs ?? 20000;
   const votingMs = params.votingMs ?? 25000;
@@ -17,12 +19,30 @@ export function createMeeting(params: {
     callerName: params.callerName,
     reason: params.reason,
     reportedVictimName: params.reportedVictimName,
+    reportedBodySector: params.reportedBodySector,
     remainingMs: discussionMs,
     totalDiscussionMs: discussionMs,
     totalVotingMs: votingMs,
     votes: {},
     ejectedId: null,
+    messages: params.initialMessage ? [params.initialMessage] : [],
   };
+}
+
+export function addMeetingMessage(
+  meeting: SuspeitoMeetingState,
+  msg: Omit<SuspeitoMeetingMessage, "id">
+): SuspeitoMeetingMessage {
+  if (!meeting.messages) meeting.messages = [];
+  const entry: SuspeitoMeetingMessage = {
+    id: `m_${meeting.messages.length + 1}_${msg.senderId}`,
+    ...msg,
+  };
+  meeting.messages.push(entry);
+  if (meeting.messages.length > 28) {
+    meeting.messages.shift();
+  }
+  return entry;
 }
 
 export function registerVote(

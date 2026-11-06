@@ -15,7 +15,9 @@ function angleDiff(a: number, b: number): number {
 }
 
 /** Julga um contato com adversário. ballFirst (de TouchEvent) tem prioridade;
- *  sem ele, vale a distância de 0,6 m entre a bola e o carrinheiro. */
+ *  sem ele, vale a distância de 0,6 m entre a bola e o carrinheiro.
+ *  Carrinho na bola é limpo; o que pega o jogador é falta. Por trás é amarelo; vermelho só por trás,
+ *  em corrida e no último homem (lastMan), uma falta violenta e clara. */
 export function judgeTackle(
   tackler: FutPlayer,
   victim: FutPlayer,
@@ -23,6 +25,7 @@ export function judgeTackle(
   kind: "carrinho" | "disputa",
   tackler_sprinting: boolean,
   ballFirst?: boolean,
+  lastMan = false,
 ): { foul: boolean; card: Card } {
   const first = ballFirst ?? Math.hypot(ball.x - tackler.x, ball.z - tackler.z) <= BALL_FIRST_REACH;
   if (first) {
@@ -30,13 +33,22 @@ export function judgeTackle(
   }
   if (kind === "carrinho") {
     if (angleDiff(tackler.facing, victim.facing) < BEHIND_DIFF) {
-      return { foul: true, card: "red" };
-    }
-    if (tackler_sprinting) {
-      return { foul: true, card: "yellow" };
+      return { foul: true, card: tackler_sprinting && lastMan ? "red" : "yellow" };
     }
   }
   return { foul: true, card: "none" };
+}
+
+/** Vítima com a bola, no campo de ataque e sem nenhum outro defensor de linha (o carrinheiro não conta) entre ela e a linha do gol. */
+export function isLastMan(victim: FutPlayer, tackler: FutPlayer, players: FutPlayer[], ball: Ball): boolean {
+  if (ball.ownerId !== victim.id) {
+    return false;
+  }
+  const dir = victim.side === 0 ? 1 : -1;
+  if (victim.x * dir < 0) {
+    return false;
+  }
+  return !players.some((p) => p.id !== tackler.id && p.side !== victim.side && p.role === "linha" && !p.sentOff && p.x * dir > victim.x * dir);
 }
 
 /** Tranco forte (disputa em pé com velocidade de encontro alta) é falta; por trás, falta dura (amarelo). */

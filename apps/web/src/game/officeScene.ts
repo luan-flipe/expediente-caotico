@@ -10,7 +10,7 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: numb
   return m;
 }
 
-/** Monta o mapa como um campo gramado aberto, sem paredes nem móveis de escritório, com relevos e escadas. */
+/** Monta o mapa como um campo gramado aberto, com relevos, escadas e poucas coberturas (muretes de pedra e sebes). */
 export function buildOffice(scene: THREE.Scene): void {
   const W = OFFICE_MAP.width;
   const D = OFFICE_MAP.depth;
@@ -83,8 +83,23 @@ export function buildOffice(scene: THREE.Scene): void {
   }
 
   // =========================================================================
+  // COBERTURAS (mesmas caixas que colidem e bloqueiam tiro em OFFICE_MAP.boxes)
+  // =========================================================================
+  for (const b of OFFICE_MAP.boxes) {
+    if (b.kind === "plant") {
+      // sebe baixa: corpo de folhagem com um topo mais fino por cima
+      scene.add(mesh(new THREE.BoxGeometry(b.w, b.h * 0.8, b.d), bushMat, b.x, (b.h * 0.8) / 2, b.z));
+      scene.add(mesh(new THREE.BoxGeometry(b.w * 0.8, b.h * 0.2 + 0.05, b.d * 0.9), bushMat, b.x, b.h * 0.8 + (b.h * 0.2) / 2, b.z));
+    } else {
+      // murete de pedra com capa de madeira rústica
+      scene.add(mesh(new THREE.BoxGeometry(b.w, b.h - 0.1, b.d), stoneMat, b.x, (b.h - 0.1) / 2, b.z));
+      scene.add(mesh(new THREE.BoxGeometry(b.w + 0.1, 0.1, b.d + 0.1), rusticWood, b.x, b.h - 0.05, b.z));
+    }
+  }
+
+  // =========================================================================
   // DETALHES NATURAIS DO CAMPO ABERTO (FLORES E PEQUENAS PEDRAS DECORATIVAS)
-  // Sem colisores físicos, campo 100% desobstruído para tiros e movimentação.
+  // Sem colisores físicos: só enfeite espalhado pelo gramado.
   // =========================================================================
   const flowerGeo = new THREE.DodecahedronGeometry(0.12, 0);
   const rockSmallGeo = new THREE.DodecahedronGeometry(0.28, 0);

@@ -819,6 +819,96 @@ export function playCrowd(kind: CrowdKind): void {
   src.stop(t + spec.end + 0.05);
 }
 
+// ---- torcida de fundo da partida ----
+
+/** Ganho da torcida de fundo: parado (nível 0) e no auge (nível 1). Os sons de gol, quase e defesa (picos de 0,16 a 0,34) sobem por cima. */
+const AMBIENCE_GAIN_MIN = 0.03;
+const AMBIENCE_GAIN_MAX = 0.12;
+/** Profundidade da onda lenta (fração do ganho) e sua frequência (Hz). */
+const AMBIENCE_WAVE_DEPTH = 0.35;
+const AMBIENCE_WAVE_HZ = 0.17;
+/** Constante de tempo (s) com que o volume e o timbre da torcida acompanham o nível. */
+const AMBIENCE_FOLLOW = 0.45;
+
+interface Ambience {
+  nodes: AudioNode[];
+  sources: (AudioBufferSourceNode | OscillatorNode)[];
+  gain: GainNode;
+  wave: GainNode;
+  band: BiquadFilterNode;
+  level: number;
+}
+let ambience: Ambience | null = null;
+
+/** Liga o ambiente contínuo de torcida (ruído filtrado com ondas lentas). Sem Web Audio ou já ligado, não faz nada. */
+export function startCrowdAmbience(): void {
+  if (ambience) return;
+  const ctx = getAudioContext();
+  if (!ctx || !effectsGain) return;
+  const noise = noiseSource(ctx);
+  noise.loop = true;
+  const hp = ctx.createBiquadFilter();
+  const band = ctx.createBiquadFilter();
+  const lp = ctx.createBiquadFilter();
+  const gain = ctx.createGain();
+  const lfo = ctx.createOscillator();
+  const wave = ctx.createGain();
+  hp.type = "highpass";
+  hp.frequency.value = 220;
+  band.type = "bandpass";
+  band.Q.value = 0.5;
+  band.frequency.value = 600;
+  lp.type = "lowpass";
+  lp.frequency.value = 2600;
+  gain.gain.value = 0;
+  lfo.type = "sine";
+  lfo.frequency.value = AMBIENCE_WAVE_HZ;
+  wave.gain.value = 0;
+  noise.connect(hp);
+  hp.connect(band);
+  band.connect(lp);
+  lp.connect(gain);
+  gain.connect(effectsGain);
+  lfo.connect(wave);
+  wave.connect(gain.gain);
+  noise.start();
+  lfo.start();
+  ambience = { nodes: [noise, hp, band, lp, gain, lfo, wave], sources: [noise, lfo], gain, wave, band, level: -1 };
+  setCrowdAmbience(0.3);
+}
+
+/** Nível da torcida (0 a 1: calma a empolgada) ou null para calar (pausa). Segue o nível aos poucos, sem degrau. */
+export function setCrowdAmbience(level: number | null): void {
+  const a = ambience;
+  const ctx = audioCtx;
+  if (!a || !ctx) return;
+  const l = level === null ? -1 : Math.max(0, Math.min(1, level));
+  if (Math.abs(l - a.level) < 0.02) return;
+  a.level = l;
+  const t = ctx.currentTime;
+  const base = l < 0 ? 0 : AMBIENCE_GAIN_MIN + (AMBIENCE_GAIN_MAX - AMBIENCE_GAIN_MIN) * l;
+  a.gain.gain.setTargetAtTime(base, t, AMBIENCE_FOLLOW);
+  a.wave.gain.setTargetAtTime(base * AMBIENCE_WAVE_DEPTH, t, AMBIENCE_FOLLOW);
+  a.band.frequency.setTargetAtTime(520 + 520 * Math.max(0, l), t, AMBIENCE_FOLLOW);
+}
+
+/** Desliga a torcida de fundo e solta todos os nós de áudio. Pode ser chamada à toa. */
+export function stopCrowdAmbience(): void {
+  const a = ambience;
+  ambience = null;
+  if (!a) return;
+  for (const s of a.sources) {
+    try {
+      s.stop();
+    } catch {
+      /* já parado */
+    }
+  }
+  for (const n of a.nodes) {
+    n.disconnect();
+  }
+}
+
 /** Campainha de dois tons quando alguém entra na sala. Sem AudioContext (testes) não faz nada. */
 export function playDingSound(): void {
   const ctx = getAudioContext();

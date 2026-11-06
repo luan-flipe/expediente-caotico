@@ -48,6 +48,7 @@ const WEARABLES = [
   "cabelos/10_goku.glb",
   "cabelos/11_guigo.glb",
   "cabelos/12_longo_com_franja.glb",
+  "cabelos/13_djavan.glb",
   "barbas/01_barba.glb",
   "barbas/02_barba_longa.glb",
   "oculos/01_redondo.glb",

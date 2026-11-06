@@ -24,7 +24,7 @@ import { createDynamicSky, type DynamicSky } from "../game/sky";
 import { inputBlocked } from "../pause";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
-import { playCrowd, playKick, playNet, playWhistle } from "../sound";
+import { playCrowd, playKick, playNet, playWhistle, setCrowdAmbience, startCrowdAmbience, stopCrowdAmbience } from "../sound";
 import { getState, net, setState } from "../store";
 import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
 import ballUrl from "../assets/futebol/bola.glb?url";
@@ -39,7 +39,9 @@ import { Juiz } from "./juiz";
 import { DIVE_LIFT, DIVE_MS, DIVE_REACH, DIVE_ROLL, SLUMP, diveAmount, diveSide } from "./reacoes";
 import { penaltyAttackSide, penaltyRole, pickedSide, tagScale } from "./penaltyUi";
 import { createGolMesh, disposeGolMesh } from "./golMesh";
-import { bolaFocus, bolaPose, offscreenDir, type Vec3 } from "./cameraBola";
+import { carryWeight, localBallPos } from "./bolaLocal";
+import { crowdLevel } from "./torcidaSom";
+import { approachYaw, cameraYawTarget, yawToward } from "./cameraBola";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
 import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
 import { Torcida } from "./torcida";
@@ -278,9 +280,10 @@ export class FutebolEngine {
   private vis = { x: 0, z: 0 };
   private charge = newCharge();
   private myPos = new THREE.Vector3();
-  /** Foco suavizado da câmera de partida (a bola); nulo = a próxima pose corta direto. */
-  private bolaFoc: Vec3 | null = null;
-  private meDir: HTMLDivElement | null = null;
+  /** Quanto a bola desenhada segue meu boneco predito (0 a 1; ver bolaLocal.ts). */
+  private carryW = 0;
+  /** Direção em que meu boneco aparece olhando quando está parado sem a bola (vira para a bola). */
+  private meFace: number | null = null;
   // temporários do quadro (nada de new por frame)
   private tmpFwd = new THREE.Vector3();
   private tmpRight = new THREE.Vector3();
@@ -485,7 +488,7 @@ export class FutebolEngine {
       this.cleanup.push(() => target.removeEventListener(t, fn as EventListener));
     };
     const canvas = this.canvas;
-    // o mouse só move a câmera: o clique prende o mouse (pointer lock) e mais nada
+    // o mouse só gira a câmera de quem cobra uma reposição: o clique prende o mouse (pointer lock) e mais nada
     const grab = (e: MouseEvent) => {
       // quem só assiste não prende o mouse: precisa dele para os botões de câmera
       if (this.locked || IS_TOUCH || e.button !== 0 || inputBlocked(getState()) || this.isSpectating()) return;
@@ -506,7 +509,7 @@ export class FutebolEngine {
       document,
     );
     on<MouseEvent>("mousemove", (e) => {
-      if (!this.locked || this.fixedYaw) return;
+      if (!this.locked || this.fixedYaw || this.autoYaw()) return;
       const { mouseSens, invertY } = getSettings();
       this.yaw -= e.movementX * 0.0025 * mouseSens;
       this.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, this.pitch - e.movementY * 0.0022 * mouseSens * (invertY ? -1 : 1)));
@@ -960,9 +963,27 @@ export class FutebolEngine {
     return { t: rt, x: a.x + (c.x - a.x) * k, y: a.y + (c.y - a.y) * k, z: a.z + (c.z - a.z) * k, f: angleLerp(a.f, c.f, k) };
   }
 
+  /** Torcida de fundo: liga com a partida em andamento, sobe com a bola perto do gol, cala no menu de pausa e no fim. */
+  private updateAmbience(): void {
+    const s = this.snap;
+    if (!s || !this.field || s.phase === "over") {
+      stopCrowdAmbience();
+      return;
+    }
+    startCrowdAmbience();
+    setCrowdAmbience(getState().pauseOpen ? null : s.phase === "goal" ? 0.7 : crowdLevel(s.ball, this.field.halfL));
+  }
+
   private step(dt: number, now: number): void {
     this.chat.update(now, (id) => this.views.get(id)?.char.root);
-    if (!this.fixedYaw) {
+    this.updateAmbience();
+    if (this.autoYaw()) {
+      // a câmera gira sozinha: com a bola, para o gol adversário; sem ela, para a bola. O mesmo yaw vale para o WASD e para o input enviado
+      const mine = this.snap?.players.find((p) => p.id === this.myId);
+      const goal = { x: (mine?.side === 1 ? -1 : 1) * (this.field?.halfL ?? 0), z: 0 };
+      const hasBall = this.snap?.ball.ownerId === this.myId;
+      this.yaw = approachYaw(this.yaw, cameraYawTarget(this.myPos, this.ball.position, goal, hasBall, this.yaw), dt);
+    } else if (!this.fixedYaw) {
       if (this.keys.has("ArrowLeft")) this.yaw += dt * 2.2;
       if (this.keys.has("ArrowRight")) this.yaw -= dt * 2.2;
       if (this.keys.has("ArrowUp")) this.pitch = Math.min(PITCH_MAX, this.pitch + dt * 1.2);
@@ -1008,6 +1029,7 @@ export class FutebolEngine {
       }
       const root = v.char.root;
       root.position.set(x, lying ? 0.18 : 0, z);
+      if (id === this.myId && !rp) f = this.faceBall(f, speed, lying || p.sliding, dt);
       root.rotation.y = f;
       // time que levou gol abaixa a cabeça durante a comemoração do outro
       const want = this.conceded === p.side && p.role === "linha" && !lying ? SLUMP : 0;
@@ -1055,6 +1077,15 @@ export class FutebolEngine {
 
     // bola
     const bs = rs ? { t: rt, x: rs.ball.x, y: rs.ball.y, z: rs.ball.z, f: 0 } : this.sampleAt(this.ballBuf, rt);
+    if (bs && !rs) {
+      // dono da bola: ela acompanha meu boneco predito (sem atraso) em vez de ficar 120 ms para trás, debaixo do pé
+      const meBuf = this.pred ? this.views.get(this.myId)?.buf : undefined;
+      this.carryW = carryWeight(this.carryW, !!meBuf && this.snap?.ball.ownerId === this.myId, dt);
+      const at = this.carryW > 0 && meBuf ? this.sampleAt(meBuf, rt) : null;
+      const p = localBallPos(bs, at, this.myPos, this.carryW);
+      bs.x = p.x;
+      bs.z = p.z;
+    }
     if (bs) {
       this.ball.position.set(bs.x, bs.y, bs.z);
       this.ballShadow.position.set(bs.x, 0.06, bs.z);
@@ -1309,26 +1340,15 @@ export class FutebolEngine {
         rp.shot = shot;
         this.camCut = true;
       }
-      this.bolaFoc = null;
-      this.hideMeDir();
       this.applyPose(replayPose(shot, { field: this.field, ball: this.rsNow.ball, goalSide: rp.goalSide }), dt);
       return;
     }
     if (s && this.field && this.isSpectating()) {
-      this.bolaFoc = null;
-      this.hideMeDir();
       const bp = this.ball.position;
       this.applyPose(camPose(this.camKind, { field: this.field, ball: { x: bp.x, y: bp.y, z: bp.z, vx: s.ball.vx, vz: s.ball.vz }, target: this.camKind === "jogador" ? this.followTarget() : null }), dt);
       return;
     }
     this.setFov(FOV_PLAY, dt);
-    // disputa de pênaltis: fica como era, atrás de quem cobra (quem não cobra assiste da cobrança, olhando para o gol)
-    if (s?.phase === "penalties" || !this.field) {
-      this.bolaFoc = null;
-      this.hideMeDir();
-      this.updatePenaltyCamera(dt, s);
-      return;
-    }
     const focus = s?.phase === "goal" && this.fx.active ? this.views.get(this.focusId) : undefined;
     if (focus) {
       // comemoração: câmera curta de frente para o autor do gol
@@ -1342,15 +1362,31 @@ export class FutebolEngine {
       this.camLook.lerp(look, 1 - Math.exp(-dt * 8));
       this.camera.position.copy(this.camPos);
       this.camera.lookAt(this.camLook);
-      this.bolaFoc = null;
-      this.hideMeDir();
       return;
     }
-    this.updateBolaCamera(dt);
+    this.updatePlayerCamera(dt, s);
   }
 
-  /** Câmera atrás do jogador (pênaltis). */
-  private updatePenaltyCamera(dt: number, s: FutSnapshot | null): void {
+  /**
+   * Na partida normal o yaw é automático (com a bola, para o gol adversário; sem ela, para a bola) e mouse e setas não giram.
+   * Quem cobra uma reposição mantém o yaw livre. Fora da partida normal (pênaltis, comemoração, replay, espectador) nada muda.
+   */
+  private autoYaw(): boolean {
+    const s = this.snap;
+    if (!s || !this.field || !this.yawReady || this.replay || this.isSpectating()) return false;
+    if (s.phase === "penalties" || s.phase === "over" || (s.phase === "goal" && this.fx.active)) return false;
+    return !(s.restart && s.restart.takerId === this.myId);
+  }
+
+  /** Meu boneco parado e sem a bola olha para ela; andando, vale a direção do movimento. */
+  private faceBall(f: number, speed: number, down: boolean, dt: number): number {
+    const target = this.autoYaw() && this.snap?.ball.ownerId !== this.myId && speed < 0.5 && !down ? yawToward(this.myPos, this.ball.position, f) : f;
+    this.meFace = approachYaw(this.meFace ?? f, target, dt, 10, 8);
+    return this.meFace;
+  }
+
+  /** Câmera atrás do jogador (ou de quem cobra o pênalti), no yaw atual. */
+  private updatePlayerCamera(dt: number, s: FutSnapshot | null): void {
     let base = this.myPos;
     let yaw = this.yaw;
     if (s?.phase === "penalties" && s.pens && s.pens.takerId !== this.myId) {
@@ -1378,53 +1414,11 @@ export class FutebolEngine {
     this.camera.lookAt(this.camLook);
   }
 
-  /** Câmera de partida: orbita a bola (yaw/pitch do jogador), com o foco suavizado para chute forte não dar tranco. */
-  private updateBolaCamera(dt: number): void {
-    const bp = this.ball.position;
-    const ball = { x: bp.x, y: bp.y, z: bp.z };
-    this.bolaFoc = bolaFocus(this.bolaFoc, ball, dt);
-    const pose = bolaPose(this.bolaFoc, this.yaw, this.pitch, this.field!);
-    this.camReady = true;
-    this.camPos.set(pose.pos.x, pose.pos.y, pose.pos.z);
-    this.camLook.set(pose.look.x, pose.look.y, pose.look.z);
-    this.camera.position.copy(this.camPos);
-    this.camera.lookAt(this.camLook);
-    this.updateMeDir();
-  }
-
-  /** Seta na borda da tela apontando para o meu jogador quando ele sai do quadro. */
-  private updateMeDir(): void {
-    const parent = this.canvas.parentElement;
-    if (!parent) return;
-    if (!this.meDir) {
-      const el = document.createElement("div");
-      el.className = "fut-medir";
-      el.textContent = "▲";
-      el.style.display = "none";
-      parent.appendChild(el);
-      this.meDir = el;
-    }
-    this.camera.updateMatrixWorld();
-    const p = this.tmpWant.set(this.myPos.x, 1.2, this.myPos.z).project(this.camera);
-    const dir = this.views.has(this.myId) ? offscreenDir(p.x, p.y, p.z < 1) : null;
-    if (!dir) {
-      this.meDir.style.display = "none";
-      return;
-    }
-    const w = this.canvas.clientWidth;
-    const h = this.canvas.clientHeight;
-    this.meDir.style.display = "block";
-    this.meDir.style.transform = `translate(${((dir.x + 1) / 2) * w}px, ${((1 - dir.y) / 2) * h}px) translate(-50%, -50%) rotate(${Math.atan2(dir.x, dir.y)}rad)`;
-  }
-
-  private hideMeDir(): void {
-    if (this.meDir && this.meDir.style.display !== "none") this.meDir.style.display = "none";
-  }
-
   private disposed = false;
 
   dispose(): void {
     this.disposed = true;
+    stopCrowdAmbience();
     cancelAnimationFrame(this.raf);
     for (const c of this.cleanup) c();
     resetTouchInput();
@@ -1447,7 +1441,6 @@ export class FutebolEngine {
         disposeMaterial(x);
       }
     });
-    this.meDir?.remove();
     this.renderer.dispose();
   }
 }

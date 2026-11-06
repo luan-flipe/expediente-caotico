@@ -139,6 +139,16 @@ const _camLook = new THREE.Vector3();
 const _cutWant = new THREE.Vector3();
 const _cutLook = new THREE.Vector3();
 const TMP_SEATED_OPTIONS: CharacterSeatedOptions = {};
+/** Peça do kart com raio menor que isso (m) não projeta sombra. */
+const SOMBRA_RAIO_MIN = 0.12;
+const _escala = new THREE.Vector3();
+
+/** Raio da esfera que envolve a malha, já na escala do mundo. */
+function raioNoMundo(m: THREE.Mesh): number {
+  if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+  m.getWorldScale(_escala);
+  return m.geometry.boundingSphere!.radius * Math.max(Math.abs(_escala.x), Math.abs(_escala.y), Math.abs(_escala.z));
+}
 
 const angleLerp = (a: number, b: number, t: number) => {
   let d = (b - a) % (Math.PI * 2);
@@ -927,7 +937,12 @@ export class RaceEngine {
 
     const tag = k.id === this.myId ? null : nameTag(k.name);
     if (tag) r3d.root.add(tag);
-    r3d.root.traverse((o) => (o.castShadow = !faded && o instanceof THREE.Mesh && o !== bubble && o.name !== "blobShadows" && !o.parent?.name?.includes("blobShadows")));
+    // Só as peças grandes (corpo, cabelo, assento, encosto, base) entram no passe de sombra: rodinhas, enfeites e
+    // detalhes do extintor custariam um draw call a mais cada um, e a sombra de contato embaixo já assenta o kart.
+    r3d.root.updateMatrixWorld(true);
+    r3d.root.traverse((o) => {
+      o.castShadow = !faded && o instanceof THREE.Mesh && o !== bubble && o.name !== "blobShadows" && !o.parent?.name?.includes("blobShadows") && raioNoMundo(o) >= SOMBRA_RAIO_MIN;
+    });
     const chute = buildParachute(parachuteFor(person?.chair ?? DEFAULT_CHAIR));
     r3d.root.add(chute);
     const heldItem = new THREE.Group();
