@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildSuspeitoPrivate,
   createSuspeitoMatch,
@@ -24,6 +24,10 @@ const mockPlayers: SuspeitoPlayerInfo[] = [
 ];
 
 describe("Partida de Expediente Suspeito", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("cria partida com funções secretas e tarefas distribuídas", () => {
     const match = createSuspeitoMatch(mockPlayers, DEFAULT_ROOM_OPTIONS, 12345);
     expect(match.players.size).toBe(5);
@@ -123,6 +127,8 @@ describe("Partida de Expediente Suspeito", () => {
     const p1 = match.players.get("p1")!;
     p1.pos = { x: -4, z: 0 };
     match.emergencyCooldownMs = 0;
+    // Bot pode ficar calado ou demorar por sorteio: sem sorte aqui, os dois falam logo no início da reunião
+    vi.spyOn(Math, "random").mockReturnValue(0);
     queueSuspeitoEmergency(match, "p1");
     expect(match.phase).toBe("meeting");
 
