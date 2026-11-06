@@ -12,13 +12,15 @@
     "start": "node apps/server/dist/index.js",
     "test": "node node_modules/vitest/vitest.mjs run",
     "typecheck": "pnpm -r typecheck",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:smoke": "pnpm build && playwright test -c apps/web/e2e/playwright.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@gltf-transform/core": "^4.5.1",
     "@gltf-transform/extensions": "^4.5.1",
     "@gltf-transform/functions": "^4.5.1",
+    "@playwright/test": "^1.65.0",
     "@types/node": "^26.6.5",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",
