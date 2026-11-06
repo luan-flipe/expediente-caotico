@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSuspeitoPrivate,
-  buildSuspeitoSnapshot,
   createSuspeitoMatch,
+  DEFAULT_AVATAR,
   DEFAULT_ROOM_OPTIONS,
   queueSuspeitoEmergency,
-  queueSuspeitoFixSabotage,
   queueSuspeitoKill,
   queueSuspeitoMeetingChat,
   queueSuspeitoReport,
@@ -17,11 +16,11 @@ import {
 } from "../index";
 
 const mockPlayers: SuspeitoPlayerInfo[] = [
-  { id: "p1", name: "Ana", avatar: {} as any, isBot: false },
-  { id: "p2", name: "Beto", avatar: {} as any, isBot: false },
-  { id: "p3", name: "Carlos", avatar: {} as any, isBot: false },
-  { id: "p4", name: "Duda", avatar: {} as any, isBot: false },
-  { id: "p5", name: "Edu", avatar: {} as any, isBot: false },
+  { id: "p1", name: "Ana", avatar: DEFAULT_AVATAR, isBot: false },
+  { id: "p2", name: "Beto", avatar: DEFAULT_AVATAR, isBot: false },
+  { id: "p3", name: "Carlos", avatar: DEFAULT_AVATAR, isBot: false },
+  { id: "p4", name: "Duda", avatar: DEFAULT_AVATAR, isBot: false },
+  { id: "p5", name: "Edu", avatar: DEFAULT_AVATAR, isBot: false },
 ];
 
 describe("Partida de Expediente Suspeito", () => {
@@ -88,7 +87,7 @@ describe("Partida de Expediente Suspeito", () => {
       id: "body_test",
       victimId: "p5",
       victimName: "Edu",
-      avatar: {} as any,
+      avatar: DEFAULT_AVATAR,
       pos: { x: 6, z: 15 },
       sector: "copa",
       reported: false,
@@ -112,11 +111,11 @@ describe("Partida de Expediente Suspeito", () => {
 
   it("permite chat de depoimentos, testemunho de bots e abertura imediata da votação", () => {
     const playersWithBot: SuspeitoPlayerInfo[] = [
-      { id: "p1", name: "Ana", avatar: {} as any, isBot: false },
-      { id: "p2", name: "Beto", avatar: {} as any, isBot: true },
-      { id: "p3", name: "Carlos", avatar: {} as any, isBot: true },
-      { id: "p4", name: "Duda", avatar: {} as any, isBot: false },
-      { id: "p5", name: "Edu", avatar: {} as any, isBot: false },
+      { id: "p1", name: "Ana", avatar: DEFAULT_AVATAR, isBot: false },
+      { id: "p2", name: "Beto", avatar: DEFAULT_AVATAR, isBot: true },
+      { id: "p3", name: "Carlos", avatar: DEFAULT_AVATAR, isBot: true },
+      { id: "p4", name: "Duda", avatar: DEFAULT_AVATAR, isBot: false },
+      { id: "p5", name: "Edu", avatar: DEFAULT_AVATAR, isBot: false },
     ];
     const match = createSuspeitoMatch(playersWithBot, DEFAULT_ROOM_OPTIONS, 12345);
     match.phase = "working";
@@ -264,7 +263,7 @@ describe("Partida de Expediente Suspeito", () => {
       id: "body_behind_wall",
       victimId: "p5",
       victimName: "Edu",
-      avatar: {} as any,
+      avatar: DEFAULT_AVATAR,
       pos: { x: -8, z: 6.5 },
       sector: "rh",
       reported: false,
