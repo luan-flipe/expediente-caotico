@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   SuspeitoPrivate,
   SuspeitoRole,
@@ -58,6 +58,33 @@ export function SuspeitoHud({
     if (!me.canReport || !me.reportTargetBodyId) return;
     net.send({ t: "suspeitoReport", bodyId: me.reportTargetBodyId });
   };
+
+  // Suporte a atalhos de teclado (E/Espaço = Usar, Q = Eliminar, R = Reportar, F = Sabotar)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+
+      const k = e.key.toLowerCase();
+      if (k === "e" || e.code === "Space") {
+        if (me.nearbyInteractable) {
+          e.preventDefault();
+          handleInteract();
+        }
+      } else if (k === "q" && isSabotador && me.canKill) {
+        e.preventDefault();
+        handleKill();
+      } else if (k === "r" && me.canReport) {
+        e.preventDefault();
+        handleReport();
+      } else if (k === "f" && isSabotador) {
+        e.preventDefault();
+        onOpenSabotage();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [me, isSabotador]);
 
   return (
     <div className="suspeito-hud-layer">
