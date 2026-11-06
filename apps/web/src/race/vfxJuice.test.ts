@@ -365,3 +365,60 @@ describe("vfxJuice - 3D Comic Onomatopoeias (HQ Speech Bubbles)", () => {
     vfx.dispose();
   });
 });
+
+describe("chave de cache dos shaders", () => {
+  const comEfeitos = (mat: THREE.MeshStandardMaterial) => {
+    applyFresnelRimLight(mat, "#ffffff", 0.65, 2.5);
+    applyStylizedToonShading(mat);
+    return mat.customProgramCacheKey();
+  };
+
+  it("materiais diferentes com o mesmo shader dividem o programa, cada um com os próprios uniforms", () => {
+    const a = new THREE.MeshStandardMaterial({ color: "#ff0000" });
+    const b = new THREE.MeshStandardMaterial({ color: "#00ff00" });
+    applyFresnelRimLight(b, "#38bdf8", 0.9, 3);
+    applyStylizedToonShading(b);
+    applyFresnelRimLight(a, "#ffffff", 0.65, 2.5);
+    applyStylizedToonShading(a);
+    expect(a.customProgramCacheKey()).toBe(b.customProgramCacheKey());
+    expect(a.userData.rimUniforms.uRimPower.value).toBe(2.5);
+    expect(b.userData.rimUniforms.uRimPower.value).toBe(3);
+  });
+
+  it("não mistura o corpo com o rosto no shader com as roupas comuns", () => {
+    const corpo = new THREE.MeshStandardMaterial();
+    corpo.customProgramCacheKey = () => "bebe-corpo-vetor";
+    const roupa = new THREE.MeshStandardMaterial();
+    expect(comEfeitos(corpo)).not.toBe(comEfeitos(roupa));
+    expect(corpo.customProgramCacheKey()).toContain("bebe-corpo-vetor");
+  });
+
+  it("a ordem dos efeitos muda o shader e muda a chave", () => {
+    const a = new THREE.MeshStandardMaterial();
+    applyFresnelRimLight(a);
+    applyStylizedToonShading(a);
+    const b = new THREE.MeshStandardMaterial();
+    applyStylizedToonShading(b);
+    applyFresnelRimLight(b);
+    expect(a.customProgramCacheKey()).not.toBe(b.customProgramCacheKey());
+  });
+
+  it("a pele com o rosto no shader fica fora dos efeitos, e o resto do boneco não", () => {
+    const pele = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    pele.material.userData.rostoNoShader = true;
+    const camisa = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    const boneco = new THREE.Group().add(pele, camisa);
+    applyFresnelRimToHierarchy(boneco);
+    applyStylizedToonToHierarchy(boneco);
+    expect(pele.material.userData.hasToonShading).toBeUndefined();
+    expect(pele.material.userData.hasFresnelRim).toBeUndefined();
+    expect(camisa.material.userData.hasToonShading).toBe(true);
+    expect(camisa.material.userData.hasFresnelRim).toBe(true);
+  });
+
+  it("o piso encerado não divide programa com material sem o efeito", () => {
+    const piso = new THREE.MeshStandardMaterial();
+    applyWaxedFloorSheen(piso);
+    expect(piso.customProgramCacheKey()).not.toBe(new THREE.MeshStandardMaterial().customProgramCacheKey());
+  });
+});

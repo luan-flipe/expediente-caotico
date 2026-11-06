@@ -148,6 +148,7 @@ function tintBody(material: THREE.MeshStandardMaterial, skin: THREE.Color, iris:
       );
   };
   material.customProgramCacheKey = () => "bebe-corpo-vetor";
+  material.userData.rostoNoShader = true;
 }
 
 /**

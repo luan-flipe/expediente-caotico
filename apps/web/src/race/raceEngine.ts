@@ -24,23 +24,37 @@ import {
 } from "@ec/shared";
 import { loadMusic } from "../assets";
 import { nextRaceTrack, playCoffeeGulpSound, playFinalLapChime, playLandingBoostSound, playStaplerClickSound, playTauntSound, playTrickChime, RaceMusic } from "../sound";
-import { modelReady } from "../game/character";
+import { modelReady, preloadCharacter } from "../game/character";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { getState, net, setState } from "../store";
 import { inputBlocked } from "../pause";
 import { resetTouchInput, touchInput } from "../touch";
 import { ChatBubbles, chatText } from "../chatBubbles";
-import { buildRacer, chairModelReady, type Racer3D } from "./chairMesh";
+import { buildRacer, chairModelReady, preloadChair, type Racer3D } from "./chairMesh";
 import type { CharacterSeatedOptions } from "../game/character";
-import { createCommander, type Commander } from "./commander";
+import { createCommander, preloadCommander, type Commander } from "./commander";
 import { fadeMaterials, Ghost, GHOST_MINE, GHOST_RECORD, GHOST_RIVAL, nameTag } from "./ghosts";
 import type { Ghosts } from "../store";
-import { buildTrack } from "./trackScene";
+import { buildTrack, preloadParque, preloadRamp } from "./trackScene";
 import { buildParachute, parachuteFor } from "./parachute";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
 import { applyFresnelRimToHierarchy, applyStylizedToonToHierarchy, calculateDynamicFov, CasterBlobShadows, RaceVfxManager, type DriftLevel } from "./vfxJuice";
 import { TrackInteractiveManager, type KartInteractiveInfo } from "./trackInteractive";
+
+/** Limite de cada etapa do preparo (modelos, shaders): passou disso a corrida segue com o que tiver. */
+const PREPARO_LIMITE_MS = 12000;
+
+function comLimite(p: Promise<unknown>, ms: number): Promise<unknown> {
+  return new Promise((ok) => {
+    const timer = setTimeout(ok, ms);
+    const fim = () => {
+      clearTimeout(timer);
+      ok(undefined);
+    };
+    p.then(fim, fim);
+  });
+}
 
 interface Sample {
   t: number;
@@ -188,6 +202,10 @@ export class RaceEngine {
   private snapAt = 0;
   private sky: DynamicSky;
   private commander: Commander | null;
+  /** Preparo já começou (no primeiro snapshot, quando os karts existem). */
+  private preparando = false;
+  /** Shaders compilados: só a partir daqui a cena é desenhada. */
+  private preparada = false;
   private listener = new THREE.AudioListener();
   /** Canais de volume: música e efeitos passam cada um por um ganho antes do volume geral (o AudioListener). */
   private musicBus = this.listener.context.createGain();
@@ -273,8 +291,10 @@ export class RaceEngine {
     private readonly myId: string,
     private readonly track: Track,
   ) {
+    setState({ racePronta: false });
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // é o que o three usa de fato (o Soft foi removido e vira PCF no primeiro desenho); pedir o outro invalidaria a pré-compilação
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.sky = createDynamicSky(this.scene, {
       sunPosition: new THREE.Vector3(25, 45, 18),
@@ -720,6 +740,10 @@ export class RaceEngine {
       this.dropView(v);
       this.views.delete(id);
     }
+    if (!this.preparando) {
+      this.preparando = true;
+      void this.preparar();
+    }
 
     for (const b of s.boxes) {
       let m = this.boxes.get(b.id);
@@ -896,6 +920,37 @@ export class RaceEngine {
     this.pred = next;
   }
 
+  /**
+   * Espera os modelos e compila os shaders antes do primeiro desenho. Compilar no meio da cena trava o navegador por
+   * segundos; `compileAsync` não trava e também alcança o que está escondido (o confete da chegada, as partículas).
+   * Qualquer falha ou demora só cai no caminho antigo: a cena aparece e compila ao desenhar.
+   */
+  private async preparar(): Promise<void> {
+    try {
+      await comLimite(
+        Promise.all([preloadCharacter(), preloadChair(), preloadCommander(), this.track.ramps.length ? preloadRamp() : null, this.track.id === "parque" ? preloadParque() : null]),
+        PREPARO_LIMITE_MS,
+      );
+      if (!this.raf) return;
+      // o que chegou agora: o Comandante não existia ao montar a cena e os karts trocam o boneco provisório pelo GLB
+      if (!this.commander) {
+        this.commander = createCommander(this.track, this.listener, this.effectsBus);
+        if (this.commander) this.scene.add(this.commander.root);
+      }
+      for (const k of this.snap?.karts ?? []) this.viewFor(k);
+      await comLimite(this.renderer.compileAsync(this.scene, this.camera), PREPARO_LIMITE_MS);
+      if (!this.raf) return;
+      // primeiro quadro atrás da tela de preparo: as sombras e as texturas sobem aqui, antes de a contagem começar
+      this.renderer.render(this.scene, this.camera);
+    } catch (err) {
+      console.warn("preparo da corrida falhou, seguindo sem ele", err);
+    }
+    if (!this.raf) return;
+    this.preparada = true;
+    setState({ racePronta: true });
+    net.send({ t: "kpronto" });
+  }
+
   private viewFor(k: RaceKartPublic): KartView {
     const person = this.people.get(k.id);
     const key = JSON.stringify(person ?? k.name) + (modelReady() ? "|glb" : "") + (chairModelReady() ? "|cadeira" : "");
@@ -930,10 +985,6 @@ export class RaceEngine {
     // Sombra de contato suave sob as 5 rodinhas para pregar a cadeira no chão
     const blobShadows = new CasterBlobShadows(r3d.root);
     applyStylizedToonToHierarchy(r3d.root);
-    applyFresnelRimToHierarchy(r3d.root, "#ffffff", 0.65, 2.5);
-
-
-
 
     const tag = k.id === this.myId ? null : nameTag(k.name);
     if (tag) r3d.root.add(tag);
@@ -1370,7 +1421,8 @@ export class RaceEngine {
       this.updateCamera(dt);
     }
     this.sky.update(dt, this.camera.position);
-    this.renderer.render(this.scene, this.camera);
+    // na espera dos outros jogadores a tela de preparo cobre a pista: não gasta a placa de vídeo à toa
+    if (this.preparada && !this.snap?.aguardando) this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   };
 
