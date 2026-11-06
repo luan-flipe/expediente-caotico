@@ -6,7 +6,7 @@ import { FUT, FUT_COLORS, FUT_KITS } from "./balance";
 import { ballOut } from "./ball";
 import { attackDir } from "./bots";
 import { fieldFor } from "./field";
-import { activeOutfield, applyCard, isPenaltyFoul, judgeShove, judgeTackle, repeatCard } from "./fouls";
+import { activeOutfield, applyCard, isLastMan, isPenaltyFoul, judgeShove, judgeTackle, repeatCard } from "./fouls";
 import { startShootout, stepShootout } from "./penalties";
 import { restartForOut, startRestart } from "./restarts";
 import { nearMiss, recordKicks, recordPossession } from "./stats";
@@ -240,8 +240,8 @@ function judgeContacts(m: FutMatch, step: WorldStep): void {
       continue;
     }
     const sprint = step.inputs.get(tackler.id)?.sprint ?? false;
-    // disputa em pé só é falta se foi tranco forte; carrinho é julgado pela bola (e por trás ou em corrida vira cartão)
-    const j = ev.t === "steal" ? judgeShove(tackler, victim, ev.hard === true) : judgeTackle(tackler, victim, m.ball, "carrinho", sprint, ev.ballFirst);
+    // disputa em pé só é falta se foi tranco forte; carrinho é julgado pela bola (por trás vira amarelo; vermelho só por trás, em corrida e no último homem)
+    const j = ev.t === "steal" ? judgeShove(tackler, victim, ev.hard === true) : judgeTackle(tackler, victim, m.ball, "carrinho", sprint, ev.ballFirst, isLastMan(victim, tackler, m.players, m.ball));
     if (!j.foul) {
       continue;
     }

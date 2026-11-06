@@ -22,6 +22,9 @@ import {
   type ResultRow,
   type ServerMsg,
   type Snapshot,
+  type SuspeitoPrivate,
+  type SuspeitoResults,
+  type SuspeitoSnapshot,
 } from "@ec/shared";
 import { Connection } from "./net/connection";
 import { perfilDaUrl } from "./perfil";
@@ -70,8 +73,11 @@ export interface State {
   rme: RacePrivate | null;
   fsnap: FutSnapshot | null;
   fme: FutPrivate | null;
+  ssnap: SuspeitoSnapshot | null;
+  sme: SuspeitoPrivate | null;
   /** Resultado final do Futebol da Firma (a tela é da Tarefa 15). */
   futResults: FutResults | null;
+  suspeitoResults: SuspeitoResults | null;
   feed: FeedItem[];
   scoreboard: boolean;
   /** boneco_completo.glb carregado; telas refazem miniaturas e prévias. */
@@ -161,7 +167,10 @@ let state: State = {
   rme: null,
   fsnap: null,
   fme: null,
+  ssnap: null,
+  sme: null,
   futResults: null,
+  suspeitoResults: null,
   feed: [],
   scoreboard: false,
   modelReady: false,
@@ -316,8 +325,14 @@ function onMessage(msg: ServerMsg): void {
     case "fsnap":
       setState({ fsnap: msg.s, fme: msg.me });
       return;
+    case "ssnap":
+      setState({ ssnap: msg.s, sme: msg.me });
+      return;
     case "fresults":
       setState({ futResults: { rows: msg.rows, score: msg.score, awards: msg.awards, stats: msg.stats }, awards: msg.awards, results: null, raceResults: null, feed: [] });
+      return;
+    case "sresults":
+      setState({ suspeitoResults: msg.results, awards: msg.results.awards, results: null, raceResults: null, futResults: null, ssnap: null, sme: null, feed: [] });
       return;
     case "chat":
       setState({ chat: [...state.chat, { id: ++chatId, at: performance.now(), from: msg.from, kind: msg.kind, index: msg.index }].slice(-8) });

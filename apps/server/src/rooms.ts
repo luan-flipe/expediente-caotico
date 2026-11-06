@@ -60,6 +60,24 @@ import {
   setKartInput,
   stepMatch,
   stepRace,
+  buildSuspeitoPrivate,
+  buildSuspeitoSnapshot,
+  createSuspeitoMatch,
+  getSuspeitoResults,
+  queueSuspeitoEmergency,
+  queueSuspeitoFixSabotage,
+  queueSuspeitoKill,
+  queueSuspeitoMeetingChat,
+  queueSuspeitoReport,
+  queueSuspeitoSabotage,
+  queueSuspeitoStartTask,
+  queueSuspeitoTaskAction,
+  queueSuspeitoVote,
+  removeSuspeitoPlayer,
+  setSuspeitoInput,
+  stepSuspeitoMatch,
+  type SuspeitoMatch,
+  type SuspeitoResults,
   type AvatarDNA,
   type Cup,
   type CupSize,
@@ -161,6 +179,7 @@ export class Room {
   match: Match | null = null;
   race: RaceMatch | null = null;
   futebol: FutMatch | null = null;
+  suspeito: SuspeitoMatch | null = null;
   futResults: FutResultRowFull[] | null = null;
   futScore: FutScore | null = null;
   futStats: FutMatchStats | null = null;
@@ -170,6 +189,7 @@ export class Room {
   results: ResultRow[] | null = null;
   awards: Award[] = [];
   raceResults: RaceResultRow[] | null = null;
+  suspeitoResults: SuspeitoResults | null = null;
   /** Recorde por pista visto nesta sala quando não há arquivo de dados. */
   private roomRecords: Partial<Record<TrackId, GhostLap & { name: string }>> = {};
   private timer: NodeJS.Timeout | null = null;
@@ -331,6 +351,7 @@ export class Room {
 
   removeMember(id: string): void {
     this.members.delete(id);
+    if (this.suspeito) removeSuspeitoPlayer(this.suspeito, id);
     if (this.hostId === id) {
       const next = this.humans().find((h) => h.conn) ?? this.humans()[0];
       this.hostId = next?.id ?? "";
@@ -376,6 +397,8 @@ export class Room {
           .map((h) => ({ id: h.id, name: h.name, avatar: h.avatar, side: h.side ?? 0, isBot: false, accountId: h.accountId })),
         teams,
       });
+    } else if (this.mode === "suspeito") {
+      this.suspeito = createSuspeitoMatch(players, this.options, seed);
     } else if (this.mode !== "shooter") this.race = createRace({ seed, players, graceMs: this.raceOpts.graceMs, laps, itemsOff: !items, botLevel, timeTrial: trial, track });
     else this.match = createMatch({ durationMs: this.durationMs, seed, players, botLevel, submode: this.shooterSubmode });
     this.phase = "match";
@@ -384,6 +407,7 @@ export class Room {
     this.futResults = null;
     this.futScore = null;
     this.futStats = null;
+    this.suspeitoResults = null;
     this.tickCount = 0;
     const faltam = new Set(this.humans().filter((h) => h.conn).map((h) => h.id));
     const esperaMs = this.raceOpts.esperaMs ?? 0;
@@ -394,7 +418,7 @@ export class Room {
     this.pendingMs = 0;
     // intervalo menor que o passo: no Windows o timer arredonda para ~16 ms e a partida andaria mais devagar
     this.timer = setInterval(() => this.tick(), TICK_MS / 2);
-    log(`[${this.code}] ${this.mode === "futebol" ? "futebol" : this.mode === "shooter" ? (this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida") : "corrida"} iniciada com ${this.members.size} participantes`);
+    log(`[${this.code}] ${this.mode === "futebol" ? "futebol" : this.mode === "suspeito" ? "expediente suspeito" : this.mode === "shooter" ? (this.shooterSubmode === "zombies" ? "sobrevivência zumbi" : "partida") : "corrida"} iniciada com ${this.members.size} participantes`);
     return null;
   }
 
@@ -420,6 +444,7 @@ export class Room {
     this.match = null;
     this.race = null;
     this.futebol = null;
+    this.suspeito = null;
     this.cupMatch = null;
     this.phase = "lobby";
     for (const mem of this.members.values()) mem.ready = false;
@@ -428,6 +453,7 @@ export class Room {
   }
 
   private step(): void {
+    if (this.suspeito) return this.stepSuspeito(this.suspeito);
     if (this.race) return this.stepRace(this.race);
     if (this.futebol) return this.stepFut(this.futebol);
     const m = this.match;
@@ -443,6 +469,20 @@ export class Room {
       }
     }
     if (m.phase === "finished") this.finish();
+  }
+
+  private stepSuspeito(s: SuspeitoMatch): void {
+    stepSuspeitoMatch(s, TICK_MS / 1000);
+    this.tickCount++;
+    if (this.tickCount % BALANCE.snapshotEvery === 0 || s.phase === "over") {
+      const snapJson = JSON.stringify(buildSuspeitoSnapshot(s));
+      for (const mem of this.members.values()) {
+        if (!mem.conn) continue;
+        const priv = buildSuspeitoPrivate(s, mem.id);
+        send(mem.conn, `{"t":"ssnap","s":${snapJson},"me":${JSON.stringify(priv)}}`);
+      }
+    }
+    if (s.phase === "over") this.finish();
   }
 
   /** Pista da corrida em andamento ou, fora dela, a escolhida pelo anfitrião. */
@@ -586,7 +626,14 @@ export class Room {
   private finish(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (this.futebol) {
+    if (this.suspeito) {
+      this.suspeitoResults = getSuspeitoResults(this.suspeito);
+      this.awards = this.suspeitoResults.awards;
+      this.results = null;
+      this.raceResults = null;
+      this.futResults = null;
+      this.futScore = null;
+    } else if (this.futebol) {
       this.futResults = getFutResults(this.futebol);
       this.futScore = getFutScore(this.futebol);
       this.futStats = getFutStats(this.futebol);
@@ -610,6 +657,7 @@ export class Room {
     this.match = null;
     this.race = null;
     this.futebol = null;
+    this.suspeito = null;
     this.phase = "results";
     for (const mem of this.members.values()) mem.ready = false;
     for (const id of [...this.members.keys()]) {
@@ -617,7 +665,8 @@ export class Room {
       if (!mem.isBot && !mem.conn) this.removeMember(id);
     }
     const fmsg = this.futResultsMsg();
-    if (fmsg) this.broadcast(fmsg);
+    if (this.suspeitoResults) this.broadcast({ t: "sresults", results: this.suspeitoResults });
+    else if (fmsg) this.broadcast(fmsg);
     else if (this.raceResults) this.broadcast({ t: "rresults", rows: this.raceResults, awards: this.awards });
     else if (this.results) this.broadcast({ t: "results", rows: this.results, awards: this.awards });
     this.broadcastLobby();
@@ -747,6 +796,11 @@ export class Room {
           this.options.futCup = msg.futCup;
           this.cup = null;
         }
+        if (msg.suspeitoImpostors !== undefined) this.options.suspeitoImpostors = msg.suspeitoImpostors;
+        if (msg.suspeitoDiscussionSec !== undefined) this.options.suspeitoDiscussionSec = msg.suspeitoDiscussionSec;
+        if (msg.suspeitoVotingSec !== undefined) this.options.suspeitoVotingSec = msg.suspeitoVotingSec;
+        if (msg.suspeitoKillCooldownSec !== undefined) this.options.suspeitoKillCooldownSec = msg.suspeitoKillCooldownSec;
+        if (msg.suspeitoTasksPerPlayer !== undefined) this.options.suspeitoTasksPerPlayer = msg.suspeitoTasksPerPlayer;
         return this.broadcastLobby();
       case "start": {
         if (!isHost) return;
@@ -774,6 +828,45 @@ export class Room {
       }
       case "futInput":
         if (this.futebol) setFutInput(this.futebol, member.id, msg, msg.seq);
+        return;
+      case "suspeitoInput":
+        if (this.suspeito) setSuspeitoInput(this.suspeito, member.id, msg);
+        return;
+      case "suspeitoKill":
+        if (this.suspeito) queueSuspeitoKill(this.suspeito, member.id, msg.targetId);
+        return;
+      case "suspeitoReport":
+        if (this.suspeito) queueSuspeitoReport(this.suspeito, member.id, msg.bodyId);
+        return;
+      case "suspeitoEmergency":
+        if (this.suspeito) queueSuspeitoEmergency(this.suspeito, member.id);
+        return;
+      case "suspeitoVote":
+        if (this.suspeito) queueSuspeitoVote(this.suspeito, member.id, msg.targetIdOrSkip);
+        return;
+      case "suspeitoChat":
+        if (this.suspeito) {
+          queueSuspeitoMeetingChat(
+            this.suspeito,
+            member.id,
+            msg.text,
+            msg.kind ?? "chat",
+            msg.targetId,
+            msg.skipDiscussion
+          );
+        }
+        return;
+      case "suspeitoSabotage":
+        if (this.suspeito) queueSuspeitoSabotage(this.suspeito, member.id, msg.sabotageType);
+        return;
+      case "suspeitoFixSabotage":
+        if (this.suspeito) queueSuspeitoFixSabotage(this.suspeito, member.id);
+        return;
+      case "suspeitoStartTask":
+        if (this.suspeito) queueSuspeitoStartTask(this.suspeito, member.id, msg.taskId);
+        return;
+      case "suspeitoTaskAction":
+        if (this.suspeito) queueSuspeitoTaskAction(this.suspeito, member.id, msg);
         return;
       case "chat":
       case "emote": {
@@ -856,9 +949,14 @@ export class Room {
       }
     }
     const p = this.match?.players.get(member.id);
-    if (!p) return;
-    p.connected = member.conn !== null;
-    if (!p.connected) p.input = { mx: 0, mz: 0, yaw: p.yaw, fire: false };
+    if (p) {
+      p.connected = member.conn !== null;
+      if (!p.connected) p.input = { mx: 0, mz: 0, yaw: p.yaw, fire: false };
+    }
+    const sp = this.suspeito?.players.get(member.id);
+    if (sp && member.conn === null) {
+      sp.input = { mx: 0, mz: 0, yaw: sp.yaw };
+    }
   }
 }
 

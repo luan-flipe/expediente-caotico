@@ -145,8 +145,9 @@ export function Lobby() {
   }, [hasReactions]);
   const trial = lobby.mode === "timetrial";
   const futebol = lobby.mode === "futebol";
+  const suspeito = lobby.mode === "suspeito";
   const race = lobby.mode === "race" || trial;
-  const isZombies = !race && !futebol && lobby.shooterSubmode === "zombies";
+  const isZombies = !race && !futebol && !suspeito && lobby.shooterSubmode === "zombies";
 
   const opts = lobby.options;
   const botRow = (
@@ -374,9 +375,12 @@ export function Lobby() {
                 <button className={futebol ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "futebol" })}>
                   Futebol da Firma
                 </button>
+                <button className={suspeito ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "mode", mode: "suspeito" })}>
+                  Expediente Suspeito
+                </button>
               </div>
             </div>
-            {!race && !futebol && (
+            {!race && !futebol && !suspeito && (
               <div className="row">
                 <span className="muted">Tipo:</span>
                 <div className="seg">
@@ -398,7 +402,63 @@ export function Lobby() {
               </div>
             )}
 
-            {futebol ? (
+            {suspeito ? (
+              <>
+                <div className="row">
+                  <span className="muted">Sabotadores:</span>
+                  <div className="seg">
+                    {[1, 2, 3].map((n) => (
+                      <button key={n} className={(opts.suspeitoImpostors ?? 1) === n ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", suspeitoImpostors: n })}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="row">
+                  <span className="muted">Tarefas:</span>
+                  <div className="seg">
+                    {[2, 3, 4, 6].map((n) => (
+                      <button key={n} className={(opts.suspeitoTasksPerPlayer ?? 4) === n ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", suspeitoTasksPerPlayer: n })}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="row">
+                  <span className="muted">Discussão:</span>
+                  <div className="seg">
+                    {[15, 25, 40].map((s) => (
+                      <button key={s} className={(opts.suspeitoDiscussionSec ?? 25) === s ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", suspeitoDiscussionSec: s })}>
+                        {s}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="row">
+                  <span className="muted">Votação:</span>
+                  <div className="seg">
+                    {[15, 25, 40].map((s) => (
+                      <button key={s} className={(opts.suspeitoVotingSec ?? 25) === s ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", suspeitoVotingSec: s })}>
+                        {s}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="row">
+                  <span className="muted">Recarga eliminação:</span>
+                  <div className="seg">
+                    {[15, 25, 35].map((s) => (
+                      <button key={s} className={(opts.suspeitoKillCooldownSec ?? 25) === s ? "on" : ""} disabled={!isHost} onClick={() => net.send({ t: "options", suspeitoKillCooldownSec: s })}>
+                        {s}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="row">
+                  <span className="muted">Dedução social corporativa: colaboradores completam tarefas de palavras (TERMO, CONEXO, CONTEXTO) enquanto sabotadores eliminam e criam panes.</span>
+                </div>
+              </>
+            ) : futebol ? (
               <>
                 <div className="row">
                   <span className="muted">Formato:</span>

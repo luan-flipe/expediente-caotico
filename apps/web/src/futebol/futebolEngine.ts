@@ -24,7 +24,7 @@ import { createDynamicSky, type DynamicSky } from "../game/sky";
 import { inputBlocked } from "../pause";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
-import { playCrowd, playKick, playNet, playWhistle } from "../sound";
+import { playCrowd, playKick, playNet, playWhistle, setCrowdAmbience, startCrowdAmbience, stopCrowdAmbience } from "../sound";
 import { getState, net, setState } from "../store";
 import { IS_TOUCH, resetTouchInput, touchInput } from "../touch";
 import ballUrl from "../assets/futebol/bola.glb?url";
@@ -39,7 +39,9 @@ import { Juiz } from "./juiz";
 import { DIVE_LIFT, DIVE_MS, DIVE_REACH, DIVE_ROLL, SLUMP, diveAmount, diveSide } from "./reacoes";
 import { penaltyAttackSide, penaltyRole, pickedSide, tagScale } from "./penaltyUi";
 import { createGolMesh, disposeGolMesh } from "./golMesh";
-import { approachYaw, yawToward } from "./cameraBola";
+import { carryWeight, localBallPos } from "./bolaLocal";
+import { crowdLevel } from "./torcidaSom";
+import { approachYaw, cameraYawTarget, yawToward } from "./cameraBola";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
 import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
 import { Torcida } from "./torcida";
@@ -278,6 +280,8 @@ export class FutebolEngine {
   private vis = { x: 0, z: 0 };
   private charge = newCharge();
   private myPos = new THREE.Vector3();
+  /** Quanto a bola desenhada segue meu boneco predito (0 a 1; ver bolaLocal.ts). */
+  private carryW = 0;
   /** Direção em que meu boneco aparece olhando quando está parado sem a bola (vira para a bola). */
   private meFace: number | null = null;
   // temporários do quadro (nada de new por frame)
@@ -484,7 +488,7 @@ export class FutebolEngine {
       this.cleanup.push(() => target.removeEventListener(t, fn as EventListener));
     };
     const canvas = this.canvas;
-    // o mouse só move a câmera: o clique prende o mouse (pointer lock) e mais nada
+    // o mouse só gira a câmera de quem cobra uma reposição: o clique prende o mouse (pointer lock) e mais nada
     const grab = (e: MouseEvent) => {
       // quem só assiste não prende o mouse: precisa dele para os botões de câmera
       if (this.locked || IS_TOUCH || e.button !== 0 || inputBlocked(getState()) || this.isSpectating()) return;
@@ -959,11 +963,26 @@ export class FutebolEngine {
     return { t: rt, x: a.x + (c.x - a.x) * k, y: a.y + (c.y - a.y) * k, z: a.z + (c.z - a.z) * k, f: angleLerp(a.f, c.f, k) };
   }
 
+  /** Torcida de fundo: liga com a partida em andamento, sobe com a bola perto do gol, cala no menu de pausa e no fim. */
+  private updateAmbience(): void {
+    const s = this.snap;
+    if (!s || !this.field || s.phase === "over") {
+      stopCrowdAmbience();
+      return;
+    }
+    startCrowdAmbience();
+    setCrowdAmbience(getState().pauseOpen ? null : s.phase === "goal" ? 0.7 : crowdLevel(s.ball, this.field.halfL));
+  }
+
   private step(dt: number, now: number): void {
     this.chat.update(now, (id) => this.views.get(id)?.char.root);
+    this.updateAmbience();
     if (this.autoYaw()) {
-      // sem a bola a câmera gira sozinha até a bola; o mesmo yaw vale para o WASD e para o input enviado
-      this.yaw = approachYaw(this.yaw, yawToward(this.myPos, this.ball.position, this.yaw), dt);
+      // a câmera gira sozinha: com a bola, para o gol adversário; sem ela, para a bola. O mesmo yaw vale para o WASD e para o input enviado
+      const mine = this.snap?.players.find((p) => p.id === this.myId);
+      const goal = { x: (mine?.side === 1 ? -1 : 1) * (this.field?.halfL ?? 0), z: 0 };
+      const hasBall = this.snap?.ball.ownerId === this.myId;
+      this.yaw = approachYaw(this.yaw, cameraYawTarget(this.myPos, this.ball.position, goal, hasBall, this.yaw), dt);
     } else if (!this.fixedYaw) {
       if (this.keys.has("ArrowLeft")) this.yaw += dt * 2.2;
       if (this.keys.has("ArrowRight")) this.yaw -= dt * 2.2;
@@ -1058,6 +1077,15 @@ export class FutebolEngine {
 
     // bola
     const bs = rs ? { t: rt, x: rs.ball.x, y: rs.ball.y, z: rs.ball.z, f: 0 } : this.sampleAt(this.ballBuf, rt);
+    if (bs && !rs) {
+      // dono da bola: ela acompanha meu boneco predito (sem atraso) em vez de ficar 120 ms para trás, debaixo do pé
+      const meBuf = this.pred ? this.views.get(this.myId)?.buf : undefined;
+      this.carryW = carryWeight(this.carryW, !!meBuf && this.snap?.ball.ownerId === this.myId, dt);
+      const at = this.carryW > 0 && meBuf ? this.sampleAt(meBuf, rt) : null;
+      const p = localBallPos(bs, at, this.myPos, this.carryW);
+      bs.x = p.x;
+      bs.z = p.z;
+    }
     if (bs) {
       this.ball.position.set(bs.x, bs.y, bs.z);
       this.ballShadow.position.set(bs.x, 0.06, bs.z);
@@ -1340,20 +1368,19 @@ export class FutebolEngine {
   }
 
   /**
-   * Sem a bola o yaw gira sozinho para ela; com a bola (ou cobrando uma reposição) é do jogador.
-   * Fora da partida normal (pênaltis, comemoração, replay, espectador) nada muda.
+   * Na partida normal o yaw é automático (com a bola, para o gol adversário; sem ela, para a bola) e mouse e setas não giram.
+   * Quem cobra uma reposição mantém o yaw livre. Fora da partida normal (pênaltis, comemoração, replay, espectador) nada muda.
    */
   private autoYaw(): boolean {
     const s = this.snap;
     if (!s || !this.field || !this.yawReady || this.replay || this.isSpectating()) return false;
     if (s.phase === "penalties" || s.phase === "over" || (s.phase === "goal" && this.fx.active)) return false;
-    if (s.ball.ownerId === this.myId) return false;
     return !(s.restart && s.restart.takerId === this.myId);
   }
 
   /** Meu boneco parado e sem a bola olha para ela; andando, vale a direção do movimento. */
   private faceBall(f: number, speed: number, down: boolean, dt: number): number {
-    const target = this.autoYaw() && speed < 0.5 && !down ? yawToward(this.myPos, this.ball.position, f) : f;
+    const target = this.autoYaw() && this.snap?.ball.ownerId !== this.myId && speed < 0.5 && !down ? yawToward(this.myPos, this.ball.position, f) : f;
     this.meFace = approachYaw(this.meFace ?? f, target, dt, 10, 8);
     return this.meFace;
   }
@@ -1391,6 +1418,7 @@ export class FutebolEngine {
 
   dispose(): void {
     this.disposed = true;
+    stopCrowdAmbience();
     cancelAnimationFrame(this.raf);
     for (const c of this.cleanup) c();
     resetTouchInput();
