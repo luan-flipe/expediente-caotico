@@ -24,6 +24,7 @@ Jogo de navegador ambientado no escritório. Cada pessoa monta um boneco parecid
 pnpm install        # instala tudo
 pnpm dev            # servidor em :2567 e cliente em http://localhost:5173
 pnpm test           # testes (regras do jogo + integração WebSocket)
+pnpm test:smoke     # smoke das partidas no navegador (~6 min, builda antes; 1a vez: npx playwright install chromium)
 pnpm typecheck      # TypeScript nos 3 pacotes
 pnpm lint           # ESLint
 pnpm build          # build do cliente e do servidor
