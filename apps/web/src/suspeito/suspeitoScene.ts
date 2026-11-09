@@ -20,6 +20,7 @@ import {
   createWallMaterial,
   createWoodMaterial,
 } from "../game/floorTextures";
+import { juntarMalhas } from "../game/juntarMalhas";
 
 function mesh(
   geo: THREE.BufferGeometry,
@@ -29,6 +30,7 @@ function mesh(
   z: number,
   shadow = true,
 ): THREE.Mesh {
+  geo.clearGroups();
   const m = new THREE.Mesh(geo, mat);
   m.position.set(x, y, z);
   m.castShadow = shadow;
@@ -162,6 +164,26 @@ function createBodyAlertTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
+function createPropMaterials() {
+  return {
+    darkMetal: new THREE.MeshStandardMaterial({ color: "#1e293b", roughness: 0.35, metalness: 0.5 }),
+    lightDesk: createWoodMaterial("#d7ccc8", 0.35, 2, 1),
+    woodMat: createWoodMaterial("#6d4c41", 0.3, 2, 1),
+    mahoganyMat: createWoodMaterial("#4e342e", 0.24, 2, 1),
+    plantPotMat: new THREE.MeshStandardMaterial({ color: "#9a3412", roughness: 0.55 }),
+    plantSoilMat: new THREE.MeshStandardMaterial({ color: "#271c19", roughness: 0.95 }),
+    plantTrunkMat: createWoodMaterial("#5d4037", 0.75, 1, 1),
+    plantLeafMat: createBushMaterial("#15803d", 2, 2),
+    plantLeafLightMat: createBushMaterial("#22c55e", 2, 2),
+    codeScreenMat: createMonitorScreenMaterial("code"),
+    chartScreenMat: createMonitorScreenMaterial("chart"),
+    dashScreenMat: createMonitorScreenMaterial("dashboard"),
+    secScreenMat: createMonitorScreenMaterial("security"),
+  };
+}
+
+type PropMaterials = ReturnType<typeof createPropMaterials>;
+
 function floorArchetypeName(sectorId: string, sectorName: string): string {
   if (sectorId === "diretoria" || sectorId === "reuniao") return `Gestão Executiva ${sectorName}`;
   if (sectorId === "copa") return `Cozinha ${sectorName}`;
@@ -174,7 +196,12 @@ export class SuspeitoSceneManager {
   scene: THREE.Scene;
   bodyMeshes = new Map<string, { grp: THREE.Group; char: Character }>();
   taskBeaconGroup = new THREE.Group();
+  private statics = new THREE.Group();
   private beacons = new Map<string, THREE.Group>();
+  private beaconGeos = new Map<string, { base: THREE.BufferGeometry; pole: THREE.BufferGeometry }>();
+  private bodyMarkGeo = new THREE.CylinderGeometry(0.92, 0.92, 0.02, 24);
+  private paperGeo = new THREE.PlaneGeometry(0.32, 0.42);
+  private paperMat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.8 });
   private stationScreens = new Map<string, THREE.Mesh>();
   private fixBeacon: THREE.Group;
   private killTargetRing: THREE.Mesh;
@@ -285,6 +312,12 @@ export class SuspeitoSceneManager {
 
     this.buildOfficeLayout();
     this.buildTaskStationTerminals();
+    juntarMalhas(this.statics, this.stationScreens.values());
+    this.statics.updateMatrixWorld(true);
+    this.statics.traverse((o) => {
+      o.matrixAutoUpdate = false;
+    });
+    this.scene.add(this.statics);
 
     this.scene.add(this.taskBeaconGroup);
     this.fixBeacon = this.makeBeacon(this.fixMat, this.alertTex, 1.05, 2.2);
@@ -321,9 +354,18 @@ export class SuspeitoSceneManager {
   }
 
   private makeBeacon(mat: THREE.Material, tex: THREE.Texture, radius = 0.72, height = 1.25): THREE.Group {
+    const key = `${radius}|${height}`;
+    let geos = this.beaconGeos.get(key);
+    if (!geos) {
+      geos = {
+        base: new THREE.CylinderGeometry(radius, radius, 0.05, 24),
+        pole: new THREE.CylinderGeometry(0.07, 0.07, height, 10),
+      };
+      this.beaconGeos.set(key, geos);
+    }
     const g = new THREE.Group();
-    g.add(mesh(new THREE.CylinderGeometry(radius, radius, 0.05, 24), mat, 0, 0.03, 0, false));
-    g.add(mesh(new THREE.CylinderGeometry(0.07, 0.07, height, 10), mat, 0, height / 2, 0, false));
+    g.add(mesh(geos.base, mat, 0, 0.03, 0, false));
+    g.add(mesh(geos.pole, mat, 0, height / 2, 0, false));
     const tip = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
     tip.name = "tip";
     tip.position.y = height + 0.45;
@@ -344,13 +386,13 @@ export class SuspeitoSceneManager {
     }).material;
     const baseFloor = mesh(new THREE.PlaneGeometry(68, 52), corridorMat, 0, -0.01, 0, false);
     baseFloor.rotation.x = -Math.PI / 2;
-    this.scene.add(baseFloor);
+    this.statics.add(baseFloor);
 
     // Calçada arquitetônica externa e gramado noturno ao redor do prédio
     const sidewalkMat = new THREE.MeshStandardMaterial({ color: "#1e293b", roughness: 0.85, metalness: 0.08 });
     const sidewalk = mesh(new THREE.PlaneGeometry(74, 58), sidewalkMat, 0, -0.025, 0, false);
     sidewalk.rotation.x = -Math.PI / 2;
-    this.scene.add(sidewalk);
+    this.statics.add(sidewalk);
 
     const outerSurroundMat = createOutdoorGroundMaterial({
       repeatX: 28,
@@ -359,9 +401,10 @@ export class SuspeitoSceneManager {
     });
     const outerGround = mesh(new THREE.PlaneGeometry(140, 120), outerSurroundMat, 0, -0.04, 0, false);
     outerGround.rotation.x = -Math.PI / 2;
-    this.scene.add(outerGround);
+    this.statics.add(outerGround);
 
     // 2. Setores individuais com texturas PBR procedurais (carpete, madeira, cerâmica, porcelanato, chapa metálica)
+    const propMats = createPropMaterials();
     for (const sector of Object.values(SECTORS)) {
       const { material: sectorFloorMat } = createRoomFloorMaterial({
         name: floorArchetypeName(sector.id, sector.name),
@@ -381,7 +424,7 @@ export class SuspeitoSceneManager {
         false,
       );
       floor.rotation.x = -Math.PI / 2;
-      this.scene.add(floor);
+      this.statics.add(floor);
 
       // Soleira e faixa de borda metálica na cor do setor
       const sectorBorderMat = new THREE.MeshStandardMaterial({
@@ -397,7 +440,7 @@ export class SuspeitoSceneManager {
         sector.z,
         false,
       );
-      this.scene.add(border);
+      this.statics.add(border);
 
       // Placa de identificação do setor impressa no chão
       const signTex = createSectorLabelTexture(sector.name, sector.color);
@@ -421,9 +464,9 @@ export class SuspeitoSceneManager {
         false,
       );
       signPlane.rotation.x = -Math.PI / 2;
-      this.scene.add(signPlane);
+      this.statics.add(signPlane);
 
-      this.buildSectorProps(sector);
+      this.buildSectorProps(sector, propMats);
     }
 
     // 3. Mesa de conferência central, tapete executivo, cadeiras e Botão de Emergência
@@ -434,6 +477,7 @@ export class SuspeitoSceneManager {
     const wallRailMat = new THREE.MeshStandardMaterial({ color: "#475569", roughness: 0.42, metalness: 0.35 });
     const wallTrimMat = new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.38, metalness: 0.42 });
     const wallH = 1.95;
+    const wallMat = createWallMaterial("#cbd5e1");
 
     for (const wall of SUSPEITO_WALLS) {
       // Pula o colisor da mesa de reunião (já desenhada em buildConferenceCenter)
@@ -446,11 +490,14 @@ export class SuspeitoSceneManager {
       const cx = (wall.minX + wall.maxX) / 2;
       const cz = (wall.minZ + wall.maxZ) / 2;
 
+      // repetição da textura na UV, não no material: assim todas as paredes dividem um material e viram uma malha só
       const repX = Math.max(1, Math.round(Math.max(w, d) / 2.6));
-      const wallMat = createWallMaterial("#cbd5e1", repX, 1);
+      const wallGeo = new THREE.BoxGeometry(w, wallH, d);
+      const uv = wallGeo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * repX);
 
-      const wallMesh = mesh(new THREE.BoxGeometry(w, wallH, d), wallMat, cx, wallH / 2, cz);
-      this.scene.add(wallMesh);
+      const wallMesh = mesh(wallGeo, wallMat, cx, wallH / 2, cz);
+      this.statics.add(wallMesh);
 
       // Sombra de contato (Ambient Occlusion) suave no piso ao redor da parede
       const aoMesh = mesh(
@@ -462,7 +509,7 @@ export class SuspeitoSceneManager {
         false,
       );
       aoMesh.rotation.x = -Math.PI / 2;
-      this.scene.add(aoMesh);
+      this.statics.add(aoMesh);
 
       // Rodapé escuro
       const baseMesh = mesh(
@@ -473,7 +520,7 @@ export class SuspeitoSceneManager {
         cz,
         false,
       );
-      this.scene.add(baseMesh);
+      this.statics.add(baseMesh);
 
       // Friso metálico intermediário (bate-maca / acabamento corporativo)
       const railMesh = mesh(
@@ -484,7 +531,7 @@ export class SuspeitoSceneManager {
         cz,
         false,
       );
-      this.scene.add(railMesh);
+      this.statics.add(railMesh);
 
       // Moldura superior
       const trimMesh = mesh(
@@ -495,7 +542,7 @@ export class SuspeitoSceneManager {
         cz,
         false,
       );
-      this.scene.add(trimMesh);
+      this.statics.add(trimMesh);
     }
   }
 
@@ -514,20 +561,20 @@ export class SuspeitoSceneManager {
     const rugBorderMat = new THREE.MeshStandardMaterial({ color: "#d97706", roughness: 0.65, metalness: 0.15 });
 
     // Tapete executivo sob a mesa de conferência com borda dourada
-    this.scene.add(mesh(new THREE.BoxGeometry(tableW + 2.2, 0.016, tableD + 2.0), rugBorderMat, tableX, 0.048, tableZ, false));
-    this.scene.add(mesh(new THREE.BoxGeometry(tableW + 1.9, 0.02, tableD + 1.7), rugMat, tableX, 0.05, tableZ, false));
+    this.statics.add(mesh(new THREE.BoxGeometry(tableW + 2.2, 0.016, tableD + 2.0), rugBorderMat, tableX, 0.048, tableZ, false));
+    this.statics.add(mesh(new THREE.BoxGeometry(tableW + 1.9, 0.02, tableD + 1.7), rugMat, tableX, 0.05, tableZ, false));
 
     // Sombra de contato (AO) sob a mesa central
     const tableAo = mesh(new THREE.PlaneGeometry(tableW + 0.3, tableD + 0.3), this.contactAoMat, tableX, 0.053, tableZ, false);
     tableAo.rotation.x = -Math.PI / 2;
-    this.scene.add(tableAo);
+    this.statics.add(tableAo);
 
     // Base e tampo chanfrado de madeira nobre envernizada da mesa central
-    this.scene.add(mesh(new THREE.BoxGeometry(tableW - 0.8, 0.68, tableD - 0.8), metalLegMat, tableX, 0.34, tableZ));
-    this.scene.add(mesh(new THREE.BoxGeometry(tableW + 0.12, 0.09, tableD + 0.12), woodEdgeMat, tableX, 0.7, tableZ));
-    this.scene.add(mesh(new THREE.BoxGeometry(tableW - 0.08, 0.06, tableD - 0.08), woodTopMat, tableX, 0.76, tableZ));
+    this.statics.add(mesh(new THREE.BoxGeometry(tableW - 0.8, 0.68, tableD - 0.8), metalLegMat, tableX, 0.34, tableZ));
+    this.statics.add(mesh(new THREE.BoxGeometry(tableW + 0.12, 0.09, tableD + 0.12), woodEdgeMat, tableX, 0.7, tableZ));
+    this.statics.add(mesh(new THREE.BoxGeometry(tableW - 0.08, 0.06, tableD - 0.08), woodTopMat, tableX, 0.76, tableZ));
     // Calha central de tomadas/conectividade na mesa de reunião
-    this.scene.add(mesh(new THREE.BoxGeometry(tableW - 2.4, 0.015, 0.28), metalLegMat, tableX, 0.792, tableZ, false));
+    this.statics.add(mesh(new THREE.BoxGeometry(tableW - 2.4, 0.015, 0.28), metalLegMat, tableX, 0.792, tableZ, false));
 
     // Cadeiras executivas estofadas com base cromada e apoios de braço (dentro da sombra do colisor)
     const chairOffsetsX = [-2.2, -0.75, 0.75, 2.2];
@@ -535,16 +582,16 @@ export class SuspeitoSceneManager {
       for (const side of [-1, 1]) {
         const cz = tableZ + side * (tableD / 2 - 0.14);
         // Pedestal cromado
-        this.scene.add(mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.24, 8), chromeMat, tableX + ox, 0.12, cz, false));
-        this.scene.add(mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.03, 10), metalLegMat, tableX + ox, 0.02, cz, false));
+        this.statics.add(mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.24, 8), chromeMat, tableX + ox, 0.12, cz, false));
+        this.statics.add(mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.03, 10), metalLegMat, tableX + ox, 0.02, cz, false));
         // Assento e encosto estofados
-        this.scene.add(mesh(new THREE.BoxGeometry(0.64, 0.12, 0.56), chairSeatMat, tableX + ox, 0.28, cz, false));
-        this.scene.add(
+        this.statics.add(mesh(new THREE.BoxGeometry(0.64, 0.12, 0.56), chairSeatMat, tableX + ox, 0.28, cz, false));
+        this.statics.add(
           mesh(new THREE.BoxGeometry(0.62, 0.54, 0.12), chairSeatMat, tableX + ox, 0.58, cz + side * 0.22, false),
         );
         // Braços da poltrona
-        this.scene.add(mesh(new THREE.BoxGeometry(0.06, 0.18, 0.42), metalLegMat, tableX + ox - 0.31, 0.41, cz, false));
-        this.scene.add(mesh(new THREE.BoxGeometry(0.06, 0.18, 0.42), metalLegMat, tableX + ox + 0.31, 0.41, cz, false));
+        this.statics.add(mesh(new THREE.BoxGeometry(0.06, 0.18, 0.42), metalLegMat, tableX + ox - 0.31, 0.41, cz, false));
+        this.statics.add(mesh(new THREE.BoxGeometry(0.06, 0.18, 0.42), metalLegMat, tableX + ox + 0.31, 0.41, cz, false));
       }
     }
 
@@ -552,8 +599,8 @@ export class SuspeitoSceneManager {
     const laptopMat = new THREE.MeshStandardMaterial({ color: "#94a3b8", roughness: 0.3, metalness: 0.7 });
     const padMat = new THREE.MeshStandardMaterial({ color: "#fef9c3", roughness: 0.85 });
     for (const lx of [-2.2, 2.2]) {
-      this.scene.add(mesh(new THREE.BoxGeometry(0.42, 0.02, 0.3), laptopMat, tableX + lx, 0.8, tableZ - 0.9, false));
-      this.scene.add(mesh(new THREE.BoxGeometry(0.32, 0.015, 0.42), padMat, tableX + lx, 0.798, tableZ + 0.9, false));
+      this.statics.add(mesh(new THREE.BoxGeometry(0.42, 0.02, 0.3), laptopMat, tableX + lx, 0.8, tableZ - 0.9, false));
+      this.statics.add(mesh(new THREE.BoxGeometry(0.32, 0.015, 0.42), padMat, tableX + lx, 0.798, tableZ + 0.9, false));
     }
 
     // Botão de Emergência no centro da mesa com anel de alerta e cúpula translúcida
@@ -573,7 +620,7 @@ export class SuspeitoSceneManager {
       metalness: 0.1,
     });
 
-    this.scene.add(
+    this.statics.add(
       mesh(
         new THREE.CylinderGeometry(0.68, 0.72, 0.06, 24),
         hazardMat,
@@ -583,7 +630,7 @@ export class SuspeitoSceneManager {
         false,
       ),
     );
-    this.scene.add(
+    this.statics.add(
       mesh(
         new THREE.CylinderGeometry(0.52, 0.58, 0.14, 24),
         btnBaseMat,
@@ -592,7 +639,7 @@ export class SuspeitoSceneManager {
         EMERGENCY_BUTTON_POS.z,
       ),
     );
-    this.scene.add(
+    this.statics.add(
       mesh(
         new THREE.CylinderGeometry(0.36, 0.4, 0.22, 24),
         btnRedMat,
@@ -601,7 +648,7 @@ export class SuspeitoSceneManager {
         EMERGENCY_BUTTON_POS.z,
       ),
     );
-    this.scene.add(
+    this.statics.add(
       mesh(
         new THREE.SphereGeometry(0.5, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2),
         domeMat,
@@ -638,7 +685,7 @@ export class SuspeitoSceneManager {
       kiosk.add(screen);
       this.stationScreens.set(st.id, screen);
 
-      this.scene.add(kiosk);
+      this.statics.add(kiosk);
     }
 
     // Painéis de emergência nas posições de conserto de sabotagem
@@ -650,34 +697,35 @@ export class SuspeitoSceneManager {
     });
     for (const fix of Object.values(SABOTAGE_FIX_POSITIONS)) {
       const fz = fix.pos.z + (fix.pos.z < 0 ? -0.45 : 0.45);
-      this.scene.add(mesh(new THREE.BoxGeometry(0.78, 1.38, 0.36), sabBoxMat, fix.pos.x, 0.69, fz));
-      this.scene.add(mesh(new THREE.BoxGeometry(0.64, 0.14, 0.4), sabStripeMat, fix.pos.x, 1.16, fz, false));
+      this.statics.add(mesh(new THREE.BoxGeometry(0.78, 1.38, 0.36), sabBoxMat, fix.pos.x, 0.69, fz));
+      this.statics.add(mesh(new THREE.BoxGeometry(0.64, 0.14, 0.4), sabStripeMat, fix.pos.x, 1.16, fz, false));
     }
   }
 
-  private buildSectorProps(sector: (typeof SECTORS)[keyof typeof SECTORS]): void {
-    const darkMetal = new THREE.MeshStandardMaterial({ color: "#1e293b", roughness: 0.35, metalness: 0.5 });
-    const lightDesk = createWoodMaterial("#d7ccc8", 0.35, 2, 1);
-    const woodMat = createWoodMaterial("#6d4c41", 0.3, 2, 1);
-    const mahoganyMat = createWoodMaterial("#4e342e", 0.24, 2, 1);
-    const plantPotMat = new THREE.MeshStandardMaterial({ color: "#9a3412", roughness: 0.55 });
-    const plantSoilMat = new THREE.MeshStandardMaterial({ color: "#271c19", roughness: 0.95 });
-    const plantTrunkMat = createWoodMaterial("#5d4037", 0.75, 1, 1);
-    const plantLeafMat = createBushMaterial("#15803d", 2, 2);
-    const plantLeafLightMat = createBushMaterial("#22c55e", 2, 2);
-
-    const codeScreenMat = createMonitorScreenMaterial("code");
-    const chartScreenMat = createMonitorScreenMaterial("chart");
-    const dashScreenMat = createMonitorScreenMaterial("dashboard");
-    const secScreenMat = createMonitorScreenMaterial("security");
+  private buildSectorProps(sector: (typeof SECTORS)[keyof typeof SECTORS], mats: PropMaterials): void {
+    const {
+      darkMetal,
+      lightDesk,
+      woodMat,
+      mahoganyMat,
+      plantPotMat,
+      plantSoilMat,
+      plantTrunkMat,
+      plantLeafMat,
+      plantLeafLightMat,
+      codeScreenMat,
+      chartScreenMat,
+      dashScreenMat,
+      secScreenMat,
+    } = mats;
 
     const addPlant = (px: number, pz: number) => {
-      this.scene.add(mesh(new THREE.CylinderGeometry(0.3, 0.22, 0.44, 14), plantPotMat, px, 0.22, pz, false));
-      this.scene.add(mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.05, 14), plantPotMat, px, 0.42, pz, false));
-      this.scene.add(mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.03, 12), plantSoilMat, px, 0.43, pz, false));
-      this.scene.add(mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.45, 8), plantTrunkMat, px, 0.62, pz, false));
-      this.scene.add(mesh(new THREE.IcosahedronGeometry(0.4, 1), plantLeafMat, px, 0.92, pz));
-      this.scene.add(mesh(new THREE.IcosahedronGeometry(0.28, 1), plantLeafLightMat, px + 0.12, 1.16, pz - 0.08));
+      this.statics.add(mesh(new THREE.CylinderGeometry(0.3, 0.22, 0.44, 14), plantPotMat, px, 0.22, pz, false));
+      this.statics.add(mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.05, 14), plantPotMat, px, 0.42, pz, false));
+      this.statics.add(mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.03, 12), plantSoilMat, px, 0.43, pz, false));
+      this.statics.add(mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.45, 8), plantTrunkMat, px, 0.62, pz, false));
+      this.statics.add(mesh(new THREE.IcosahedronGeometry(0.4, 1), plantLeafMat, px, 0.92, pz));
+      this.statics.add(mesh(new THREE.IcosahedronGeometry(0.28, 1), plantLeafLightMat, px + 0.12, 1.16, pz - 0.08));
     };
 
     switch (sector.id) {
@@ -689,13 +737,13 @@ export class SuspeitoSceneManager {
         for (let i = -3.5; i <= 3.5; i += 3.5) {
           const sx = sector.x + i;
           const sz = sector.z - 4.1;
-          this.scene.add(mesh(new THREE.BoxGeometry(2.2, 1.82, 0.72), shelfMat, sx, 0.91, sz));
-          this.scene.add(mesh(new THREE.BoxGeometry(1.9, 0.34, 0.76), kraftMat, sx, 0.55, sz, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(2.2, 1.82, 0.72), shelfMat, sx, 0.91, sz));
+          this.statics.add(mesh(new THREE.BoxGeometry(1.9, 0.34, 0.76), kraftMat, sx, 0.55, sz, false));
           const binderMat = new THREE.MeshStandardMaterial({
             color: boxColors[Math.abs(Math.round(i)) % boxColors.length],
             roughness: 0.5,
           });
-          this.scene.add(mesh(new THREE.BoxGeometry(1.85, 0.36, 0.76), binderMat, sx, 1.28, sz, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(1.85, 0.36, 0.76), binderMat, sx, 1.28, sz, false));
         }
         break;
       }
@@ -711,9 +759,9 @@ export class SuspeitoSceneManager {
         for (const offset of [-4.2, 4.2]) {
           const rx = sector.x + offset;
           const rz = sector.z - 3.9;
-          this.scene.add(mesh(new THREE.BoxGeometry(1.65, 1.88, 0.92), rackBodyMat, rx, 0.94, rz));
-          this.scene.add(mesh(new THREE.BoxGeometry(1.52, 1.76, 0.95), rackFaceMat, rx, 0.94, rz, false));
-          this.scene.add(mesh(new THREE.BoxGeometry(1.35, 0.08, 0.97), ledMat, rx, 1.55, rz, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(1.65, 1.88, 0.92), rackBodyMat, rx, 0.94, rz));
+          this.statics.add(mesh(new THREE.BoxGeometry(1.52, 1.76, 0.95), rackFaceMat, rx, 0.94, rz, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(1.35, 0.08, 0.97), ledMat, rx, 1.55, rz, false));
         }
         break;
       }
@@ -728,9 +776,9 @@ export class SuspeitoSceneManager {
         for (const side of [-4.5, 4.5]) {
           const ix = sector.x + side;
           const iz = sector.z - 3.9;
-          this.scene.add(mesh(new THREE.BoxGeometry(1.65, 1.75, 0.62), panelMat, ix, 0.88, iz));
-          this.scene.add(mesh(new THREE.BoxGeometry(0.95, 0.22, 0.66), warnMat, ix, 1.42, iz, false));
-          this.scene.add(mesh(new THREE.BoxGeometry(0.75, 0.42, 0.66), secScreenMat, ix, 0.98, iz, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(1.65, 1.75, 0.62), panelMat, ix, 0.88, iz));
+          this.statics.add(mesh(new THREE.BoxGeometry(0.95, 0.22, 0.66), warnMat, ix, 1.42, iz, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(0.75, 0.42, 0.66), secScreenMat, ix, 0.98, iz, false));
         }
         break;
       }
@@ -739,23 +787,23 @@ export class SuspeitoSceneManager {
         for (const ox of [-3.6, 3.8]) {
           const dx = sector.x + ox;
           const dz = sector.z - 3.6;
-          this.scene.add(mesh(new THREE.BoxGeometry(2.3, 0.74, 1.05), lightDesk, dx, 0.37, dz));
-          this.scene.add(mesh(new THREE.BoxGeometry(0.88, 0.5, 0.07), codeScreenMat, dx - 0.48, 1.02, dz - 0.12, false));
-          this.scene.add(mesh(new THREE.BoxGeometry(0.88, 0.5, 0.07), codeScreenMat, dx + 0.48, 1.02, dz - 0.12, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(2.3, 0.74, 1.05), lightDesk, dx, 0.37, dz));
+          this.statics.add(mesh(new THREE.BoxGeometry(0.88, 0.5, 0.07), codeScreenMat, dx - 0.48, 1.02, dz - 0.12, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(0.88, 0.5, 0.07), codeScreenMat, dx + 0.48, 1.02, dz - 0.12, false));
           // Suportes de monitor e teclados
-          this.scene.add(mesh(new THREE.BoxGeometry(0.36, 0.02, 0.14), darkMetal, dx - 0.48, 0.76, dz + 0.18, false));
-          this.scene.add(mesh(new THREE.BoxGeometry(0.36, 0.02, 0.14), darkMetal, dx + 0.48, 0.76, dz + 0.18, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(0.36, 0.02, 0.14), darkMetal, dx - 0.48, 0.76, dz + 0.18, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(0.36, 0.02, 0.14), darkMetal, dx + 0.48, 0.76, dz + 0.18, false));
         }
         break;
       }
       case "diretoria": {
         // Mesa executiva de mogno envernizado, tapete nobre, tela de balanço e plantas ornamentais
         const execRugMat = createFabricMaterial("#31102f", 3, 3);
-        this.scene.add(
+        this.statics.add(
           mesh(new THREE.BoxGeometry(3.2, 0.018, 4.8), execRugMat, sector.x - 3.8, 0.05, sector.z - 1.5, false),
         );
-        this.scene.add(mesh(new THREE.BoxGeometry(1.35, 0.78, 3.5), mahoganyMat, sector.x - 4.2, 0.39, sector.z - 1.5));
-        this.scene.add(
+        this.statics.add(mesh(new THREE.BoxGeometry(1.35, 0.78, 3.5), mahoganyMat, sector.x - 4.2, 0.39, sector.z - 1.5));
+        this.statics.add(
           mesh(new THREE.BoxGeometry(0.1, 0.54, 1.05), chartScreenMat, sector.x - 4.2, 1.05, sector.z - 1.5, false),
         );
         addPlant(sector.x - 4.8, sector.z - 4.8);
@@ -765,8 +813,8 @@ export class SuspeitoSceneManager {
       case "suporte": {
         // Baias de atendimento técnico com telas de fila de chamados
         for (const oz of [-3.5, 3.5]) {
-          this.scene.add(mesh(new THREE.BoxGeometry(1.25, 0.75, 2.05), lightDesk, sector.x + 3.6, 0.38, sector.z + oz));
-          this.scene.add(
+          this.statics.add(mesh(new THREE.BoxGeometry(1.25, 0.75, 2.05), lightDesk, sector.x + 3.6, 0.38, sector.z + oz));
+          this.statics.add(
             mesh(new THREE.BoxGeometry(0.1, 0.48, 0.85), dashScreenMat, sector.x + 3.7, 1.0, sector.z + oz, false),
           );
         }
@@ -783,12 +831,12 @@ export class SuspeitoSceneManager {
         });
         const px = sector.x + 3.4;
         const pz = sector.z - 4.0;
-        this.scene.add(mesh(new THREE.BoxGeometry(1.55, 1.15, 1.22), printerMat, px, 0.58, pz));
-        this.scene.add(mesh(new THREE.BoxGeometry(1.35, 0.16, 1.02), darkMetal, px, 1.22, pz, false));
-        this.scene.add(mesh(new THREE.BoxGeometry(1.1, 0.03, 0.75), scanGlowMat, px, 1.15, pz, false));
+        this.statics.add(mesh(new THREE.BoxGeometry(1.55, 1.15, 1.22), printerMat, px, 0.58, pz));
+        this.statics.add(mesh(new THREE.BoxGeometry(1.35, 0.16, 1.02), darkMetal, px, 1.22, pz, false));
+        this.statics.add(mesh(new THREE.BoxGeometry(1.1, 0.03, 0.75), scanGlowMat, px, 1.15, pz, false));
         // Palete de madeira com pilhas de papel A4
-        this.scene.add(mesh(new THREE.BoxGeometry(1.05, 0.1, 0.85), woodMat, sector.x + 3.5, 0.05, sector.z + 4.0, false));
-        this.scene.add(mesh(new THREE.BoxGeometry(0.92, 0.72, 0.72), paperMat, sector.x + 3.5, 0.45, sector.z + 4.0));
+        this.statics.add(mesh(new THREE.BoxGeometry(1.05, 0.1, 0.85), woodMat, sector.x + 3.5, 0.05, sector.z + 4.0, false));
+        this.statics.add(mesh(new THREE.BoxGeometry(0.92, 0.72, 0.72), paperMat, sector.x + 3.5, 0.45, sector.z + 4.0));
         break;
       }
       case "financeiro": {
@@ -796,8 +844,8 @@ export class SuspeitoSceneManager {
         for (const ox of [-3.5, 3.5]) {
           const fx = sector.x + ox;
           const fz = sector.z + 3.8;
-          this.scene.add(mesh(new THREE.BoxGeometry(2.25, 0.75, 1.05), woodMat, fx, 0.38, fz));
-          this.scene.add(mesh(new THREE.BoxGeometry(0.92, 0.5, 0.08), chartScreenMat, fx, 1.02, fz + 0.12, false));
+          this.statics.add(mesh(new THREE.BoxGeometry(2.25, 0.75, 1.05), woodMat, fx, 0.38, fz));
+          this.statics.add(mesh(new THREE.BoxGeometry(0.92, 0.5, 0.08), chartScreenMat, fx, 1.02, fz + 0.12, false));
         }
         break;
       }
@@ -805,14 +853,14 @@ export class SuspeitoSceneManager {
         // Sala de entrevistas com sofá estofado em tecido, tapete, mesa e planta
         const sofaMat = createFabricMaterial("#be185d", 2, 2);
         const rhRugMat = createFabricMaterial("#4c1d95", 3, 2);
-        this.scene.add(
+        this.statics.add(
           mesh(new THREE.BoxGeometry(3.4, 0.018, 2.2), rhRugMat, sector.x - 3.2, 0.05, sector.z + 3.2, false),
         );
         // Assento, encosto e braços do sofá
-        this.scene.add(mesh(new THREE.BoxGeometry(2.8, 0.42, 0.95), sofaMat, sector.x - 3.2, 0.21, sector.z + 3.8));
-        this.scene.add(mesh(new THREE.BoxGeometry(2.8, 0.48, 0.24), sofaMat, sector.x - 3.2, 0.56, sector.z + 4.16, false));
-        this.scene.add(mesh(new THREE.BoxGeometry(2.2, 0.75, 1.0), lightDesk, sector.x + 3.2, 0.38, sector.z + 3.8));
-        this.scene.add(
+        this.statics.add(mesh(new THREE.BoxGeometry(2.8, 0.42, 0.95), sofaMat, sector.x - 3.2, 0.21, sector.z + 3.8));
+        this.statics.add(mesh(new THREE.BoxGeometry(2.8, 0.48, 0.24), sofaMat, sector.x - 3.2, 0.56, sector.z + 4.16, false));
+        this.statics.add(mesh(new THREE.BoxGeometry(2.2, 0.75, 1.0), lightDesk, sector.x + 3.2, 0.38, sector.z + 3.8));
+        this.statics.add(
           mesh(new THREE.BoxGeometry(0.78, 0.45, 0.07), dashScreenMat, sector.x + 3.2, 0.98, sector.z + 3.9, false),
         );
         addPlant(sector.x - 4.8, sector.z + 3.8);
@@ -830,17 +878,17 @@ export class SuspeitoSceneManager {
           roughness: 0.12,
           metalness: 0.1,
         });
-        this.scene.add(mesh(new THREE.BoxGeometry(4.2, 0.82, 1.1), counterMat, sector.x - 1.5, 0.41, sector.z + 3.9));
-        this.scene.add(
+        this.statics.add(mesh(new THREE.BoxGeometry(4.2, 0.82, 1.1), counterMat, sector.x - 1.5, 0.41, sector.z + 3.9));
+        this.statics.add(
           mesh(new THREE.BoxGeometry(4.3, 0.06, 1.16), graniteTopMat, sector.x - 1.5, 0.85, sector.z + 3.9, false),
         );
         // Máquina de café expresso profissional
-        this.scene.add(mesh(new THREE.BoxGeometry(0.78, 0.62, 0.6), darkMetal, sector.x - 0.8, 1.18, sector.z + 3.9));
+        this.statics.add(mesh(new THREE.BoxGeometry(0.78, 0.62, 0.6), darkMetal, sector.x - 0.8, 1.18, sector.z + 3.9));
         // Geladeira Duplex Inox
-        this.scene.add(mesh(new THREE.BoxGeometry(1.12, 1.85, 1.02), fridgeMat, sector.x - 4.4, 0.92, sector.z + 3.8));
+        this.statics.add(mesh(new THREE.BoxGeometry(1.12, 1.85, 1.02), fridgeMat, sector.x - 4.4, 0.92, sector.z + 3.8));
         // Bebedouro de coluna com galão azul 20L
-        this.scene.add(mesh(new THREE.BoxGeometry(0.55, 0.95, 0.55), fridgeMat, sector.x + 4.5, 0.48, sector.z + 3.9));
-        this.scene.add(
+        this.statics.add(mesh(new THREE.BoxGeometry(0.55, 0.95, 0.55), fridgeMat, sector.x + 4.5, 0.48, sector.z + 3.9));
+        this.statics.add(
           mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.5, 16), waterJugMat, sector.x + 4.5, 1.2, sector.z + 3.9, false),
         );
         break;
@@ -849,15 +897,15 @@ export class SuspeitoSceneManager {
         // Balcão de recepção em madeira nobre e mármore, sofá de espera estofado, tapete e plantas
         const sofaMat = createFabricMaterial("#334155", 2, 2);
         const recepRugMat = createFabricMaterial("#1e3a5f", 3, 2);
-        this.scene.add(
+        this.statics.add(
           mesh(new THREE.BoxGeometry(3.2, 0.018, 2.0), recepRugMat, sector.x - 3.2, 0.05, sector.z + 3.3, false),
         );
-        this.scene.add(mesh(new THREE.BoxGeometry(3.0, 0.96, 1.02), woodMat, sector.x + 2.5, 0.48, sector.z + 3.8));
-        this.scene.add(
+        this.statics.add(mesh(new THREE.BoxGeometry(3.0, 0.96, 1.02), woodMat, sector.x + 2.5, 0.48, sector.z + 3.8));
+        this.statics.add(
           mesh(new THREE.BoxGeometry(0.82, 0.46, 0.07), dashScreenMat, sector.x + 2.5, 1.18, sector.z + 3.8, false),
         );
-        this.scene.add(mesh(new THREE.BoxGeometry(2.6, 0.42, 0.96), sofaMat, sector.x - 3.2, 0.21, sector.z + 3.8));
-        this.scene.add(
+        this.statics.add(mesh(new THREE.BoxGeometry(2.6, 0.42, 0.96), sofaMat, sector.x - 3.2, 0.21, sector.z + 3.8));
+        this.statics.add(
           mesh(new THREE.BoxGeometry(2.6, 0.46, 0.24), sofaMat, sector.x - 3.2, 0.54, sector.z + 4.16, false),
         );
         addPlant(sector.x + 4.8, sector.z + 3.8);
@@ -899,6 +947,7 @@ export class SuspeitoSceneManager {
     for (const [id, g] of this.beacons) {
       if (!wanted.has(id)) {
         this.taskBeaconGroup.remove(g);
+        ((g.getObjectByName("tip") as THREE.Sprite).material as THREE.SpriteMaterial).dispose();
         this.beacons.delete(id);
       }
     }
@@ -1010,13 +1059,10 @@ export class SuspeitoSceneManager {
 
     for (const [id, item] of this.bodyMeshes.entries()) {
       if (!activeIds.has(id)) {
-        this.scene.remove(item.grp);
-        item.char.dispose();
+        this.removeBody(item);
         this.bodyMeshes.delete(id);
       }
     }
-
-    const paperMat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.8 });
 
     for (const b of bodies) {
       let item = this.bodyMeshes.get(b.id);
@@ -1032,14 +1078,14 @@ export class SuspeitoSceneManager {
         holder.add(char.root);
         grp.add(holder);
 
-        const mark = mesh(new THREE.CylinderGeometry(0.92, 0.92, 0.02, 24), this.redMarkMat, 0, 0.015, 0, false);
+        const mark = mesh(this.bodyMarkGeo, this.redMarkMat, 0, 0.015, 0, false);
         grp.add(mark);
 
         for (let i = 0; i < 3; i++) {
           const angle = i * 2.1 + 0.4;
           const sheet = mesh(
-            new THREE.PlaneGeometry(0.32, 0.42),
-            paperMat,
+            this.paperGeo,
+            this.paperMat,
             Math.cos(angle) * 0.65,
             0.025 + i * 0.002,
             Math.sin(angle) * 0.65,
@@ -1053,6 +1099,7 @@ export class SuspeitoSceneManager {
         const skullSprite = new THREE.Sprite(
           new THREE.SpriteMaterial({ map: this.bodyAlertTex, depthTest: false }),
         );
+        skullSprite.name = "skull";
         skullSprite.position.set(0, 1.35, 0);
         skullSprite.scale.set(0.85, 0.85, 1);
         grp.add(skullSprite);
@@ -1096,12 +1143,29 @@ export class SuspeitoSceneManager {
     this.emergencyPulseLight.intensity = criticalSab ? 1.8 : 0;
   }
 
+  private removeBody(item: { grp: THREE.Group; char: Character }): void {
+    this.scene.remove(item.grp);
+    item.char.dispose();
+    ((item.grp.getObjectByName("skull") as THREE.Sprite).material as THREE.SpriteMaterial).dispose();
+  }
+
   dispose(): void {
-    for (const item of this.bodyMeshes.values()) {
-      this.scene.remove(item.grp);
-      item.char.dispose();
-    }
+    for (const item of this.bodyMeshes.values()) this.removeBody(item);
     this.bodyMeshes.clear();
+    this.scene.remove(this.statics);
+    this.statics.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    });
+    for (const g of this.beaconGeos.values()) {
+      g.base.dispose();
+      g.pole.dispose();
+    }
+    this.bodyMarkGeo.dispose();
+    this.paperGeo.dispose();
+    this.paperMat.dispose();
     this.scene.remove(this.taskBeaconGroup);
     this.scene.remove(this.fixBeacon);
     this.scene.remove(this.killTargetRing);

@@ -31,7 +31,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
   const ssnap = useStore((s) => s.ssnap);
   const sme = useStore((s) => s.sme);
 
-  const [fps, setFps] = useState(60);
+  const fpsSink = useRef<((fps: number) => void) | null>(null);
   const [sabotageOpen, setSabotageOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [activeTaskModalId, setActiveTaskModalId] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
   useEffect(() => {
     if (!canvasRef.current) return;
     const engine = new SuspeitoEngine(canvasRef.current, myId);
-    engine.onFpsUpdate = (val) => setFps(val);
+    engine.onFpsUpdate = (val) => fpsSink.current?.(val);
     engine.setVisionElement(visionRef.current);
     engineRef.current = engine;
 
@@ -213,7 +213,7 @@ export function SuspeitoView({ myId }: { myId: string }) {
       <canvas ref={visionRef} className="suspeito-vision-mask" />
 
       {/* Contador Discreto de FPS no canto superior direito */}
-      <FpsCounter fps={fps} />
+      <FpsCounter sink={fpsSink} />
 
       {ssnap && (
         <SuspeitoHud

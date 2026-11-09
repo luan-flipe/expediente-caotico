@@ -9,7 +9,8 @@ import {
   type Vec2,
 } from "@ec/shared";
 import { createCharacter, type Character } from "../game/character";
-import { setupSceneEnvironment } from "../quality";
+import { applyQuality, setupSceneEnvironment } from "../quality";
+import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { net } from "../store";
 import { SuspeitoSceneManager } from "./suspeitoScene";
 
@@ -23,6 +24,7 @@ export interface SuspeitoKeyControls {
 const INTERP_MS = 110;
 const CAM_HEIGHT = 16;
 const CAM_BACK = 11;
+const VISION_SCALE = 0.5;
 
 interface PlayerView {
   char: Character;
@@ -198,7 +200,13 @@ export class SuspeitoEngine {
   private camTarget = new THREE.Vector3();
   private camReady = false;
   private visionEl: HTMLElement | null = null;
+  private visionShown = false;
+  private visionKey = { px: NaN, pz: NaN, camX: NaN, camZ: NaN, r: NaN, w: 0, h: 0, mode: -1 };
   private tmpVec = new THREE.Vector3();
+  private tmpEdge = new THREE.Vector3();
+  private mePub: SuspeitoSnapshot["players"][number] | undefined;
+  private quality: Quality | null = null;
+  private unsubSettings: () => void;
 
   private fpsFrames = 0;
   private fpsLastTime = performance.now();
@@ -218,7 +226,6 @@ export class SuspeitoEngine {
     this.camera.lookAt(0, 0, 0);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(w, h, false);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -228,6 +235,8 @@ export class SuspeitoEngine {
     setupSceneEnvironment(this.renderer, this.scene, 0.55);
 
     this.sceneMgr = new SuspeitoSceneManager(this.scene);
+    this.applySettings();
+    this.unsubSettings = subscribeSettings(() => this.applySettings());
 
     window.addEventListener("resize", this.onResize);
     window.addEventListener("keydown", this.onKeyDown);
@@ -241,6 +250,13 @@ export class SuspeitoEngine {
     for (const p of players) {
       this.avatars.set(p.id, p);
     }
+  }
+
+  private applySettings(): void {
+    const q = getSettings().quality;
+    if (q === this.quality) return;
+    this.quality = q;
+    applyQuality(this.renderer, this.scene, this.sceneMgr.dirLight, q);
   }
 
   setVisionElement(el: HTMLElement | null): void {
@@ -307,6 +323,7 @@ export class SuspeitoEngine {
     const prevPhase = this.snap?.phase;
     this.snap = snap;
     this.me = me;
+    this.mePub = snap.players.find((p) => p.id === this.myId);
 
     this.sceneMgr.updateBodies(snap.bodies, me?.visibleBodyIds);
     this.sceneMgr.updateLighting(snap, me);
@@ -371,7 +388,7 @@ export class SuspeitoEngine {
   }
 
   private mePublic() {
-    return this.snap?.players.find((p) => p.id === this.myId);
+    return this.mePub;
   }
 
   private reconcile(server: Vec2, now: number, hard: boolean): void {
@@ -511,7 +528,11 @@ export class SuspeitoEngine {
     const meeting = this.snap?.phase !== "working";
     const ghost = !(this.mePublic()?.alive ?? true);
     if (meeting || ghost || !this.me) {
-      el.style.opacity = "0";
+      if (this.visionShown) {
+        el.style.opacity = "0";
+        this.visionShown = false;
+        this.visionKey.mode = -1;
+      }
       return;
     }
     const v = this.views.get(this.myId);
@@ -521,16 +542,45 @@ export class SuspeitoEngine {
     const pz = v.group.position.z;
     const radiusWorld = this.me.visionRadius;
 
-    const center = this.tmpVec.set(px, 0.2, pz).project(this.camera);
-    const edge = new THREE.Vector3(px + radiusWorld, 0.2, pz).project(this.camera);
     const domCanvas = this.renderer.domElement;
-    const w = domCanvas.clientWidth || window.innerWidth;
-    const h = domCanvas.clientHeight || window.innerHeight;
+    const isCanvas = el instanceof HTMLCanvasElement;
+    const scale = isCanvas ? VISION_SCALE : 1;
+    const w = Math.max(1, Math.round((domCanvas.clientWidth || window.innerWidth) * scale));
+    const h = Math.max(1, Math.round((domCanvas.clientHeight || window.innerHeight) * scale));
+
+    // Cor da névoa de guerra (mais escura no blecaute, avermelhada em sabotagem crítica)
+    const isPowerOut = this.snap?.sabotage?.active && this.snap.sabotage.type === "falha_energia";
+    const isCritical = this.snap?.sabotage?.active && this.snap.sabotage.critical;
+    const mode = isCritical ? 2 : isPowerOut ? 1 : 0;
+
+    const k = this.visionKey;
+    const camX = this.camera.position.x;
+    const camZ = this.camera.position.z;
+    if (
+      mode !== 2 &&
+      k.mode === mode &&
+      k.w === w &&
+      k.h === h &&
+      k.r === radiusWorld &&
+      Math.abs(k.px - px) < 1e-3 &&
+      Math.abs(k.pz - pz) < 1e-3 &&
+      Math.abs(k.camX - camX) < 1e-3 &&
+      Math.abs(k.camZ - camZ) < 1e-3
+    ) {
+      return;
+    }
+    Object.assign(k, { px, pz, camX, camZ, r: radiusWorld, w, h, mode });
+
+    const center = this.tmpVec.set(px, 0.2, pz).project(this.camera);
+    const edge = this.tmpEdge.set(px + radiusWorld, 0.2, pz).project(this.camera);
     const cx = ((center.x + 1) / 2) * w;
     const cy = ((1 - center.y) / 2) * h;
     const r = (Math.abs(edge.x - center.x) / 2) * w;
 
-    el.style.opacity = "1";
+    if (!this.visionShown) {
+      el.style.opacity = "1";
+      this.visionShown = true;
+    }
 
     if (el instanceof HTMLCanvasElement) {
       if (el.width !== w || el.height !== h) {
@@ -542,9 +592,6 @@ export class SuspeitoEngine {
 
       ctx.clearRect(0, 0, w, h);
 
-      // Cor da névoa de guerra (mais escura no blecaute, avermelhada em sabotagem crítica)
-      const isPowerOut = this.snap?.sabotage?.active && this.snap.sabotage.type === "falha_energia";
-      const isCritical = this.snap?.sabotage?.active && this.snap.sabotage.critical;
       if (isCritical) {
         const pulse = 0.8 + Math.sin(now * 0.008) * 0.06;
         ctx.fillStyle = `rgba(22, 8, 12, ${pulse.toFixed(2)})`;
@@ -612,6 +659,7 @@ export class SuspeitoEngine {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.clearKeys);
+    this.unsubSettings();
     for (const v of this.views.values()) {
       v.char.dispose();
       (v.nameSprite.material as THREE.SpriteMaterial).map?.dispose();

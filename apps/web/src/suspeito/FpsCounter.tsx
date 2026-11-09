@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type RefObject } from "react";
 
 interface FpsCounterProps {
-  fps: number;
+  sink: RefObject<((fps: number) => void) | null>;
 }
 
-export function FpsCounter({ fps }: FpsCounterProps) {
+export function FpsCounter({ sink }: FpsCounterProps) {
+  const [fps, setFps] = useState(60);
   const [enabled, setEnabled] = useState(() => {
     try {
       const stored = localStorage.getItem("expediente_show_fps");
@@ -26,6 +27,14 @@ export function FpsCounter({ fps }: FpsCounterProps) {
       return next;
     });
   };
+
+  useEffect(() => {
+    if (!enabled) return;
+    sink.current = setFps;
+    return () => {
+      sink.current = null;
+    };
+  }, [enabled, sink]);
 
   // Hotkey F3 para alternar exibição
   useEffect(() => {
