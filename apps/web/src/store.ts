@@ -106,6 +106,7 @@ export interface State {
   chat: ChatItem[];
   /** Painel do chat rápido aberto: o jogo ignora o teclado e solta o mouse enquanto isso. */
   chatOpen: boolean;
+  suspeitoTaskOpen: boolean;
   /** Últimas reações rápidas dirigidas a alguém no lobby (o roster mostra sobre o crachá do alvo). */
   reactions: ReactionItem[];
   /** Aviso de desafio da semana cumprido (some sozinho depois de alguns segundos). */
@@ -186,6 +187,7 @@ let state: State = {
   ghosts: null,
   chat: [],
   chatOpen: false,
+  suspeitoTaskOpen: false,
   reactions: [],
   toast: null,
 };

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { net, useStore } from "../store";
+import { net, setState, useStore } from "../store";
 import { SuspeitoEngine } from "./suspeitoEngine";
 import { SuspeitoHud } from "./SuspeitoHud";
 import { FpsCounter } from "./FpsCounter";
@@ -185,6 +185,12 @@ export function SuspeitoView({ myId }: { myId: string }) {
   useEffect(() => {
     engineRef.current?.setInputLocked(inputLocked);
   }, [inputLocked]);
+
+  useEffect(() => {
+    if (!taskModalOpen) return;
+    setState({ suspeitoTaskOpen: true, chatOpen: false });
+    return () => setState({ suspeitoTaskOpen: false });
+  }, [taskModalOpen]);
 
   useEffect(() => {
     if (!taskModalOpen && !sabotageOpen) return;

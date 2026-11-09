@@ -52,7 +52,7 @@ export function QuickChat() {
     // fase de captura: com o painel aberto, as teclas dele não chegam ao jogo
     const onKey = (e: KeyboardEvent) => {
       const st = getState();
-      if (st.settingsOpen || st.editing || isTyping(e.target)) return;
+      if (st.settingsOpen || st.editing || st.suspeitoTaskOpen || isTyping(e.target)) return;
       if (st.chatOpen) {
         const swallow = () => {
           e.preventDefault();

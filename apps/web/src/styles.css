@@ -4022,25 +4022,66 @@ input.fut-team-name {
   border-color: #1d1b17;
 }
 
+.termo-tile.termo-editable {
+  cursor: pointer;
+}
+
+.termo-tile.termo-cursor {
+  border-color: #1d1b17;
+  border-width: 3px;
+  box-shadow: inset 0 -4px 0 #1971c2;
+}
+
 .termo-tile.termo-correct,
-.termo-kb-key.termo-correct {
-  background: #4caf50;
+.termo-kb-key.termo-correct,
+.termo-swatch.termo-correct {
+  background: #e8590c;
   color: #fff;
-  border-color: #388e3c;
+  border-color: #a63e05;
 }
 
 .termo-tile.termo-present,
-.termo-kb-key.termo-present {
-  background: #fbc02d;
+.termo-kb-key.termo-present,
+.termo-swatch.termo-present {
+  background: #1971c2;
   color: #fff;
-  border-color: #f57f17;
+  border-color: #0b4a85;
 }
 
 .termo-tile.termo-absent,
-.termo-kb-key.termo-absent {
-  background: #78909c;
+.termo-kb-key.termo-absent,
+.termo-swatch.termo-absent {
+  background: #3f454b;
   color: #fff;
-  border-color: #546e7a;
+  border-color: #25292d;
+}
+
+.termo-kb-key.termo-absent {
+  opacity: 0.55;
+}
+
+.termo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #37474f;
+  margin: -8px 0 4px;
+}
+
+.termo-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.termo-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid;
+  border-radius: 3px;
 }
 
 .termo-keyboard {
@@ -4073,20 +4114,47 @@ input.fut-team-name {
 }
 
 /* CONEXO Estilos */
+.suspeito-task-card.conexo-card {
+  max-width: 420px;
+  padding: 14px 16px;
+}
+
+.conexo-card .suspeito-task-header {
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.conexo-card .suspeito-task-header h3 {
+  font-size: 15px;
+}
+
+.conexo-card .suspeito-task-desc {
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.conexo-card .suspeito-error,
+.conexo-card .suspeito-success {
+  padding: 6px 10px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
 .conexo-solved-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 
 .conexo-solved-group {
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
   border: 1.5px solid #1d1b17;
   display: flex;
   flex-direction: column;
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .conexo-solved-group.group-color-0 { background: #ffe082; }
@@ -4097,17 +4165,18 @@ input.fut-team-name {
 .conexo-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin: 12px 0;
+  gap: 5px;
+  margin: 8px 0;
 }
 
 .conexo-word-btn {
-  padding: 12px 4px;
+  padding: 7px 3px;
   border: 2px solid #cfd8dc;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #f5f5f5;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
   cursor: pointer;
   text-align: center;
   transition: all 0.15s;
@@ -4123,9 +4192,11 @@ input.fut-team-name {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 14px;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
   border-top: 1.5px solid #e0e0e0;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 
 .conexo-mistakes {
