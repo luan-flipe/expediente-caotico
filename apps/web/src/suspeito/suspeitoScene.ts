@@ -164,6 +164,13 @@ function createBodyAlertTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
+/** O mapa de sombra é desenhado uma vez só (ver `SuspeitoEngine`): o que se move não pode projetar sombra nele. */
+export function disableCastShadow(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    o.castShadow = false;
+  });
+}
+
 function createPropMaterials() {
   return {
     darkMetal: new THREE.MeshStandardMaterial({ color: "#1e293b", roughness: 0.35, metalness: 0.5 }),
@@ -206,8 +213,6 @@ export class SuspeitoSceneManager {
   private fixBeacon: THREE.Group;
   private killTargetRing: THREE.Mesh;
   private interactHighlightRing: THREE.Mesh;
-  private emergencyPulseLight: THREE.PointLight;
-  private sectorAccentLights: { light: THREE.PointLight; baseIntensity: number }[] = [];
 
   private beaconMat = new THREE.MeshStandardMaterial({
     color: "#ffeb3b",
@@ -293,22 +298,6 @@ export class SuspeitoSceneManager {
     this.dirLight.shadow.bias = -0.0004;
     this.dirLight.shadow.normalBias = 0.02;
     scene.add(this.dirLight);
-
-    this.emergencyPulseLight = new THREE.PointLight(0xff1744, 0, 24);
-    this.emergencyPulseLight.position.set(-4, 4.5, 0);
-    scene.add(this.emergencyPulseLight);
-
-    // Luzes de acento arquitetônicas (sem sombra dinâmica para custo zero de GPU)
-    const addAccentLight = (color: number, intensity: number, dist: number, x: number, y: number, z: number) => {
-      const l = new THREE.PointLight(color, intensity, dist);
-      l.position.set(x, y, z);
-      scene.add(l);
-      this.sectorAccentLights.push({ light: l, baseIntensity: intensity });
-    };
-    addAccentLight(0xfff1d6, 0.9, 18, -4.0, 4.2, 0); // Mesa de Reunião Central (quente)
-    addAccentLight(0x38bdf8, 0.75, 14, -7.5, 3.2, -16.5); // Servidores (azul ciano)
-    addAccentLight(0xffe4b5, 0.65, 14, -7.5, 3.2, 16.5); // Copa (quente aconchegante)
-    addAccentLight(0xffedd5, 0.65, 14, -22.5, 3.2, 0); // Diretoria (executivo quente)
 
     this.buildOfficeLayout();
     this.buildTaskStationTerminals();
@@ -1071,6 +1060,7 @@ export class SuspeitoSceneManager {
         grp.position.set(b.pos.x, 0, b.pos.z);
 
         const char = createCharacter(b.avatar);
+        disableCastShadow(char.root);
         char.root.rotation.set(-Math.PI / 2, 0, 0);
         char.root.position.y = 0.18;
         const holder = new THREE.Group();
@@ -1116,7 +1106,6 @@ export class SuspeitoSceneManager {
 
   updateLighting(snap: SuspeitoSnapshot, me: SuspeitoPrivate | null): void {
     const lightsOut = snap.sabotage?.active && snap.sabotage.type === "falha_energia";
-    const criticalSab = snap.sabotage?.active && snap.sabotage.critical;
 
     if (lightsOut && me?.role !== "sabotador") {
       this.ambientLight.intensity = 0.22;
@@ -1134,13 +1123,6 @@ export class SuspeitoSceneManager {
       this.dirLight.intensity = 1.22;
       this.scene.environmentIntensity = 0.55;
     }
-
-    const accentScale = lightsOut ? 0.18 : 1.0;
-    for (const item of this.sectorAccentLights) {
-      item.light.intensity = item.baseIntensity * accentScale;
-    }
-
-    this.emergencyPulseLight.intensity = criticalSab ? 1.8 : 0;
   }
 
   private removeBody(item: { grp: THREE.Group; char: Character }): void {

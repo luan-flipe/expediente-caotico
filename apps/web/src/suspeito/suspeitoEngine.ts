@@ -12,7 +12,7 @@ import { createCharacter, type Character } from "../game/character";
 import { applyQuality, setupSceneEnvironment } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { net } from "../store";
-import { SuspeitoSceneManager } from "./suspeitoScene";
+import { disableCastShadow, SuspeitoSceneManager } from "./suspeitoScene";
 
 export interface SuspeitoKeyControls {
   up: boolean;
@@ -31,6 +31,7 @@ interface PlayerView {
   group: THREE.Group;
   nameSprite: THREE.Sprite;
   nameKey: string;
+  blob: THREE.Mesh;
   buf: { t: number; x: number; z: number; yaw: number }[];
   ghost: boolean;
 }
@@ -56,7 +57,6 @@ function setGhostLook(root: THREE.Object3D, ghost: boolean): void {
       return own;
     });
     m.material = Array.isArray(m.material) ? next : next[0];
-    m.castShadow = !ghost;
   });
 }
 
@@ -102,6 +102,29 @@ function drawNameTagTexture(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(label, w / 2, h / 2 + 1, pillW - 16);
+}
+
+function createBlobShadow(): { geo: THREE.PlaneGeometry; mat: THREE.MeshBasicMaterial } {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, "rgba(0, 0, 0, 0.7)");
+    g.addColorStop(0.5, "rgba(0, 0, 0, 0.45)");
+    g.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+  }
+  const geo = new THREE.PlaneGeometry(1.25, 1.25);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({
+    map: new THREE.CanvasTexture(canvas),
+    transparent: true,
+    depthWrite: false,
+  });
+  return { geo, mat };
 }
 
 function createNameTagSprite(): { sprite: THREE.Sprite; canvas: HTMLCanvasElement; tex: THREE.CanvasTexture } {
@@ -183,6 +206,7 @@ export class SuspeitoEngine {
   myId: string;
 
   private views = new Map<string, PlayerView>();
+  private blobShadow = createBlobShadow();
   private avatars = new Map<string, LobbyPlayer>();
   private keys: SuspeitoKeyControls = { up: false, down: false, left: false, right: false };
   private touchMove = { mx: 0, mz: 0 };
@@ -228,7 +252,9 @@ export class SuspeitoEngine {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setSize(w, h, false);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // só o cenário (parado) projeta sombra: o mapa é desenhado uma vez e os personagens usam blob
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
 
@@ -257,6 +283,7 @@ export class SuspeitoEngine {
     if (q === this.quality) return;
     this.quality = q;
     applyQuality(this.renderer, this.scene, this.sceneMgr.dirLight, q);
+    this.renderer.shadowMap.needsUpdate = true;
   }
 
   setVisionElement(el: HTMLElement | null): void {
@@ -307,12 +334,16 @@ export class SuspeitoEngine {
     let v = this.views.get(id);
     if (!v) {
       const char = createCharacter(this.avatars.get(id)?.avatar ?? fallbackAvatar);
+      disableCastShadow(char.root);
       const group = new THREE.Group();
       group.add(char.root);
+      const blob = new THREE.Mesh(this.blobShadow.geo, this.blobShadow.mat);
+      blob.position.y = 0.062;
+      group.add(blob);
       const { sprite } = createNameTagSprite();
       group.add(sprite);
       this.scene.add(group);
-      v = { char, group, nameSprite: sprite, nameKey: "", buf: [], ghost: false };
+      v = { char, group, nameSprite: sprite, nameKey: "", blob, buf: [], ghost: false };
       this.views.set(id, v);
     }
     return v;
@@ -351,6 +382,7 @@ export class SuspeitoEngine {
       const ghost = !p.alive;
       if (ghost !== v.ghost) {
         setGhostLook(v.char.root, ghost);
+        v.blob.visible = !ghost;
         if (ghost && snap.phase === "working") {
           for (const other of snap.players) {
             if (!other.alive || other.id === p.id) continue;
@@ -666,6 +698,9 @@ export class SuspeitoEngine {
       v.nameSprite.material.dispose();
     }
     this.views.clear();
+    this.blobShadow.geo.dispose();
+    this.blobShadow.mat.map?.dispose();
+    this.blobShadow.mat.dispose();
     this.sceneMgr.dispose();
     this.renderer.dispose();
   }
