@@ -235,6 +235,8 @@ export class SuspeitoEngine {
   private fpsFrames = 0;
   private fpsLastTime = performance.now();
   public onFpsUpdate?: (fps: number) => void;
+  private slowFrames = 0;
+  private sampledFrames = 0;
 
   constructor(canvas: HTMLCanvasElement, myId: string) {
     this.myId = myId;
@@ -284,6 +286,20 @@ export class SuspeitoEngine {
     this.quality = q;
     applyQuality(this.renderer, this.scene, this.sceneMgr.dirLight, q);
     this.renderer.shadowMap.needsUpdate = true;
+    this.slowFrames = 0;
+    this.sampledFrames = 0;
+  }
+
+  /** Resolução adaptativa: com a maioria dos frames lentos, baixa o pixel ratio em degraus até 1. */
+  private adaptResolution(frameMs: number): void {
+    const pr = this.renderer.getPixelRatio();
+    if (pr <= 1 || frameMs > 250 || this.snap?.phase !== "working") return;
+    this.sampledFrames++;
+    if (frameMs > 1000 / 50) this.slowFrames++;
+    if (this.sampledFrames < 90) return;
+    if (this.slowFrames > this.sampledFrames / 2) this.renderer.setPixelRatio(Math.max(1, pr - 0.25));
+    this.slowFrames = 0;
+    this.sampledFrames = 0;
   }
 
   setVisionElement(el: HTMLElement | null): void {
@@ -450,6 +466,7 @@ export class SuspeitoEngine {
 
   private loop = () => {
     const now = performance.now();
+    this.adaptResolution(now - this.lastTime);
     const dt = Math.min(0.1, (now - this.lastTime) / 1000);
     this.lastTime = now;
 

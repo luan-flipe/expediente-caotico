@@ -164,6 +164,37 @@ function createBodyAlertTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
+/** O PBR do cenário custava metade do frame em tela cheia; vista de cima e sob a névoa, o Lambert fica igual. */
+function useLambert(root: THREE.Object3D, skip: Set<THREE.Object3D>): void {
+  const swapped = new Map<THREE.Material, THREE.Material>();
+  const convert = (m: THREE.Material): THREE.Material => {
+    if (!(m instanceof THREE.MeshStandardMaterial)) return m;
+    let l = swapped.get(m);
+    if (!l) {
+      const lambert = new THREE.MeshLambertMaterial();
+      THREE.Material.prototype.copy.call(lambert, m);
+      lambert.color.copy(m.color);
+      lambert.map = m.map;
+      lambert.emissive.copy(m.emissive);
+      lambert.emissiveMap = m.emissiveMap;
+      lambert.emissiveIntensity = m.emissiveIntensity;
+      lambert.aoMap = m.aoMap;
+      lambert.aoMapIntensity = m.aoMapIntensity;
+      lambert.alphaMap = m.alphaMap;
+      lambert.flatShading = m.flatShading;
+      l = lambert;
+      swapped.set(m, l);
+      m.dispose();
+    }
+    return l;
+  };
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || skip.has(mesh)) return;
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(convert) : convert(mesh.material);
+  });
+}
+
 /** O mapa de sombra é desenhado uma vez só (ver `SuspeitoEngine`): o que se move não pode projetar sombra nele. */
 export function disableCastShadow(root: THREE.Object3D): void {
   root.traverse((o) => {
@@ -302,6 +333,7 @@ export class SuspeitoSceneManager {
     this.buildOfficeLayout();
     this.buildTaskStationTerminals();
     juntarMalhas(this.statics, this.stationScreens.values());
+    useLambert(this.statics, new Set(this.stationScreens.values()));
     this.statics.updateMatrixWorld(true);
     this.statics.traverse((o) => {
       o.matrixAutoUpdate = false;
