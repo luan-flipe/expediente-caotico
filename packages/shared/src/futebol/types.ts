@@ -186,12 +186,18 @@ export interface FutMatch {
   winner: TeamSide | null;
   /** Posse de bola em ms por time (jogo normal). */
   possMs: [number, number];
+  /** Treino de chute: só humanos (time 0) contra o goleiro; a bola volta a um ponto novo a cada lance. */
+  treino: boolean;
+  /** Treino: quanto tempo (ms) o goleiro já está com a bola. */
+  treinoMs: number;
 }
 
 export interface FutSnapshot {
   t: number;
   /** Jogo parado: o servidor ainda espera algum jogador terminar de preparar a partida. */
   aguardando?: boolean;
+  /** Treino de chute (só humanos contra o goleiro). */
+  treino?: true;
   phase: FutPhase;
   elapsedMs: number;
   durationMs: number;

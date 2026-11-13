@@ -57,6 +57,7 @@ export const ClientMsg = z.discriminatedUnion("t", [
       track: z.enum(TRACK_IDS).optional(),
       futFormat: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]).optional(),
       futCup: z.union([z.literal(0), z.literal(4), z.literal(8)]).optional(),
+      futTreino: z.boolean().optional(),
       suspeitoImpostors: z.number().int().min(1).max(3).optional(),
       suspeitoDiscussionSec: z.number().int().min(10).max(60).optional(),
       suspeitoVotingSec: z.number().int().min(10).max(60).optional(),

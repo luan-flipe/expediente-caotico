@@ -27,6 +27,8 @@ export interface RoomOptions {
   futTeams: [FutTeamConfig, FutTeamConfig];
   /** Futebol: campeonato entre setores em mata-mata com esse número de times (0 = partida avulsa). */
   futCup: 0 | 4 | 8;
+  /** Futebol: treino de chute (todos os humanos contra o goleiro, sem placar valendo). */
+  futTreino: boolean;
   /** Expediente Suspeito: quantidade de sabotadores (opcional). */
   suspeitoImpostors?: number;
   /** Expediente Suspeito: tempo de discussão (segundos). */
@@ -42,6 +44,7 @@ export interface RoomOptions {
 export const DEFAULT_ROOM_OPTIONS: RoomOptions = { laps: RACE.laps, items: true, botLevel: DEFAULT_BOT_LEVEL, track: DEFAULT_TRACK_ID,
   futFormat: 2,
   futCup: 0,
+  futTreino: false,
   futTeams: [
     { name: "Financeiro", kit: 0, color: 2 },
     { name: "TI", kit: 1, color: 3 },

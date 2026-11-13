@@ -366,7 +366,8 @@ export class Room {
     if (!trial && !zombies && !fut && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
     const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
     if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
-    if (fut) {
+    // treino de chute junta todos no mesmo time: o limite do formato não vale
+    if (fut && !this.options.futTreino) {
       const size = [0, 0];
       for (const h of this.humans()) size[h.side ?? 0]++;
       if (size[0] > linePlayers(this.options.futFormat) || size[1] > linePlayers(this.options.futFormat)) return "Time com gente demais para o formato";
@@ -380,7 +381,8 @@ export class Room {
       let teams = this.options.futTeams;
       let playing: Set<TeamSide> | null = null;
       this.cupMatch = null;
-      if (this.options.futCup > 0) {
+      const treino = this.options.futTreino;
+      if (this.options.futCup > 0 && !treino) {
         const setup = this.cupSetup();
         if (typeof setup === "string") return setup;
         teams = setup.teams;
@@ -396,6 +398,7 @@ export class Room {
           .filter((h) => !playing || playing.has(h.side ?? 0))
           .map((h) => ({ id: h.id, name: h.name, avatar: h.avatar, side: h.side ?? 0, isBot: false, accountId: h.accountId })),
         teams,
+        treino,
       });
     } else if (this.mode === "suspeito") {
       this.suspeito = createSuspeitoMatch(players, this.options, seed);
@@ -717,7 +720,8 @@ export class Room {
   /** Futebol: aba própria, só com 2+ humanos; derrota não pontua e gols de pênalti não contam (getFutResults já os exclui). */
   private recordFutebolRanking(): void {
     const store = this.store;
-    if (!store || !this.futResults || !this.futScore) return;
+    // treino de chute não pontua
+    if (!store || !this.futResults || !this.futScore || this.options.futTreino) return;
     try {
       const { winner } = this.futScore;
       const rows = this.futResults.map((r) => ({ accountId: r.accountId, won: winner !== null && r.side === winner, goals: r.goals, assists: r.assists }));
@@ -802,6 +806,7 @@ export class Room {
         if (msg.botLevel !== undefined) this.options.botLevel = msg.botLevel;
         if (msg.track !== undefined) this.options.track = msg.track;
         if (msg.futFormat !== undefined) this.options.futFormat = msg.futFormat;
+        if (msg.futTreino !== undefined) this.options.futTreino = msg.futTreino;
         if (msg.futCup !== undefined && msg.futCup !== this.options.futCup) {
           this.options.futCup = msg.futCup;
           this.cup = null;

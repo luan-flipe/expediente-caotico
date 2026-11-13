@@ -58,7 +58,10 @@ export function createFutebol(opts: {
   botLevel: BotLevel;
   players: FutPlayerIn[];
   teams: [FutTeamConfig, FutTeamConfig];
+  /** Treino de chute: todos os humanos no time 0, sem bots de linha, contra o goleiro do time 1. */
+  treino?: boolean;
 }): FutMatch {
+  const treino = opts.treino === true;
   const rng = mulberry32(opts.seed);
   const players: FutPlayer[] = [];
   const info = new Map<string, FutPlayerInfo>();
@@ -69,14 +72,14 @@ export function createFutebol(opts: {
   };
   const line = linePlayers(opts.format);
   for (const side of [0, 1] as const) {
-    const mine = opts.players.filter((p) => p.side === side).slice(0, line);
+    const mine = treino ? (side === 0 ? opts.players.filter((p) => !p.isBot) : []) : opts.players.filter((p) => p.side === side).slice(0, line);
     for (const p of mine) {
       add(newPlayer(p.id, side, "linha", p.isBot), { name: p.name, avatar: p.avatar, accountId: p.accountId, human: !p.isBot });
       if (!p.isBot) {
         connected.add(p.id);
       }
     }
-    for (let i = mine.length; i < line; i++) {
+    for (let i = mine.length; i < (treino ? 0 : line); i++) {
       add(newPlayer(`bot-${side}-${i}`, side, "linha", true), { name: `Bot ${i + 1}`, avatar: DEFAULT_AVATAR, accountId: null, human: false });
     }
     add(newPlayer(`gk-${side}`, side, "goleiro", true), { name: "Goleiro", avatar: DEFAULT_AVATAR, accountId: null, human: false });
@@ -102,12 +105,14 @@ export function createFutebol(opts: {
     inputs: new Map(),
     ack: new Map(),
     events: [],
-    kickoffSide: rng() < 0.5 ? 0 : 1,
+    kickoffSide: rng() < 0.5 || treino ? 0 : 1,
     halfDone: false,
     beaten: null,
     shootout: null,
     winner: null,
     possMs: [0, 0],
+    treino,
+    treinoMs: 0,
   };
   resetPositions(m);
   return m;
@@ -196,6 +201,62 @@ function resetPositions(m: FutMatch): void {
   Object.assign(m.ball, { x: 0, y: FUT.ballRadius, z: 0, vx: 0, vy: 0, vz: 0, ownerId: null });
 }
 
+/** Treino: quanto tempo (ms) o goleiro fica com a bola antes de ela voltar para o atacante. */
+const TREINO_SEGURA_MS = 1200;
+
+/** Treino: bola parada num ponto novo na entrada da área (14 a 26 m do gol), o primeiro humano logo atrás dela olhando o gol. */
+function resetTreino(m: FutMatch): void {
+  const f = m.field;
+  const dir = attackDir(0);
+  const dist = Math.min(14 + m.rng() * 12, f.halfL - 2);
+  const bx = dir * (f.halfL - dist);
+  const bz = (m.rng() * 2 - 1) * f.halfW * 0.45;
+  for (const p of m.players) {
+    Object.assign(p, { vx: 0, vz: 0, downMs: 0, tackleMs: 0, chargeMs: 0, chargeKind: null });
+    if (p.role === "goleiro") {
+      p.x = attackDir(p.side) * -(f.halfL - 1.5);
+      p.z = 0;
+      p.facing = Math.atan2(attackDir(p.side), 0);
+    }
+  }
+  m.players
+    .filter((p) => p.side === 0 && p.role === "linha" && !p.sentOff)
+    .forEach((p, k) => {
+      p.x = bx - dir * (1.2 + k * 1.6);
+      p.z = bz + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 1.6;
+      p.facing = Math.atan2(dir * f.halfL - p.x, -p.z);
+    });
+  Object.assign(m.ball, { x: bx, y: FUT.ballRadius, z: bz, vx: 0, vy: 0, vz: 0, ownerId: null, lastTouch: null, prevTouch: null });
+  m.beaten = null;
+  m.restart = null;
+  m.treinoMs = 0;
+  m.phase = "play";
+}
+
+/** Treino: gol conta; bola fora, presa pelo goleiro ou de volta ao próprio campo recomeça o lance. */
+function treinoTick(m: FutMatch, dtMs: number): void {
+  const owner = m.ball.ownerId === null ? undefined : m.players.find((p) => p.id === m.ball.ownerId);
+  const out = owner?.role === "goleiro" ? null : ballOut(m.ball, m.field);
+  if (out?.kind === "gol") {
+    scoreGoal(m, out.side);
+    return;
+  }
+  if (m.elapsedMs >= m.durationMs) {
+    endRegulation(m);
+    return;
+  }
+  m.treinoMs = owner?.role === "goleiro" ? m.treinoMs + dtMs : 0;
+  if (out) {
+    nearMiss(m, out.side);
+  }
+  if (out || m.treinoMs > TREINO_SEGURA_MS || m.ball.x * attackDir(0) < 0) {
+    resetTreino(m);
+    return;
+  }
+  m.restart = null;
+  m.phase = "play";
+}
+
 function beginRestart(m: FutMatch, kind: RestartKind, side: TeamSide, x: number, z: number): void {
   startRestart(m, kind, side, x, z);
   m.events.push({ type: "restart", kind });
@@ -210,7 +271,10 @@ function endMatch(m: FutMatch, winner: TeamSide | null): void {
 
 function endRegulation(m: FutMatch): void {
   m.elapsedMs = m.durationMs;
-  if (m.score[0] !== m.score[1]) {
+  if (m.treino) {
+    // treino não tem vencedor nem pênaltis
+    endMatch(m, null);
+  } else if (m.score[0] !== m.score[1]) {
     endMatch(m, m.score[0] > m.score[1] ? 0 : 1);
   } else {
     startShootout(m);
@@ -313,6 +377,10 @@ function playTick(m: FutMatch, dtMs: number): void {
   m.elapsedMs += dtMs;
   recordKicks(m, step.events);
   recordPossession(m, dtMs);
+  if (m.treino) {
+    treinoTick(m, dtMs);
+    return;
+  }
   const hadRestart = m.restart !== null;
   judgeContacts(m, step);
   if (m.phase === "over") {
@@ -356,14 +424,22 @@ export function stepFutebol(m: FutMatch, dtMs: number): void {
     m.phaseMs -= dtMs;
     if (m.phaseMs <= 0) {
       m.events.push({ type: "whistle", kind: "start" });
-      beginRestart(m, "saida", m.kickoffSide, 0, 0);
-      m.phase = "restart";
+      if (m.treino) {
+        resetTreino(m);
+      } else {
+        beginRestart(m, "saida", m.kickoffSide, 0, 0);
+        m.phase = "restart";
+      }
     }
   } else if (m.phase === "goal") {
     m.phaseMs -= dtMs;
     if (m.phaseMs <= 0) {
       if (m.elapsedMs >= m.durationMs) {
         endRegulation(m);
+        return;
+      }
+      if (m.treino) {
+        resetTreino(m);
         return;
       }
       resetPositions(m);
@@ -413,6 +489,7 @@ export function buildFutSnapshot(m: FutMatch): FutSnapshot {
       connected: p.isBot || m.connected.has(p.id),
     })),
     events: [...m.events],
+    ...(m.treino ? { treino: true as const } : {}),
   };
 }
 

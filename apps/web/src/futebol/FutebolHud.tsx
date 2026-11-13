@@ -146,7 +146,7 @@ const FutNarracao = memo(function FutNarracao() {
 /** Placar e relógio: o relógio muda por segundo, não por snapshot. */
 const FutTop = memo(function FutTop() {
   const d = useFut((s) => {
-    const half = s.elapsedMs < s.durationMs / 2 ? "1º tempo" : "2º tempo";
+    const half = s.treino ? "Treino de chute" : s.elapsedMs < s.durationMs / 2 ? "1º tempo" : "2º tempo";
     const clock = s.phase === "penalties" ? "Pênaltis" : s.elapsedMs >= s.durationMs ? "Acabou" : `${fmt(s.durationMs - s.elapsedMs)} · ${half}`;
     return { teams: s.teams, score: s.score, clock };
   });
