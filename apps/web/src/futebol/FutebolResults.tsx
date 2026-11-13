@@ -66,7 +66,7 @@ function StatsPanel({ stats, hex }: { stats: FutMatchStats; hex: (side: TeamSide
 }
 
 /** Gera a imagem do placar e compartilha (celular) ou baixa (computador). */
-function BotaoCompartilhar({ res, teams }: { res: FutResults; teams: Parameters<typeof montarPlacar>[1] }) {
+function BotaoCompartilhar({ res, teams, treino }: { res: FutResults; teams: Parameters<typeof montarPlacar>[1]; treino: boolean }) {
   const [estado, setEstado] = useState<"" | "gerando" | "compartilhado" | "baixado" | "falhou">("");
   const rotulo = estado === "gerando" ? "Gerando imagem..." : estado === "baixado" ? "Imagem baixada" : estado === "compartilhado" ? "Placar compartilhado" : "Compartilhar placar";
   return (
@@ -75,7 +75,7 @@ function BotaoCompartilhar({ res, teams }: { res: FutResults; teams: Parameters<
       disabled={estado === "gerando"}
       onClick={async () => {
         setEstado("gerando");
-        setEstado(await compartilharPlacar(montarPlacar(res, teams)).catch(() => "falhou" as const));
+        setEstado(await compartilharPlacar(montarPlacar(res, teams, treino)).catch(() => "falhou" as const));
       }}
     >
       {rotulo}
@@ -92,7 +92,9 @@ export function FutebolResults() {
   const { score, pens, winner } = res.score;
   const name = (side: TeamSide) => teams?.[side]?.name ?? `Time ${side + 1}`;
   const hex = (side: TeamSide) => FUT_COLORS[teams?.[side]?.color ?? side]?.hex ?? "#888";
-  const title = winner === null ? "Empate" : `Vitória do ${name(winner)}`;
+  // as opções não mudam até voltar ao lobby: dizem se a partida que acabou foi treino
+  const treino = !!lobby?.options.futTreino;
+  const title = treino ? `Treino de chute: ${score[0]} gol${score[0] === 1 ? "" : "s"}` : winner === null ? "Empate" : `Vitória do ${name(winner)}`;
   const cup = lobby?.cup ?? null;
   const champion = cup?.champion != null ? cup.teams[cup.champion].name : null;
   const mvp = res.stats?.mvpId ? res.rows.find((r) => r.id === res.stats?.mvpId) : undefined;
@@ -177,7 +179,7 @@ export function FutebolResults() {
             </>
           )}
           <div className="row" style={{ marginTop: 16 }}>
-            <BotaoCompartilhar res={res} teams={teams} />
+            <BotaoCompartilhar res={res} teams={teams} treino={treino} />
             {isHost ? (
               <>
                 <button className="btn primary" onClick={jogarDeNovo}>

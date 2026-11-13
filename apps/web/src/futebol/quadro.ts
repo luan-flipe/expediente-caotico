@@ -3,8 +3,11 @@ export const ALVO_FPS = 60;
 const INTERVALO = 1000 / ALVO_FPS;
 /** Folga para o requestAnimationFrame que chega um pouco antes da hora (meio quadro de uma tela de 144 Hz). */
 const FOLGA = 3.5;
-/** Quadro acima disso (ms) conta como lento: abaixo de 50 fps. */
-const LENTO_MS = 1000 / 50;
+/**
+ * Quadro acima disso (ms) conta como lento (abaixo de 40 fps). Não pode ser 20 ms: travado em 60 numa tela de 144 Hz o
+ * intervalo alterna 13,9 e 20,8 ms, e metade dos quadros contaria como lenta numa máquina folgada.
+ */
+const LENTO_MS = 25;
 /** Quantos quadros cada decisão de resolução olha. */
 const AMOSTRA = 90;
 /** Degrau e piso da resolução (pixel ratio) adaptativa. */

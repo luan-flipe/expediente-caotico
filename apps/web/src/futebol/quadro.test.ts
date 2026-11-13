@@ -37,7 +37,20 @@ describe("ritmo do quadro", () => {
     expect(r.desenha(3017)).toBe(true);
   });
 
-  it("baixa a resolução quando a maioria dos quadros passa de 20 ms, até o piso", () => {
+  it("em 144 Hz travado em 60 não baixa a resolução (intervalos de 13,9 e 20,8 ms)", () => {
+    const r = new RitmoQuadro();
+    let pr = 2;
+    let last = 1000;
+    for (let i = 1; i < 144 * 20; i++) {
+      const ms = 1000 + (i * 1000) / 144;
+      if (!r.desenha(ms)) continue;
+      pr = r.resolucao(ms - last, pr) ?? pr;
+      last = ms;
+    }
+    expect(pr).toBe(2);
+  });
+
+  it("baixa a resolução quando a maioria dos quadros passa de 25 ms, até o piso", () => {
     const r = new RitmoQuadro();
     let pr = 2;
     for (let i = 0; i < 2000; i++) pr = r.resolucao(30, pr) ?? pr;

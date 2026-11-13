@@ -34,3 +34,11 @@ describe("placar para compartilhar", () => {
     expect(p.craque).toBeNull();
   });
 });
+
+describe("placar do treino", () => {
+  it("não diz empate: conta os gols do treino", () => {
+    const res = { rows: [], score: { score: [3, 0], pens: null, winner: null } } as unknown as FutResults;
+    expect(montarPlacar(res, TEAMS, true).titulo).toBe("Treino de chute: 3 gols");
+    expect(montarPlacar({ ...res, score: { score: [1, 0], pens: null, winner: null } } as unknown as FutResults, TEAMS, true).titulo).toBe("Treino de chute: 1 gol");
+  });
+});

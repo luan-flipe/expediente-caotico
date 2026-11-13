@@ -10,7 +10,8 @@ export interface Placar {
   numeros: { rotulo: string; v: [string, string] }[];
 }
 
-export function montarPlacar(res: FutResults, teams: [FutTeamConfig, FutTeamConfig] | undefined): Placar {
+/** treino: a partida foi treino de chute (sem vencedor): o título conta os gols. */
+export function montarPlacar(res: FutResults, teams: [FutTeamConfig, FutTeamConfig] | undefined, treino = false): Placar {
   const { score, pens, winner } = res.score;
   const nome = (side: TeamSide) => teams?.[side]?.name ?? `Time ${side + 1}`;
   const times = ([0, 1] as const).map((side) => ({
@@ -30,7 +31,7 @@ export function montarPlacar(res: FutResults, teams: [FutTeamConfig, FutTeamConf
     : [];
   return {
     times,
-    titulo: winner === null ? "Empate" : `Vitória do ${nome(winner)}`,
+    titulo: treino ? `Treino de chute: ${score[0]} gol${score[0] === 1 ? "" : "s"}` : winner === null ? "Empate" : `Vitória do ${nome(winner)}`,
     penaltis: pens ? `Nos pênaltis: ${pens[0]} x ${pens[1]}` : null,
     craque,
     numeros,

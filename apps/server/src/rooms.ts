@@ -806,10 +806,18 @@ export class Room {
         if (msg.botLevel !== undefined) this.options.botLevel = msg.botLevel;
         if (msg.track !== undefined) this.options.track = msg.track;
         if (msg.futFormat !== undefined) this.options.futFormat = msg.futFormat;
-        if (msg.futTreino !== undefined) this.options.futTreino = msg.futTreino;
         if (msg.futCup !== undefined && msg.futCup !== this.options.futCup) {
           this.options.futCup = msg.futCup;
           this.cup = null;
+          // campeonato e treino não convivem: ligar um desliga o outro
+          if (msg.futCup > 0) this.options.futTreino = false;
+        }
+        if (msg.futTreino !== undefined) {
+          this.options.futTreino = msg.futTreino;
+          if (msg.futTreino) {
+            this.options.futCup = 0;
+            this.cup = null;
+          }
         }
         if (msg.suspeitoImpostors !== undefined) this.options.suspeitoImpostors = msg.suspeitoImpostors;
         if (msg.suspeitoDiscussionSec !== undefined) this.options.suspeitoDiscussionSec = msg.suspeitoDiscussionSec;
