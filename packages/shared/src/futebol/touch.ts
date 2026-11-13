@@ -288,20 +288,34 @@ export function resolveTouches(
       const run = Math.min(1, Math.max(0, (speed - FUT.walkSpeed) / (FUT.sprintSpeed - FUT.walkSpeed)));
       const d = FUT.dribbleTouch + (FUT.sprintTouch - FUT.dribbleTouch) * run;
       const k = sprint ? SPRINT_BALL_SPEED : 1;
-      // o ponto alvo fica à frente de onde o boneco olha (a velocidade demora a seguir a curva, o corpo não)
-      const fx = Math.sin(owner.facing);
-      const fz = Math.cos(owner.facing);
+      // humano: o ponto alvo fica à frente de onde o boneco olha (a velocidade demora a seguir a curva, o corpo não).
+      // bot: à frente de para onde ele anda. Com o alvo pelo corpo os bots perdiam a bola nas viradas e quase não
+      // chutavam (2v2 de 3 min: de 3,1 para 0,8 gol por partida; 5v5: de 1,3 para 0,1).
+      const human = !owner.isBot;
+      const fx = human ? Math.sin(owner.facing) : owner.vx / speed;
+      const fz = human ? Math.cos(owner.facing) : owner.vz / speed;
       // a bola acompanha o ponto alvo suave: curva ou arrancada não a estica
       let rx = ball.x - owner.x;
       let rz = ball.z - owner.z;
       const f = 1 - Math.exp(-dtMs / CARRY_FOLLOW_MS);
       rx += (fx * d - rx) * f;
       rz += (fz * d - rz) * f;
-      // e nunca atravessa o boneco nem vai para o lado ou para trás dele: sempre à frente do pé
-      const fwd = Math.max(CARRY_MIN, rx * fx + rz * fz);
-      const lat = Math.max(-fwd * CARRY_SIDE, Math.min(fwd * CARRY_SIDE, rx * fz - rz * fx));
-      rx = fwd * fx + lat * fz;
-      rz = fwd * fz - lat * fx;
+      if (human) {
+        // e nunca atravessa o boneco nem vai para o lado ou para trás dele: sempre à frente do pé
+        const fwd = Math.max(CARRY_MIN, rx * fx + rz * fz);
+        const lat = Math.max(-fwd * CARRY_SIDE, Math.min(fwd * CARRY_SIDE, rx * fz - rz * fx));
+        rx = fwd * fx + lat * fz;
+        rz = fwd * fz - lat * fx;
+      } else {
+        // o bot só não deixa a bola atravessar o boneco
+        const near = Math.hypot(rx, rz);
+        if (near < CARRY_MIN) {
+          const ux = near > 1e-6 ? rx / near : fx;
+          const uz = near > 1e-6 ? rz / near : fz;
+          rx = ux * CARRY_MIN;
+          rz = uz * CARRY_MIN;
+        }
+      }
       const len = Math.hypot(rx, rz);
       if (len > d + 0.05) {
         rx *= (d + 0.05) / len;
