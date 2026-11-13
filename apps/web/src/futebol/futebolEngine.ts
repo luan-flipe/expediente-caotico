@@ -40,6 +40,7 @@ import { EquipeFilmagem } from "./equipe";
 import { Juiz } from "./juiz";
 import { DIVE_LIFT, DIVE_MS, DIVE_REACH, DIVE_ROLL, SLUMP, diveAmount, diveSide } from "./reacoes";
 import { penaltyAttackSide, penaltyRole, pickedSide, tagScale } from "./penaltyUi";
+import { alvoDoPasse, criarMarcaPasse } from "./passeAlvo";
 import { createGolMesh, disposeGolMesh } from "./golMesh";
 import { carryWeight, localBallPos } from "./bolaLocal";
 import { crowdLevel } from "./torcidaSom";
@@ -281,6 +282,8 @@ export class FutebolEngine {
   /** Anel no chão de quem está com a bola, e os dois alvos (cantos) da cobrança de pênalti: 3 malhas no total. */
   private ownerRing: THREE.Mesh;
   private penMarks: THREE.Mesh[] = [];
+  /** Seta sobre o companheiro que recebe o passe agora (só com a bola no meu pé). */
+  private passMark = criarMarcaPasse();
   private lastMz = 0;
   /** Mergulhos em andamento (lado no eixo do boneco e início) e time que levou o gol da comemoração atual. */
   private dives = new Map<string, { t0: number; side: number }>();
@@ -388,6 +391,7 @@ export class FutebolEngine {
     this.aimArrow.renderOrder = 3;
     this.aimArrow.visible = false;
     this.scene.add(this.aimArrow);
+    this.scene.add(this.passMark);
 
     this.ownerRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 36), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
     this.ownerRing.rotation.x = -Math.PI / 2;
@@ -1188,6 +1192,7 @@ export class FutebolEngine {
     if (this.ref) this.refBlob.position.set(this.ref.char.root.position.x, 0.065, this.ref.char.root.position.z);
     this.updateAim(now);
     this.updateMarks(now);
+    this.updatePassMark(now);
     this.updateCamera(dt);
     this.updatePower(now);
     this.reportCam();
@@ -1235,6 +1240,20 @@ export class FutebolEngine {
       m.scale.setScalar(hit ? 1.35 : 1);
       m.position.set((attack === 0 ? 1 : -1) * (this.field!.halfL - 0.05), y, sign * this.field!.goalHalfW * FUT.assistCorner);
     });
+  }
+
+  /** Com a bola no meu pé, a seta azul mostra quem recebe o passe se eu tocar agora (a mesma escolha do servidor). */
+  private updatePassMark(now: number): void {
+    const s = this.snap;
+    const me = s?.ball.ownerId === this.myId ? s.players.find((p) => p.id === this.myId) : undefined;
+    const live = !!s && !!me && (s.phase === "play" || s.phase === "restart") && !this.replay && !me.sentOff;
+    const id = live ? alvoDoPasse({ id: me.id, side: me.side, x: this.myPos.x, z: this.myPos.z, facing: this.pred?.facing ?? me.facing }, s.players, (q) => this.views.get(q)?.char.root.position) : null;
+    const v = id ? this.views.get(id) : undefined;
+    this.passMark.visible = !!v;
+    if (!v) return;
+    const p = v.char.root.position;
+    this.passMark.position.set(p.x, 2.95 + 0.12 * Math.sin(now / 160), p.z);
+    this.passMark.scale.setScalar(this.charge.kind === "pass" ? 1.35 : 1);
   }
 
   /** Seta no chão na direção do chute: fraca parada, mais forte e longa carregando. */
