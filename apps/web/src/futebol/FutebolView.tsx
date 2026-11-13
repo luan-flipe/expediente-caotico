@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { TouchControls } from "../hud/TouchControls";
+import { FpsCounter } from "../suspeito/FpsCounter";
 import { getState, net, setState, useStore } from "../store";
 import { IS_TOUCH } from "../touch";
 import { FutebolHud } from "./FutebolHud";
@@ -10,6 +11,7 @@ export function FutebolView({ myId }: { myId: string }) {
   const powerRef = useRef<HTMLDivElement>(null);
   const fillRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<FutebolEngine | null>(null);
+  const fpsSink = useRef<((fps: number) => void) | null>(null);
   const players = useStore((s) => s.lobby?.players);
   const [locked, setLocked] = useState(false);
   const [cam, setCam] = useState<FutCamUi>({ spectating: false, cam: "tv", replay: false, shot: "" });
@@ -27,6 +29,7 @@ export function FutebolView({ myId }: { myId: string }) {
     const engine = new FutebolEngine(canvasRef.current!, myId, onUi, setCam);
     engine.powerRef = powerRef;
     engine.powerFillRef = fillRef;
+    engine.onFps = (fps) => fpsSink.current?.(fps);
     engineRef.current = engine;
     if (import.meta.env.DEV) Object.assign(window, { __fut: engine });
     engine.setAvatars(getState().lobby?.players ?? []);
@@ -50,6 +53,7 @@ export function FutebolView({ myId }: { myId: string }) {
   return (
     <div className="game">
       <canvas ref={canvasRef} className="view" />
+      <FpsCounter sink={fpsSink} />
       {IS_TOUCH && <TouchControls mode="futebol" />}
       <FutebolHud myId={myId} locked={locked} powerRef={powerRef} fillRef={fillRef} cam={cam} onCam={(k) => engineRef.current?.setCam(k)} onSkip={() => engineRef.current?.skipReplay()} />
     </div>

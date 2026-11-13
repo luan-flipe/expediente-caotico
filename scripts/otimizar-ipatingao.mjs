@@ -19,15 +19,15 @@
 //  - O tamanho do gramado (meio comprimento e meia largura das linhas) é impresso no fim e vive em
 //    IPATINGAO, em packages/shared/src/futebol/balance.ts.
 // Restrição do projeto: o mapa não muda de aparência. Passos: dedup de dados idênticos, flatten, weld sem
-// tolerância, join por material, texturas WebP na mesma resolução e meshopt (posições em float, sem
-// quantizar). Nada de simplify. O cliente lê com o MeshoptDecoder (apps/web/src/game/gltfLoader.ts).
+// tolerância, join por material, texturas WebP na mesma resolução, quantização de 16 bits por malha (erro de
+// milímetros: a aparência não muda e o arquivo cai pela metade) e meshopt. Nada de simplify. O cliente lê com o MeshoptDecoder (apps/web/src/game/gltfLoader.ts).
 import { Buffer } from "node:buffer";
 import { mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from "@gltf-transform/extensions";
-import { dedup, flatten, getBounds, join as joinMeshes, prune, reorder, textureCompress, weld } from "@gltf-transform/functions";
+import { dedup, flatten, getBounds, join as joinMeshes, prune, quantize, reorder, textureCompress, weld } from "@gltf-transform/functions";
 import { MeshoptDecoder, MeshoptEncoder } from "meshoptimizer";
 import sharp from "sharp";
 
@@ -108,10 +108,11 @@ for (const c of scene.listChildren()) {
 }
 scene.addChild(wrap);
 
-// 5. Texturas em WebP (mesma resolução), meshopt sem quantizar posições.
+// 5. Texturas em WebP (mesma resolução), quantização (posição em 16 bits por malha) e meshopt.
 await doc.transform(
   textureCompress({ encoder: sharp, targetFormat: "webp", quality: 95 }),
   reorder({ encoder: MeshoptEncoder, target: "size" }),
+  quantize({ quantizePosition: 16, quantizeNormal: 10, quantizeTexcoord: 14, quantizeColor: 8 }),
   prune(),
 );
 doc.createExtension(EXTMeshoptCompression).setRequired(true).setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.FILTER });

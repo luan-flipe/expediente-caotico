@@ -20,6 +20,7 @@ import {
 import { ChatBubbles, chatText } from "../chatBubbles";
 import { createCharacter, modelReady, type Character } from "../game/character";
 import { createGltfLoader } from "../game/gltfLoader";
+import { useLambert } from "../game/lambert";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
 import { inputBlocked } from "../pause";
 import { applyQuality } from "../quality";
@@ -44,6 +45,7 @@ import { crowdLevel } from "./torcidaSom";
 import { approachYaw, cameraYawTarget, yawToward } from "./cameraBola";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
 import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
+import { RitmoQuadro } from "./quadro";
 import { Torcida } from "./torcida";
 import { uniformDNA } from "./uniforme";
 
@@ -79,6 +81,8 @@ interface View {
   buf: Sample[];
   last: FutSnapshot["players"][number];
   ring: THREE.Mesh | null;
+  /** Sombra redonda no chão (o futebol não tem mapa de sombra). */
+  blob: THREE.Mesh;
   /** Inclinação atual para a frente (cabeça baixa de quem levou gol). */
   slump: number;
 }
@@ -142,6 +146,25 @@ function makeTag(name: string, hex: string): THREE.Sprite {
   s.scale.set(TAG_W, TAG_H, 1);
   s.renderOrder = 5;
   return s;
+}
+
+/** Sombra redonda (gradiente) sob os pés: geometria e material divididos por todos os bonecos. */
+function createBlob(): { geo: THREE.PlaneGeometry; mat: THREE.MeshBasicMaterial } {
+  const c = document.createElement("canvas");
+  c.width = 64;
+  c.height = 64;
+  const g = c.getContext("2d");
+  if (g) {
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(0, 0, 0, 0.55)");
+    grad.addColorStop(0.5, "rgba(0, 0, 0, 0.35)");
+    grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+  }
+  const geo = new THREE.PlaneGeometry(1.3, 1.3);
+  geo.rotateX(-Math.PI / 2);
+  return { geo, mat: new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }) };
 }
 
 /** Libera o material e todas as texturas que ele guarda (mapa, normal, rugosidade, emissivo...). */
@@ -236,6 +259,9 @@ export class FutebolEngine {
   private clock = 0;
   private goals: THREE.Object3D[] = [];
   private lineMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.92 });
+  private blob = createBlob();
+  private refBlob: THREE.Mesh;
+  private ritmo = new RitmoQuadro();
 
   private ball = new THREE.Group();
   private ballModel: THREE.Object3D | null = null;
@@ -300,6 +326,8 @@ export class FutebolEngine {
   /** Barra de força (DOM do HUD): o motor posiciona e preenche a cada quadro. */
   powerRef: RefObject<HTMLElement | null> | null = null;
   powerFillRef: RefObject<HTMLElement | null> | null = null;
+  /** Contador de FPS da tela (recebe o valor a cada meio segundo). */
+  onFps: ((fps: number) => void) | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -308,7 +336,6 @@ export class FutebolEngine {
     private readonly onCam?: (s: FutCamUi) => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.fixedYaw = IS_TOUCH;
 
@@ -321,21 +348,22 @@ export class FutebolEngine {
       groundY: 0.01,
     });
     this.sun = this.sky.sunLight;
-    Object.assign(this.sun.shadow.camera, { left: -45, right: 45, top: 35, bottom: -35, near: 1, far: 140 });
 
     // gramado de apoio: a vista nunca mostra o vazio se o estádio demorar a chegar
-    const base = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: "#3d7a38", roughness: 1 }));
+    const base = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshLambertMaterial({ color: "#3d7a38" }));
     base.rotation.x = -Math.PI / 2;
     base.position.y = -0.03;
-    base.receiveShadow = true;
     this.scene.add(base);
+    this.refBlob = new THREE.Mesh(this.blob.geo, this.blob.mat);
+    this.refBlob.visible = false;
+    this.refBlob.renderOrder = 2;
+    this.scene.add(this.refBlob);
 
     this.ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.3, 20), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.35, depthWrite: false }));
     this.ballShadow.rotation.x = -Math.PI / 2;
     this.ballShadow.renderOrder = 2;
     this.scene.add(this.ballShadow);
     const fallback = new THREE.Mesh(new THREE.SphereGeometry(FUT.ballRadius, 16, 12), new THREE.MeshStandardMaterial({ color: "#f4f1ea", roughness: 0.6 }));
-    fallback.castShadow = true;
     this.ball.add(fallback);
     this.scene.add(this.ball);
 
@@ -381,14 +409,6 @@ export class FutebolEngine {
 
   private async loadAssets(): Promise<void> {
     const loader = createGltfLoader();
-    const shadows = (o: THREE.Object3D, cast: boolean) =>
-      o.traverse((c) => {
-        const m = c as THREE.Mesh;
-        if (m.isMesh) {
-          m.receiveShadow = true;
-          m.castShadow = cast;
-        }
-      });
     const [pitch, ball] = await Promise.allSettled([loader.loadAsync(pitchUrl), loader.loadAsync(ballUrl)]);
     if (this.disposed) {
       // a tela saiu durante o carregamento: libera o que chegou
@@ -397,14 +417,12 @@ export class FutebolEngine {
     }
     if (pitch.status === "fulfilled") {
       const map = pitch.value.scene;
-      // só o gramado (textura 340x520) recebe sombra: o volume de sombra cobre o campo e o resto do mapa fica fora dele
+      // mapa parado: as matrizes são calculadas uma vez, e o PBR vira Lambert (metade do custo de pintar a tela)
       map.traverse((c) => {
-        const m = c as THREE.Mesh;
-        if (m.isMesh) m.receiveShadow = ((m.material as THREE.MeshStandardMaterial).map?.image as { width?: number } | undefined)?.width === 340;
-        // mapa parado: as matrizes são calculadas uma vez
         c.updateMatrix();
         c.matrixAutoUpdate = false;
       });
+      useLambert(map);
       this.scene.add(map);
       map.updateMatrixWorld(true);
       this.crowd = new Torcida(this.scene, getSettings().quality);
@@ -412,7 +430,6 @@ export class FutebolEngine {
       console.warn("ipatingao.glb não carregou", pitch.reason);
     }
     if (ball.status === "fulfilled") {
-      shadows(ball.value.scene, true);
       this.ballModel = ball.value.scene;
       this.ball.clear();
       this.ball.add(ball.value.scene);
@@ -461,9 +478,6 @@ export class FutebolEngine {
     this.arena = new Arena(this.scene, this.field);
     this.crew = new EquipeFilmagem(this.scene, this.field);
     this.placeGoals();
-    const f = this.field;
-    Object.assign(this.sun.shadow.camera, { left: -f.halfL - 12, right: f.halfL + 12, top: f.halfW + 12, bottom: -f.halfW - 12 });
-    this.sun.shadow.camera.updateProjectionMatrix();
   }
 
   /** Qualidade gráfica ao vivo, como no tiroteio. */
@@ -471,13 +485,14 @@ export class FutebolEngine {
     const q = getSettings().quality;
     if (q === this.quality) return;
     this.quality = q;
-    // no Leve o mapa de sombra é menor e o filtro mais simples (os materiais são recompilados logo abaixo)
-    const leve = q === "leve";
-    this.renderer.shadowMap.type = leve ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
-    this.sun.shadow.mapSize.set(leve ? 1024 : 2048, leve ? 1024 : 2048);
-    this.sun.shadow.map?.dispose();
-    this.sun.shadow.map = null;
     applyQuality(this.renderer, this.scene, this.sun, q);
+    // sem mapa de sombra em qualidade nenhuma: a passada de sombra redesenhava cada boneco inteiro (dezenas de milhares
+    // de triângulos) a todo quadro. Bonecos, juiz e bola usam a sombra redonda sob os pés.
+    this.renderer.shadowMap.enabled = false;
+    this.sun.castShadow = false;
+    // no Leve some a sombra das nuvens (um plano transparente na tela toda)
+    if (this.sky.shadowPlane) this.sky.shadowPlane.visible = q !== "leve";
+    this.ritmo.zerar();
     this.crowd?.setQuality(q);
   }
 
@@ -800,13 +815,12 @@ export class FutebolEngine {
     }
     const dna = this.teamDna(p, teams);
     const buf = v?.buf ?? [];
-    if (v) this.dropView(v);
+    if (v) this.dropView(v, true);
     const char = createCharacter(dna);
     char.root.rotation.order = "YXZ";
-    char.root.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) m.castShadow = true;
-    });
+    const blob = v?.blob ?? new THREE.Mesh(this.blob.geo, this.blob.mat);
+    blob.renderOrder = 2;
+    if (!v) this.scene.add(blob);
     let ring: THREE.Mesh | null = null;
     if (p.id === this.myId) {
       ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.7, 32), new THREE.MeshBasicMaterial({ color: "#ffe14d", transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
@@ -819,7 +833,7 @@ export class FutebolEngine {
     tag.position.y = 2.35;
     if (p.id !== this.myId) char.root.add(tag);
     this.scene.add(char.root);
-    v = { char, key, tag, tagKey: `${p.name}|${p.side}|${teams[p.side].color}`, buf, last: p, ring, slump: 0 };
+    v = { char, key, tag, tagKey: `${p.name}|${p.side}|${teams[p.side].color}`, buf, last: p, ring, blob, slump: 0 };
     this.views.set(p.id, v);
     return v;
   }
@@ -836,8 +850,10 @@ export class FutebolEngine {
     v.tagKey = tagKey;
   }
 
-  private dropView(v: View): void {
+  /** Tira o boneco da cena; keepBlob mantém a sombra (o boneco vai ser trocado por outro no mesmo lugar). */
+  private dropView(v: View, keepBlob = false): void {
     this.scene.remove(v.char.root);
+    if (!keepBlob) this.scene.remove(v.blob);
     v.ring?.geometry.dispose();
     (v.ring?.material as THREE.Material | undefined)?.dispose();
     v.tag.material.map?.dispose();
@@ -852,13 +868,26 @@ export class FutebolEngine {
 
   // ---------- quadro ----------
   private loop = (ms: number) => {
-    const dt = Math.min(0.05, (ms - this.lastFrame) / 1000);
+    this.raf = requestAnimationFrame(this.loop);
+    // trava em 60 fps: em telas de 120/144 Hz o quadro extra não desenha (sobra GPU e o ritmo fica estável)
+    if (!this.ritmo.desenha(ms)) return;
+    const frameMs = ms - this.lastFrame;
+    const dt = Math.min(0.05, frameMs / 1000);
     this.lastFrame = ms;
     this.resize();
     this.step(dt, performance.now());
     this.renderer.render(this.scene, this.camera);
-    this.raf = requestAnimationFrame(this.loop);
+    this.adapt(frameMs, ms);
   };
+
+  /** Contador de FPS e resolução adaptativa (só com a bola rolando: replay e comemoração não contam). */
+  private adapt(frameMs: number, ms: number): void {
+    const fps = this.ritmo.fps(ms);
+    if (fps !== null) this.onFps?.(fps);
+    if (this.snap?.phase !== "play" || this.replay) return;
+    const pr = this.ritmo.resolucao(frameMs, this.renderer.getPixelRatio());
+    if (pr !== null) this.renderer.setPixelRatio(pr);
+  }
 
   private resize(): void {
     const w = this.canvas.clientWidth;
@@ -1050,6 +1079,8 @@ export class FutebolEngine {
         }
       }
       root.visible = !p.sentOff;
+      v.blob.visible = root.visible;
+      v.blob.position.set(root.position.x, 0.065, root.position.z);
       v.char.update(dt, lying || p.sliding ? 0 : Math.min(1, speed / FUT.walkSpeed));
       // o nome acompanha a distância da câmera (legível de longe) e cresce em quem está com a bola
       const grow = tagScale(this.camera.position.distanceTo(root.position)) * (id === this.snap?.ball.ownerId ? 1.3 : 1);
@@ -1107,6 +1138,8 @@ export class FutebolEngine {
     this.crowd?.update(dt);
     this.crew?.update(dt, this.ball.position.x, this.ball.position.z);
     this.ref?.update(dt, this.ball.position.x, this.ball.position.z);
+    this.refBlob.visible = !!this.ref;
+    if (this.ref) this.refBlob.position.set(this.ref.char.root.position.x, 0.065, this.ref.char.root.position.z);
     this.updateAim(now);
     this.updateMarks(now);
     this.updateCamera(dt);
