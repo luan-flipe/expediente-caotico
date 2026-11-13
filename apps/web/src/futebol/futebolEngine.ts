@@ -48,6 +48,8 @@ import { approachYaw, cameraYawTarget, yawToward } from "./cameraBola";
 import { CAM_KINDS, REPLAY_LABELS, camPose, replayPose, shotAt, type CamKind, type CamPose, type ReplayShot } from "./cameras";
 import { ReplayBuffer, sampleClip, type Clip, type ReplaySample } from "./replay";
 import { RitmoQuadro } from "./quadro";
+import { TAG_H, TAG_W, attackYaw, buildLines, createBlob, disposeMaterial, hashOf, makeTag } from "./cenaCampo";
+import { sampleAt, type Sample } from "./interpolacao";
 import { Torcida } from "./torcida";
 import { uniformDNA } from "./uniforme";
 
@@ -68,14 +70,6 @@ const REPLAY_TAIL_MS = 800;
 const FOV_PLAY = 65;
 /** Limite de cada etapa do preparo (modelos, shaders): passou disso a partida segue com o que tiver. */
 const PREPARO_LIMITE_MS = 12000;
-
-interface Sample {
-  t: number;
-  x: number;
-  y: number;
-  z: number;
-  f: number;
-}
 
 interface View {
   char: Character;
@@ -100,130 +94,6 @@ const HEAD_Y = 1.5;
 const PITCH_MIN = -0.6;
 const PITCH_MAX = 0.5;
 const PITCH_START = -0.3;
-
-const angleLerp = (a: number, b: number, t: number) => {
-  let d = (b - a) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return a + d * t;
-};
-
-/** Direção de ataque em ângulo (0 = +z): o time 0 ataca +x, o time 1 ataca -x. */
-const attackYaw = (side: TeamSide) => (side === 0 ? Math.PI / 2 : -Math.PI / 2);
-
-function hashOf(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return h;
-}
-
-/** Tamanho base (m) do nome sobre o jogador; o quadro multiplica por tagScale(distância da câmera). */
-const TAG_W = 2.1;
-const TAG_H = 0.525;
-
-function makeTag(name: string, hex: string): THREE.Sprite {
-  const c = document.createElement("canvas");
-  c.width = 320;
-  c.height = 80;
-  const g = c.getContext("2d")!;
-  // nomes longos encolhem a fonte em vez de vazar da etiqueta
-  let size = 40;
-  g.font = `800 ${size}px 'Bricolage Grotesque', sans-serif`;
-  const w = g.measureText(name).width;
-  if (w > 300) {
-    size = Math.max(22, Math.floor((size * 300) / w));
-    g.font = `800 ${size}px 'Bricolage Grotesque', sans-serif`;
-  }
-  g.textAlign = "center";
-  g.textBaseline = "middle";
-  g.lineJoin = "round";
-  g.lineWidth = 9;
-  g.strokeStyle = "rgba(20,18,15,0.95)";
-  g.strokeText(name, 160, 30);
-  g.fillStyle = "#fffdf7";
-  g.fillText(name, 160, 30);
-  g.fillStyle = "rgba(20,18,15,0.95)";
-  g.fillRect(70, 54, 180, 16);
-  g.fillStyle = hex;
-  g.fillRect(74, 57, 172, 10);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
-  s.scale.set(TAG_W, TAG_H, 1);
-  s.renderOrder = 5;
-  return s;
-}
-
-/** Sombra redonda (gradiente) sob os pés: geometria e material divididos por todos os bonecos. */
-function createBlob(): { geo: THREE.PlaneGeometry; mat: THREE.MeshBasicMaterial } {
-  const c = document.createElement("canvas");
-  c.width = 64;
-  c.height = 64;
-  const g = c.getContext("2d");
-  if (g) {
-    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, "rgba(0, 0, 0, 0.55)");
-    grad.addColorStop(0.5, "rgba(0, 0, 0, 0.35)");
-    grad.addColorStop(1, "rgba(0, 0, 0, 0)");
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 64, 64);
-  }
-  const geo = new THREE.PlaneGeometry(1.3, 1.3);
-  geo.rotateX(-Math.PI / 2);
-  return { geo, mat: new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }) };
-}
-
-/** Libera o material e todas as texturas que ele guarda (mapa, normal, rugosidade, emissivo...). */
-function disposeMaterial(m: THREE.Material): void {
-  for (const v of Object.values(m)) if ((v as THREE.Texture | null)?.isTexture) (v as THREE.Texture).dispose();
-  m.dispose();
-}
-
-/** Plano fino no chão (linha do campo). */
-function flat(w: number, d: number, x: number, z: number, mat: THREE.Material): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
-  m.rotation.x = -Math.PI / 2;
-  m.position.set(x, 0.05, z);
-  m.renderOrder = 1;
-  return m;
-}
-
-/** Linhas do campo do formato, centradas na origem, por cima do gramado. */
-function buildLines(f: Field, mat: THREE.Material): THREE.Group {
-  const g = new THREE.Group();
-  const T = 0.14;
-  const L = f.halfL * 2;
-  const W = f.halfW * 2;
-  // contorno
-  g.add(flat(L + T, T, 0, -f.halfW, mat), flat(L + T, T, 0, f.halfW, mat), flat(T, W + T, -f.halfL, 0, mat), flat(T, W + T, f.halfL, 0, mat));
-  // meio de campo e círculo central
-  g.add(flat(T, W, 0, 0, mat));
-  // campo do estádio: círculo central de 9,15 m
-  const r = Math.min(f.halfW * 0.3, f.halfW > 25 ? 9.15 : 5);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(r - T / 2, r + T / 2, 56), mat);
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.set(0, 0.05, 0);
-  ring.renderOrder = 1;
-  g.add(ring);
-  const dot = (x: number, z: number) => {
-    const d = new THREE.Mesh(new THREE.CircleGeometry(0.22, 16), mat);
-    d.rotation.x = -Math.PI / 2;
-    d.position.set(x, 0.05, z);
-    d.renderOrder = 1;
-    g.add(d);
-  };
-  dot(0, 0);
-  for (const s of [-1, 1]) {
-    const gx = s * f.halfL;
-    const bx = gx - s * f.boxL;
-    // grande área
-    g.add(flat(T, f.boxHalfW * 2, bx, 0, mat), flat(f.boxL, T, gx - (s * f.boxL) / 2, -f.boxHalfW, mat), flat(f.boxL, T, gx - (s * f.boxL) / 2, f.boxHalfW, mat));
-    // pequena área (metade da profundidade e da largura)
-    const sl = f.boxL * 0.45;
-    const sw = f.boxHalfW * 0.5;
-    g.add(flat(T, sw * 2, gx - s * sl, 0, mat), flat(sl, T, gx - (s * sl) / 2, -sw, mat), flat(sl, T, gx - (s * sl) / 2, sw, mat));
-    dot(gx - s * f.penaltySpot, 0);
-  }
-  return g;
-}
 
 /** Motor do Futebol da Firma: renderiza snapshots, prevê o próprio boneco e manda intenções. */
 export class FutebolEngine {
@@ -1025,23 +895,6 @@ export class FutebolEngine {
     return s && s.phase !== "penalties" ? s.restart : null;
   }
 
-  private sampleAt(buf: Sample[], rt: number): Sample | null {
-    if (!buf.length) return null;
-    let a = buf[0];
-    let c = buf[buf.length - 1];
-    for (let i = 0; i < buf.length - 1; i++) {
-      if (buf[i].t <= rt && buf[i + 1].t >= rt) {
-        a = buf[i];
-        c = buf[i + 1];
-        break;
-      }
-    }
-    // salto grande (saída de bola, cobrança, reposição): vai direto, sem deslizar pelo campo
-    if (Math.hypot(c.x - a.x, c.z - a.z) > 5 && rt >= a.t) return { ...c, t: rt };
-    const k = c.t === a.t ? 1 : Math.max(0, Math.min(1, (rt - a.t) / (c.t - a.t)));
-    return { t: rt, x: a.x + (c.x - a.x) * k, y: a.y + (c.y - a.y) * k, z: a.z + (c.z - a.z) * k, f: angleLerp(a.f, c.f, k) };
-  }
-
   /** Torcida de fundo: liga com a partida em andamento, sobe com a bola perto do gol, cala no menu de pausa e no fim. */
   private updateAmbience(): void {
     const s = this.snap;
@@ -1100,7 +953,7 @@ export class FutebolEngine {
         f = this.pred.facing;
         speed = Math.hypot(this.pred.vx, this.pred.vz);
       } else {
-        const sm = this.sampleAt(v.buf, rt);
+        const sm = sampleAt(v.buf, rt);
         x = sm?.x ?? p.x;
         z = sm?.z ?? p.z;
         f = sm?.f ?? p.facing;
@@ -1157,12 +1010,12 @@ export class FutebolEngine {
     }
 
     // bola
-    const bs = rs ? { t: rt, x: rs.ball.x, y: rs.ball.y, z: rs.ball.z, f: 0 } : this.sampleAt(this.ballBuf, rt);
+    const bs = rs ? { t: rt, x: rs.ball.x, y: rs.ball.y, z: rs.ball.z, f: 0 } : sampleAt(this.ballBuf, rt);
     if (bs && !rs) {
       // dono da bola: ela acompanha meu boneco predito (sem atraso) em vez de ficar 120 ms para trás, debaixo do pé
       const meBuf = this.pred ? this.views.get(this.myId)?.buf : undefined;
       this.carryW = carryWeight(this.carryW, !!meBuf && this.snap?.ball.ownerId === this.myId, dt);
-      const at = this.carryW > 0 && meBuf ? this.sampleAt(meBuf, rt) : null;
+      const at = this.carryW > 0 && meBuf ? sampleAt(meBuf, rt) : null;
       const p = localBallPos(bs, at, this.myPos, this.carryW);
       bs.x = p.x;
       bs.z = p.z;
