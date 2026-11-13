@@ -3,6 +3,7 @@ import { FUT_COLORS, type FutMatchStats, type TeamSide } from "@ec/shared";
 import { Awards } from "../screens/Awards";
 import { CupBracket } from "./CupBracket";
 import { jogarDeNovo, net, useStore, type FutResults } from "../store";
+import { compartilharPlacar, montarPlacar } from "./placarImagem";
 
 /** Quanto tempo o campo fica na tela, com o apito e a festa, antes da tabela de resultados. */
 export const FUT_HOLD_MS = 4500;
@@ -61,6 +62,24 @@ function StatsPanel({ stats, hex }: { stats: FutMatchStats; hex: (side: TeamSide
         );
       })}
     </div>
+  );
+}
+
+/** Gera a imagem do placar e compartilha (celular) ou baixa (computador). */
+function BotaoCompartilhar({ res, teams }: { res: FutResults; teams: Parameters<typeof montarPlacar>[1] }) {
+  const [estado, setEstado] = useState<"" | "gerando" | "compartilhado" | "baixado" | "falhou">("");
+  const rotulo = estado === "gerando" ? "Gerando imagem..." : estado === "baixado" ? "Imagem baixada" : estado === "compartilhado" ? "Placar compartilhado" : "Compartilhar placar";
+  return (
+    <button
+      className="btn"
+      disabled={estado === "gerando"}
+      onClick={async () => {
+        setEstado("gerando");
+        setEstado(await compartilharPlacar(montarPlacar(res, teams)).catch(() => "falhou" as const));
+      }}
+    >
+      {rotulo}
+    </button>
   );
 }
 
@@ -158,6 +177,7 @@ export function FutebolResults() {
             </>
           )}
           <div className="row" style={{ marginTop: 16 }}>
+            <BotaoCompartilhar res={res} teams={teams} />
             {isHost ? (
               <>
                 <button className="btn primary" onClick={jogarDeNovo}>
