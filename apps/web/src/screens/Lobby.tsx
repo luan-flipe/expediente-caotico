@@ -490,9 +490,19 @@ export function Lobby() {
                     ))}
                   </div>
                 </div>
+                <div className="row">
+                  <span className="muted">Treino de chute:</span>
+                  <div className="seg">
+                    {([false, true] as const).map((on) => (
+                      <button key={String(on)} className={!!opts.futTreino === on ? "on" : ""} title={on ? "Todos contra o goleiro: a bola aparece na entrada da área e volta a cada lance. Não vale ranking." : "Partida normal"} disabled={!isHost} onClick={() => net.send({ t: "options", futTreino: on })}>
+                        {on ? "Ligado" : "Desligado"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {botRow}
                 <div className="row">
-                  <span className="muted">Vagas que sobrarem em cada time são preenchidas por bots. Goleiros são sempre bots.</span>
+                  <span className="muted">{opts.futTreino ? "No treino todos ficam no mesmo time, contra o goleiro (sempre bot). Não vale ranking." : "Vagas que sobrarem em cada time são preenchidas por bots. Goleiros são sempre bots."}</span>
                 </div>
               </>
             ) : trial ? (
@@ -560,7 +570,7 @@ export function Lobby() {
                   </div>
                 )}
                 <button className="btn primary" onClick={() => net.send({ t: "start" })}>
-{futebol ? (lobby.cup ? "Próxima partida" : opts.futCup ? "Iniciar campeonato" : "Iniciar partida") : trial ? "Iniciar treino" : race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
+{futebol ? (opts.futTreino ? "Iniciar treino de chute" : lobby.cup ? "Próxima partida" : opts.futCup ? "Iniciar campeonato" : "Iniciar partida") : trial ? "Iniciar treino" : race ? "Iniciar corrida" : isZombies ? "Iniciar Sobrevivência Zumbi" : "Iniciar expediente"}
                 </button>
               </>
             )}

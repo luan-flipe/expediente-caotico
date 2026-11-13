@@ -84,6 +84,8 @@ export interface State {
   modelReady: boolean;
   /** Motor da corrida com os shaders prontos: antes disso o HUD mostra a tela de preparo. */
   racePronta: boolean;
+  /** Motor do futebol com modelos e shaders prontos: antes disso o HUD mostra a tela de preparo. */
+  futPronta: boolean;
   /** Boneco e cadeira terminaram de carregar (ou falharam, ou estourou o tempo): a tela de carregamento some. */
   assetsReady: boolean;
   /** Progresso da tela de carregamento, de 0 a 1. */
@@ -176,6 +178,7 @@ let state: State = {
   scoreboard: false,
   modelReady: false,
   racePronta: true,
+  futPronta: true,
   assetsReady: false,
   loadProgress: 0,
   account: loadAccount(),

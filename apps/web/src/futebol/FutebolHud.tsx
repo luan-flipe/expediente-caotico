@@ -146,7 +146,7 @@ const FutNarracao = memo(function FutNarracao() {
 /** Placar e relógio: o relógio muda por segundo, não por snapshot. */
 const FutTop = memo(function FutTop() {
   const d = useFut((s) => {
-    const half = s.elapsedMs < s.durationMs / 2 ? "1º tempo" : "2º tempo";
+    const half = s.treino ? "Treino de chute" : s.elapsedMs < s.durationMs / 2 ? "1º tempo" : "2º tempo";
     const clock = s.phase === "penalties" ? "Pênaltis" : s.elapsedMs >= s.durationMs ? "Acabou" : `${fmt(s.durationMs - s.elapsedMs)} · ${half}`;
     return { teams: s.teams, score: s.score, clock };
   });
@@ -271,6 +271,7 @@ export function FutebolHud({
   onSkip: () => void;
 }) {
   const hasSnap = useStore((s) => !!s.fsnap);
+  const preparando = useStore((s) => !s.futPronta || !!s.fsnap?.aguardando);
   const scoreboard = useStore((s) => s.scoreboard);
   const keys = useSettings().keys.futebol;
 
@@ -280,10 +281,16 @@ export function FutebolHud({
       <div className="fill" ref={fillRef} />
     </div>
   );
-  if (!hasSnap) {
+  if (!hasSnap || preparando) {
     return (
       <div className="hud fut-hud">
-        <div className="center-msg">Entrando no campo...</div>
+        {hasSnap ? (
+          <div className="center-msg race-preparo">
+            <div className="panel">Preparando a partida...</div>
+          </div>
+        ) : (
+          <div className="center-msg">Entrando no campo...</div>
+        )}
         {power}
       </div>
     );

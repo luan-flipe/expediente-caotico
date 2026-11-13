@@ -3,6 +3,7 @@ import { FUT_COLORS, type FutMatchStats, type TeamSide } from "@ec/shared";
 import { Awards } from "../screens/Awards";
 import { CupBracket } from "./CupBracket";
 import { jogarDeNovo, net, useStore, type FutResults } from "../store";
+import { compartilharPlacar, montarPlacar } from "./placarImagem";
 
 /** Quanto tempo o campo fica na tela, com o apito e a festa, antes da tabela de resultados. */
 export const FUT_HOLD_MS = 4500;
@@ -64,6 +65,24 @@ function StatsPanel({ stats, hex }: { stats: FutMatchStats; hex: (side: TeamSide
   );
 }
 
+/** Gera a imagem do placar e compartilha (celular) ou baixa (computador). */
+function BotaoCompartilhar({ res, teams, treino }: { res: FutResults; teams: Parameters<typeof montarPlacar>[1]; treino: boolean }) {
+  const [estado, setEstado] = useState<"" | "gerando" | "compartilhado" | "baixado" | "falhou">("");
+  const rotulo = estado === "gerando" ? "Gerando imagem..." : estado === "baixado" ? "Imagem baixada" : estado === "compartilhado" ? "Placar compartilhado" : "Compartilhar placar";
+  return (
+    <button
+      className="btn"
+      disabled={estado === "gerando"}
+      onClick={async () => {
+        setEstado("gerando");
+        setEstado(await compartilharPlacar(montarPlacar(res, teams, treino)).catch(() => "falhou" as const));
+      }}
+    >
+      {rotulo}
+    </button>
+  );
+}
+
 export function FutebolResults() {
   const res = useStore((s) => s.futResults)!;
   const lobby = useStore((s) => s.lobby);
@@ -73,7 +92,9 @@ export function FutebolResults() {
   const { score, pens, winner } = res.score;
   const name = (side: TeamSide) => teams?.[side]?.name ?? `Time ${side + 1}`;
   const hex = (side: TeamSide) => FUT_COLORS[teams?.[side]?.color ?? side]?.hex ?? "#888";
-  const title = winner === null ? "Empate" : `Vitória do ${name(winner)}`;
+  // as opções não mudam até voltar ao lobby: dizem se a partida que acabou foi treino
+  const treino = !!lobby?.options.futTreino;
+  const title = treino ? `Treino de chute: ${score[0]} gol${score[0] === 1 ? "" : "s"}` : winner === null ? "Empate" : `Vitória do ${name(winner)}`;
   const cup = lobby?.cup ?? null;
   const champion = cup?.champion != null ? cup.teams[cup.champion].name : null;
   const mvp = res.stats?.mvpId ? res.rows.find((r) => r.id === res.stats?.mvpId) : undefined;
@@ -158,6 +179,7 @@ export function FutebolResults() {
             </>
           )}
           <div className="row" style={{ marginTop: 16 }}>
+            <BotaoCompartilhar res={res} teams={teams} treino={treino} />
             {isHost ? (
               <>
                 <button className="btn primary" onClick={jogarDeNovo}>

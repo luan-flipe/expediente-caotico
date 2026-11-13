@@ -76,8 +76,8 @@ const WEARABLES = [
   "tenis/07_chuteira_meiao.glb",
   "tenis/08_loafer.glb",
 ];
-// Futebol: originais em assets-src/futebol (gerar-bola.mjs, gerar-gol.mjs), saída em apps/web/src/assets/futebol.
-const FUTEBOL = ["futebol/bola.glb", "futebol/gol.glb"];
+// Futebol: original em assets-src/futebol (gerar-bola.mjs), saída em apps/web/src/assets/futebol. O gol é feito em código (golMesh.ts).
+const FUTEBOL = ["futebol/bola.glb"];
 const wearablesOut = join(root, "apps", "web", "src", "assets");
 const MUSIC = "audio/turbo_pixel_drift.mp3";
 

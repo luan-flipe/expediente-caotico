@@ -194,8 +194,8 @@ export class Room {
   private roomRecords: Partial<Record<TrackId, GhostLap & { name: string }>> = {};
   private timer: NodeJS.Timeout | null = null;
   private tickCount = 0;
-  /** Quem ainda prepara a corrida (modelos e shaders) e até quando esperar: a contagem só anda depois disso. */
-  private esperaCorrida: { faltam: Set<string>; ate: number } | null = null;
+  /** Quem ainda prepara a corrida ou o futebol (modelos e shaders) e até quando esperar: o jogo só anda depois disso. */
+  private esperaPreparo: { faltam: Set<string>; ate: number } | null = null;
   private lastTickAt = 0;
   private pendingMs = 0;
   private nextBot = 0;
@@ -366,7 +366,8 @@ export class Room {
     if (!trial && !zombies && !fut && this.members.size < 2) return "Precisa de pelo menos 2 participantes (adicione um bot)";
     const notReady = this.humans().filter((h) => h.id !== this.hostId && (!h.ready || !h.conn));
     if (notReady.length) return `Aguardando: ${notReady.map((h) => h.name).join(", ")}`;
-    if (fut) {
+    // treino de chute junta todos no mesmo time: o limite do formato não vale
+    if (fut && !this.options.futTreino) {
       const size = [0, 0];
       for (const h of this.humans()) size[h.side ?? 0]++;
       if (size[0] > linePlayers(this.options.futFormat) || size[1] > linePlayers(this.options.futFormat)) return "Time com gente demais para o formato";
@@ -380,7 +381,8 @@ export class Room {
       let teams = this.options.futTeams;
       let playing: Set<TeamSide> | null = null;
       this.cupMatch = null;
-      if (this.options.futCup > 0) {
+      const treino = this.options.futTreino;
+      if (this.options.futCup > 0 && !treino) {
         const setup = this.cupSetup();
         if (typeof setup === "string") return setup;
         teams = setup.teams;
@@ -396,6 +398,7 @@ export class Room {
           .filter((h) => !playing || playing.has(h.side ?? 0))
           .map((h) => ({ id: h.id, name: h.name, avatar: h.avatar, side: h.side ?? 0, isBot: false, accountId: h.accountId })),
         teams,
+        treino,
       });
     } else if (this.mode === "suspeito") {
       this.suspeito = createSuspeitoMatch(players, this.options, seed);
@@ -411,7 +414,7 @@ export class Room {
     this.tickCount = 0;
     const faltam = new Set(this.humans().filter((h) => h.conn).map((h) => h.id));
     const esperaMs = this.raceOpts.esperaMs ?? 0;
-    this.esperaCorrida = this.race && esperaMs > 0 && faltam.size > 0 ? { faltam, ate: performance.now() + esperaMs } : null;
+    this.esperaPreparo = (this.race || this.futebol) && esperaMs > 0 && faltam.size > 0 ? { faltam, ate: performance.now() + esperaMs } : null;
     this.broadcastLobby();
     if (this.race) for (const m of this.members.values()) this.sendGhosts(m);
     this.lastTickAt = performance.now();
@@ -574,17 +577,17 @@ export class Room {
   }
 
   /** Termina quando todos os conectados avisam, no limite de tempo ou se a partida acabar antes (quem sai não segura). */
-  private aguardandoPreparo(r: RaceMatch): boolean {
-    const espera = this.esperaCorrida;
+  private aguardandoPreparo(acabou: boolean): boolean {
+    const espera = this.esperaPreparo;
     if (!espera) return false;
     const falta = [...espera.faltam].some((id) => this.members.get(id)?.conn);
-    if (falta && performance.now() < espera.ate && r.phase !== "finished") return true;
-    this.esperaCorrida = null;
+    if (falta && performance.now() < espera.ate && !acabou) return true;
+    this.esperaPreparo = null;
     return false;
   }
 
   private stepRace(r: RaceMatch): void {
-    if (this.aguardandoPreparo(r)) {
+    if (this.aguardandoPreparo(r.phase === "finished")) {
       // nada anda; o snapshot é o que cria os karts no cliente e o preparo depende deles
       if (this.tickCount++ % BALANCE.tickHz === 0) {
         const s = JSON.stringify({ ...buildRaceSnapshot(r), aguardando: true });
@@ -609,6 +612,16 @@ export class Room {
   }
 
   private stepFut(f: FutMatch): void {
+    if (this.aguardandoPreparo(f.phase === "over")) {
+      // nada anda (nem o relógio da saída); o snapshot cria os bonecos no cliente e o preparo depende deles
+      if (this.tickCount++ % BALANCE.tickHz === 0) {
+        const s = JSON.stringify({ ...buildFutSnapshot(f), aguardando: true });
+        for (const mem of this.members.values()) {
+          if (mem.conn) send(mem.conn, `{"t":"fsnap","s":${s},"me":${JSON.stringify(buildFutPrivate(f, mem.id))}}`);
+        }
+      }
+      return;
+    }
     stepFutebol(f, TICK_MS);
     this.tickCount++;
     if (this.tickCount % BALANCE.snapshotEvery === 0 || f.phase === "over") {
@@ -707,7 +720,8 @@ export class Room {
   /** Futebol: aba própria, só com 2+ humanos; derrota não pontua e gols de pênalti não contam (getFutResults já os exclui). */
   private recordFutebolRanking(): void {
     const store = this.store;
-    if (!store || !this.futResults || !this.futScore) return;
+    // treino de chute não pontua
+    if (!store || !this.futResults || !this.futScore || this.options.futTreino) return;
     try {
       const { winner } = this.futScore;
       const rows = this.futResults.map((r) => ({ accountId: r.accountId, won: winner !== null && r.side === winner, goals: r.goals, assists: r.assists }));
@@ -795,6 +809,15 @@ export class Room {
         if (msg.futCup !== undefined && msg.futCup !== this.options.futCup) {
           this.options.futCup = msg.futCup;
           this.cup = null;
+          // campeonato e treino não convivem: ligar um desliga o outro
+          if (msg.futCup > 0) this.options.futTreino = false;
+        }
+        if (msg.futTreino !== undefined) {
+          this.options.futTreino = msg.futTreino;
+          if (msg.futTreino) {
+            this.options.futCup = 0;
+            this.cup = null;
+          }
         }
         if (msg.suspeitoImpostors !== undefined) this.options.suspeitoImpostors = msg.suspeitoImpostors;
         if (msg.suspeitoDiscussionSec !== undefined) this.options.suspeitoDiscussionSec = msg.suspeitoDiscussionSec;
@@ -911,7 +934,8 @@ export class Room {
         if (this.race) queueItemUse(this.race, member.id);
         return;
       case "kpronto":
-        this.esperaCorrida?.faltam.delete(member.id);
+      case "fpronto":
+        this.esperaPreparo?.faltam.delete(member.id);
         return;
       case "krespawn":
         if (this.race) respawnRequest(this.race, member.id);

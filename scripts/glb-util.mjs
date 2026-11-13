@@ -1,4 +1,4 @@
-// Ajudantes dos geradores de .glb por código (gerar-bola.mjs, gerar-gol.mjs): malha por material e escrita.
+// Ajudantes dos geradores de .glb por código (gerar-bola.mjs): malha por material e escrita.
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Document, NodeIO } from "@gltf-transform/core";

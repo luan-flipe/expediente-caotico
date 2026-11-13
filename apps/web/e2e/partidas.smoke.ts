@@ -49,6 +49,35 @@ async function canvasDesenhando(page: Page): Promise<void> {
   expect(png.length, "canvas parece em branco (PNG minúsculo)").toBeGreaterThan(8_000);
 }
 
+test("smoke: Futebol da Firma, treino de chute até sair gol", async ({ page }) => {
+  test.setTimeout(240_000);
+  const problemas = vigiar(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Criar sala" }).click({ timeout: 60_000 });
+  const botaoModo = page.getByRole("button", { name: "Futebol da Firma", exact: true });
+  await expect(botaoModo).toBeVisible({ timeout: 15_000 });
+  await botaoModo.click();
+  await page.getByRole("button", { name: "5v5 Estádio", exact: true }).click();
+  await page.getByTitle(/Todos contra o goleiro/).click();
+  await page.getByRole("button", { name: "Iniciar treino de chute" }).click();
+
+  // passa pelo "Preparando a partida..." e mostra o placar zerado
+  const meuPlacar = page.locator(".fut-top .fut-team").first().locator("b");
+  await expect(meuPlacar).toHaveText("0", { timeout: 90_000 });
+  await canvasDesenhando(page);
+
+  // a bola nasce no pé: segurar Espaço carrega e soltar chuta para o gol; tenta até o goleiro deixar passar
+  const fim = Date.now() + 150_000;
+  while (Date.now() < fim && (await meuPlacar.textContent()) === "0") {
+    await page.keyboard.down("Space");
+    await page.waitForTimeout(1300);
+    await page.keyboard.up("Space");
+    await page.waitForTimeout(4500);
+  }
+  await expect(meuPlacar).toHaveText("1");
+  expect(problemas, "problemas durante o treino de chute").toEqual([]);
+});
+
 for (const modo of MODOS) {
   test(`smoke: ${modo.nome}`, async ({ page }) => {
     const problemas = vigiar(page);

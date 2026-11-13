@@ -36,5 +36,7 @@ export function makeFutMatch(
     shootout: null,
     winner: null,
     possMs: [0, 0],
+    treino: false,
+    treinoMs: 0,
   };
 }
