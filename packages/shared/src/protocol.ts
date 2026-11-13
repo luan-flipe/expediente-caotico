@@ -100,6 +100,8 @@ export const ClientMsg = z.discriminatedUnion("t", [
   z.object({ t: z.literal("krespawn") }),
   /** Corrida preparada neste cliente (modelos e shaders): o servidor espera por isso para começar a contagem. */
   z.object({ t: z.literal("kpronto") }),
+  /** Partida de futebol preparada neste cliente (modelos e shaders): o servidor espera por isso para soltar o jogo. */
+  z.object({ t: z.literal("fpronto") }),
   /** Só o anfitrião, só no contra o relógio: encerra o treino. */
   z.object({ t: z.literal("endTraining") }),
   /** Só fora de produção: pede um item específico para testar. */

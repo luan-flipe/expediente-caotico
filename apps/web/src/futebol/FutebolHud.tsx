@@ -271,6 +271,7 @@ export function FutebolHud({
   onSkip: () => void;
 }) {
   const hasSnap = useStore((s) => !!s.fsnap);
+  const preparando = useStore((s) => !s.futPronta || !!s.fsnap?.aguardando);
   const scoreboard = useStore((s) => s.scoreboard);
   const keys = useSettings().keys.futebol;
 
@@ -280,10 +281,16 @@ export function FutebolHud({
       <div className="fill" ref={fillRef} />
     </div>
   );
-  if (!hasSnap) {
+  if (!hasSnap || preparando) {
     return (
       <div className="hud fut-hud">
-        <div className="center-msg">Entrando no campo...</div>
+        {hasSnap ? (
+          <div className="center-msg race-preparo">
+            <div className="panel">Preparando a partida...</div>
+          </div>
+        ) : (
+          <div className="center-msg">Entrando no campo...</div>
+        )}
         {power}
       </div>
     );

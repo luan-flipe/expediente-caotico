@@ -25,6 +25,7 @@ import {
 import { loadMusic } from "../assets";
 import { nextRaceTrack, playCoffeeGulpSound, playFinalLapChime, playLandingBoostSound, playStaplerClickSound, playTauntSound, playTrickChime, RaceMusic } from "../sound";
 import { modelReady, preloadCharacter } from "../game/character";
+import { comLimite } from "../game/comLimite";
 import { applyQuality } from "../quality";
 import { getSettings, subscribeSettings, type Quality } from "../settings";
 import { getState, net, setState } from "../store";
@@ -45,17 +46,6 @@ import { TrackInteractiveManager, type KartInteractiveInfo } from "./trackIntera
 
 /** Limite de cada etapa do preparo (modelos, shaders): passou disso a corrida segue com o que tiver. */
 const PREPARO_LIMITE_MS = 12000;
-
-function comLimite(p: Promise<unknown>, ms: number): Promise<unknown> {
-  return new Promise((ok) => {
-    const timer = setTimeout(ok, ms);
-    const fim = () => {
-      clearTimeout(timer);
-      ok(undefined);
-    };
-    p.then(fim, fim);
-  });
-}
 
 interface Sample {
   t: number;

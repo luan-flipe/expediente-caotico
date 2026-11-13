@@ -18,7 +18,8 @@ import {
   type TeamSide,
 } from "@ec/shared";
 import { ChatBubbles, chatText } from "../chatBubbles";
-import { createCharacter, modelReady, type Character } from "../game/character";
+import { createCharacter, modelReady, preloadCharacter, type Character } from "../game/character";
+import { comLimite } from "../game/comLimite";
 import { createGltfLoader } from "../game/gltfLoader";
 import { useLambert } from "../game/lambert";
 import { createDynamicSky, type DynamicSky } from "../game/sky";
@@ -34,7 +35,7 @@ import { ackRecuou, predictedPlayer, reconcileDrawn } from "./reconcile";
 import { TOUCH_KICK, TOUCH_PASS, cancelCharges, chargePower, hasBallReach, newButtons, newCharge, newControlState, pressButton, readFutInput, releaseButton, stepCharge, type FutKeys } from "./controls";
 import { Arena } from "./arena";
 import { campoDoMapa } from "./arenaLayout";
-import { Comemoracoes } from "./comemoracoes";
+import { Comemoracoes, pecasParaAquecer } from "./comemoracoes";
 import { EquipeFilmagem } from "./equipe";
 import { Juiz } from "./juiz";
 import { DIVE_LIFT, DIVE_MS, DIVE_REACH, DIVE_ROLL, SLUMP, diveAmount, diveSide } from "./reacoes";
@@ -64,6 +65,8 @@ const REPLAY_DELAY_MS = 1500;
 const REPLAY_BACK_MS = 5500;
 const REPLAY_TAIL_MS = 800;
 const FOV_PLAY = 65;
+/** Limite de cada etapa do preparo (modelos, shaders): passou disso a partida segue com o que tiver. */
+const PREPARO_LIMITE_MS = 12000;
 
 interface Sample {
   t: number;
@@ -262,6 +265,11 @@ export class FutebolEngine {
   private blob = createBlob();
   private refBlob: THREE.Mesh;
   private ritmo = new RitmoQuadro();
+  /** Estádio e bola (começa no construtor). */
+  private assets: Promise<void>;
+  /** Modelos carregados e shaders compilados: antes disso nada é desenhado (compilar no meio do jogo trava segundos). */
+  private preparado = false;
+  private preparoIniciado = false;
 
   private ball = new THREE.Group();
   private ballModel: THREE.Object3D | null = null;
@@ -395,7 +403,8 @@ export class FutebolEngine {
       this.scene.add(mark);
     }
 
-    void this.loadAssets();
+    this.assets = this.loadAssets();
+    setState({ futPronta: false });
     this.applySettings();
     this.cleanup.push(subscribeSettings(() => this.applySettings()));
     this.bindInput();
@@ -673,6 +682,42 @@ export class FutebolEngine {
 
     if (mine) this.reconcile(mine, me);
     this.handleEvents(s);
+    if (!this.preparoIniciado) {
+      this.preparoIniciado = true;
+      void this.preparar();
+    }
+  }
+
+  /**
+   * Espera estádio, bola e bonecos e compila os shaders antes do primeiro desenho, e então avisa o servidor (que segura
+   * o jogo até todos avisarem). `compileAsync` não trava a página. Falha ou demora só cai no caminho antigo: a cena
+   * aparece e compila ao desenhar.
+   */
+  private async preparar(): Promise<void> {
+    const pecas = pecasParaAquecer();
+    try {
+      await comLimite(Promise.all([this.assets, preloadCharacter()]), PREPARO_LIMITE_MS);
+      if (this.disposed) return;
+      // os bonecos provisórios viram o GLB agora, não no meio do jogo
+      const s = this.snap;
+      if (s) for (const p of s.players) this.viewFor(p, s.teams);
+      pecas.position.copy(this.camera.position);
+      this.scene.add(pecas);
+      await comLimite(this.renderer.compileAsync(this.scene, this.camera), PREPARO_LIMITE_MS);
+      if (this.disposed) return;
+      this.scene.remove(pecas);
+      // primeiro quadro atrás da tela de preparo: texturas e buffers sobem aqui, antes de o jogo andar
+      this.renderer.render(this.scene, this.camera);
+    } catch (err) {
+      console.warn("preparo do futebol falhou, seguindo sem ele", err);
+    } finally {
+      this.scene.remove(pecas);
+      this.freeObject(pecas);
+    }
+    if (this.disposed) return;
+    this.preparado = true;
+    setState({ futPronta: true });
+    net.send({ t: "fpronto" });
   }
 
   /** Apito e comemoração a partir dos eventos do snapshot (cada snapshot chega uma vez). */
@@ -876,6 +921,7 @@ export class FutebolEngine {
     this.lastFrame = ms;
     this.resize();
     this.step(dt, performance.now());
+    if (!this.preparado || this.snap?.aguardando) return;
     this.renderer.render(this.scene, this.camera);
     this.adapt(frameMs, ms);
   };

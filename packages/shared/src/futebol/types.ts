@@ -190,6 +190,8 @@ export interface FutMatch {
 
 export interface FutSnapshot {
   t: number;
+  /** Jogo parado: o servidor ainda espera algum jogador terminar de preparar a partida. */
+  aguardando?: boolean;
   phase: FutPhase;
   elapsedMs: number;
   durationMs: number;

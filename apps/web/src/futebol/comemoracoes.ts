@@ -94,6 +94,18 @@ function mug(): THREE.Group {
  * O autor do gol sempre desliza de joelhos (pose em código, ver game/joelhos.ts), seja qual for a comemoração dos colegas.
  * O motor chama update() depois de posicionar os bonecos no quadro.
  */
+/**
+ * Uma peça de cada material que só aparece no gol (chuva de papel e caneca), para o motor compilar os shaders antes do
+ * apito: sem isso o primeiro gol trava o quadro. Quem chama libera tudo depois.
+ */
+export function pecasParaAquecer(): THREE.Group {
+  const g = new THREE.Group();
+  const paper = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.16, 0.26), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }), 1);
+  paper.setColorAt(0, new THREE.Color("#ffffff"));
+  g.add(paper, mug());
+  return g;
+}
+
 export class Comemoracoes {
   private kind: Comemoracao | null = null;
   private t = 0;
