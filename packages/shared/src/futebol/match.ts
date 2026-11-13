@@ -204,7 +204,7 @@ function resetPositions(m: FutMatch): void {
 /** Treino: quanto tempo (ms) o goleiro fica com a bola antes de ela voltar para o atacante. */
 const TREINO_SEGURA_MS = 1200;
 
-/** Treino: bola parada num ponto novo na entrada da área (14 a 26 m do gol), o primeiro humano logo atrás dela olhando o gol. */
+/** Treino: bola parada num ponto novo na entrada da área (14 a 26 m do gol), o primeiro humano já com ela no pé (dentro do raio de domínio), olhando o gol. */
 function resetTreino(m: FutMatch): void {
   const f = m.field;
   const dir = attackDir(0);
@@ -222,7 +222,7 @@ function resetTreino(m: FutMatch): void {
   m.players
     .filter((p) => p.side === 0 && p.role === "linha" && !p.sentOff)
     .forEach((p, k) => {
-      p.x = bx - dir * (1.2 + k * 1.6);
+      p.x = bx - dir * (k === 0 ? 0.7 : 1.2 + k * 1.6);
       p.z = bz + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 1.6;
       p.facing = Math.atan2(dir * f.halfL - p.x, -p.z);
     });

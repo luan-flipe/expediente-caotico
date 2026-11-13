@@ -43,6 +43,9 @@ describe("treino de chute", () => {
     expect(Math.hypot(h0.x - m.ball.x, h0.z - m.ball.z)).toBeLessThan(2);
     expect(h0.x).toBeLessThan(m.ball.x);
     expect(Math.sin(h0.facing)).toBeGreaterThan(0.5);
+    // perto o bastante para dominar: no tick seguinte a bola é dele, é só carregar e chutar
+    stepFutebol(m, DT);
+    expect(m.ball.ownerId).toBe("h0");
   });
 
   it("gol conta, comemora e a bola volta para um ponto novo", () => {
